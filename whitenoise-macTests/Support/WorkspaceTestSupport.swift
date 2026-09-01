@@ -103,9 +103,24 @@ extension WorkspaceTestSupport {
         }
     }
 
+    /// Waits on work a yield loop cannot advance — anything that touches the disk, the Keychain or
+    /// the FFI — and hands back the first non-`nil` value `produce` returns, or `nil` at the
+    /// deadline so the assertion that follows reports the failure rather than the suite hanging.
+    @MainActor
+    static func settle<Value>(
+        within timeout: Duration = .seconds(5),
+        until produce: () -> Value?
+    ) async -> Value? {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let value = produce() { return value }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return produce()
+    }
+
     /// `beginPendingMediaUpload` marks the attachment `.uploading` synchronously but reaches the
     /// FFI inside a `Task`, so anything asserting on the runtime has to let that task start.
-    @MainActor
     static func yieldUntil(yields: Int = 1_000, _ condition: () -> Bool) async {
         for _ in 0..<yields where !condition() {
             await Task.yield()
@@ -171,5 +186,14 @@ extension WorkspaceTestSupport {
         state.startVoiceRecordingMetering()
         #expect(state.voiceRecordingMeterTask != nil)
         return url
+    }
+}
+
+/// A count that survives being incremented from inside a detached task.
+actor Counter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
     }
 }

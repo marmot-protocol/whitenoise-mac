@@ -74,7 +74,7 @@ struct OnboardingSignInView: View {
             .accessibilityIdentifier("onboarding.submit-key")
         }
         .controlSize(.large)
-        .wnButtonShape(.capsule)
+        .wnButtonShape(OnboardingLayout.buttonShape)
     }
 
     private func submit() {

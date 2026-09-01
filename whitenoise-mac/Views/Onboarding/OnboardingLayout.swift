@@ -39,6 +39,15 @@ enum OnboardingLayout {
     /// air between them that the pane puts between two stacked buttons.
     static let headerControlOverhang: CGFloat = MessagesLayout.circleControlSize + actionSpacing
 
+    /// The outline every onboarding button takes.
+    ///
+    /// A pill, and set on the *pane* rather than on a button: a pane that set it on one of two
+    /// stacked buttons would ship a pill above a rounded rectangle. `wn-ios-prototype` names no
+    /// border shape on these at all, which under Liquid Glass *is* the spec — the platform default
+    /// for a prominent button is a capsule, so the prototype's silence is a choice rather than an
+    /// omission.
+    static let buttonShape = WNButtonShape.capsule
+
     /// The action column — buttons on the welcome pane, the key field and its CTA on sign-in.
     ///
     /// 360 is the width the sign-in field already used before this pane was rebuilt, and it is

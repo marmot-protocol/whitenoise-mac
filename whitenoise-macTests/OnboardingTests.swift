@@ -139,14 +139,28 @@ import Testing
             "the rounded tier's edge starts at \(rounded)pt — this test can no longer tell the two apart")
     }
 
-    /// Both onboarding panes set the shape, and they set it on the *pane*. A pane that set it on
-    /// one of two stacked buttons would ship a pill above a rounded rectangle.
-    @Test func bothOnboardingPanesCutTheirButtonsToAPill() throws {
-        for pane: SourceContract.ViewUnit in [.onboardingWelcome, .onboardingSignIn, .onboardingSignUp] {
-            let source = try SourceContract.source(of: pane)
+    /// Onboarding's buttons are pills, and the shape is one decision rather than three.
+    ///
+    /// It is set on the *pane*: a pane that set it on one of two stacked buttons would ship a pill
+    /// above a rounded rectangle. `wn-ios-prototype` names no border shape on these at all, which
+    /// under Liquid Glass *is* the spec — the platform default for a prominent button is a capsule,
+    /// so the prototype's silence is a choice rather than an omission.
+    @MainActor
+    @Test func onboardingButtonsAreCutToAPillByOneSharedDecision() {
+        #expect(OnboardingLayout.buttonShape == .capsule)
+
+        // …and a capsule really is what the shape table hands a button, at every size: a pill has
+        // no radius of its own, it is always half its own height, which is what keeps it a pill as
+        // the control grows.
+        let rect = CGRect(x: 0, y: 0, width: OnboardingLayout.contentWidth, height: 44)
+        for controlSize in [ControlSize.regular, .large] {
             #expect(
-                source.contains(".wnButtonShape(.capsule)"),
-                "\(pane) no longer asks for the prototype's pill")
+                WNButtonMetrics.borderShape(OnboardingLayout.buttonShape, for: controlSize) == .capsule
+            )
+            #expect(
+                WNButtonMetrics.backgroundShape(OnboardingLayout.buttonShape, for: controlSize)
+                    .path(in: rect) == Capsule(style: .continuous).path(in: rect)
+            )
         }
     }
 

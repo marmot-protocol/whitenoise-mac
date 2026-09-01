@@ -117,15 +117,28 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(store.savedValues.isEmpty)
     }
 
-    @Test func quickReactionMenuAndPopoverUseSameComponentAndPreference() throws {
-        let popoverSource = try SourceContract.declaration("MessageEmojiPickerPopover")
-        let menuSource = try SourceContract.declaration("MessageContextMenuItems")
+    /// Both quick-reaction surfaces — the hover popover and the right-click menu — offer the emojis
+    /// the reader configured, never the built-in defaults.
+    ///
+    /// They answer the same gesture, and while each read the preference for itself one of them went
+    /// on offering the defaults after the reader had chosen their own. They read one function now,
+    /// and this drives it through a real workspace with a real store behind it.
+    @MainActor
+    @Test func everyQuickReactionSurfaceOffersTheConfiguredEmojis() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
 
-        for actionSource in [popoverSource, menuSource] {
-            #expect(actionSource.contains("QuickReactionButtons("))
-            #expect(actionSource.contains("emojis: workspace.quickReactions"))
-            #expect(!actionSource.contains("ChatReactionDefaults.quick"))
-        }
+        #expect(MessageQuickReactionSurface.emojis(in: state) == state.quickReactions)
+
+        let configured = ["🐟", "🧀", "🫒", "🍋", "🥖", "🍇"]
+        #expect(configured != ChatReactionDefaults.quick, "the fixture must differ from the defaults")
+        state.quickReactions = configured
+
+        #expect(
+            MessageQuickReactionSurface.emojis(in: state) == configured,
+            "a quick-reaction surface is still offering the built-in defaults"
+        )
     }
 
     @Test func reactionChipRidesOnlyASurfaceWithAnEdge() {
@@ -203,20 +216,70 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(MessageReactionChipRow.countLabel(for: 100) == "99+")
     }
 
-    @Test func mediaOnlyRowsDrawReactionsAboveTheStandaloneTimestamp() throws {
-        // The reaction pill overlaps whatever is above it. On a message with no caption the row's
-        // last element used to be the compact timestamp, so the pill was pulled up over the time
-        // itself. Guard the order: the standalone metadata row is emitted after the chips, which
-        // leaves the pill riding the media card's bottom edge instead.
-        let bubbleSource = try SourceContract.declaration("MessageBubble")
+    /// On a caption-less media row the pill rides the media card's bottom edge, not the timestamp.
+    ///
+    /// The chips are drawn with a negative top padding, so they ride up onto **whatever the row
+    /// emitted immediately before them** — and a caption-less row's metadata is a bare 10pt line
+    /// rather than a surface with an edge to spare. Emitted before the chips, it was what the pill
+    /// overlapped, and the reactions sat on top of the time.
+    @MainActor
+    @Test func onACaptionLessMediaRowTheReactionPillsNeighbourIsTheMediaNotTheTimestamp() throws {
+        let mediaOnly = MessageItem(
+            id: "media-only",
+            groupIdHex: "group",
+            sourceMessageIdHex: "media-only-source",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+            isOutgoing: false,
+            reactions: [MessageReaction(emoji: "👍", count: 1, isOwn: false, senders: ["a"])],
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "media-only#0",
+                    reference: mediaAttachmentReference(
+                        sourceEpoch: 3,
+                        mediaType: "image/png",
+                        fileName: "photo.png",
+                        plaintextSha256: hexSHA256(Data([0x01, 0x02]))
+                    )
+                )
+            ]
+        )
 
-        let chips = try #require(bubbleSource.range(of: "MessageReactionChips(reactions: message.reactions)"))
-        let standaloneMetadata = try #require(bubbleSource.range(of: "if !message.hasBubbleContent {"))
-        #expect(chips.lowerBound < standaloneMetadata.lowerBound)
+        #expect(!mediaOnly.hasBubbleContent, "the fixture is not the caption-less case this guards")
 
-        // And the overlap is decided by the placement helper above rather than by an inline
-        // ternary that cannot be tested.
-        #expect(bubbleSource.contains("reactionChipPlacement.topPadding(contentSpacing: Self.contentSpacing)"))
+        let elements = MessageBubbleLayout.elements(for: mediaOnly, showsDebugMetadata: false)
+        let chips = try #require(elements.firstIndex(of: .reactionChips))
+        let metadata = try #require(elements.firstIndex(of: .standaloneMetadata))
+        #expect(chips < metadata, "the pill would be pulled up over the timestamp")
+        #expect(
+            elements[chips - 1] == .visualMediaGrid,
+            "the pill rides up onto \(elements[chips - 1]) rather than onto the media card"
+        )
+
+        // A captioned row keeps the bubble as the pill's neighbour and grows no standalone line.
+        let captioned = MessageItem(
+            id: "captioned",
+            groupIdHex: "group",
+            sourceMessageIdHex: "captioned-source",
+            senderName: "Alice",
+            body: "on the roof",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+            isOutgoing: false,
+            reactions: mediaOnly.reactions,
+            mediaAttachments: mediaOnly.mediaAttachments
+        )
+        let captionedElements = MessageBubbleLayout.elements(for: captioned, showsDebugMetadata: false)
+        let captionedChips = try #require(captionedElements.firstIndex(of: .reactionChips))
+        #expect(captionedElements[captionedChips - 1] == .bubbleContent)
+        #expect(!captionedElements.contains(.standaloneMetadata))
+
+        // And the overlap itself is the placement helper's decision, not an inline ternary: a media
+        // row has a surface to ride even with no caption on it.
+        #expect(
+            MessageReactionChipPlacement.value(usesSurface: true, usesStickerStyle: false)
+                == .ridingSurfaceEdge
+        )
     }
 
     @MainActor
@@ -6887,19 +6950,64 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(state.pendingOutgoingMediaMessagesByConversation.isEmpty)
     }
 
-    @Test func failedOutgoingMediaBubbleCarriesTheSharedOverflowControl() throws {
-        // Source contract: the pending bubble's recovery is offered twice on purpose — the link row
-        // under the bubble, where the failure already is, and the ⋯ menu every other row uses. This
-        // guards both, since the bubble had only the first for as long as it existed.
-        let source = try SourceContract.source(of: .pendingOutgoingMessage)
+    /// A failed media send offers its recovery twice on purpose — the link row under the bubble,
+    /// where the failure already is, and the ⋯ menu every other row uses.
+    ///
+    /// Retry only under the bubble: Remove is destructive and belongs in the menu with the other
+    /// destructive actions, which is the regression this guards. The bubble had only the link row
+    /// for as long as it existed, so a reader who wanted the failed send gone had nowhere to go.
+    @MainActor
+    @Test func aFailedMediaSendOffersRetryUnderTheBubbleAndRemovalOnlyInItsMenu() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
 
-        #expect(source.contains("MessageInlineActionIcon(systemName: \"ellipsis\""))
-        #expect(source.contains("MessageOverflowMenu("))
-        #expect(source.contains("MessageRowAction.all(for: message, workspace: workspace)"))
-        #expect(source.contains("MessageSendFailureActions {"))
-        // Retry only under the bubble — Remove belongs in the menu with the other destructive
-        // actions, and reintroducing it here is the regression this guards.
-        #expect(!source.contains("discardPendingOutgoingMediaMessage"))
+        let attachment = PendingMediaAttachment(
+            fileName: "photo.png",
+            mediaType: "image/png",
+            data: Data([0x01]),
+            dim: nil
+        )
+        let failed = PendingOutgoingMediaMessage(
+            id: UUID(),
+            attachments: [attachment],
+            caption: "",
+            state: .failed
+        )
+
+        let menu = MessageRowAction.all(for: failed, workspace: state)
+        #expect(menu.map(\.kind).contains(.retry))
+        #expect(
+            menu.map(\.kind).contains(.delete),
+            "removal is the action the bubble's own link row does not offer, so the menu has to"
+        )
+
+        // The ⋯ is there to be reached for on a failed row, and on nothing else: a send still on its
+        // way out has nothing to retry and no cancellation story in the core.
+        #expect(
+            PendingOutgoingMessageRecovery.showsOverflowControl(
+                hasFailed: true, isHovering: true, isMenuPresented: false))
+        #expect(
+            PendingOutgoingMessageRecovery.showsOverflowControl(
+                hasFailed: true, isHovering: false, isMenuPresented: true),
+            "the control cannot vanish out from under an open menu")
+        #expect(
+            !PendingOutgoingMessageRecovery.showsOverflowControl(
+                hasFailed: true, isHovering: false, isMenuPresented: false))
+        #expect(
+            !PendingOutgoingMessageRecovery.showsOverflowControl(
+                hasFailed: false, isHovering: true, isMenuPresented: false),
+            "a send still in flight would offer two actions that do nothing")
+
+        // And a send in flight carries no menu at all, rather than an empty one.
+        let inFlight = PendingOutgoingMediaMessage(
+            id: UUID(),
+            attachments: [attachment],
+            caption: "",
+            state: .uploading
+        )
+        #expect(MessageRowAction.all(for: inFlight, workspace: state).isEmpty)
     }
 
     @MainActor

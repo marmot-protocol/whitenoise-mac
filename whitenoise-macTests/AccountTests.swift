@@ -3488,83 +3488,127 @@ struct AccountTests: WorkspaceTestSupport {
         }
     }
 
-    @Test func accountRailAvatarExemptsSignedInAccountsFromRemoteImagePreference() throws {
-        // The rail lists the *viewer's own* identities, so it belongs with the profile editor
-        // and the account switcher on the exempt side of `RemoteImageDisplayPolicy`: leaving it
-        // on the default made the sidebar draw initials for the picture the viewer had just set
-        // and could see in Settings, which reads as "my avatar is broken" rather than as privacy.
-        // Unconditional now that the rail draws signed-in accounts only — the narrower
-        // `!account.signedOut` this used to carry has nothing left to exclude. The switcher's
-        // rows are fed the same filtered list and are unconditional for the same reason; the chat
-        // rows next to it are peers and must keep the default.
-        let railSource = try SourceContract.declaration("AccountRailAvatar")
-        #expect(railSource.contains("isOwnAccountImage: true"))
-
-        for row in ["ChatRowContent", "CollapsedChatRowContent"] {
-            let rowSource = try SourceContract.declaration(row)
-            #expect(!rowSource.contains("isOwnAccountImage"), "\(row) draws peers and must stay gated")
+    /// Your own avatar always draws; everyone else's waits for the preference.
+    ///
+    /// "Load Remote Profile Images" is off by default because profile pictures come from URLs
+    /// *other people* control. That reasoning covers every avatar the viewer did not choose and none
+    /// of the one they did: the viewer picked their own in the profile editor, the app uploaded it
+    /// to the Blossom server *the app* chose, and fetching it back discloses their address to a host
+    /// they have just handed the image to. Gating it made the editor look broken rather than
+    /// private — the upload succeeded, the draft took the URL, and the avatar kept drawing initials
+    /// with no error to explain why.
+    ///
+    /// `RemoteImageDisplayPolicy`'s documentation names the six surfaces that may claim an image as
+    /// the viewer's own; the account rail is one of them because it is fed `signedInAccounts` and so
+    /// draws nothing but the viewer's own identities.
+    @Test func onlyTheViewersOwnAvatarIgnoresTheRemoteImagePreference() {
+        for preferenceEnabled in [true, false] {
+            #expect(
+                RemoteImageDisplayPolicy.loadsRemoteImage(
+                    isOwnAccountImage: true,
+                    preferenceEnabled: preferenceEnabled
+                ),
+                "the viewer's own picture must draw whatever the preference says"
+            )
         }
+
+        #expect(
+            !RemoteImageDisplayPolicy.loadsRemoteImage(
+                isOwnAccountImage: false,
+                preferenceEnabled: false
+            ),
+            "a peer's avatar was fetched with the preference off"
+        )
+        #expect(
+            RemoteImageDisplayPolicy.loadsRemoteImage(
+                isOwnAccountImage: false,
+                preferenceEnabled: true
+            )
+        )
     }
 
-    @Test func accountRailAvatarCarriesNoAccountManagement() throws {
-        // The rail switches identities and does nothing else to them. It used to carry a
-        // Sign In / Sign Out context menu, whose Sign Out fired `signOutAccount` straight from a
-        // right-click with no prompt — an accidental click dropped that identity's relay key
-        // packages. And it used to draw signed-out identities too, dimmed behind a pause glyph,
-        // where a single tap signed one back in. All of it is account management: sign-out and
-        // removal live in Settings' switcher behind confirmations, and signing a deactivated
-        // identity back in is Sign In with its key — no surface reactivates one for free, since
-        // that. Only a source contract can guard *absent* chrome: no behavior test can
-        // observe a menu or a branch that is never built. The chat rows beside it keep their own
-        // menu, which is why this asserts on the rail's declaration rather than on the file.
-        let sidebarSource = try SourceContract.source(of: .sidebar)
-        let railSource = try SourceContract.declaration("AccountRailAvatar")
+    /// The rail switches identities and does nothing else to them.
+    ///
+    /// It used to carry a Sign In / Sign Out context menu whose Sign Out fired straight from a
+    /// right-click with no prompt — an accidental click dropped that identity's relay key packages —
+    /// and it used to draw deactivated identities, dimmed behind a pause glyph, where a single tap
+    /// signed one back in. Both are gone, and what holds them gone is the *list*: the rail is fed
+    /// `signedInAccounts`, so a deactivated identity never reaches it to be managed. That filter is
+    /// what this drives, along with the one action the rail does have.
+    @MainActor
+    @Test func theAccountRailListsOnlySignedInIdentitiesAndOnlySwitchesBetweenThem() async throws {
+        let active = desktopAccount()
+        let other = AccountSummaryFfi(
+            label: "Second Account",
+            accountIdHex: String(repeating: "b2", count: 32),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let deactivated = AccountSummaryFfi(
+            label: "Deactivated Account",
+            accountIdHex: String(repeating: "c3", count: 32),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [active, other, deactivated])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
 
-        #expect(!railSource.contains(".contextMenu"))
-        #expect(!railSource.contains("signOutAccount"), "destructive sign out belongs to the confirmed Settings path")
-        #expect(!railSource.contains("signInAccount"), "signing back in means entering the identity's key")
-        // The rail is fed `signedInAccounts`, so the avatar has no signed-out case to branch on:
-        // a leftover branch here would be dead code claiming to handle a row that cannot appear.
-        #expect(!railSource.contains("signedOut"))
+        #expect(state.accounts.count == 3, "the app still knows about the deactivated identity")
+        #expect(
+            !state.signedInAccounts.contains { $0.accountIdHex == deactivated.accountIdHex },
+            "a deactivated identity reached the rail, where a single click used to sign it back in"
+        )
+        #expect(state.signedInAccounts.count == 2)
 
-        // And the rail is genuinely fed the filtered list — without this, every assertion above
-        // would still pass while the rail iterated `accounts` and drew the deactivated ones
-        // through an avatar that no longer has a branch for them.
-        #expect(sidebarSource.contains("ForEach(workspace.signedInAccounts)"))
+        // The rail's one action: switching. It signs nothing out and signs nothing in.
+        let signOutsBefore = runtime.signOutCallCount
+        let signInsBefore = runtime.signInAccountCallCount
+        let target = try #require(state.signedInAccounts.first { $0.id != state.activeAccountId })
+        state.selectAccount(target)
+
+        #expect(state.activeAccountId == target.id)
+        #expect(runtime.signOutCallCount == signOutsBefore, "switching identities signed one out")
+        #expect(
+            runtime.signInAccountCallCount == signInsBefore,
+            "switching identities signed one in")
     }
 
-    @Test func theDetailPaneOffersNoChooserOfDeactivatedIdentities() throws {
-        // With nothing signed in, the pane used to be a `SignedOutAccountsView`: the deactivated
-        // identities on this Mac, each row a click from `signInAccount` — a sign-in that asked
-        // for no key — under a `Use another account` button. Getting into an identity is Sign In
-        // or Sign Up now, and `OnboardingView` already owns both. The core reactivates a matching
-        // signed-out account on `login`, so that identity's chats come back through the real flow
-        // rather than around it.
-        //
-        // Only a source contract can guard an absent surface: the state paths that could reach
-        // this branch now route to `.onboarding` themselves, so no behavior test can observe a
-        // view that is never built. Asserting on the pane's own declaration rather than on the
-        // file keeps the offline band and the transcript chrome above it out of scope.
-        let shellSource = try SourceContract.source(of: .messengerShell)
+    /// With nothing signed in, the app shows the way in rather than a list of deactivated
+    /// identities.
+    ///
+    /// The detail pane used to be a `SignedOutAccountsView`: the deactivated identities on this Mac,
+    /// each row one click from a sign-in that asked for no key. Getting into an identity is Sign In
+    /// or Sign Up now, and the core reactivates a matching signed-out account on `login` rather than
+    /// creating a second one — so that identity's chats come back through the real flow rather than
+    /// around it. What holds the chooser gone is the routing: every path that empties the signed-in
+    /// list moves the app to `.onboarding` itself.
+    @MainActor
+    @Test func withNothingSignedInTheAppRoutesToOnboardingRatherThanToAChooser() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
 
-        #expect(!shellSource.contains("struct SignedOutAccountsView"))
+        #expect(state.phase == .ready)
+        let active = try #require(state.activeAccount)
 
-        let paneSource = try SourceContract.declaration("DetailPaneView")
+        await state.signOutAccount(active)
 
-        #expect(!paneSource.contains("signInAccount"), "reactivating an identity belongs to Settings' switcher")
-        #expect(!paneSource.contains("showAccountOnboarding"))
-        #expect(!paneSource.contains("ForEach"), "the pane lists no identities to choose between")
+        #expect(state.activeAccount == nil)
+        #expect(state.signedInAccounts.isEmpty)
+        #expect(
+            state.phase == .onboarding,
+            "the app stayed on a pane with no signed-in identity to draw"
+        )
 
-        // Comments stripped and whitespace-normalized, so the assertion pins the branch rather
-        // than an indentation level or the prose above it: with nothing signed in the pane renders
-        // the login surface, the same one the `.onboarding` phase above it draws.
-        let normalized =
-            paneSource
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String($0) }
-            .joined(separator: "\n")
-            .components(separatedBy: .whitespacesAndNewlines).joined()
-        #expect(normalized.contains("ifworkspace.activeAccount==nil{OnboardingView()}else{"))
+        // Signing that identity back in is the real flow, with its key, and the core reactivates
+        // the account it matches rather than adding a second one.
+        #expect(!state.accounts.isEmpty, "the deactivated identity is still held on this Mac")
     }
 
     @MainActor

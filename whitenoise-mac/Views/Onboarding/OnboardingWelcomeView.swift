@@ -79,6 +79,6 @@ struct OnboardingWelcomeView: View {
         // come out of the environment, so a pair that read either separately could disagree. See
         // `WNButtonMetrics`.
         .controlSize(.large)
-        .wnButtonShape(.capsule)
+        .wnButtonShape(OnboardingLayout.buttonShape)
     }
 }

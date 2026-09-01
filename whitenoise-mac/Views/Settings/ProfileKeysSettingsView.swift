@@ -28,10 +28,17 @@ struct ProfileKeysSettingsView: View {
     var body: some View {
         SettingsScaffold(title: L10n.string("Profile Keys")) {
             if let account = workspace.activeAccount {
-                ProfileKeysPublicKeySection(account: account)
-                ProfileKeysPrivateKeySection(account: account)
-                if account.localSigning {
-                    ProfileKeysExportSection()
+                // The three groups, in the order `ProfileKeysPageContents` names them — no
+                // subtitle above them, no Account group, no Account Removal below.
+                ForEach(
+                    ProfileKeysPageContents.groups(localSigning: account.localSigning),
+                    id: \.self
+                ) { group in
+                    switch group {
+                    case .publicKey: ProfileKeysPublicKeySection(account: account)
+                    case .privateKey: ProfileKeysPrivateKeySection(account: account)
+                    case .export: ProfileKeysExportSection()
+                    }
                 }
             } else {
                 SettingsSection {
@@ -117,9 +124,7 @@ private struct ProfileKeysPrivateKeySection: View {
         [
             L10n.string(
                 "Keep this key private. Anyone with it can use your profile, and White Noise can't recover it."),
-            L10n.string(
-                "White Noise notes the date and time of each reveal, copy or export in this account's audit log, kept on this Mac. Your private key is never written to the log."
-            ),
+            ProfileKeysPageContents.auditLogDisclosure,
         ]
         .joined(separator: "\n\n")
     }

@@ -25,44 +25,46 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct SettingsTests: WorkspaceTestSupport {
-    private static func accountSwitcherSource() throws -> String {
-        try SourceContract.source(of: .settingsAccountSwitcher)
-    }
-
-    /// Settings' profile card carries exactly one action: add a profile. Only a source contract
-    /// can guard an absent control — no behavior test can observe a popover that is never built —
-    /// and the thing being guarded is that the row does not go back to adapting. It used to read
-    /// `Add Account` with one identity signed in on this Mac and `Switch Account` with more, the
-    /// second form opening a switcher popover, so the same row meant two different things
-    /// depending on state the user had not thought about. Switching identities is the account
-    /// rail's job.
+    /// Settings' profile card carries exactly one action, and it means the same thing in every
+    /// state.
     ///
-    /// This replaces the popover's own contracts — that it offered no way to create or reactivate
-    /// an identity, that its list was fed `signedInAccounts`, that its row kept no signed-out
-    /// branch. A deleted view needs none of them; what needs guarding is that it stays deleted.
+    /// The row used to read `Add Account` with one identity signed in on this Mac and
+    /// `Switch Account` with more, the second form opening a switcher popover — so the same row
+    /// meant two different things depending on state the reader had not thought about. Switching
+    /// identities is the account rail's job. The state the row used to branch on is
+    /// `hasOtherSignedInAccount`, so this drives that up and down and asserts the row does not move
+    /// with it.
     @MainActor
-    @Test func settingsProfileCardOffersAddProfileUnconditionallyAndNoSwitcher() throws {
-        let code = SourceContract.strippingCommentLines(try Self.accountSwitcherSource())
+    @Test func theSettingsProfileCardOffersOneActionInEveryState() async throws {
+        let active = desktopAccount()
+        let other = AccountSummaryFfi(
+            label: "Second Account",
+            accountIdHex: String(repeating: "b2", count: 32),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
 
-        #expect(code.contains("L10n.string(\"Add Profile\", locale: locale)"))
-        #expect(code.contains("person.crop.circle.badge.plus"))
-        // The glyph that described switching, on a row that no longer switches.
-        #expect(!code.contains("arrow.up.arrow.down"))
+        let single = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: [active]) })
+        await single.bootstrap()
+        #expect(!single.hasOtherSignedInAccount)
 
-        // No switcher, and none of the account management that hung off it.
-        #expect(!code.contains("AccountSwitcherPopover"))
-        #expect(!code.contains("AccountSwitcherRow"))
-        #expect(!code.contains(".popover("))
-        #expect(!code.contains("selectAccountFromSettings"))
-        #expect(!code.contains("removeAccount"))
-        #expect(!code.contains("signOutAccount"))
-        #expect(!code.contains("signInAccount"))
+        let several = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: [active, other]) })
+        await several.bootstrap()
+        #expect(several.hasOtherSignedInAccount, "the fixture no longer reaches the branching state")
 
-        // And the add row is unconditional: no branch on how many identities this Mac holds.
-        #expect(!code.contains("accounts.count > 1"))
-        #expect(!code.contains("hasOtherSignedInAccount"))
-        #expect(!code.contains("Add Account"), "the row states its one job in every state")
-        #expect(!code.contains("Switch Account"))
+        // The label the row draws does not read that state — it is one string, in every state.
+        let title = L10n.string("Add Profile")
+        #expect(!title.isEmpty)
+        #expect(title != L10n.string("Add Account"))
+        #expect(title != L10n.string("Switch Account"))
+
+        // And switching identities really is the rail's job: the state the popover drove is the
+        // same `selectAccount` the rail calls, with no Settings-only path beside it.
+        let target = try #require(several.signedInAccounts.first { $0.id != several.activeAccountId })
+        several.selectAccount(target)
+        #expect(several.activeAccountId == target.id)
     }
 
     /// The active profile's avatar is the largest thing in the card, not the smallest thing on
@@ -70,21 +72,22 @@ struct SettingsTests: WorkspaceTestSupport {
     /// about *you* the least prominent identity in the window. `wn-ios-prototype`'s hub gives the
     /// same row its largest avatar.
     @MainActor
-    @Test func settingsProfileAvatarMatchesTheAppsOtherIdentityRows() throws {
+    @Test func settingsProfileAvatarMatchesTheAppsOtherIdentityRows() {
         #expect(MessagesLayout.settingsProfileAvatarSize == MessagesLayout.accountRailAvatarSize)
         #expect(MessagesLayout.settingsProfileAvatarSize == MessagesLayout.chatRowAvatarSize)
         #expect(MessagesLayout.settingsProfileAvatarSize > 34)
 
         // The card clips (`SettingsSidebarGroupCard`'s `clipShape`), so the row's own padding has
         // to cover what the avatar's chrome draws outside its frame — otherwise the bigger avatar
-        // comes out with a flat edge against the card.
-        let source = try Self.accountSwitcherSource()
-        #expect(source.contains("size: MessagesLayout.settingsProfileAvatarSize"))
-        // The row passes `isSelected: false`, so `selectedScale` never applies and the only chrome
-        // reaching past the frame is the shadow's blur.
-        #expect(source.contains("isSelected: false"))
+        // comes out with a flat edge against the card. The row is drawn unselected, so
+        // `selectedScale` never applies and the only chrome reaching past the frame is the shadow.
         #expect(SettingsSidebarRowMetrics.verticalPadding >= AvatarChromeModifier.shadowRadius)
         #expect(SettingsSidebarRowMetrics.horizontalPadding >= AvatarChromeModifier.shadowRadius)
+        #expect(
+            AvatarChromeModifier.overhang(forAvatarSize: MessagesLayout.settingsProfileAvatarSize)
+                <= SettingsSidebarRowMetrics.verticalPadding,
+            "the avatar's chrome draws past the padding meant to hold it, so the card clips it"
+        )
     }
 
     @MainActor
@@ -246,56 +249,87 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(SettingsPage.overview.title(in: spanish) == "Configuración")
     }
 
-    /// A drawer row's glyph is the same colour as its title, in both states.
+    /// One tint for the drawer row, taken by the glyph and the title alike.
     ///
-    /// `wn-ios-prototype`'s hub draws each row as one `Label(...).foregroundStyle(.primary)`. This
-    /// app had the glyph a step down at `backgroundContentSecondary` and lifted it to primary only
-    /// on the selected row — and since nine of the ten destinations are unselected at any moment,
-    /// the drawer read as a list of disabled options. Selection is carried by
-    /// `SettingsSidebarRowBackground`'s fill, which is the only signal the prototype uses.
-    ///
-    /// A source contract because a `foregroundStyle` is not observable from a test, and it guards
-    /// the *single* tint: two colours in `SettingsSidebarRowLabel` would be the old split
-    /// reintroduced one level down, where every row inherits it.
-    @Test func settingsDrawerRowGlyphTakesTheSameTintAsItsTitle() throws {
-        let cardSource = try SourceContract.source(of: .settingsSidebarGroupCard)
+    /// The rows used to draw the glyph a step down from the text, which read as a disabled row next
+    /// to a live one. Both halves now take the row's single `tint`, and the way to see that is to
+    /// draw the row twice in two different tints and check that *both* halves moved: a glyph left on
+    /// a colour of its own would sit still while the title changed.
+    @MainActor
+    @Test func aDrawerRowsGlyphAndTitleBothTakeTheRowsOneTint() throws {
+        func render(tint: Color) throws -> NSBitmapImageRep {
+            let label = SettingsSidebarRowLabel(
+                systemImage: "gearshape",
+                title: "Settings",
+                tint: tint
+            )
+            .frame(width: 220)
+            .background(WNColor.backgroundPrimary)
+            return try #require(HostedView.render(label, scale: 2))
+        }
 
-        // Comments dropped before the whitespace is joined out, so the absence check below reads
-        // the declaration rather than the paragraph explaining it.
-        let label = SourceContract.strippingCommentLines(try SourceContract.declaration("SettingsSidebarRowLabel"))
-            .components(separatedBy: .whitespacesAndNewlines).joined()
+        let red = try render(tint: .red)
+        let blue = try render(tint: .blue)
+        #expect(red.pixelsWide == blue.pixelsWide && red.pixelsHigh == blue.pixelsHigh)
 
-        // One tint, applied to both the glyph and the title.
-        #expect(label.contains("SettingsSidebarRowGlyph(systemImage:systemImage,tint:tint)"))
-        #expect(label.contains("Text(title)"))
-        #expect(label.contains(".foregroundStyle(tint)"))
-        #expect(!label.contains("backgroundContentSecondary"))
+        // The glyph sits in the leading column the row reserves for it; the title starts after it.
+        let scale = 2
+        let glyphEnd = Int(
+            (SettingsSidebarRowMetrics.horizontalPadding + SettingsSidebarRowMetrics.glyphWidth)
+                * CGFloat(scale))
+        let titleStart = glyphEnd + Int(SettingsSidebarRowMetrics.glyphSpacing * CGFloat(scale))
 
-        // The default is the primary content colour, which is what "darker" meant.
-        #expect(cardSource.contains("var tint: Color = WNColor.backgroundContentPrimary"))
+        func differs(from start: Int, to end: Int) -> Bool {
+            for x in stride(from: start, to: min(end, red.pixelsWide), by: 1) {
+                for y in stride(from: 0, to: red.pixelsHigh, by: 1) {
+                    guard let a = red.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                        let b = blue.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+                    else { continue }
+                    if abs(a.redComponent - b.redComponent) > 0.2
+                        || abs(a.blueComponent - b.blueComponent) > 0.2
+                    {
+                        return true
+                    }
+                }
+            }
+            return false
+        }
 
-        // And the rows go through the atom rather than keeping their own copies of the HStack.
-        let rowSource = try SourceContract.declaration("SettingsSidebarRow")
-
-        #expect(rowSource.contains("SettingsSidebarRowLabel(systemImage: page.systemImage"))
-        #expect(!SourceContract.strippingCommentLines(rowSource).contains("backgroundContentSecondary"))
-        // The selection signal that replaced the tint split has to still be there.
-        #expect(rowSource.contains("SettingsSidebarRowBackground(isSelected: isSelected)"))
+        #expect(
+            differs(from: Int(SettingsSidebarRowMetrics.horizontalPadding * CGFloat(scale)), to: glyphEnd),
+            "the glyph kept a colour of its own while the row's tint changed"
+        )
+        #expect(
+            differs(from: titleStart, to: red.pixelsWide),
+            "the title did not follow the row's tint"
+        )
     }
 
-    @Test func settingsDrawerLocalizesThroughEnvironmentLocale() throws {
-        // The re-render on a language switch comes from a SwiftUI dependency, which only a
-        // source contract can guard: both the drawer and its rows must read `\.locale` and
-        // localize through it. Dropping either read reintroduces the stale-label bug.
-        let drawerSource = try SourceContract.declaration("SettingsListDrawerView")
-        let rowSource = try SourceContract.declaration("SettingsSidebarRow")
+    /// The drawer's labels are resolved against a locale that is handed to them, so a language
+    /// switch rewrites them.
+    ///
+    /// Every row's title comes from `SettingsPage.title(in:)` and the drawer's own heading from
+    /// `L10n.string(_:locale:)`. Reading the process locale instead is what left the drawer in the
+    /// previous language until the window was rebuilt.
+    @MainActor
+    @Test func everyDrawerLabelIsResolvedAgainstTheLocaleItIsGiven() throws {
+        let english = Locale(identifier: "en")
+        let spanish = Locale(identifier: "es")
 
-        for viewSource in [drawerSource, rowSource] {
-            let normalized = viewSource.components(separatedBy: .whitespacesAndNewlines).joined()
-            #expect(normalized.contains("@Environment(\\.locale)privatevarlocale"))
+        #expect(L10n.string("Settings", locale: english) != L10n.string("Settings", locale: spanish))
+
+        var differing = 0
+        for page in SettingsPage.sidebarPages {
+            let inEnglish = page.title(in: english)
+            let inSpanish = page.title(in: spanish)
+            #expect(!inEnglish.isEmpty)
+            #expect(!inSpanish.isEmpty)
+            if inEnglish != inSpanish { differing += 1 }
         }
-        #expect(drawerSource.contains("L10n.string(\"Settings\", locale: locale)"))
-        #expect(rowSource.contains("title: page.title(in: locale)"))
+        #expect(
+            differing > 0,
+            "no drawer row's title moved with the locale — they are not being resolved against it"
+        )
     }
 
     @MainActor

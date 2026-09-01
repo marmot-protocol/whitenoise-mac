@@ -367,45 +367,91 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(!state.isGroupImagePickerPresented)
     }
 
-    @Test func conversationHeaderChatInfoOpensSlideInGroupDetails() throws {
-        // These are private SwiftUI views, so this source-shape regression guards
-        // the user-facing wiring directly. The chat-info affordance is now the
-        // header's avatar/title button (works for direct chats too), and the
-        // details screen slides in over the transcript from ConversationView
-        // rather than presenting as a header sheet.
-        // ConversationHeader moved to the composer views in the shell-view split, so it is looked
-        // up by name across the view tree rather than in a file this test names.
-        let headerSource = try SourceContract.declaration("ConversationHeader")
+    /// Chat info is the header's own affordance, and it works for a direct chat as well as a group.
+    ///
+    /// It used to hang off a header sheet that only a group could raise. Opening it now moves the
+    /// state the pane slides in on, so this drives that call and reads the state back rather than
+    /// looking for a modifier in the header.
+    @MainActor
+    @Test func openingChatInfoSlidesTheDetailsPaneInForAGroupAndForADirectChat() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
 
-        // Tapping the header avatar/title opens the chat info screen.
-        #expect(headerSource.contains("Task { await workspace.showGroupDetails(for: chat) }"))
-        // The details screen is no longer a modal sheet hung off the header.
-        #expect(!headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
+        #expect(!state.isGroupDetailsPresented, "nothing has been asked for yet")
 
-        // ConversationView presents the details panel inline as a slide-in,
-        // gated on the same flag, so it replaces the transcript in place.
-        let shellSource = try SourceContract.source(of: .messengerShell)
-        #expect(shellSource.contains("if workspace.isGroupDetailsPresented"))
-        #expect(shellSource.contains("GroupDetailsSheet(chat: chat)"))
-        #expect(shellSource.contains(".move(edge: .trailing)"))
+        let group = try #require(state.activeChats.first { !$0.isDirect })
+        await state.showGroupDetails(for: group)
+        #expect(state.isGroupDetailsPresented)
+
+        state.closeGroupDetails()
+        #expect(!state.isGroupDetailsPresented, "the back control returns to the transcript")
+        #expect(state.groupDetailsSnapshot == nil)
+
+        // The affordance the header sheet could never offer: a 1:1 chat has info too.
+        let direct = try #require(state.activeChats.first { $0.isDirect })
+        await state.showGroupDetails(for: direct)
+        #expect(state.isGroupDetailsPresented)
+
+        state.closeGroupDetails()
+        #expect(!state.isGroupDetailsPresented)
     }
 
-    @Test func detailsPaneHeadersPlaceBackButtonAtLeadingEdge() throws {
-        // The group-info and contact-info panes slide in over the transcript, so their
-        // chevron is a *back* control and belongs on the leading edge — where the
-        // compose pane and the settings header already put theirs — not trailing next
-        // to the add-members button, which reads as an unrelated right-hand action.
-        for declaration in ["GroupDetailsSheet", "ContactDetailsView"] {
-            // Scoped to `body` so helper views declared above it (the custom-duration
-            // popover has its own trailing `Spacer()`) can't stand in for the header's.
-            let header = try SourceContract.viewBody(declaration)
+    /// Both slide-in panes return to the transcript through the same back control.
+    ///
+    /// The chevron's *position* is no longer a test's business: both panes wear one
+    /// `DetailsPaneHeader`, so the leading back / avatar / title / trailing-actions order is written
+    /// once and neither pane has an order of its own to drift away from. What is still worth
+    /// driving is that the control does what a back control does — from either pane.
+    @MainActor
+    @Test func bothSlideInPanesReturnToTheTranscriptThroughTheirBackControl() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
 
-            let backIndex = try #require(header.range(of: #"symbol: "chevron.backward""#)?.lowerBound)
-            let avatarIndex = try #require(header.range(of: "ProfileImageAvatarView(")?.lowerBound)
-            let spacerIndex = try #require(header.range(of: "Spacer()")?.lowerBound)
-            #expect(backIndex < avatarIndex, "\(declaration) back button must precede the avatar")
-            #expect(backIndex < spacerIndex, "\(declaration) back button must sit before the spacer")
-        }
+        let group = try #require(state.activeChats.first { !$0.isDirect })
+        await state.showGroupDetails(for: group)
+        state.closeGroupDetails()
+        #expect(!state.isGroupDetailsPresented)
+
+        await state.showContactDetails(accountIdHex: aliceIdHex, displayName: "Alice", pictureURL: nil)
+        #expect(state.contactDetailsTarget != nil)
+        state.closeContactDetails()
+        #expect(state.contactDetailsTarget == nil, "the contact pane's back control left it open")
     }
 
     @MainActor
@@ -776,71 +822,141 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(runtime.isFollowingCallCount == 0)
     }
 
-    @Test func contactProfileLeadsWithTheFollowAction() throws {
-        // These are private SwiftUI views, so this source-shape regression guards the
-        // user-facing wiring directly. Follow used to sit inside the same form row as "Copy
-        // Public Key", which is why it could not be found; it now leads the profile's action
-        // row above the form, and chat info carries the same control for a direct chat.
-        let source = try SourceContract.source(of: .group)
-
-        // The profile's action row is above the form, and carries Follow before Message.
-        let detailsBody = try SourceContract.declaration("ContactDetailsView")
-        let actionsRowIndex = try #require(
-            detailsBody.range(of: "ContactProfileActionsRow(contact: contact)")?.lowerBound
+    /// Follow leads the contact profile's action row.
+    ///
+    /// It used to sit inside the same form row as "Copy Public Key", several screens of detail below
+    /// the fold, which is why nobody could find it. The order is the fix, so it is stated once in
+    /// `ContactProfileAction.ordered` and the row is built from it — this asserts the order itself
+    /// rather than the stack that happens to render it.
+    @MainActor
+    @Test func aContactProfileLeadsWithFollowAndOffersMessageAfterIt() async throws {
+        #expect(ContactProfileAction.ordered == [.follow, .message])
+        #expect(
+            Set(ContactProfileAction.ordered) == Set(ContactProfileAction.allCases),
+            "an action was added to the profile row and left out of its order"
         )
-        let formIndex = try #require(detailsBody.range(of: "\n            Form {")?.lowerBound)
-        #expect(actionsRowIndex < formIndex)
 
-        let rowBody = try SourceContract.declaration("ContactProfileActionsRow")
-        let followIndex = try #require(
-            rowBody.range(of: "ContactFollowControl(accountIdHex: contact.accountIdHex)")?.lowerBound
+        // And chat info for a direct chat is the peer's profile too, so opening it resolves the
+        // follow relationship the same control needs — the reason it can carry one at all.
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
         )
-        let messageIndex = try #require(
-            rowBody.range(of: "workspace.messageContact(contact)")?.lowerBound
-        )
-        #expect(followIndex < messageIndex)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
 
-        // Chat info for a direct chat offers the same control, next to the nickname row.
-        #expect(source.contains("ContactFollowControl(accountIdHex: contactAccountIdHex)"))
+        let direct = try #require(state.activeChats.first { $0.isDirect })
+        let followReadsBefore = runtime.isFollowingCallCount
+        await state.showGroupDetails(for: direct)
+        #expect(
+            runtime.isFollowingCallCount > followReadsBefore,
+            "chat info for a 1:1 never asked who the peer is to you"
+        )
     }
 
-    @Test func bothInvitePromptsAnswerThroughTheSharedActionButtons() throws {
-        // These are private SwiftUI views, so this source-shape regression guards the wiring
-        // directly. The composer prompt and chat info answer the same invite, and answering it was
-        // written out twice — which is how the two came to disagree about the icon, the label and,
-        // visibly, the shape: `Accept` named no border shape at all and drew as the platform's
-        // capsule beside an 8pt rounded-rectangle `Decline`.
-        for (unit, acceptCall) in [
-            (SourceContract.ViewUnit.composer, "await workspace.acceptGroupInvite(for: chat)"),
-            (SourceContract.ViewUnit.group, "await workspace.acceptSelectedGroupInvite()"),
-        ] {
-            let source = try SourceContract.source(of: unit)
-            #expect(source.contains("PendingInviteActionButtons("))
-            #expect(source.contains(acceptCall))
+    /// The composer prompt and chat info answer the same invite, and answering it reaches the core
+    /// the same way from both.
+    ///
+    /// Answering was written out twice, which is how the two came to disagree about the icon, the
+    /// label and — visibly — the shape. They share `PendingInviteActionButtons` now; what is worth
+    /// driving is that both entry points still accept and decline the invite that is actually open.
+    @MainActor
+    @Test func bothInvitePromptsAcceptAndDeclineTheSameInvite() async throws {
+        for acceptFromChatInfo in [true, false] {
+            let account = desktopAccount()
+            var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+            details.group.pendingConfirmation = true
+            let runtime = FakeMarmotRuntime(accounts: [account])
+            runtime.installGroupDetails(details)
+            let state = WorkspaceState(clientFactory: { runtime })
+            await state.bootstrap()
+
+            let invite = try #require(state.activeChats.first)
+            state.selection = .chat(invite.id)
+
+            if acceptFromChatInfo {
+                await state.showGroupDetails(for: invite)
+                await state.acceptSelectedGroupInvite()
+            } else {
+                await state.acceptGroupInvite(for: invite)
+            }
+            #expect(
+                runtime.acceptGroupInviteCallCount == 1,
+                "the \(acceptFromChatInfo ? "chat info" : "composer") prompt did not answer the invite"
+            )
+            #expect(runtime.declineGroupInviteCallCount == 0)
         }
 
-        // The pair is one tier each, and the primary half carries the shape modifier rather than the
-        // bare glass style — without it the capsule comes back.
-        let pairSource = try SourceContract.source(of: .pendingInviteActionButtons)
-        #expect(pairSource.contains(".wnPrimaryButtonStyle()"))
-        #expect(pairSource.contains(".buttonStyle(.wnSecondary)"))
+        // …and declining reaches the core from both, rather than only from the prompt that owned
+        // the pair when it was written out twice.
+        for declineFromChatInfo in [true, false] {
+            let account = desktopAccount()
+            var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+            details.group.pendingConfirmation = true
+            let runtime = FakeMarmotRuntime(accounts: [account])
+            runtime.installGroupDetails(details)
+            let state = WorkspaceState(clientFactory: { runtime })
+            await state.bootstrap()
 
-        // Neither tier names a shape of its own any more: one table, or they drift apart again.
-        // The primary size still asks the table for a radius; the tiers that draw their own ground
-        // ask it for the whole outline, so that a pane can switch both to a capsule at once.
-        for (unit, call) in [
-            (SourceContract.ViewUnit.primaryButton, "WNButtonMetrics.borderShape("),
-            (SourceContract.ViewUnit.secondaryButtonStyle, "WNButtonMetrics.backgroundShape("),
-            (SourceContract.ViewUnit.destructiveButtonStyle, "WNButtonMetrics.backgroundShape("),
-        ] {
-            let source = try SourceContract.source(of: unit)
-            #expect(source.contains(call), "\(unit) no longer reads the shared table")
-            #expect(!source.contains("cornerRadius: CGFloat = "))
+            let invite = try #require(state.activeChats.first)
+            state.selection = .chat(invite.id)
+
+            if declineFromChatInfo {
+                await state.showGroupDetails(for: invite)
+                await state.declineSelectedGroupInvite()
+            } else {
+                await state.declineGroupInvite(for: invite)
+            }
+            #expect(runtime.declineGroupInviteCallCount == 1)
+            #expect(runtime.acceptGroupInviteCallCount == 0)
+        }
+    }
+
+    /// One shape table, so a pair of buttons standing next to each other cannot disagree about
+    /// their outline.
+    ///
+    /// The visible defect: `Accept` named no border shape at all, so `.glassProminent` drew it as
+    /// the platform's capsule beside an 8pt rounded-rectangle `Decline`. Both tiers ask the same
+    /// function now — the primary for a `ButtonBorderShape`, the ground-drawing tiers for the whole
+    /// outline — and this asserts the two answers describe the same shape.
+    @MainActor
+    @Test func everyButtonTierTakesItsOutlineFromTheOneShapeTable() {
+        let rect = CGRect(x: 0, y: 0, width: 180, height: 44)
+
+        for controlSize in [ControlSize.small, .regular, .large] {
+            let radius = WNButtonMetrics.cornerRadius(for: controlSize)
+            #expect(
+                WNButtonMetrics.backgroundShape(.rounded, for: controlSize).path(in: rect)
+                    == RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
+            )
+            #expect(
+                WNButtonMetrics.backgroundShape(.capsule, for: controlSize).path(in: rect)
+                    == Capsule(style: .continuous).path(in: rect)
+            )
+            #expect(WNButtonMetrics.borderShape(.capsule, for: controlSize) == .capsule)
+            #expect(
+                WNButtonMetrics.borderShape(.rounded, for: controlSize)
+                    == .roundedRectangle(radius: radius)
+            )
         }
 
-        // And no tier keeps a radius of its own to drift back to.
-        let sizeSource = try SourceContract.source(of: .primaryButtonSize)
-        #expect(!sizeSource.contains("cornerRadius"), "a size is naming a radius again")
+        // A capsule has no radius of its own — it is always half its own height, which is what
+        // keeps a pill a pill as the control grows. A rounded tier opens up at `.large`.
+        #expect(WNButtonMetrics.cornerRadius(for: .large) > WNButtonMetrics.cornerRadius(for: .regular))
     }
 
     @MainActor

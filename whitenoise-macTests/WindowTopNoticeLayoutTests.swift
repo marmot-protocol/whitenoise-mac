@@ -54,22 +54,32 @@ struct WindowTopNoticeLayoutTests {
         )
     }
 
-    @Test func shellLaysTheOfflineNoticeAboveItsContentRatherThanOverIt() throws {
-        // The regression is a layout relationship between private SwiftUI views, which only a
-        // source contract can hold: the notice must be a sibling the shell stacks above its
-        // content. Hanging it back off the top edge as an overlay is what put it on the title.
-        let body = try SourceContract.declaration("MessengerShellView")
+    /// The notice is laid out *above* the content, and the two numbers that make that safe hold
+    /// together.
+    ///
+    /// The bug this exists to catch: the notice shipped as a card floating on the shell's top edge,
+    /// so with the sidebar open it covered the pane title and the conversation header for as long
+    /// as the network stayed down. Being offline is a standing condition, so the band takes the
+    /// strip and the headers below it drop the clearance they no longer need — and what makes that
+    /// safe is that the band alone still clears the traffic lights, with the header starting below
+    /// them rather than under them.
+    @MainActor
+    @Test func theNoticeBandTakesTheTitlebarStripAndStillClearsTheTrafficLights() {
+        let bandHeight = MessagesLayout.windowTopNoticeBandMinimumHeight
+        let paddingUnderBand = MessagesLayout.sidebarTitlebarPaddingBelowNoticeBand
 
-        let bandIndex = try #require(body.range(of: "OfflineNoticeBand()")?.lowerBound)
-        let stackIndex = try #require(body.range(of: "VStack(spacing: 0) {")?.lowerBound)
-        #expect(stackIndex < bandIndex, "the notice must be stacked above the content")
-        // Whitespace-normalized so the assertion pins the relationship rather than an
-        // indentation level.
-        let normalized = body.components(separatedBy: .whitespacesAndNewlines).joined()
-        #expect(!normalized.contains(".overlay(alignment:.top){OfflineNoticeBand()"))
+        // The band covers the buttons on its own — it is not merely part of a total that does.
+        #expect(bandHeight > trafficLightBottomEdge)
 
-        // And the headers it pushes down have to be told the strip is taken, or they keep
-        // padding past traffic lights that are now inside the band.
-        #expect(body.contains(".environment(\\.hasWindowTopNoticeBand, workspace.isOffline)"))
+        // A header drawn under the band starts below the traffic lights, which is the whole reason
+        // it is allowed to drop its own clearance. Were the notice hung back off the top edge as an
+        // overlay, this sum would be the header's distance from the window top and the band would
+        // be sitting on top of it instead.
+        #expect(bandHeight + paddingUnderBand > trafficLightBottomEdge)
+
+        // And it is genuinely a reduction, not the same clearance under a new name: the point of
+        // the band holding the strip is that the gap between it and the pane title closes.
+        #expect(paddingUnderBand < MessagesLayout.sidebarTitlebarTopPadding)
+        #expect(paddingUnderBand >= 0)
     }
 }

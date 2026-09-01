@@ -39,6 +39,55 @@ are isolated in the `UIPerformance` test plan, and launch the app with the
 DEBUG-only `-uiFixture heavy-chat` argument for deterministic chat/search/media
 data.
 
+## Never test by reading source
+
+**A test must never open a `.swift` file and assert on its text.** No `String(contentsOf:)` over
+`whitenoise-mac/`, no `source.contains("Button(action: performPrimaryAction)")`, no slicing a
+declaration out of a file to check what it does or does not mention. There used to be 41 of these
+and they are all gone; `whitenoise-macTests/Support/SourceContract.swift`, the helper that made them
+convenient, is deleted. Do not bring it back.
+
+They are not cheap tests, they are expensive ones that fail for the wrong reasons:
+
+- **They fail on edits that change nothing.** Renaming a local, reflowing an argument list, moving a
+  struct to another file, or `swift-format` rewrapping a line all break an assertion about text.
+  Every one of those was a red CI run about a change nobody made.
+- **They pass while the app is broken.** `source.contains(".buttonStyle(.plain)")` is satisfied by
+  the string appearing *anywhere* in the slice — including inside a branch that is never taken, or
+  on the neighbouring control. Asserting on absence is worse: it passes for a view that draws
+  nothing at all.
+- **They freeze the implementation instead of the promise.** "Both rows call `MessageAudioRow(`" is
+  one way to hold "the bubble does not reflow when the download lands". Writing that way down turns
+  a refactor into a test failure, and stops the test from noticing the day the rows drift apart
+  while still sharing a call.
+
+### What to write instead
+
+When a decision is not observable from a test, that is a fact about the code, not about testing.
+Move the decision out of the view and into a plain type the test can call — the pattern the tree is
+already full of (`MessageVisualMediaTileInteraction`, `MessageBubbleLayout`, `MessagesLayout`,
+`WNButtonMetrics`, `SignOutSheetDecisions`, `MessageImageGalleryNavigation`,
+`AutomaticMediaDownloadCoordinator`, `MessageAudioPlaybackController`). In order of preference:
+
+1. **Drive the model.** Call the workspace/controller method the control calls and assert on the
+   state or the runtime double it moved.
+2. **Hoist the decision.** An order, a gate, a table, a label — put it in a `nonisolated enum` or a
+   small value type, build the view from it, and test the value. Building the view from it is not
+   optional: a type nothing renders from is a test of nothing.
+3. **Lay it out and measure it.** `HostedView.fittingSize(of:)` answers "do these two rows occupy
+   the same space"; `HostedView.render(_:appearance:)` answers colour, tint and where something
+   landed. Both are in `whitenoise-macTests/Support/HostedView.swift`.
+4. **Make it structural.** Two hand-matched copies that must agree become one shared view
+   (`DetailsPaneHeader`), and then nothing is left to test — a compile error replaces the assertion.
+
+SwiftUI builds no accessibility tree unless an assistive client is attached, so a hosted view cannot
+be queried for labels or pressed from a test. Do not spend time trying; hoist the decision instead.
+
+If after all that some chrome genuinely has no observable consequence — an absent context menu, a
+deleted file staying deleted — **write no test for it.** A source contract asserting the absence is
+not a weaker test than nothing, it is a worse one: it will fail for an unrelated edit long before it
+ever catches the thing it was written for.
+
 ## Test isolation on disk
 
 Tests write real files, so every on-disk root a test double hands out is isolated

@@ -137,54 +137,38 @@ struct GroupDetailsSheet: View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                // Leading, like the compose pane and the settings header: this pane slides
-                // in over the transcript, so the chevron is a back control and reads as one
-                // only on the side you came from.
-                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back to chat", appearance: .outline) {
-                    workspace.closeGroupDetails()
-                }
-
-                ProfileImageAvatarView(
-                    seed: chat.avatarSeed,
-                    initials: chat.title,
-                    sanitizedPictureURL: headerAvatarURL,
-                    localImagePayload: chat.groupImagePayload,
-                    size: 48,
-                    isSelected: false
-                )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(workspace.groupDetailsSnapshot?.name ?? chat.title)
-                        .wnFont(.semiBold16)
-                        .lineLimit(1)
-                    headerSubtitle
-                }
-
-                Spacer()
-
-                if workspace.isLoadingGroupDetails {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                if let snapshot = workspace.groupDetailsSnapshot,
-                    snapshot.canInvite, snapshot.selfMembership == .member
-                {
-                    Button {
-                        isAddMembersPresented = true
-                    } label: {
-                        Image(systemName: "person.badge.plus")
-                            .wnFont(.semiBold16)
-                            .frame(width: 30, height: 30)
-                            .background { MessagesCircleControlBackground() }
+            DetailsPaneHeader(
+                backHelp: "Back to chat",
+                onBack: { workspace.closeGroupDetails() },
+                avatarSeed: chat.avatarSeed,
+                avatarInitials: chat.title,
+                avatarURL: headerAvatarURL,
+                avatarImagePayload: chat.groupImagePayload,
+                title: workspace.groupDetailsSnapshot?.name ?? chat.title,
+                subtitle: { headerSubtitle },
+                actions: {
+                    if workspace.isLoadingGroupDetails {
+                        ProgressView()
+                            .controlSize(.small)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.hasInFlightGroupCommit)
-                    .help(L10n.string("Add members"))
+
+                    if let snapshot = workspace.groupDetailsSnapshot,
+                        snapshot.canInvite, snapshot.selfMembership == .member
+                    {
+                        Button {
+                            isAddMembersPresented = true
+                        } label: {
+                            Image(systemName: "person.badge.plus")
+                                .wnFont(.semiBold16)
+                                .frame(width: 30, height: 30)
+                                .background { MessagesCircleControlBackground() }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.hasInFlightGroupCommit)
+                        .help(L10n.string("Add members"))
+                    }
                 }
-            }
-            .padding(20)
+            )
 
             GlassSeparator(axis: .horizontal)
 
@@ -831,38 +815,25 @@ struct ContactDetailsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                // Leading back control, matching GroupDetailsSheet: both panes slide in
-                // over the transcript and return to it.
-                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back", appearance: .outline) {
-                    workspace.closeContactDetails()
-                }
-
-                ProfileImageAvatarView(
-                    seed: contact.accountIdHex,
-                    initials: contact.title,
-                    sanitizedPictureURL: contact.sanitizedPictureURL,
-                    size: 48,
-                    isSelected: false
-                )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(contact.title)
-                        .wnFont(.semiBold16)
-                        .lineLimit(1)
+            DetailsPaneHeader(
+                backHelp: "Back",
+                onBack: { workspace.closeContactDetails() },
+                avatarSeed: contact.accountIdHex,
+                avatarInitials: contact.title,
+                avatarURL: contact.sanitizedPictureURL,
+                title: contact.title,
+                subtitle: {
                     Text(isSelf ? L10n.string("You") : L10n.string("Contact"))
                         .wnFont(.medium12)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
+                },
+                actions: {
+                    if workspace.isLoadingContactDetails {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 }
-
-                Spacer()
-
-                if workspace.isLoadingContactDetails {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-            .padding(20)
+            )
 
             GlassSeparator(axis: .horizontal)
 
@@ -972,22 +943,40 @@ struct ContactDetailsView: View {
 /// app used to keep Follow inside a form row beside "Copy Public Key", where a small bordered
 /// button next to a clipboard action read as another utility rather than as the way to follow
 /// someone — the feature was there and still could not be found.
-private struct ContactProfileActionsRow: View {
+/// What a contact profile offers above the form, in the order it offers it.
+///
+/// Follow leads. It used to sit inside the same form row as "Copy Public Key", several screens of
+/// detail below the fold, which is why nobody could find it — so the order is the fix and is stated
+/// here rather than left implicit in a stack.
+nonisolated enum ContactProfileAction: Hashable, CaseIterable, Sendable {
+    case follow
+    case message
+
+    static let ordered: [ContactProfileAction] = [.follow, .message]
+}
+
+struct ContactProfileActionsRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let contact: NewChatRecipient
 
     var body: some View {
         HStack(spacing: 10) {
-            ContactFollowControl(accountIdHex: contact.accountIdHex)
+            ForEach(ContactProfileAction.ordered, id: \.self) { action in
+                switch action {
+                case .follow:
+                    ContactFollowControl(accountIdHex: contact.accountIdHex)
 
-            Button {
-                Task { await workspace.messageContact(contact) }
-            } label: {
-                Label(L10n.string("Message"), systemImage: "message")
-                    .frame(maxWidth: .infinity)
+                case .message:
+                    Button {
+                        Task { await workspace.messageContact(contact) }
+                    } label: {
+                        Label(L10n.string("Message"), systemImage: "message")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .wnPrimaryButtonStyle()
+                    .disabled(workspace.isCreatingChat)
+                }
             }
-            .wnPrimaryButtonStyle()
-            .disabled(workspace.isCreatingChat)
         }
         .controlSize(.large)
         .padding(.horizontal, 20)

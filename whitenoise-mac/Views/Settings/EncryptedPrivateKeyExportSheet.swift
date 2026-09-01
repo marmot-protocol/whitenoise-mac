@@ -109,10 +109,9 @@ struct EncryptedPrivateKeyExportSheet: View {
         .padding(20)
         .frame(width: 420)
         .onAppear {
-            // `lastError` is shared app-wide state and nothing clears it on the way in, so a
-            // failed profile save or relay write from minutes ago would render under the password
-            // fields as though this sheet had produced it. The export flow sets its own: both key
-            // helpers clear it on entry, and a failed write replaces it.
+            // A failure from minutes ago — a profile save, a relay write — would render under the
+            // password fields as though this sheet had produced it. `exportActiveAccountPrivateKey`
+            // clears it on entry too; this covers the window before anything is pressed.
             workspace.lastError = nil
         }
     }

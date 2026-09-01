@@ -21,19 +21,6 @@ import SwiftUI
 
 /// Signing out of the active account, with or without wiping it off this Mac.
 struct SignOutSheet: View {
-    /// Which teardown is running, once one is.
-    private enum Stage: Equatable {
-        case signingOut
-        case wiping
-
-        var labelKey: String {
-            switch self {
-            case .signingOut: "Signing out…"
-            case .wiping: "Signing out and wiping data…"
-            }
-        }
-    }
-
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.dismiss) private var dismiss
 
@@ -46,9 +33,9 @@ struct SignOutSheet: View {
     /// this sheet replaced was built around — and defaulting the toggle on would quietly invert it
     /// for everyone who signs out without reading. Erasure is opt-in, and the type-to-confirm gate
     /// under the toggle is the second half of the same rule.
-    @State private var wipesLocalData = false
+    @State private var wipesLocalData = SignOutSheetDecisions.wipesLocalDataByDefault
     @State private var confirmationInput = ""
-    @State private var stage: Stage?
+    @State private var stage: SignOutTeardown?
 
     private var challenge: String {
         AccountWipeConfirmation.challenge(
@@ -63,7 +50,11 @@ struct SignOutSheet: View {
     }
 
     private var canSignOut: Bool {
-        stage == nil && (!wipesLocalData || isConfirmed)
+        SignOutSheetDecisions.canSignOut(
+            isTearingDown: stage != nil,
+            wipesLocalData: wipesLocalData,
+            isConfirmed: isConfirmed
+        )
     }
 
     var body: some View {
@@ -110,10 +101,10 @@ struct SignOutSheet: View {
     }
 
     @ViewBuilder
-    private func progress(_ stage: Stage) -> some View {
+    private func progress(_ stage: SignOutTeardown) -> some View {
         HStack(spacing: 12) {
             ProgressView().controlSize(.small)
-            Text(L10n.string(stage.labelKey))
+            Text(L10n.string(stage.progressLabelKey))
                 .wnFont(.medium14)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
         }
@@ -205,11 +196,12 @@ struct SignOutSheet: View {
 
     private func signOut() async {
         guard canSignOut else { return }
-        if wipesLocalData {
-            stage = .wiping
+        let teardown = SignOutSheetDecisions.teardown(wipesLocalData: wipesLocalData)
+        stage = teardown
+        switch teardown {
+        case .removeAccount:
             await workspace.removeAccount(account)
-        } else {
-            stage = .signingOut
+        case .signOut:
             await workspace.signOutAccount(account)
         }
         stage = nil
@@ -218,7 +210,9 @@ struct SignOutSheet: View {
         // dismissing would take the only place that error is shown away with it and leave the
         // reader guessing whether they are still signed in. Same rule the encrypted-export sheet
         // follows, and the reason this sheet draws a `SettingsErrorView` at all.
-        guard workspace.lastError == nil else { return }
+        guard SignOutSheetDecisions.dismissesAfterTeardown(lastError: workspace.lastError) else {
+            return
+        }
         // On success both paths either reselect another identity or land the app in onboarding,
         // which takes this sheet with it. Dismissing covers the first case, harmless in the second.
         dismiss()

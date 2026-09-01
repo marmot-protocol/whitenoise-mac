@@ -63,10 +63,12 @@ struct PendingOutgoingMessageBubble: View {
         }
     }
 
-    /// Failed sends only: a message still on its way out has nothing to retry and no cancellation
-    /// story in the core, so an open menu would offer two actions that do nothing.
     private var showsOverflowControl: Bool {
-        message.state == .failed && (isHovering || isOverflowPresented)
+        PendingOutgoingMessageRecovery.showsOverflowControl(
+            hasFailed: message.state == .failed,
+            isHovering: isHovering,
+            isMenuPresented: isOverflowPresented
+        )
     }
 
     private var accessibilityLabel: String {
@@ -87,9 +89,9 @@ struct PendingOutgoingMessageBubble: View {
             // looks. A large spinner floated over that single short row on top of it would be the
             // same send announced twice, and the dim would fade the inline one along with the row.
             attachments
-                .opacity(dimsForSend ? 0.55 : 1)
+                .opacity(message.showsCenteredSendingOverlay ? 0.55 : 1)
                 .overlay(alignment: .center) {
-                    if dimsForSend {
+                    if message.showsCenteredSendingOverlay {
                         ProgressView()
                             .controlSize(.large)
                             .accessibilityLabel(L10n.string("Sending"))
@@ -99,16 +101,12 @@ struct PendingOutgoingMessageBubble: View {
             if message.caption.isEmpty {
                 metadata
                     .padding(.horizontal, 5)
-                    .opacity(dimsForSend ? 0.55 : 1)
+                    .opacity(message.showsCenteredSendingOverlay ? 0.55 : 1)
             } else {
                 PendingOutgoingMessageCaption(caption: message.caption) { metadata }
-                    .opacity(dimsForSend ? 0.55 : 1)
+                    .opacity(message.showsCenteredSendingOverlay ? 0.55 : 1)
             }
         }
-    }
-
-    private var dimsForSend: Bool {
-        message.state.isInFlight && message.inlineLoadingAudioAttachment == nil
     }
 
     /// The visual body of the bubble: the grid, then any audio/document rows. Never empty — a
@@ -478,10 +476,12 @@ struct PendingOutgoingTextBubble: View {
         }
     }
 
-    /// Failed sends only, matching the media bubble: a message still on its way out has nothing to
-    /// retry and no cancellation story in the core.
     private var showsOverflowControl: Bool {
-        message.state == .failed && (isHovering || isOverflowPresented)
+        PendingOutgoingMessageRecovery.showsOverflowControl(
+            hasFailed: message.state == .failed,
+            isHovering: isHovering,
+            isMenuPresented: isOverflowPresented
+        )
     }
 
     private var accessibilityLabel: String {

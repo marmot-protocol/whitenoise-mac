@@ -693,7 +693,7 @@ nonisolated struct MessageEditContext: Hashable {
     let preservedMediaUploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]
 }
 
-nonisolated enum MessageMediaKind: Hashable, Sendable {
+nonisolated enum MessageMediaKind: CaseIterable, Hashable, Sendable {
     case image
     case audio
     case video
@@ -1023,6 +1023,16 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
     var inlineLoadingAudioAttachment: PendingMediaAttachment? {
         guard attachments.count == 1, let only = attachments.first, only.kind == .audio else { return nil }
         return only
+    }
+
+    /// Whether the bubble dims itself and floats one large spinner over the media while the send is
+    /// in flight.
+    ///
+    /// A message whose wait already shows inside its own row stands down: a large spinner floated
+    /// over a single short audio row is the same Send announced twice, and the dim that comes with
+    /// it fades the inline spinner along with the row it sits in.
+    var showsCenteredSendingOverlay: Bool {
+        state.isInFlight && inlineLoadingAudioAttachment == nil
     }
 }
 

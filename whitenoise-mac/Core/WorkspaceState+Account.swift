@@ -502,6 +502,11 @@ extension WorkspaceState {
         guard !isExportingPrivateKey, let exportingAccount = activeAccount, exportingAccount.localSigning else {
             return false
         }
+        // `lastError` is shared app-wide state, and the export sheet reads it to decide both what
+        // to draw and whether it may close. A failed profile save or relay write from minutes ago
+        // would otherwise render under the password fields as though this export had produced it,
+        // and would stop a successful export from ever dismissing the sheet.
+        lastError = nil
         let suggestedFilename = L10n.string(kind.suggestedFilenameKey)
         guard let destinationURL = privateKeyExportDestinationPicker(suggestedFilename, kind.contentType) else {
             return false

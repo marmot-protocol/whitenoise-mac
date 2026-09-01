@@ -9,6 +9,7 @@
 //  one that lived in that file, moved rather than rewritten.
 //
 
+import AVFAudio
 import AppKit
 import Combine
 import CryptoKit
@@ -5171,16 +5172,118 @@ struct MediaTests: WorkspaceTestSupport {
         )
     }
 
-    @Test func visualMediaTilePrimaryActionRoutesRetryToDownload() throws {
-        // MessageVisualMediaTile is a SwiftUI control that the unit tests cannot activate
-        // directly here. Guard the wiring shape so a failed-tile retry action remains
-        // connected to the explicit download entry point, while the pure decision helper
-        // above guards that failed video tiles choose that action.
-        let tileSource = try SourceContract.declaration("MessageVisualMediaTile")
+    /// Pressing a failed tile has to reach the *explicit* download entry point — the same one a
+    /// retry from the bubble's menu goes through — rather than waiting for an automatic pass that
+    /// has already given up on this attachment once.
+    @MainActor
+    @Test func aFailedTilesPrimaryActionRunsTheExplicitDownload() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.selection = .chat("group")
 
-        #expect(tileSource.contains("MessageVisualMediaTileInteraction.tapAction"))
-        #expect(tileSource.contains("case .retryDownload:"))
-        #expect(tileSource.contains("Task { await workspace.loadMediaAttachment(attachment, for: message) }"))
+        let plaintext = Data([0x00, 0x0F, 0xF0, 0xFF])
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "video/mp4",
+            fileName: "clip.mp4",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let message = MessageItem(
+            id: "failed-video-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "failed-video-message#0#\(reference.plaintextSha256)",
+                    reference: reference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+        state.replaceMessages([message], groupIdHex: "group")
+
+        let action = MessageVisualMediaTileInteraction.tapAction(
+            downloadState: .failed("no relay had it"),
+            attachmentKind: .video
+        )
+        #expect(action == .retryDownload)
+
+        var openedGalleries: [MessageImageGalleryPresentation] = []
+        let downloadsBefore = runtime.downloadMediaCallCount
+        await MessageVisualMediaTileInteraction.perform(
+            action,
+            message: message,
+            attachment: attachment,
+            workspace: state,
+            onOpenImageGallery: { openedGalleries.append($0) }
+        )
+
+        #expect(runtime.downloadMediaCallCount == downloadsBefore + 1)
+        // A retry is not a viewing gesture: a failed video must not also throw the gallery open.
+        #expect(openedGalleries.isEmpty)
+    }
+
+    /// The other half of the same routing: an image opens the viewer, on the photo that was
+    /// pressed rather than on the first one in the message.
+    @MainActor
+    @Test func aLoadedImageTilesPrimaryActionOpensTheGalleryOnThatPhoto() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let references = (0..<3).map { index in
+            mediaAttachmentReference(
+                sourceEpoch: 7,
+                mediaType: "image/png",
+                fileName: "photo-\(index).png",
+                plaintextSha256: hexSHA256(Data([UInt8(index), 0x11, 0x22]))
+            )
+        }
+        let message = MessageItem(
+            id: "gallery-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: references.enumerated().map { index, reference in
+                MessageMediaAttachment(
+                    id: "gallery-message#\(index)#\(reference.plaintextSha256)",
+                    reference: reference
+                )
+            }
+        )
+        let second = message.mediaAttachments[1]
+
+        let action = MessageVisualMediaTileInteraction.tapAction(
+            downloadState: .idle,
+            attachmentKind: .image
+        )
+        #expect(action == .openImageGallery)
+
+        var openedGalleries: [MessageImageGalleryPresentation] = []
+        let downloadsBefore = runtime.downloadMediaCallCount
+        await MessageVisualMediaTileInteraction.perform(
+            action,
+            message: message,
+            attachment: second,
+            workspace: state,
+            onOpenImageGallery: { openedGalleries.append($0) }
+        )
+
+        let gallery = try #require(openedGalleries.first)
+        #expect(openedGalleries.count == 1)
+        #expect(gallery.initialIndex == 1)
+        // Opening the viewer downloads nothing on its own; the viewer's own tile does that.
+        #expect(runtime.downloadMediaCallCount == downloadsBefore)
     }
 
     @MainActor
@@ -5218,219 +5321,510 @@ struct MediaTests: WorkspaceTestSupport {
         )
     }
 
-    @Test func mediaTilesExposeButtonAccessibilitySemantics() throws {
-        // MessageVisualMediaTile and MessageVideoAttachmentPlayer are SwiftUI surfaces
-        // the unit tests cannot activate directly. Guard their source contract: pointer,
-        // keyboard, and VoiceOver users must reach the same primary action through real
-        // Button controls with explicit labels instead of bare tap gestures. Once playback
-        // starts, the live VideoPlayer must sit outside that button so AVKit controls stay
-        // interactive and exposed to assistive technologies.
+    /// A tile that does something says what it does, and a tile that does nothing stays silent.
+    ///
+    /// The invariant rather than the shape: an inert tile announcing "Open image" sends a VoiceOver
+    /// user to a control that will not answer, and a live one announcing nothing hides the only
+    /// recovery a failed download has. Every state the store can be in is walked, because the pair
+    /// is decided in two places that could disagree about a single case.
+    @MainActor
+    @Test func everyTileThatActsAnnouncesWhatItDoesAndEveryInertOneStaysSilent() {
+        let states: [MediaDownloadState] = [
+            .idle,
+            .loading,
+            .failed("no relay had it"),
+            .loaded(
+                MessageMediaDownload(
+                    payload: DownloadedMediaPayload(data: Data([0x01])),
+                    fileName: "photo.png",
+                    mediaType: "image/png",
+                    sizeBytes: 1
+                )
+            ),
+        ]
 
-        let tileSource = try SourceContract.declaration("MessageVisualMediaTile")
-        let normalizedTileSource = tileSource.components(separatedBy: .whitespacesAndNewlines).joined()
+        for downloadState in states {
+            for kind in MessageMediaKind.allCases {
+                let action = MessageVisualMediaTileInteraction.tapAction(
+                    downloadState: downloadState,
+                    attachmentKind: kind
+                )
+                let label = MessageVisualMediaTileInteraction.accessibilityLabel(for: action)
+                #expect(
+                    (action == .none) == (label == nil),
+                    "\(kind) in \(downloadState.logLabel): an action with no label, or a label with no action"
+                )
+                if let label {
+                    #expect(!label.isEmpty)
+                }
+            }
+        }
 
-        #expect(tileSource.contains("Button(action: performPrimaryAction)"))
-        #expect(normalizedTileSource.contains(".buttonStyle(.plain)"))
-        #expect(
-            normalizedTileSource.contains(
-                "MessageVisualMediaTileInteraction.accessibilityLabel(for:tapAction)"
-            )
-        )
-        #expect(!tileSource.contains(".onTapGesture"))
-
-        let playerSource = try SourceContract.declaration("MessageVideoAttachmentPlayer")
-        let normalizedPlayerSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
-
-        #expect(playerSource.contains("if let player {"))
-        #expect(playerSource.contains("VideoPlayer(player: player)"))
-        #expect(playerSource.contains("Button(action: activatePlayback)"))
-        #expect(normalizedPlayerSource.contains(".buttonStyle(.plain)"))
-        #expect(playerSource.contains("MessageVideoAttachmentPlayerAccessibility.label("))
-        #expect(!normalizedPlayerSource.contains(".allowsHitTesting(false)"))
-        #expect(!normalizedPlayerSource.contains(".accessibilityElement(children:.ignore)"))
-        #expect(!playerSource.contains("@State private var isPlaying"))
-        #expect(!playerSource.contains("Pause video"))
-        #expect(!playerSource.contains(".onTapGesture"))
-
-        let livePlayerBranch = try #require(
-            playerSource.range(
-                of: "if let player {",
-                options: [],
-                range: nil,
-                locale: nil
-            )
-        )
-        let elseBranch = try #require(
-            playerSource.range(
-                of: "} else {",
-                options: [],
-                range: livePlayerBranch.upperBound..<playerSource.endIndex,
-                locale: nil
-            )
-        )
-        let livePlayerSource = String(playerSource[livePlayerBranch.upperBound..<elseBranch.lowerBound])
-        #expect(livePlayerSource.contains("VideoPlayer(player: player)"))
-        #expect(!livePlayerSource.contains("Button(action:"))
-    }
-
-    @Test func imageGalleryProvidesDismissalNavigationAndAccessibilityAffordances() throws {
-        // MessageImageGalleryOverlay is SwiftUI event wiring, so guard its source contract:
-        // pointer and keyboard users can dismiss it, keyboard users can page through images,
-        // and VoiceOver receives explicit labels for every icon-only control.
-        let overlaySource = try SourceContract.declaration("MessageImageGalleryOverlay")
-        let normalizedSource = overlaySource.components(separatedBy: .whitespacesAndNewlines).joined()
-
-        #expect(normalizedSource.contains(".onTapGesture(perform:onClose)"))
-        #expect(normalizedSource.contains(".onExitCommand(perform:onClose)"))
-        #expect(normalizedSource.contains(".keyboardShortcut(.leftArrow,modifiers:[])"))
-        #expect(normalizedSource.contains(".keyboardShortcut(.rightArrow,modifiers:[])"))
-        // The labels route through `L10n.string` so VoiceOver announces them in the
-        // selected app language rather than the system locale.
-        #expect(normalizedSource.contains(".accessibilityLabel(L10n.string(\"Close\"))"))
-        #expect(normalizedSource.contains(".accessibilityLabel(accessibilityLabel)"))
-        #expect(overlaySource.contains("accessibilityLabel: L10n.string(\"Previous image\")"))
-        #expect(overlaySource.contains("accessibilityLabel: L10n.string(\"Next image\")"))
-    }
-
-    @Test func automaticMediaDownloadCancelsWhenTileLeavesViewport() throws {
-        // AutomaticMediaDownloadModifier is SwiftUI lifecycle wiring, so exercise its source
-        // contract directly: the task must be retained and cancelled both on scroll-out and
-        // when SwiftUI removes the tile entirely.
-        let modifierSource = try SourceContract.declaration("AutomaticMediaDownloadModifier")
-
-        #expect(modifierSource.contains("@State private var automaticDownloadTask: Task<Void, Never>?"))
-        #expect(
-            modifierSource.contains(
-                "} else {\n                            cancelAutomaticDownload()"
-            )
-        )
-        #expect(
-            modifierSource.contains(
-                ".onDisappear {\n            cancelAutomaticDownload()\n        }"
-            )
-        )
-        #expect(modifierSource.contains("automaticDownloadTask?.cancel()"))
-    }
-
-    @Test func videoPlayerReclaimsScratchFileWhenTileLeavesViewport() throws {
-        // MessageVideoAttachmentPlayer lives inside the deliberately eager transcript VStack,
-        // where scrolling a row away does not trigger onDisappear. Its scroll-visibility hook
-        // must cancel any in-flight materialization and run the same teardown that removes the
-        // decrypted playback scratch file.
-        let playerSource = try SourceContract.declaration("MessageVideoAttachmentPlayer")
-
-        let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
-
-        #expect(
-            normalizedSource.contains(
-                ".onScrollVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}tearDownPlayback()}"
-            )
-        )
-        #expect(
-            normalizedSource.contains(
-                "privatefunctearDownPlayback(){playbackTask?.cancel()playbackTask=nilstopPlayback()}"
-            )
-        )
-        #expect(normalizedSource.contains("MessageMediaPlaybackFileStore.remove(at:url)"))
-    }
-
-    @Test func audioPlayerStopsWhenTileLeavesViewport() throws {
-        // MessageAudioAttachmentPlayer lives inside the deliberately eager transcript VStack,
-        // where scrolling a row away does not trigger onDisappear. Its scroll-visibility hook
-        // must stop playback and cancel the progress monitor through the same stopPlayback path.
-        let playerSource = try SourceContract.declaration("MessageAudioAttachmentPlayer")
-
-        let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
-
-        #expect(
-            normalizedSource.contains(
-                ".onScrollVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}stopPlayback()}"
-            )
-        )
-        #expect(
-            normalizedSource.contains(
-                "privatefuncstopPlayback(){playbackPreparationID=nil"
-            )
-        )
-        #expect(
-            normalizedSource.contains(
-                "privatefuncfinishPlayback(){playbackMonitor?.cancel()playbackMonitor=nil"
-            )
-        )
-    }
-
-    @Test func audioRowKeepsItsGeometryAcrossDownloadStatesAndNeverNamesTheFile() throws {
-        // A voice message's file name is a generated name the sender never chose, so no audio
-        // row shows it — not the player, not the not-yet-downloaded placeholder. The placeholder
-        // also has to occupy exactly the player's space so a finished download swaps the control
-        // glyph instead of reflowing the bubble, which is only guaranteed while both render
-        // through `MessageAudioRow`. Inlining either one's layout would break that silently.
-
-        for typeName in ["MessageAudioAttachmentPlaceholder", "MessageAudioAttachmentPlayer"] {
-            let body = try SourceContract.declaration(typeName)
-
-            #expect(body.contains("MessageAudioRow("), "\(typeName) must render through MessageAudioRow")
-            #expect(!body.contains("fileName"), "\(typeName) must not show the attachment file name")
-            // The speed badge is part of that shared geometry: it sits at the row's trailing edge
-            // and takes width from the waveform, so a row that showed it only once the download
-            // finished would reflow the bubble on the very swap this test exists to prevent.
+        // A failed download is recoverable whatever kind of file it was — the case that was once
+        // reachable for images only, leaving a failed video with no way back.
+        for kind in MessageMediaKind.allCases {
             #expect(
-                body.contains("MessageAudioSpeedBadge("),
-                "\(typeName) must reserve the playback-speed badge"
+                MessageVisualMediaTileInteraction.tapAction(
+                    downloadState: .failed("no relay had it"),
+                    attachmentKind: kind
+                ) == .retryDownload
             )
         }
     }
 
-    @Test func audioRowAlignsItsControlsOnTheWaveformRatherThanOnTheRowBox() throws {
-        // The duration label hangs below the bars inside the middle column, so the column's centre
-        // — and with it the row box's — sits about half a line below the bars themselves. Aligning
-        // on `.center` therefore hangs the play control and the speed badge low against the
-        // waveform they belong to. Nothing observable from a unit test reports a stack's alignment,
-        // so the guide is pinned against the source, like the player's rate ordering below.
-        let normalizedBody = try SourceContract.declaration("MessageAudioRow")
-            .components(separatedBy: .whitespacesAndNewlines).joined()
+    /// Paging the full-screen viewer: both ends of the run are dead, a magnified photo cannot be
+    /// paged out of, and a single photo draws no chevrons at all.
+    @MainActor
+    @Test func theImageViewerPagesWithinItsRunAndStopsAtBothEnds() {
+        var navigation = MessageImageGalleryNavigation(imageCount: 3, selectedIndex: 0)
 
-        #expect(normalizedBody.contains("HStack(alignment:.audioRowWaveformCenter"))
-        // Half the waveform's own height, not a literal: the guide has to follow the band it names.
-        #expect(normalizedBody.contains(".alignmentGuide(.audioRowWaveformCenter){_inSelf.waveformHeight/2}"))
+        #expect(navigation.showsNavigation)
+        #expect(!navigation.canGoToPreviousImage, "the first photo has nothing behind it")
+        #expect(navigation.canGoToNextImage)
+        #expect(navigation.positionLabel == "1 / 3")
+
+        // The arrow keys reach the run with no button in between, so holding one at an end has to
+        // sit still rather than run off it.
+        navigation.goToPreviousImage()
+        #expect(navigation.selectedIndex == 0)
+
+        navigation.goToNextImage()
+        navigation.goToNextImage()
+        #expect(navigation.selectedIndex == 2)
+        #expect(navigation.positionLabel == "3 / 3")
+        navigation.goToNextImage()
+        #expect(navigation.selectedIndex == 2, "the last photo has nothing ahead of it")
+
+        // Paging out of a magnified photo would drop the next one in at someone else's zoom.
+        navigation.isZoomed = true
+        #expect(!navigation.canGoToPreviousImage)
+        #expect(!navigation.canGoToNextImage)
+        navigation.goToPreviousImage()
+        #expect(navigation.selectedIndex == 2)
+
+        let single = MessageImageGalleryNavigation(imageCount: 1, selectedIndex: 0)
+        #expect(!single.showsNavigation, "one photo draws no chevrons and no counter")
+        #expect(!single.canGoToNextImage)
+
+        // An index that arrives out of range is clamped rather than trusted: it indexes the run.
+        let overrun = MessageImageGalleryNavigation(imageCount: 2, selectedIndex: 9)
+        #expect(overrun.clampedIndex() == 1)
     }
 
-    @Test func aSendingAudioShowsItsWaitInThePlayButtonRatherThanUnderAnOverlay() throws {
-        // Same geometry contract as the test above, across the other axis: a voice note is one row
-        // from the moment Send is pressed to the moment it is playable, so the wait belongs in the
-        // well the play button lands in. Rendering it through the shared placeholder is what makes
-        // that a guarantee instead of two hand-matched layouts — and the message-wide dimmer has to
-        // stand down for it, or the send announces itself twice and the inline spinner fades along
-        // with the row it sits in.
-        let source = try SourceContract.source(of: .pendingOutgoingMessage)
-
-        #expect(
-            source.contains("MessageAudioAttachmentPlaceholder("),
-            "a pending audio row must render through the shared audio placeholder"
-        )
-        let normalizedSource = source.components(separatedBy: .whitespacesAndNewlines).joined()
-        #expect(
-            normalizedSource.contains("message.state.isInFlight&&message.inlineLoadingAudioAttachment==nil"),
-            "the centered overlay must stand down for a row that carries its own spinner"
-        )
+    /// Every icon-only control in the viewer announces itself, in the language the app is set to
+    /// rather than the one the system is set to.
+    @MainActor
+    @Test func theImageViewersIconOnlyControlsAnnounceThemselvesInTheAppLanguage() {
+        #expect(MessageImageGalleryNavigation.closeLabel == L10n.string("Close"))
+        #expect(MessageImageGalleryNavigation.previousImageLabel == L10n.string("Previous image"))
+        #expect(MessageImageGalleryNavigation.nextImageLabel == L10n.string("Next image"))
+        for label in [
+            MessageImageGalleryNavigation.closeLabel,
+            MessageImageGalleryNavigation.previousImageLabel,
+            MessageImageGalleryNavigation.nextImageLabel,
+        ] {
+            #expect(!label.isEmpty)
+        }
     }
 
-    @Test func audioPlayerArmsRateControlBeforePreparingAndReappliesItAroundPlay() throws {
-        // Two `AVAudioPlayer` traps, both of which fail silently — the badge would keep cycling and
-        // keep reading 2x while playback stayed at 1x, with nothing in the UI to show it:
-        //   1. `rate` is ignored unless `enableRate` was set *before* `prepareToPlay()`.
-        //   2. `play()` can reset `rate`, so the selected speed has to be applied after it too.
-        // Neither is observable from a unit test — nothing reports the audible rate back — so the
-        // ordering is pinned against the source, the same way the teardown paths above are.
-        let playerSource = try SourceContract.declaration("MessageAudioAttachmentPlayer")
+    /// A tile that scrolls out of the viewport lets go of its download.
+    ///
+    /// Transcript rows are deliberately eager, so a row scrolled off screen is still built and
+    /// `onDisappear` never runs for it. Without this a reader who scrolled past a gallery left every
+    /// download it started running behind them — so the assertion is that the download in flight
+    /// *observes* the cancellation, not merely that no new one starts.
+    @MainActor
+    @Test func anAutomaticDownloadIsLetGoOfWhenItsTileLeavesTheViewport() async {
+        let coordinator = AutomaticMediaDownloadCoordinator()
+        let started = Counter()
+        let cancelled = Counter()
 
-        let enableRate = try #require(playerSource.range(of: "audioPlayer.enableRate = true"))
-        let prepareToPlay = try #require(playerSource.range(of: "audioPlayer.prepareToPlay()"))
-        #expect(enableRate.upperBound < prepareToPlay.lowerBound)
+        func longRunningDownload() async {
+            await started.increment()
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                await cancelled.increment()
+            }
+        }
+        func awaitCount(_ counter: Counter, atLeast target: Int) async {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while await counter.value < target, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
 
-        let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
-        #expect(normalizedSource.contains("applyPlaybackSpeed()player?.play()applyPlaybackSpeed()"))
-        #expect(normalizedSource.contains("privatefuncapplyPlaybackSpeed(){player?.rate=speed.rate}"))
+        coordinator.scrollVisibilityChanged(to: true, isReady: true, download: longRunningDownload)
+        await awaitCount(started, atLeast: 1)
+        #expect(coordinator.isDownloading)
+
+        coordinator.scrollVisibilityChanged(to: false, isReady: true, download: longRunningDownload)
+        await awaitCount(cancelled, atLeast: 1)
+
+        #expect(!coordinator.isDownloading, "scrolling out must cancel, not merely stop starting")
+        #expect(await cancelled.value == 1, "the download in flight never saw the cancellation")
+        #expect(await started.value == 1, "an invisible tile must not start a download of its own")
+
+        // And SwiftUI taking the tile away entirely does the same.
+        coordinator.scrollVisibilityChanged(to: true, isReady: true, download: longRunningDownload)
+        await awaitCount(started, atLeast: 2)
+        #expect(coordinator.isDownloading)
+        coordinator.disappeared()
+        await awaitCount(cancelled, atLeast: 2)
+        #expect(!coordinator.isDownloading)
+        #expect(await cancelled.value == 2)
+    }
+
+    /// A tile only starts when the store says there is something to fetch, and a tile reused for
+    /// another attachment drops the download it was running for the old one — which would otherwise
+    /// finish and be filed against the attachment now on screen.
+    @MainActor
+    @Test func anAutomaticDownloadStartsOnlyWhenReadyAndNeverOutlivesItsAttachment() async {
+        let coordinator = AutomaticMediaDownloadCoordinator()
+
+        coordinator.scrollVisibilityChanged(to: true, isReady: false) {
+            try? await Task.sleep(for: .seconds(30))
+        }
+        #expect(!coordinator.isDownloading, "a loaded or failed tile has nothing to fetch")
+
+        // The store went back to `.idle` — a retry, or a cleared cache — and the tile is visible.
+        coordinator.readinessChanged(to: true, requiresScrollVisibility: true) {
+            try? await Task.sleep(for: .seconds(30))
+        }
+        #expect(coordinator.isDownloading)
+
+        coordinator.attachmentChanged(isReady: false, requiresScrollVisibility: true) {
+            try? await Task.sleep(for: .seconds(30))
+        }
+        #expect(!coordinator.isDownloading)
+
+        // A tile outside a ScrollView has no visibility to wait for.
+        let unscrolled = AutomaticMediaDownloadCoordinator()
+        unscrolled.appeared(isReady: true) { try? await Task.sleep(for: .seconds(30)) }
+        #expect(unscrolled.isDownloading)
+        unscrolled.disappeared()
+        #expect(!unscrolled.isDownloading)
+
+        // …and a *scrolling* tile that was never made visible does not pick one up from readiness
+        // alone, which is what would restart every offscreen row on a cache clear.
+        let offscreen = AutomaticMediaDownloadCoordinator()
+        offscreen.readinessChanged(to: true, requiresScrollVisibility: true) {
+            try? await Task.sleep(for: .seconds(30))
+        }
+        #expect(!offscreen.isDownloading)
+    }
+
+    /// Playing a video decrypts it to a scratch file, and every way playback can end has to take
+    /// that file back off disk.
+    ///
+    /// The plaintext is the point: transcript rows are eager, so a row scrolled out of the viewport
+    /// is never removed and `onDisappear` never runs for it. Before the scroll-visibility teardown,
+    /// scrolling past a video left a decrypted copy of it in the container until the app quit.
+    @MainActor
+    @Test func aVideoScrolledOutOfTheViewportTakesItsDecryptedFileOffDisk() async throws {
+        let payload = Data("not really an mp4, but it is bytes on disk".utf8)
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 4,
+            mediaType: "video/mp4",
+            fileName: "clip.mp4",
+            plaintextSha256: hexSHA256(payload)
+        )
+        let attachment = MessageMediaAttachment(id: "video#0", reference: reference)
+        let download = MessageMediaDownload(
+            payload: DownloadedMediaPayload(data: payload),
+            fileName: "clip.mp4",
+            mediaType: "video/mp4",
+            sizeBytes: UInt64(payload.count)
+        )
+
+        let controller = MessageVideoPlaybackController()
+        controller.activatePlayback(attachment: attachment, download: download)
+
+        let scratchURL = try #require(
+            await Self.settle(until: { controller.playbackURL }),
+            "playback never materialized a scratch file"
+        )
+        #expect(FileManager.default.fileExists(atPath: scratchURL.path))
+
+        controller.scrollVisibilityChanged(to: false)
+
+        #expect(controller.playbackURL == nil)
+        #expect(controller.player == nil)
+        #expect(
+            !FileManager.default.fileExists(atPath: scratchURL.path),
+            "the decrypted copy is still on disk after the row left the screen"
+        )
+
+        // The other two exits reclaim it the same way, from a fresh materialization each time.
+        for teardown in [
+            { controller.disappeared() },
+            { controller.attachmentChanged() },
+        ] {
+            controller.activatePlayback(attachment: attachment, download: download)
+            let url = try #require(await Self.settle(until: { controller.playbackURL }))
+            teardown()
+            #expect(controller.playbackURL == nil)
+            #expect(!FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    /// A voice note whose row scrolls out of the viewport stops, and takes its progress monitor
+    /// with it.
+    ///
+    /// Transcript rows are eager, so the row is never removed and `onDisappear` never runs. Without
+    /// this the note plays on behind the reader — and the monitor keeps waking the main actor five
+    /// times a second for a row nobody can see.
+    @MainActor
+    @Test func aVoiceNoteScrolledOutOfTheViewportStopsPlayingAndStopsPolling() async {
+        let payload = AudioFixture.silentWAV()
+        let playback = MessageAudioPlaybackController()
+
+        await playback.start(payload: payload)
+        #expect(playback.isPlaying)
+        #expect(playback.isMonitoringProgress)
+
+        playback.scrollVisibilityChanged(to: false)
+
+        #expect(!playback.isPlaying)
+        #expect(!playback.isMonitoringProgress, "the progress monitor outlived the playback it followed")
+        #expect(playback.progress == 0)
+
+        // Scrolling *into* the viewport is not a play gesture — only the play button is.
+        playback.scrollVisibilityChanged(to: true)
+        #expect(!playback.isPlaying)
+
+        // And SwiftUI taking the row away does the same.
+        await playback.start(payload: payload)
+        #expect(playback.isPlaying)
+        playback.disappeared()
+        #expect(!playback.isPlaying)
+        #expect(!playback.isMonitoringProgress)
+    }
+
+    /// A finished download swaps the control glyph without reflowing the bubble around it.
+    ///
+    /// Both rows are laid out for real and measured, rather than checked for a shared sub-view:
+    /// sharing one is only *a* way to hold this, and naming that way froze the implementation
+    /// instead of the promise. What the reader has is that the row does not jump when the payload
+    /// lands — including the speed badge, which takes width from the waveform and would resize the
+    /// row on the very swap this exists to prevent if it appeared only once playback was possible.
+    @MainActor
+    @Test func anAudioRowIsTheSameSizeBeforeAndAfterItsDownloadLands() async {
+        let payload = AudioFixture.silentWAV()
+        let download = MessageMediaDownload(
+            payload: DownloadedMediaPayload(data: payload),
+            fileName: "voice-note-2026-09-01T13-14-15.m4a",
+            mediaType: "audio/mp4",
+            sizeBytes: UInt64(payload.count)
+        )
+
+        for isOutgoing in [true, false] {
+            let placeholder = HostedView.fittingSize(
+                of: MessageAudioAttachmentPlaceholder(
+                    isOutgoing: isOutgoing,
+                    accessibilityLabel: L10n.string("Voice message")
+                )
+            )
+            let player = HostedView.fittingSize(
+                of: MessageAudioAttachmentPlayer(download: download, isOutgoing: isOutgoing)
+            )
+
+            #expect(placeholder.height == player.height, "the bubble reflows when the payload lands")
+            #expect(placeholder.width == player.width)
+            #expect(placeholder.height > 0, "nothing was laid out — this test can no longer see the row")
+        }
+    }
+
+    /// A voice message's file name is generated, never chosen, so no audio row is wide enough to be
+    /// showing one.
+    ///
+    /// Measured rather than read out of the source: a row that started drawing the name would have
+    /// to grow to fit it, and the name here is far longer than the `--:--` and `1x` the row does
+    /// carry. The placeholder is the case that matters — it is the one with a name in scope.
+    @MainActor
+    @Test func noAudioRowIsWideEnoughToBeShowingTheGeneratedFileName() async {
+        let shortName = AudioFixture.silentWAV(seconds: 1)
+        let longNamed = MessageMediaDownload(
+            payload: DownloadedMediaPayload(data: shortName),
+            fileName: String(repeating: "voice-note-recorded-on-a-tuesday-", count: 8) + ".m4a",
+            mediaType: "audio/mp4",
+            sizeBytes: UInt64(shortName.count)
+        )
+        let shortNamed = MessageMediaDownload(
+            payload: DownloadedMediaPayload(data: shortName),
+            fileName: "a.m4a",
+            mediaType: "audio/mp4",
+            sizeBytes: UInt64(shortName.count)
+        )
+
+        let wide = HostedView.fittingSize(
+            of: MessageAudioAttachmentPlayer(download: longNamed, isOutgoing: false)
+        )
+        let narrow = HostedView.fittingSize(
+            of: MessageAudioAttachmentPlayer(download: shortNamed, isOutgoing: false)
+        )
+
+        #expect(wide.width == narrow.width, "the row grew to fit a file name")
+    }
+
+    /// The play control sits level with the bars, not with the box the bars and their duration
+    /// label share.
+    ///
+    /// The label hangs below the bars inside the middle column, so that column's centre — and the
+    /// row box's with it — is about half a line lower than the waveform. Meeting on `.center`
+    /// therefore hangs the control low against the band it belongs to. Measured by drawing the
+    /// control as a solid black block and reading back where it landed: an `.alignmentGuide` is
+    /// not visible from anywhere else.
+    @MainActor
+    @Test func anAudioRowsControlSitsLevelWithItsWaveformRatherThanWithItsBox() throws {
+        let controlSide: CGFloat = 24
+        let row = MessageAudioRow(
+            bars: ComposerAudioWaveformPresentation.fallbackPlaybackBars,
+            progress: 0,
+            durationLabel: "0:07",
+            isOutgoing: false,
+            control: { Color.black.frame(width: controlSide, height: controlSide) },
+            speedControl: { Color.clear.frame(width: 24, height: 14) }
+        )
+        .frame(width: 320)
+
+        let scale: CGFloat = 2
+        let rep = try #require(HostedView.render(row, scale: scale), "the row did not rasterize")
+        let rowHeight = CGFloat(rep.pixelsHigh) / scale
+
+        // The control is the leading element, and the only solid block in that half of the row.
+        let span = try #require(
+            HostedView.tallestDarkSpan(in: rep, searchWidth: 100, scale: scale),
+            "the control did not draw — this test can no longer see it"
+        )
+        let controlCenter = (span.lowerBound + span.upperBound) / 2
+
+        #expect(
+            controlCenter < rowHeight / 2 - 1,
+            "the control is centred on the row box (\(controlCenter) of \(rowHeight)) rather than on the waveform"
+        )
+        // …and not thrown clear of the band it is meant to meet. The waveform's midline sits one
+        // half-waveform below the row's top inset, so the control has to be near the top third.
+        #expect(controlCenter > 0)
+        #expect(span.upperBound - span.lowerBound >= controlSide - 1)
+
+        // The guide the row meets on is half the waveform's own height, so it follows the band it
+        // names rather than a literal that can drift away from it.
+        typealias Row = MessageAudioRow<EmptyView, EmptyView>
+        #expect(Row.waveformCenterGuide == Row.waveformHeight / 2)
+    }
+
+    /// A voice note is one row from the moment Send is pressed to the moment it is playable, so the
+    /// wait belongs in the well the play button lands in.
+    ///
+    /// The message-wide dimmer stands down for it, or the send announces itself twice and the
+    /// inline spinner fades along with the row it sits in. Everything else keeps the overlay: a
+    /// grid of tiles and a document row have no well to put a spinner in.
+    @MainActor
+    @Test func anAudioOnlySendCarriesItsWaitInItsOwnRowAndNowhereElse() {
+        func attachment(_ kind: MessageMediaKind, id: String) -> PendingMediaAttachment {
+            let (fileName, mediaType) =
+                switch kind {
+                case .audio: ("\(id).m4a", "audio/mp4")
+                case .image: ("\(id).png", "image/png")
+                case .video: ("\(id).mp4", "video/mp4")
+                case .file: ("\(id).bin", "application/octet-stream")
+                }
+            let made = PendingMediaAttachment(
+                fileName: fileName,
+                mediaType: mediaType,
+                data: Data([0x01]),
+                dim: nil
+            )
+            #expect(made.kind == kind)
+            return made
+        }
+        func message(
+            _ attachments: [PendingMediaAttachment],
+            state: PendingOutgoingMediaMessageState
+        ) -> PendingOutgoingMediaMessage {
+            PendingOutgoingMediaMessage(
+                id: UUID(),
+                attachments: attachments,
+                caption: "",
+                state: state
+            )
+        }
+
+        let audioOnly = message([attachment(.audio, id: "note")], state: .uploading)
+        #expect(audioOnly.inlineLoadingAudioAttachment != nil)
+        #expect(
+            !audioOnly.showsCenteredSendingOverlay,
+            "the overlay would announce the same Send twice and fade the inline spinner with the row"
+        )
+
+        // A photo has no well to put a spinner in, so it keeps the overlay.
+        let photo = message([attachment(.image, id: "photo")], state: .uploading)
+        #expect(photo.inlineLoadingAudioAttachment == nil)
+        #expect(photo.showsCenteredSendingOverlay)
+
+        // So does a voice note sent alongside anything else — the row is no longer the whole
+        // message, so it is no longer the whole wait.
+        let mixed = message(
+            [attachment(.audio, id: "note"), attachment(.image, id: "photo")],
+            state: .uploading
+        )
+        #expect(mixed.inlineLoadingAudioAttachment == nil)
+        #expect(mixed.showsCenteredSendingOverlay)
+
+        // And a send that has landed or failed dims nothing at all: there is no wait left.
+        #expect(!message([attachment(.image, id: "photo")], state: .failed).showsCenteredSendingOverlay)
+    }
+
+    /// The two `AVAudioPlayer` traps behind the speed badge, read back off a real player.
+    ///
+    /// Both fail silently: the badge keeps reading `2x` while playback stays at 1x, with nothing on
+    /// screen to say otherwise.
+    ///   1. `rate` is ignored unless `enableRate` was set *before* `prepareToPlay()`.
+    ///   2. `play()` can reset `rate`, so the selected speed has to be applied after it too.
+    @MainActor
+    @Test func playbackSpeedIsArmedBeforePreparingAndSurvivesEveryPlay() async throws {
+        let payload = AudioFixture.silentWAV()
+        let playback = MessageAudioPlaybackController()
+
+        await playback.start(payload: payload)
+
+        let player = try #require(playback.player, "playback never prepared a player")
+        #expect(player.enableRate, "rate control was not armed before the buffers were prepared")
+        #expect(player.rate == AudioPlaybackSpeed.initial.rate)
+        #expect(playback.isPlaying)
+
+        // Cycling while playing has to be audible at once, which means the rate survives the
+        // `play()` the change goes through.
+        playback.cycleSpeed()
+        #expect(playback.speed == AudioPlaybackSpeed.initial.next)
+        #expect(player.rate == playback.speed.rate)
+
+        playback.cycleSpeed()
+        #expect(player.rate == playback.speed.rate)
+
+        // Wrapping back to 1x lands on the player too.
+        playback.cycleSpeed()
+        #expect(playback.speed == AudioPlaybackSpeed.initial)
+        #expect(player.rate == AudioPlaybackSpeed.initial.rate)
+    }
+
+    /// A speed chosen before the note ever played reaches the player that gets prepared for it —
+    /// the case with nothing loaded to set a rate on at the moment the badge is clicked.
+    @MainActor
+    @Test func aSpeedChosenBeforePlaybackIsAppliedToThePlayerPreparedForIt() async throws {
+        let playback = MessageAudioPlaybackController()
+
+        playback.cycleSpeed()
+        #expect(playback.player == nil, "nothing is loaded until the play button is pressed")
+        let chosen = playback.speed
+        #expect(chosen != AudioPlaybackSpeed.initial)
+
+        await playback.start(payload: AudioFixture.silentWAV())
+
+        let player = try #require(playback.player)
+        #expect(player.enableRate)
+        #expect(player.rate == chosen.rate)
     }
 
     @MainActor

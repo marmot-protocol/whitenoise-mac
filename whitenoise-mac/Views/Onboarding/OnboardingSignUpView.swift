@@ -108,7 +108,7 @@ struct OnboardingSignUpView: View {
             .accessibilityIdentifier("onboarding.sign-up.create")
         }
         .controlSize(.large)
-        .wnButtonShape(.capsule)
+        .wnButtonShape(OnboardingLayout.buttonShape)
         .sheet(isPresented: $workspace.isProfileImagePickerPresented) {
             ProfileImagePickerSheet()
                 // Sheets are hosted outside this view's hierarchy and inherit nothing from it, so

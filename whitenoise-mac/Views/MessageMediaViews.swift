@@ -220,76 +220,16 @@ struct MessageBubble: View {
         // of those per row while resolving the bottom scroll anchor. Frame-alignment is a
         // single deterministic pass with the same result: bubble pinned to its side, ≥72pt
         // gutter opposite. See whitenoise-mac#205 (scroll-layout hangs).
+        // The order is `MessageBubbleLayout`'s, not this stack's: the reaction pill is drawn with a
+        // negative top padding, so it rides up onto whatever was emitted immediately before it, and
+        // getting that neighbour wrong put the reactions on top of the timestamp.
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: Self.contentSpacing) {
-            if !message.isOutgoing {
-                if showsSenderContactLink {
-                    Button {
-                        Task { await workspace.showContactDetails(for: message) }
-                    } label: {
-                        Text(message.senderName)
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                            .padding(.horizontal, 4)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        String(format: L10n.string("View contact %@"), message.senderName)
-                    )
-                } else {
-                    Text(message.senderName)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
-                        .padding(.horizontal, 4)
-                }
+            ForEach(
+                MessageBubbleLayout.elements(for: message, showsDebugMetadata: showsDebugMetadata),
+                id: \.self
+            ) { element in
+                bubbleElement(element)
             }
-
-            if !message.visualMediaAttachments.isEmpty {
-                MessageVisualMediaGrid(
-                    message: message,
-                    attachments: message.visualMediaAttachments,
-                    isOutgoing: message.isOutgoing,
-                    onOpenImageGallery: onOpenImageGallery
-                )
-            }
-
-            ForEach(message.nonvisualMediaAttachments) { attachment in
-                MessageMediaAttachmentView(
-                    downloadState: workspace.mediaDownloadStateStore(for: message, attachment: attachment),
-                    message: message,
-                    attachment: attachment,
-                    isOutgoing: message.isOutgoing
-                )
-            }
-
-            if showsDebugMetadata || message.hasBubbleContent {
-                bubbleContent
-            }
-
-            if message.supportsChatActions && !message.reactions.isEmpty {
-                MessageReactionChips(reactions: message.reactions) { emoji in
-                    reactionViewerEmoji = emoji
-                    isReactionViewerPresented = true
-                }
-                // Hang the chips on the bubble's bottom edge (a slight upward overlap) instead of
-                // floating as a detached row, matching the sibling clients' bubble-bound reactions.
-                // The overlap comes from the chip so the pill's height and how much of it rides on
-                // the bubble stay one decision.
-                .padding(.horizontal, 10)
-                .padding(.top, reactionChipPlacement.topPadding(contentSpacing: Self.contentSpacing))
-                .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
-                    MessageReactionDetailsView(message: message, selectedEmoji: $reactionViewerEmoji)
-                }
-            }
-
-            // After the chips, not before them: the pill rides up onto whatever precedes it, and a
-            // caption-less row's metadata is a bare line of text rather than a surface with an edge
-            // to spare. Emitted first, it was what the pill overlapped.
-            if !message.hasBubbleContent {
-                compactMetadata
-                    .padding(.horizontal, 5)
-            }
-
-            sendFailureActions
         }
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
             if !usesBubbleSurface {
@@ -356,6 +296,75 @@ struct MessageBubble: View {
 
     private var showsInlineActions: Bool {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+    }
+
+    @ViewBuilder
+    private func bubbleElement(_ element: MessageBubbleElement) -> some View {
+        switch element {
+        case .senderName:
+            if showsSenderContactLink {
+                Button {
+                    Task { await workspace.showContactDetails(for: message) }
+                } label: {
+                    Text(message.senderName)
+                        .wnFont(.medium10)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .padding(.horizontal, 4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    String(format: L10n.string("View contact %@"), message.senderName)
+                )
+            } else {
+                Text(message.senderName)
+                    .wnFont(.medium10)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .padding(.horizontal, 4)
+            }
+
+        case .visualMediaGrid:
+            MessageVisualMediaGrid(
+                message: message,
+                attachments: message.visualMediaAttachments,
+                isOutgoing: message.isOutgoing,
+                onOpenImageGallery: onOpenImageGallery
+            )
+
+        case .nonvisualMediaRows:
+            ForEach(message.nonvisualMediaAttachments) { attachment in
+                MessageMediaAttachmentView(
+                    downloadState: workspace.mediaDownloadStateStore(for: message, attachment: attachment),
+                    message: message,
+                    attachment: attachment,
+                    isOutgoing: message.isOutgoing
+                )
+            }
+
+        case .bubbleContent:
+            bubbleContent
+
+        case .reactionChips:
+            MessageReactionChips(reactions: message.reactions) { emoji in
+                reactionViewerEmoji = emoji
+                isReactionViewerPresented = true
+            }
+            // Hang the chips on the bubble's bottom edge (a slight upward overlap) instead of
+            // floating as a detached row, matching the sibling clients' bubble-bound reactions.
+            // The overlap comes from the chip so the pill's height and how much of it rides on
+            // the bubble stay one decision.
+            .padding(.horizontal, 10)
+            .padding(.top, reactionChipPlacement.topPadding(contentSpacing: Self.contentSpacing))
+            .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
+                MessageReactionDetailsView(message: message, selectedEmoji: $reactionViewerEmoji)
+            }
+
+        case .standaloneMetadata:
+            compactMetadata
+                .padding(.horizontal, 5)
+
+        case .sendFailureActions:
+            sendFailureActions
+        }
     }
 
     private var usesBubbleSurface: Bool {
@@ -724,8 +733,7 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
     let attachment: MessageMediaAttachment
     let message: MessageItem
     let requiresScrollVisibility: Bool
-    @State private var isVisibleInScrollView = false
-    @State private var automaticDownloadTask: Task<Void, Never>?
+    @State private var coordinator = AutomaticMediaDownloadCoordinator()
 
     func body(content: Content) -> some View {
         Group {
@@ -734,51 +742,43 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
                     // A tiny non-zero threshold means eager, non-lazy transcript rows do not
                     // auto-download until at least part of the tile intersects the ScrollView.
                     .onScrollVisibilityChange(threshold: 0.01) { isVisible in
-                        isVisibleInScrollView = isVisible
-                        if isVisible {
-                            startAutomaticDownloadIfNeeded()
-                        } else {
-                            cancelAutomaticDownload()
-                        }
+                        coordinator.scrollVisibilityChanged(
+                            to: isVisible,
+                            isReady: downloadState.shouldStartAutomaticDownload,
+                            download: download
+                        )
                     }
             } else {
                 content
                     .onAppear {
-                        startAutomaticDownloadIfNeeded()
+                        coordinator.appeared(
+                            isReady: downloadState.shouldStartAutomaticDownload,
+                            download: download
+                        )
                     }
             }
         }
         .onChange(of: attachment.id) { _, _ in
-            cancelAutomaticDownload()
-            if shouldStartForCurrentVisibility {
-                startAutomaticDownloadIfNeeded()
-            }
+            coordinator.attachmentChanged(
+                isReady: downloadState.shouldStartAutomaticDownload,
+                requiresScrollVisibility: requiresScrollVisibility,
+                download: download
+            )
         }
         .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
-            if shouldStart, shouldStartForCurrentVisibility {
-                startAutomaticDownloadIfNeeded()
-            }
+            coordinator.readinessChanged(
+                to: shouldStart,
+                requiresScrollVisibility: requiresScrollVisibility,
+                download: download
+            )
         }
         .onDisappear {
-            cancelAutomaticDownload()
+            coordinator.disappeared()
         }
     }
 
-    private var shouldStartForCurrentVisibility: Bool {
-        !requiresScrollVisibility || isVisibleInScrollView
-    }
-
-    private func startAutomaticDownloadIfNeeded() {
-        guard downloadState.shouldStartAutomaticDownload else { return }
-        automaticDownloadTask?.cancel()
-        automaticDownloadTask = Task {
-            await workspace.loadMediaAttachment(attachment, for: message)
-        }
-    }
-
-    private func cancelAutomaticDownload() {
-        automaticDownloadTask?.cancel()
-        automaticDownloadTask = nil
+    private func download() async {
+        await workspace.loadMediaAttachment(attachment, for: message)
     }
 }
 
@@ -827,6 +827,35 @@ enum MessageVisualMediaTileInteraction {
     ) -> MessageVisualMediaTileTapAction {
         if case .failed = downloadState { return .retryDownload }
         return attachmentKind == .image ? .openImageGallery : .none
+    }
+
+    /// Carrying out the action `tapAction` chose.
+    ///
+    /// Here rather than inside the tile so the routing is reachable: a failed tile's press has to
+    /// reach the *explicit* download entry point — the same one a retry from the bubble menu uses —
+    /// and an image's press has to hand back the gallery it opens on. Neither is observable from a
+    /// SwiftUI control a test cannot press.
+    @MainActor
+    static func perform(
+        _ action: MessageVisualMediaTileTapAction,
+        message: MessageItem,
+        attachment: MessageMediaAttachment,
+        workspace: WorkspaceState,
+        onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+    ) async {
+        switch action {
+        case .retryDownload:
+            await workspace.loadMediaAttachment(attachment, for: message)
+        case .openImageGallery:
+            if let gallery = MessageImageGalleryPresentation(
+                message: message,
+                initialAttachment: attachment
+            ) {
+                onOpenImageGallery(gallery)
+            }
+        case .none:
+            break
+        }
     }
 
     static func accessibilityLabel(for action: MessageVisualMediaTileTapAction) -> String? {
@@ -989,21 +1018,18 @@ struct MessageVisualMediaTile: View {
     }
 
     private func performPrimaryAction() {
-        switch MessageVisualMediaTileInteraction.tapAction(
+        let action = MessageVisualMediaTileInteraction.tapAction(
             downloadState: downloadState.state,
             attachmentKind: attachment.kind
-        ) {
-        case .retryDownload:
-            Task { await workspace.loadMediaAttachment(attachment, for: message) }
-        case .openImageGallery:
-            if let gallery = MessageImageGalleryPresentation(
+        )
+        Task {
+            await MessageVisualMediaTileInteraction.perform(
+                action,
                 message: message,
-                initialAttachment: attachment
-            ) {
-                onOpenImageGallery(gallery)
-            }
-        case .none:
-            break
+                attachment: attachment,
+                workspace: workspace,
+                onOpenImageGallery: onOpenImageGallery
+            )
         }
     }
 
@@ -1271,6 +1297,14 @@ struct MessageAttachmentStatusRow: View {
 struct MessageAudioRow<Control: View, SpeedControl: View>: View {
     static var waveformHeight: CGFloat { 24 }
 
+    /// Where the row's controls meet its middle column: half the waveform's own height, so the
+    /// guide follows the band it names rather than a literal that can drift away from it.
+    ///
+    /// The duration label hangs below the bars inside that column, so the column's centre — and the
+    /// row box's with it — sits about half a line below the bars. Meeting on `.center` therefore
+    /// hangs the play control and the speed badge low against the waveform they belong to.
+    static var waveformCenterGuide: CGFloat { waveformHeight / 2 }
+
     let bars: [ComposerAudioWaveformBar]
     let progress: CGFloat
     let durationLabel: String
@@ -1302,7 +1336,7 @@ struct MessageAudioRow<Control: View, SpeedControl: View>: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .alignmentGuide(.audioRowWaveformCenter) { _ in Self.waveformHeight / 2 }
+            .alignmentGuide(.audioRowWaveformCenter) { _ in Self.waveformCenterGuide }
 
             speedControl
         }
@@ -1401,85 +1435,50 @@ struct MessageAudioAttachmentPlaceholder: View {
     }
 }
 
-struct PreparedMessageAudioPlayer: @unchecked Sendable {
-    let player: AVAudioPlayer
-}
-
-@MainActor
-final class MessageAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
-    var onDidFinishPlaying: (() -> Void)?
-
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        player.currentTime = 0
-        onDidFinishPlaying?()
-    }
-}
-
 struct MessageAudioAttachmentPlayer: View {
     let download: MessageMediaDownload
     let isOutgoing: Bool
     @Environment(\.locale) private var locale
-    @State private var player: AVAudioPlayer?
-    @State private var isPlaying = false
-    @State private var playbackPreparationID: UUID?
-    @State private var playbackProgress: CGFloat = 0
+    @State private var playback = MessageAudioPlaybackController()
     @State private var metadata: MediaWaveformAnalyzer.Metadata?
     @State private var metadataPayloadID: String?
     @State private var waveformBars = ComposerAudioWaveformPresentation.fallbackPlaybackBars
-    @State private var playbackMonitor: Task<Void, Never>?
-    @State private var audioPlayerDelegate = MessageAudioPlayerDelegate()
-    /// Per-row, like the iOS client's bubble: the speed a listener picked for one voice note is
-    /// their reading of that note, not a preference to carry across the transcript.
-    @State private var speed = AudioPlaybackSpeed.initial
-
-    private var isPreparingPlayback: Bool {
-        playbackPreparationID != nil
-    }
 
     var body: some View {
         MessageAudioRow(
             bars: visibleWaveformBars,
-            progress: playbackProgress,
+            progress: playback.progress,
             durationLabel: durationLabel,
             isOutgoing: isOutgoing,
             control: {
                 Button {
-                    Task { await togglePlayback() }
+                    Task { await playback.toggle(payload: download.payload.data) }
                 } label: {
-                    Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
+                    Image(systemName: isStopControl ? "stop.fill" : "play.fill")
                         .wnFont(.bold14)
                         .audioRowControlChrome(isOutgoing: isOutgoing)
                 }
                 .buttonStyle(.plain)
-                .help(isPlaying || isPreparingPlayback ? L10n.string("Stop") : L10n.string("Play"))
+                .help(isStopControl ? L10n.string("Stop") : L10n.string("Play"))
             },
             speedControl: {
-                Button(action: cycleSpeed) {
-                    MessageAudioSpeedBadge(speed: speed, isOutgoing: isOutgoing)
+                Button(action: playback.cycleSpeed) {
+                    MessageAudioSpeedBadge(speed: playback.speed, isOutgoing: isOutgoing)
                 }
                 .buttonStyle(.plain)
                 .help(L10n.string("Playback speed"))
                 .accessibilityLabel(L10n.string("Playback speed"))
-                .accessibilityValue(speed.label(locale: locale))
+                .accessibilityValue(playback.speed.label(locale: locale))
             }
         )
-        // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
-        // does not trigger onDisappear. Stop playback here as well so the AVAudioPlayer and
-        // progress monitor do not keep running offscreen.
         .onScrollVisibilityChange(threshold: 0.01) { isVisible in
-            guard !isVisible else { return }
-            stopPlayback()
+            playback.scrollVisibilityChanged(to: isVisible)
         }
         .onDisappear {
-            stopPlayback()
+            playback.disappeared()
         }
-        // The prepared `AVAudioPlayer` is built from a specific payload's bytes; if this
-        // view's identity outlives a change of `download.payload.id` (e.g. an edited or
-        // progressively updated attachment), drop the stale player so `startPlayback`
-        // rebuilds it for the new payload instead of replaying the previous one. See #339.
         .onChange(of: download.payload.id) { _, _ in
-            stopPlayback()
-            player = nil
+            playback.payloadChanged()
         }
         .task(id: download.payload.id) {
             let payloadID = download.payload.id
@@ -1494,6 +1493,10 @@ struct MessageAudioAttachmentPlayer: View {
             metadataPayloadID = payloadID
             waveformBars = loadedWaveformBars
         }
+    }
+
+    private var isStopControl: Bool {
+        playback.isPlaying || playback.isPreparingPlayback
     }
 
     private var visibleMetadata: MediaWaveformAnalyzer.Metadata? {
@@ -1514,108 +1517,6 @@ struct MessageAudioAttachmentPlayer: View {
         }
         return download.sizeLabel
     }
-
-    private func togglePlayback() async {
-        if isPlaying || isPreparingPlayback {
-            stopPlayback()
-        } else {
-            await startPlayback()
-        }
-    }
-
-    private func startPlayback() async {
-        var preparationID: UUID?
-        do {
-            if player == nil {
-                let data = download.payload.data
-                let nextPreparationID = UUID()
-                preparationID = nextPreparationID
-                playbackPreparationID = nextPreparationID
-                let preparedPlayer = try await Task.detached(priority: .userInitiated) {
-                    let audioPlayer = try AVAudioPlayer(data: data)
-                    // `rate` is only honoured when rate control is armed before the player
-                    // prepares its buffers, so the speed badge has to be enabled here — doing it
-                    // on the first click of the badge is too late and leaves playback at 1x.
-                    audioPlayer.enableRate = true
-                    audioPlayer.prepareToPlay()
-                    return PreparedMessageAudioPlayer(player: audioPlayer)
-                }.value.player
-                guard playbackPreparationID == nextPreparationID else { return }
-                playbackPreparationID = nil
-                player = preparedPlayer
-                preparedPlayer.delegate = audioPlayerDelegate
-            }
-            audioPlayerDelegate.onDidFinishPlaying = handlePlaybackFinished
-            applyPlaybackSpeed()
-            player?.play()
-            applyPlaybackSpeed()
-            isPlaying = true
-            updatePlaybackProgress()
-            monitorPlaybackProgress()
-        } catch {
-            if preparationID == nil || playbackPreparationID == preparationID {
-                playbackPreparationID = nil
-                isPlaying = false
-            }
-        }
-    }
-
-    /// Advance the badge one step, wrapping 2x back to 1x, and make the new rate audible at once.
-    ///
-    /// Nothing is loaded on the first click of a row that has never played, and that is fine: the
-    /// selection is remembered in `speed` and `startPlayback` applies it to the player it prepares.
-    private func cycleSpeed() {
-        speed = speed.next
-        applyPlaybackSpeed()
-        guard isPlaying else { return }
-        // A rate assigned to an already-playing `AVAudioPlayer` does not always take until the
-        // player is told to play again, and `play()` in turn can reset the rate to 1 — so the new
-        // speed is applied on both sides of the call. Without this the change is inaudible until
-        // the listener stops and restarts the note.
-        player?.play()
-        applyPlaybackSpeed()
-    }
-
-    private func applyPlaybackSpeed() {
-        player?.rate = speed.rate
-    }
-
-    private func stopPlayback() {
-        playbackPreparationID = nil
-        audioPlayerDelegate.onDidFinishPlaying = nil
-        player?.stop()
-        player?.currentTime = 0
-        finishPlayback()
-    }
-
-    private func handlePlaybackFinished() {
-        finishPlayback()
-    }
-
-    private func finishPlayback() {
-        playbackMonitor?.cancel()
-        playbackMonitor = nil
-        isPlaying = false
-        playbackProgress = 0
-    }
-
-    private func monitorPlaybackProgress() {
-        playbackMonitor?.cancel()
-        playbackMonitor = Task { @MainActor in
-            while !Task.isCancelled, isPlaying {
-                updatePlaybackProgress()
-                try? await Task.sleep(nanoseconds: 200_000_000)
-            }
-        }
-    }
-
-    private func updatePlaybackProgress() {
-        guard let player, player.duration > 0 else {
-            playbackProgress = 0
-            return
-        }
-        playbackProgress = min(1, max(0, CGFloat(player.currentTime / player.duration)))
-    }
 }
 
 struct MessageVideoAttachmentPlayer: View {
@@ -1624,58 +1525,39 @@ struct MessageVideoAttachmentPlayer: View {
     let isOutgoing: Bool
     let sideLength: CGFloat
 
-    @State private var player: AVPlayer?
-    @State private var playbackURL: URL?
-    @State private var isLoading = false
-    @State private var didFail = false
-    @State private var playbackPreparationID: UUID?
-    @State private var playbackTask: Task<Void, Never>?
-    @State private var endOfPlaybackObserver: NSObjectProtocol?
-
-    private var isPreparingPlayback: Bool {
-        playbackPreparationID != nil
-    }
+    @State private var playback = MessageVideoPlaybackController()
 
     var body: some View {
         ZStack {
-            if let player {
+            if let player = playback.player {
+                // Outside the button on purpose: AVKit's own transport controls have to stay
+                // interactive, and a button wrapping them would swallow every click.
                 VideoPlayer(player: player)
                     .frame(width: sideLength, height: sideLength)
                     .background(WNColor.shadow)
             } else {
-                Button(action: activatePlayback) {
+                Button {
+                    playback.activatePlayback(attachment: attachment, download: download)
+                } label: {
                     playbackPlaceholder
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(
-                    MessageVideoAttachmentPlayerAccessibility.label(
-                        isPreparingPlayback: isPreparingPlayback,
-                        didFail: didFail
-                    )
-                )
+                .accessibilityLabel(playback.accessibilityLabel)
             }
         }
         .frame(width: sideLength, height: sideLength)
         .contentShape(Rectangle())
-        // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
-        // does not trigger onDisappear. Tear down here as well to release the player and delete
-        // its decrypted playback scratch file as soon as the tile is no longer visible.
         .onScrollVisibilityChange(threshold: 0.01) { isVisible in
-            guard !isVisible else { return }
-            tearDownPlayback()
+            playback.scrollVisibilityChanged(to: isVisible)
         }
         .onDisappear {
-            tearDownPlayback()
+            playback.disappeared()
         }
-        // If this view's identity outlives a change of the attachment it renders (e.g. a
-        // media grid slot flips to a different attachment, or the download's decrypted
-        // payload changes), tear the player down so playback and the scratch-file cleanup
-        // can never target the previous attachment's `playbackURL`. See #339.
         .onChange(of: attachment.id) { _, _ in
-            resetForAttachmentChange()
+            playback.attachmentChanged()
         }
         .onChange(of: download.payload.id) { _, _ in
-            resetForAttachmentChange()
+            playback.attachmentChanged()
         }
     }
 
@@ -1686,7 +1568,7 @@ struct MessageVideoAttachmentPlayer: View {
     private var playbackPlaceholder: some View {
         ZStack {
             WNColor.overlayTertiary
-            Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
+            Image(systemName: playback.didFail ? "arrow.clockwise" : "play.fill")
                 .wnFont(.bold24)
                 .foregroundStyle(WNColor.fillContentQuaternary)
                 .frame(width: 48, height: 48)
@@ -1702,7 +1584,7 @@ struct MessageVideoAttachmentPlayer: View {
                     .padding(.bottom, 8)
             }
 
-            if isLoading {
+            if playback.isLoading {
                 ProgressView()
                     .controlSize(.small)
                     .tint(WNColor.fillContentQuaternary)
@@ -1712,117 +1594,6 @@ struct MessageVideoAttachmentPlayer: View {
         }
         .frame(width: sideLength, height: sideLength)
         .contentShape(Rectangle())
-    }
-
-    private func activatePlayback() {
-        if isPreparingPlayback {
-            tearDownPlayback()
-        } else {
-            playbackTask?.cancel()
-            playbackTask = Task { await togglePlayback() }
-        }
-    }
-
-    private func tearDownPlayback() {
-        playbackTask?.cancel()
-        playbackTask = nil
-        stopPlayback()
-    }
-
-    private func resetForAttachmentChange() {
-        didFail = false
-        tearDownPlayback()
-    }
-
-    @MainActor
-    private func togglePlayback() async {
-        guard !Task.isCancelled else { return }
-
-        if isPreparingPlayback {
-            stopPlayback()
-            return
-        }
-
-        await startPlayback()
-    }
-
-    @MainActor
-    private func startPlayback() async {
-        guard !Task.isCancelled else { return }
-
-        let nextPreparationID = UUID()
-        playbackPreparationID = nextPreparationID
-        isLoading = true
-        didFail = false
-        defer {
-            if playbackPreparationID == nextPreparationID {
-                playbackPreparationID = nil
-                isLoading = false
-            }
-        }
-
-        let resolvedURL: URL?
-        if let playbackURL {
-            resolvedURL = playbackURL
-        } else {
-            resolvedURL = await MessageMediaPlaybackFileStore.fileURL(
-                attachment: attachment,
-                download: download
-            )
-        }
-        guard playbackPreparationID == nextPreparationID, !Task.isCancelled else {
-            // Preparation was superseded or cancelled after `fileURL` materialized a fresh
-            // decrypted scratch file. `playbackURL` is still unset on this path, so the
-            // teardown paths can't reclaim it — delete it here to avoid leaking plaintext.
-            if let resolvedURL, resolvedURL != playbackURL {
-                MessageMediaPlaybackFileStore.remove(at: resolvedURL)
-            }
-            return
-        }
-        guard let url = resolvedURL else {
-            didFail = true
-            return
-        }
-        playbackURL = url
-        let next = AVPlayer(url: url)
-        player = next
-        observeEndOfPlayback(for: next)
-        next.play()
-    }
-
-    /// Seeks the playhead back to the start when the item plays to completion so the next tap
-    /// restarts playback instead of no-op-ing on the final frame. Mirrors the audio replay fix
-    /// (#118) for the separate `AVPlayer` video code path.
-    private func observeEndOfPlayback(for player: AVPlayer) {
-        removeEndOfPlaybackObserver()
-        endOfPlaybackObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification,
-            object: player.currentItem,
-            queue: .main
-        ) { _ in
-            player.seek(to: .zero)
-        }
-    }
-
-    private func removeEndOfPlaybackObserver() {
-        if let endOfPlaybackObserver {
-            NotificationCenter.default.removeObserver(endOfPlaybackObserver)
-            self.endOfPlaybackObserver = nil
-        }
-    }
-
-    /// Cancels in-flight preparation, releases the player, and deletes the decrypted scratch
-    /// file. Ordered so `AVPlayer` no longer references the file before it is removed.
-    private func stopPlayback() {
-        playbackPreparationID = nil
-        isLoading = false
-        removeEndOfPlaybackObserver()
-        player?.pause()
-        player = nil
-        if let url = playbackURL {
-            MessageMediaPlaybackFileStore.remove(at: url)
-            playbackURL = nil
-        }
     }
 }
 
@@ -1862,21 +1633,22 @@ struct MessageImageGalleryOverlay: View {
     @Environment(WorkspaceState.self) private var workspace
     let presentation: MessageImageGalleryPresentation
     let onClose: () -> Void
-    @State private var selectedIndex: Int
+    @State private var navigation: MessageImageGalleryNavigation
     @State private var zoom = ImageZoomState()
 
     init(presentation: MessageImageGalleryPresentation, onClose: @escaping () -> Void) {
         self.presentation = presentation
         self.onClose = onClose
-        _selectedIndex = State(initialValue: presentation.initialIndex)
+        _navigation = State(
+            initialValue: MessageImageGalleryNavigation(
+                imageCount: presentation.imageAttachments.count,
+                selectedIndex: presentation.initialIndex
+            )
+        )
     }
 
     private var selectedAttachment: MessageMediaAttachment {
-        presentation.imageAttachments[min(max(0, selectedIndex), presentation.imageAttachments.count - 1)]
-    }
-
-    private var canNavigate: Bool {
-        presentation.imageAttachments.count > 1
+        presentation.imageAttachments[navigation.clampedIndex()]
     }
 
     var body: some View {
@@ -1906,8 +1678,8 @@ struct MessageImageGalleryOverlay: View {
 
                         Spacer()
 
-                        if canNavigate {
-                            Text(verbatim: "\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
+                        if navigation.showsNavigation {
+                            Text(verbatim: navigation.positionLabel)
                                 .wnFont(.semiBold10.monospacedDigit())
                                 .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.72))
                         }
@@ -1950,8 +1722,8 @@ struct MessageImageGalleryOverlay: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(WNColor.fillContentQuaternary)
-                        .help(L10n.string("Close"))
-                        .accessibilityLabel(L10n.string("Close"))
+                        .help(MessageImageGalleryNavigation.closeLabel)
+                        .accessibilityLabel(MessageImageGalleryNavigation.closeLabel)
                     }
                     .padding(.horizontal, 22)
                     .padding(.top, 18)
@@ -1959,14 +1731,14 @@ struct MessageImageGalleryOverlay: View {
                     Spacer()
                 }
 
-                if canNavigate {
+                if navigation.showsNavigation {
                     HStack {
                         navigationButton(
                             systemName: "chevron.left",
-                            accessibilityLabel: L10n.string("Previous image"),
-                            isEnabled: selectedIndex > 0 && !zoom.isZoomed
+                            accessibilityLabel: MessageImageGalleryNavigation.previousImageLabel,
+                            isEnabled: navigation.canGoToPreviousImage
                         ) {
-                            selectedIndex = max(0, selectedIndex - 1)
+                            navigation.goToPreviousImage()
                         }
                         .keyboardShortcut(.leftArrow, modifiers: [])
 
@@ -1974,11 +1746,10 @@ struct MessageImageGalleryOverlay: View {
 
                         navigationButton(
                             systemName: "chevron.right",
-                            accessibilityLabel: L10n.string("Next image"),
-                            isEnabled: selectedIndex < presentation.imageAttachments.count - 1
-                                && !zoom.isZoomed
+                            accessibilityLabel: MessageImageGalleryNavigation.nextImageLabel,
+                            isEnabled: navigation.canGoToNextImage
                         ) {
-                            selectedIndex = min(presentation.imageAttachments.count - 1, selectedIndex + 1)
+                            navigation.goToNextImage()
                         }
                         .keyboardShortcut(.rightArrow, modifiers: [])
                     }
@@ -1990,7 +1761,8 @@ struct MessageImageGalleryOverlay: View {
         // Paging out of a magnified photo would drop the next one in at someone else's
         // zoom, so each image starts fitted. Flutter suppresses paging entirely while
         // zoomed; the chevrons above disable for the same reason.
-        .onChange(of: selectedIndex) { zoom.reset() }
+        .onChange(of: navigation.selectedIndex) { zoom.reset() }
+        .onChange(of: zoom.isZoomed) { _, isZoomed in navigation.isZoomed = isZoomed }
     }
 
     @ViewBuilder
@@ -2238,7 +2010,10 @@ struct MessageEmojiPickerPopover: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            QuickReactionButtons(emojis: workspace.quickReactions, onPick: onPick) { emoji in
+            QuickReactionButtons(
+                emojis: MessageQuickReactionSurface.emojis(in: workspace),
+                onPick: onPick
+            ) { emoji in
                 Text(emoji)
                     .wnFont(.medium24)
                     .frame(width: 40, height: 40)
@@ -2275,6 +2050,33 @@ struct MessageEmojiPickerPopover: View {
 /// `.contextMenu` (`MessageContextMenuItems`) and the inline hover popover
 /// (`MessageOverflowPopover`) — share one source of truth for which actions exist and what
 /// they do, while each keeps its own button styling.
+/// The emoji row every quick-reaction surface offers.
+///
+/// One function rather than two call sites reading the preference for themselves: the hover popover
+/// and the right-click menu answer the same gesture, and while each named its own array one of them
+/// went on offering the built-in defaults after the reader had chosen their own.
+@MainActor
+enum MessageQuickReactionSurface {
+    static func emojis(in workspace: WorkspaceState) -> [String] {
+        workspace.quickReactions
+    }
+}
+
+/// Whether a pending row shows the ⋯ that carries the rest of its recovery.
+///
+/// Failed sends only: a message still on its way out has nothing to retry and no cancellation story
+/// in the core, so an open menu would offer actions that do nothing. Shared by the media and text
+/// bubbles, which are two rows for one rule.
+nonisolated enum PendingOutgoingMessageRecovery {
+    static func showsOverflowControl(
+        hasFailed: Bool,
+        isHovering: Bool,
+        isMenuPresented: Bool
+    ) -> Bool {
+        hasFailed && (isHovering || isMenuPresented)
+    }
+}
+
 struct MessageRowAction: Identifiable {
     enum Kind { case retry, info, select, forward, edit, copy, delete }
 
@@ -2490,7 +2292,7 @@ struct MessageContextMenuItems: View {
             if message.canReact {
                 Menu {
                     QuickReactionButtons(
-                        emojis: workspace.quickReactions,
+                        emojis: MessageQuickReactionSurface.emojis(in: workspace),
                         onPick: { emoji in
                             Task { await workspace.react(to: message, emoji: emoji) }
                         }

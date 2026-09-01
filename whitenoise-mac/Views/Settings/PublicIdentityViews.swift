@@ -119,8 +119,10 @@ struct PublicIdentityQRCodeSheet: View {
         return nip05.nilIfBlank
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
+    @ViewBuilder
+    private func sheetElement(_ element: PublicIdentitySheetElement) -> some View {
+        switch element {
+        case .avatar:
             ProfileImageAvatarView(
                 seed: account.accountIdHex,
                 initials: displayName,
@@ -130,6 +132,7 @@ struct PublicIdentityQRCodeSheet: View {
                 isSelected: false
             )
 
+        case .displayName:
             Text(displayName)
                 .wnFont(.semiBold16)
                 .foregroundStyle(WNColor.backgroundContentPrimary)
@@ -137,11 +140,13 @@ struct PublicIdentityQRCodeSheet: View {
                 .lineLimit(2)
                 .padding(.top, 8)
 
+        case .nostrAddress:
             if let nostrAddress {
                 NostrAddressLabel(address: nostrAddress)
                     .padding(.top, 3)
             }
 
+        case .npubCard:
             // The compact tier, not the Profile page's full-width card: here the code is the
             // subject and the npub is the alternative to it, which is the split
             // `wn-ios-prototype` draws with a capsule under the name.
@@ -153,6 +158,7 @@ struct PublicIdentityQRCodeSheet: View {
             )
             .padding(.top, 8)
 
+        case .qrCode:
             // No stroke, and only a hair of quiet zone. The prototype's card carries no border
             // either: what makes a QR code read as an object is its own matrix, so an outline
             // around it only adds an edge to look at. The surface still has to be named — the
@@ -161,14 +167,34 @@ struct PublicIdentityQRCodeSheet: View {
             QRCodeImageView(payload: MarmotProfileLink.qrPayload(npub: npub))
                 .padding(codePadding)
                 .frame(width: codeSize, height: codeSize)
-                .background(WNColor.backgroundPrimary, in: .rect(cornerRadius: 16, style: .continuous))
+                .background(
+                    WNColor.backgroundPrimary,
+                    in: .rect(
+                        cornerRadius: PublicIdentitySheetLayout.codeCardCornerRadius,
+                        style: .continuous
+                    )
+                )
                 .padding(.top, 28)
 
+        case .caption:
             Text(L10n.string("Scan to connect"))
                 .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 6)
+        }
+    }
+
+    var body: some View {
+        // The order is `PublicIdentitySheetLayout`'s, not this stack's: identity above the code,
+        // caption below it, the way `share_profile_screen.dart` puts it in the sibling clients.
+        VStack(spacing: 0) {
+            ForEach(
+                PublicIdentitySheetLayout.elements(hasNostrAddress: nostrAddress != nil),
+                id: \.self
+            ) { element in
+                sheetElement(element)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 22)

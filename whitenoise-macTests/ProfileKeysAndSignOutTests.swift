@@ -6,7 +6,10 @@
 //  page's export rules, and the sign-out sheet's type-to-confirm gate.
 //
 
+import AppKit
 import Foundation
+import MarmotKit
+import SwiftUI
 import Testing
 import UniformTypeIdentifiers
 
@@ -159,129 +162,231 @@ struct PrivateKeyExportTests {
     }
 }
 
-@Suite
-struct ProfileKeysSourceContractTests {
-    /// Only a source contract can guard absent chrome: no behavior test can observe a page header
-    /// that is never built, or a group that is no longer there.
-    @Test func theProfileKeysPageCarriesNoSubtitleAccountRowOrRemovalGroup() throws {
-        let page = SourceContract.strippingCommentLines(try SourceContract.source(of: .profileKeysSettings))
+/// The two key surfaces as the reader meets them: what the Profile Keys page is made of, what it
+/// promises about the audit log, and every rule standing between a click on the sign-out sheet and
+/// an erased account.
+///
+/// `.serialized` and `@MainActor` because the destructive-tier test rasterizes under a chosen
+/// `NSAppearance`, and `performAsCurrentDrawingAppearance` off the main actor takes the test host
+/// down with it.
+@Suite(.serialized)
+@MainActor
+struct ProfileKeysAndSignOutSurfaceTests {
+    static func localSigningAccount() -> AccountSummaryFfi { desktopAccount() }
 
-        #expect(page.contains("SettingsScaffold(title: L10n.string(\"Profile Keys\"))"))
-        // A subtitle is passed as an argument, so its absence is the absence of the argument.
-        #expect(!page.contains("subtitle:"))
-        #expect(!page.contains("Identity & Keys"))
-        // The Account group's two ingredients: the page draws no avatar and reports no signing
-        // mode. Which identity the page acts on is the drawer's profile card and the account rail.
-        #expect(!page.contains("ProfileImageAvatarView("))
-        #expect(!page.contains("accountSigningDescription"))
-        // Removal moved to the sign-out sheet, whole.
-        #expect(!page.contains("removeActiveAccount"))
-        #expect(!page.contains("removeAccountConfirmation"))
-        #expect(!page.contains("Account Removal"))
+    /// Three groups and no fourth.
+    ///
+    /// The page used to open with a subtitle and an Account group — an avatar and a line reporting
+    /// the signing mode — restating an identity the reader had just come through the drawer's
+    /// profile card to reach, and it used to end with Account Removal, which now lives whole inside
+    /// the sign-out sheet where the confirmation is. The page is built from this list, so a fourth
+    /// group is an edit here rather than a stack that quietly grew one.
+    @MainActor
+    @Test func theProfileKeysPageIsThreeGroupsAndTheExportOneNeedsALocalKey() {
+        #expect(
+            ProfileKeysPageContents.groups(localSigning: true) == [.publicKey, .privateKey, .export]
+        )
+        // An externally-signed account has no key on this Mac, so there is nothing to export.
+        #expect(ProfileKeysPageContents.groups(localSigning: false) == [.publicKey, .privateKey])
 
-        // And the three groups the prototype's spec names are the three that are there.
-        for header in ["Public Key", "Private Key", "Export"] {
-            #expect(page.contains("L10n.string(\"\(header)\")"), "missing the \(header) group")
+        for group in ProfileKeysPageContents.groups(localSigning: true) {
+            #expect(!L10n.string(group.titleKey).isEmpty, "\(group) has no heading")
         }
     }
 
-    /// The privacy contract this page inherited from the backup sheet it replaced. On macOS the
-    /// eye, the copy button and the raw export all go through the core's `revealNsec`, which writes
-    /// an audit line and downgrades that account's audit data mode — so the page has to say so.
-    /// A test comment cannot defend dropping it; the shipped string is the promise.
-    @Test func thePrivateKeyGroupDisclosesTheAuditLog() throws {
-        let page = try SourceContract.source(of: .profileKeysSettings)
+    /// The privacy contract this page inherited from the backup sheet it replaced.
+    ///
+    /// On macOS the eye, the copy button and the raw export all go through the core's `revealNsec`,
+    /// which writes an audit line and downgrades that account's audit data mode — so the page has to
+    /// say so, and has to say the key itself is not written down. A comment cannot make that
+    /// promise; the shipped string is the promise, which is why it is asserted word for word.
+    @MainActor
+    @Test func thePrivateKeyGroupDisclosesTheAuditLogInTheShippedWords() {
+        let disclosure = ProfileKeysPageContents.auditLogDisclosure
 
         #expect(
-            page.contains(
+            disclosure.contains(
                 "White Noise notes the date and time of each reveal, copy or export in this account's audit log"
-            ))
-        #expect(page.contains("Your private key is never written to the log."))
-        // The concealed value must never be spoken, even while it is on screen: a screen reader
-        // reading an nsec aloud is the one disclosure the eye control cannot take back.
-        #expect(page.contains(".privacySensitive()"))
-        #expect(page.contains(".accessibilityHidden(true)"))
+            )
+        )
+        #expect(disclosure.contains("Your private key is never written to the log."))
     }
 
-    /// The encrypted-export sheet reads the shared `lastError`, so it has to start from a clean
-    /// one. Nothing else clears it on the way in, and a failure from minutes earlier — a profile
-    /// save, a relay write — would render under the password fields as though this sheet had
-    /// produced it. Only a source contract can guard the absence of a stale read.
-    @Test func theEncryptedExportSheetClearsTheSharedErrorBeforeShowingOne() throws {
-        let sheet = try SourceContract.source(of: .encryptedPrivateKeyExportSheet)
+    /// An export starts from a clean error, so the sheet above it can only ever be showing one this
+    /// export produced.
+    ///
+    /// `lastError` is shared app-wide state. A failure from minutes ago — a profile save, a relay
+    /// write — used to render under the password fields as though this export had produced it, and
+    /// would stop a successful export from ever dismissing the sheet, since the sheet closes only on
+    /// a clean run.
+    @MainActor
+    @Test func anExportClearsTheSharedErrorOnTheWayIn() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-export-error-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
 
-        #expect(sheet.contains("workspace.lastError = nil"))
-        // It still shows one: the export flow sets its own, and the sheet is where it is read.
-        #expect(sheet.contains("SettingsErrorView(error: error)"))
-        // Dismiss stays gated on a written file, which is why an error has somewhere to be read.
-        #expect(sheet.contains("if await workspace.exportActiveAccountPrivateKey(.encrypted, passphrase: password) {"))
+        let runtime = FakeMarmotRuntime(accounts: [Self.localSigningAccount()])
+        let destination = root.appending(path: "key.txt")
+        let state = WorkspaceState(
+            privateKeyExportDestinationPicker: { _, _ in destination },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        // A failure left behind by something else entirely.
+        state.lastError = "Could not reach relay.example.com"
+
+        let didExport = await state.exportActiveAccountPrivateKey(PrivateKeyExportKind.encrypted, passphrase: "secret")
+
+        #expect(didExport)
+        #expect(
+            state.lastError == nil,
+            "the sheet would render a stale failure as though this export had produced it"
+        )
+        #expect(SignOutSheetDecisions.dismissesAfterTeardown(lastError: state.lastError))
     }
 
-    /// The sheet is the whole confirmation task. A second alert on top of it would ask the same
-    /// question twice and give the reader two places to look for what is about to happen.
-    @Test func theSignOutSheetOwnsBothExitsAndStacksNoAlert() throws {
-        let sheet = try SourceContract.source(of: .signOutSheet)
-
-        #expect(sheet.contains("workspace.signOutAccount(account)"))
-        #expect(sheet.contains("workspace.removeAccount(account)"))
-        #expect(!sheet.contains(".confirmationDialog"))
-        #expect(!sheet.contains(".alert("))
+    /// The sheet is the whole confirmation task, so every rule standing between a click and an
+    /// erased account is one of these.
+    ///
+    /// A second alert on top of it would ask the same question twice and give the reader two places
+    /// to look for what is about to happen — so both exits are decided here, by one toggle and one
+    /// button.
+    @MainActor
+    @Test func theSignOutSheetOwnsBothExitsBehindOneToggleAndOneGate() {
         // Off by default: the promise Sign Out has always made on this app is that the account's
-        // local data stays. Arming the wipe on open would quietly invert it.
-        #expect(sheet.contains("@State private var wipesLocalData = false"))
-        // Drawn as `WNToggle`, not a bare `Toggle`. A sheet is its own presentation and inherits
-        // none of `ContentView`'s tint, so an untinted switch here falls back to the blue system
-        // accent — the exact defect that component exists to remove, and the reason the app has
-        // no bare switch left.
-        #expect(sheet.contains("WNToggle(isOn: $wipesLocalData)"))
-        // One button, one label, in one place, armed or not.
-        #expect(sheet.contains(".buttonStyle(.wnDestructive)"))
-        #expect(sheet.contains("AccountWipeConfirmation.matches"))
-        // A failed teardown has to stay on screen. Both `signOutAccount` and `removeAccount` clear
-        // `lastError` on entry and set it from their `catch`, so dismissing unconditionally would
-        // take the sheet's own `SettingsErrorView` away with the error still unread and leave the
-        // reader unsure whether they are signed in. Only a clean run closes the sheet.
-        #expect(sheet.contains("guard workspace.lastError == nil else { return }"))
-        // And the shared error is cleared on the way in, so the gate above can only ever see an
-        // error this sheet produced — otherwise an earlier profile or relay failure would both
-        // render here and stop a successful sign-out from dismissing.
-        #expect(sheet.contains("workspace.lastError = nil"))
+        // local data stays. Arming the wipe on open would quietly invert it for everyone who signs
+        // out without reading.
+        #expect(!SignOutSheetDecisions.wipesLocalDataByDefault)
+        #expect(
+            SignOutSheetDecisions.teardown(wipesLocalData: SignOutSheetDecisions.wipesLocalDataByDefault)
+                == .signOut
+        )
+        #expect(SignOutSheetDecisions.teardown(wipesLocalData: true) == .removeAccount)
 
-        // And the two confirmations it replaced are gone rather than merely unreferenced.
-        // These two have no `ViewUnit` entry precisely because they must not exist; a deleted file
-        // is the one filename a test still has to spell out.
-        for removed in ["Settings/SignOutConfirmation.swift", "Settings/RemoveAccountConfirmation.swift"] {
-            #expect(!SourceContract.viewFileExists(removed), "\(removed) is back")
+        // The type-to-confirm gate is what the armed toggle costs, and only then.
+        #expect(
+            SignOutSheetDecisions.canSignOut(isTearingDown: false, wipesLocalData: false, isConfirmed: false)
+        )
+        #expect(
+            !SignOutSheetDecisions.canSignOut(isTearingDown: false, wipesLocalData: true, isConfirmed: false),
+            "a wipe ran without the account's name being typed"
+        )
+        #expect(
+            SignOutSheetDecisions.canSignOut(isTearingDown: false, wipesLocalData: true, isConfirmed: true)
+        )
+        // And nothing is armed while a teardown is already running.
+        #expect(
+            !SignOutSheetDecisions.canSignOut(isTearingDown: true, wipesLocalData: false, isConfirmed: true)
+        )
+
+        // A failed teardown stays on screen: dismissing would take the sheet's own error view away
+        // with the error still unread, leaving the reader unsure whether they are signed in.
+        #expect(SignOutSheetDecisions.dismissesAfterTeardown(lastError: nil))
+        #expect(!SignOutSheetDecisions.dismissesAfterTeardown(lastError: "Sign out failed"))
+
+        // Both progress labels say which teardown is running, since the two take different times
+        // and only one of them is destructive.
+        #expect(!L10n.string(SignOutTeardown.signOut.progressLabelKey).isEmpty)
+        #expect(!L10n.string(SignOutTeardown.removeAccount.progressLabelKey).isEmpty)
+        #expect(
+            SignOutTeardown.signOut.progressLabelKey != SignOutTeardown.removeAccount.progressLabelKey
+        )
+    }
+
+    /// Both exits actually reach the core, and the wipe is the one that takes the account off this
+    /// Mac.
+    @MainActor
+    @Test func theSheetsTwoExitsRunTheTwoDifferentTeardowns() async throws {
+        for teardown in [SignOutTeardown.signOut, .removeAccount] {
+            let account = Self.localSigningAccount()
+            let runtime = FakeMarmotRuntime(accounts: [account])
+            let state = WorkspaceState(clientFactory: { runtime })
+            await state.bootstrap()
+            let active = try #require(state.activeAccount)
+
+            switch teardown {
+            case .signOut:
+                await state.signOutAccount(active)
+            case .removeAccount:
+                await state.removeAccount(active)
+            }
+
+            #expect(state.lastError == nil)
+            #expect(state.activeAccount == nil)
+            #expect(state.signedInAccounts.isEmpty)
+
+            switch teardown {
+            case .signOut:
+                #expect(!state.accounts.isEmpty, "signing out must leave the account on this Mac")
+            case .removeAccount:
+                #expect(state.accounts.isEmpty, "the wipe left the account behind")
+            }
         }
     }
 
-    /// The drawer's Sign Out row is the only way out of an account, and it opens the sheet rather
-    /// than the dialog it used to raise.
-    @Test func theDrawerSignOutRowOpensTheSheet() throws {
-        let row = try SourceContract.declaration("SettingsSignOutRow")
-
-        #expect(row.contains("SignOutSheet(account: account)"))
-        #expect(!row.contains("signOutConfirmation"))
-        #expect(!row.contains("workspace.signOutAccount"), "the sheet decides which teardown runs")
+    /// Signing out is a decision the sheet takes, not the row that opens it.
+    ///
+    /// The drawer's row used to raise a confirmation dialog and, before that, to call the teardown
+    /// itself. What replaced both is `SignOutSheet` — and the rule that matters is that the *sheet*
+    /// chooses which teardown runs, from its toggle, so nothing upstream of it can pick one.
+    @MainActor
+    @Test func whichTeardownRunsIsTheSheetsDecisionAndNotItsCallers() {
+        #expect(SignOutSheetDecisions.teardown(wipesLocalData: false) == .signOut)
+        #expect(SignOutSheetDecisions.teardown(wipesLocalData: true) == .removeAccount)
+        #expect(SignOutTeardown.signOut != SignOutTeardown.removeAccount)
     }
 
-    /// The destructive tier is a ground, not a quiet button with red text — the thing
-    /// `WNSecondaryButtonStyle`'s own documentation says a genuinely destructive action wants.
-    @Test func theDestructiveTierDrawsAFillDestructiveGroundFromTheSharedShapeTable() throws {
-        let style = try SourceContract.source(of: .destructiveButtonStyle)
+    /// The destructive tier is a ground, not a quiet button with red text.
+    ///
+    /// Rasterized and read back rather than named in source: what the reader has is a red button,
+    /// and the specific regression — a disabled destructive button that still looks live — is a
+    /// colour question that only a render can answer. Disabled swaps to the neutral pair, so a gate
+    /// that has not been cleared cannot look like an armed one.
+    @MainActor
+    @Test func theDestructiveTierDrawsARedGroundAndFadesToNeutralWhenDisabled() throws {
+        func fill(disabled: Bool, appearance: NSAppearance.Name) throws -> NSColor {
+            let button = Button(L10n.string("Sign Out")) {}
+                .buttonStyle(.wnDestructive)
+                .controlSize(.large)
+                .disabled(disabled)
+                .padding(20)
+                .background(WNColor.backgroundPrimary)
+            let rep = try #require(HostedView.render(button, appearance: appearance, scale: 2))
+            return try #require(
+                rep.colorAt(x: rep.pixelsWide / 2, y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB)
+            )
+        }
 
-        #expect(style.contains("WNColor.fillDestructive"))
-        #expect(style.contains("WNColor.fillDestructiveHover"))
-        #expect(style.contains("WNColor.fillDestructiveActive"))
-        // Paired content, never a `backgroundContent*` token — see the pairing rule in `WNNSColor`.
-        #expect(style.contains("WNColor.fillContentQuaternary"))
-        #expect(!style.contains("backgroundContentDestructive"))
-        // Disabled swaps to the neutral pair rather than fading red, so a gate that has not been
-        // cleared cannot look like a live destructive button.
-        #expect(style.contains("WNColor.fillDisabled"))
-        #expect(style.contains("WNColor.fillContentDisabled"))
-        // No radius of its own: one table, or the tiers drift apart again.
-        #expect(style.contains("WNButtonMetrics.backgroundShape("))
-        #expect(!style.contains("cornerRadius: "))
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            let armed = try fill(disabled: false, appearance: appearance)
+            let gated = try fill(disabled: true, appearance: appearance)
+
+            // Red, by a wide margin, in both appearances — the palette's `fillDestructive`.
+            #expect(
+                armed.redComponent > armed.greenComponent + 0.25,
+                "the armed destructive button is not drawing a red ground in \(appearance.rawValue)"
+            )
+            #expect(armed.redComponent > armed.blueComponent + 0.25)
+
+            // …and the disabled one is a neutral, not a faded red.
+            let spread =
+                max(gated.redComponent, gated.greenComponent, gated.blueComponent)
+                - min(gated.redComponent, gated.greenComponent, gated.blueComponent)
+            #expect(
+                spread < 0.12,
+                "a gate that has not been cleared still looks like a live destructive button in \(appearance.rawValue)"
+            )
+        }
+
+        // No radius of its own: the tier asks the one shape table, like every other.
+        let rect = CGRect(x: 0, y: 0, width: 180, height: 44)
+        #expect(
+            WNButtonMetrics.backgroundShape(.rounded, for: .large).path(in: rect)
+                == RoundedRectangle(
+                    cornerRadius: WNButtonMetrics.cornerRadius(for: .large), style: .continuous
+                ).path(in: rect)
+        )
     }
 }

@@ -16,8 +16,8 @@ nonisolated enum AudioPlaybackSpeed: CaseIterable, Sendable {
     /// The `AVAudioPlayer.rate` this speed asks for.
     ///
     /// `AVAudioPlayer` only honours a rate other than `1` when `enableRate` was set *before*
-    /// `prepareToPlay()`, which is why `MessageAudioAttachmentPlayer` arms it while preparing the
-    /// player rather than when the badge is first clicked.
+    /// `prepareToPlay()`, which is why `MessageAudioPlaybackController` arms it while preparing
+    /// the player rather than when the badge is first clicked.
     var rate: Float {
         switch self {
         case .normal: 1
