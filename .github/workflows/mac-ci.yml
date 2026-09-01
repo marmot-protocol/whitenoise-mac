@@ -21,33 +21,28 @@ env:
   SCHEME: whitenoise-mac
   DESTINATION: platform=macOS
 
+# The four jobs below are independent by construction, so they run in parallel
+# and the PR's wall clock is the slowest one rather than their sum. Nothing is
+# shared between them to lose: `test` compiles Debug, `build` compiles Release
+# and `analyze` compiles Debug under the analyzer, so even when these steps sat
+# in one job they never reused a single object file.
+#
+# `PR Checks` at the bottom is the aggregate gate. Keep that name: it is what
+# branch protection requires, and it is the only status that has to be green.
 jobs:
-  test-and-build:
-    name: PR Checks
+  checks:
+    name: Static checks
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Cache MarmotKit binary artifact
-        uses: actions/cache@v4
-        with:
-          # MarmotKit is a pinned remote binaryTarget; without this each job
-          # re-downloads the XCFramework. The checksum lives in Package.swift,
-          # so the key rotates exactly when the artifact does.
-          path: ~/Library/Caches/org.swift.swiftpm/artifacts
-          key: marmotkit-${{ hashFiles('Vendored/MarmotKit/Package.swift') }}
-
-      - name: Show Xcode environment
-        run: |
-          sw_vers
-          xcodebuild -version
-          xcodebuild -showsdks
-          xcodebuild -list -project "$PROJECT"
-          xcodebuild -showTestPlans -project "$PROJECT" -scheme "$SCHEME"
-
+      # Ordered cheapest-first, and each one runs even when an earlier one
+      # failed. These three checks are seconds of work apiece, so splitting them
+      # across runners would buy no wall clock -- but letting a formatting slip
+      # hide a missing translation would cost a whole extra round trip.
       - name: Swift format lint
         run: |
           xcrun swift-format lint \
@@ -60,10 +55,38 @@ jobs:
             whitenoise-macUITests
 
       - name: Localization coverage
+        if: ${{ !cancelled() }}
         run: scripts/ci/check-localizations.sh
 
+      # Only the steps below here resolve SwiftPM, so the cache is restored late.
+      - name: Cache MarmotKit binary artifact
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/marmotkit-cache
+
+      - name: Show Xcode environment
+        if: ${{ !cancelled() }}
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcodebuild -showsdks
+          xcodebuild -list -project "$PROJECT"
+          xcodebuild -showTestPlans -project "$PROJECT" -scheme "$SCHEME"
+
       - name: macOS project sanity checks
+        if: ${{ !cancelled() }}
         run: scripts/ci/macos-sanity-checks.sh
+
+  test:
+    name: Unit tests
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Cache MarmotKit binary artifact
+        uses: ./.github/actions/marmotkit-cache
 
       - name: Unit tests
         run: |
@@ -87,6 +110,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  build:
+    name: Release build
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Cache MarmotKit binary artifact
+        uses: ./.github/actions/marmotkit-cache
+
       - name: Release build smoke (arm64)
         run: |
           set -o pipefail
@@ -99,8 +134,8 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO
 
-  static-analysis:
-    name: Static Analysis
+  analyze:
+    name: Static analysis
     runs-on: macos-26
     timeout-minutes: 30
 
@@ -109,13 +144,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Cache MarmotKit binary artifact
-        uses: actions/cache@v4
-        with:
-          # MarmotKit is a pinned remote binaryTarget; without this each job
-          # re-downloads the XCFramework. The checksum lives in Package.swift,
-          # so the key rotates exactly when the artifact does.
-          path: ~/Library/Caches/org.swift.swiftpm/artifacts
-          key: marmotkit-${{ hashFiles('Vendored/MarmotKit/Package.swift') }}
+        uses: ./.github/actions/marmotkit-cache
 
       - name: Analyze Debug build
         run: |
@@ -126,3 +155,33 @@ jobs:
             -configuration Debug \
             -destination "$DESTINATION" \
             CODE_SIGNING_ALLOWED=NO
+
+  # Single required status for branch protection. Without this, splitting the
+  # old `PR Checks` job would leave the branch gated on a check that no longer
+  # reports, which reads as "waiting" forever rather than as a failure.
+  pr-checks:
+    name: PR Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ always() }}
+    needs: [checks, test, build, analyze]
+
+    steps:
+      - name: Report job results
+        run: |
+          printf 'static checks   : %s\n' "${{ needs.checks.result }}"
+          printf 'unit tests      : %s\n' "${{ needs.test.result }}"
+          printf 'release build   : %s\n' "${{ needs.build.result }}"
+          printf 'static analysis : %s\n' "${{ needs.analyze.result }}"
+
+      # `success()` is not enough on its own: with `if: always()` a skipped or
+      # cancelled dependency would otherwise let the gate pass.
+      - name: Fail if any job did not succeed
+        if: >-
+          ${{ needs.checks.result != 'success'
+           || needs.test.result != 'success'
+           || needs.build.result != 'success'
+           || needs.analyze.result != 'success' }}
+        run: |
+          echo "::error::One or more Mac CI jobs did not succeed."
+          exit 1
