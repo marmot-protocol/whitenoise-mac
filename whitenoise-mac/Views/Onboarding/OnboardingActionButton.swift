@@ -17,8 +17,8 @@ import SwiftUI
 enum OnboardingActionTier {
     /// The glass primary. One per pane.
     case primary
-    /// The raised secondary — `WNElevatedButtonStyle`. Shadowed, not ringed.
-    case elevated
+    /// The secondary — `WNSecondaryButtonStyle`. Shadowed, not ringed.
+    case secondary
 }
 
 /// A full-width onboarding push button.
@@ -62,7 +62,7 @@ extension View {
     func onboardingActionTier(_ tier: OnboardingActionTier) -> some View {
         switch tier {
         case .primary: wnPrimaryButtonStyle()
-        case .elevated: buttonStyle(.wnElevated)
+        case .secondary: buttonStyle(.wnSecondary)
         }
     }
 }

@@ -135,15 +135,15 @@ struct AddRelaySheet: View {
         HStack(spacing: 10) {
             Spacer()
 
-            // Elevated rather than the outlined tier, and capsule to match `Add`: the two sit
-            // side by side, so a ringed 8pt rect beside a pill read as two unrelated controls
-            // rather than one choice offered twice. Pepi called this on 2026-08-31, which
-            // narrows `WNElevatedButtonStyle`'s "a sheet's Cancel wants the outlined tier" —
-            // see the note there.
+            // Capsule to match `Add`: the two sit side by side, so an 8pt rect beside a pill
+            // read as two unrelated controls rather than one choice offered twice. The tier is
+            // just `.wnSecondary` now — this call site is where Pepi first sent a sheet's Cancel
+            // to the raised drawing, on 2026-08-31, and the ringed tier it was moved off has
+            // since been removed outright. See `WNSecondaryButtonStyle`.
             Button(L10n.string("Cancel")) {
                 dismiss()
             }
-            .buttonStyle(.wnElevated)
+            .buttonStyle(.wnSecondary)
             .wnButtonShape(.capsule)
             .keyboardShortcut(.cancelAction)
 

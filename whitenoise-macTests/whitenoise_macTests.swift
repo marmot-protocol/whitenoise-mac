@@ -24862,7 +24862,7 @@ struct whitenoise_macTests {
         for (fileName, call) in [
             ("WNPrimaryButton.swift", "WNButtonMetrics.borderShape("),
             ("WNSecondaryButtonStyle.swift", "WNButtonMetrics.backgroundShape("),
-            ("WNElevatedButtonStyle.swift", "WNButtonMetrics.backgroundShape("),
+            ("WNDestructiveButtonStyle.swift", "WNButtonMetrics.backgroundShape("),
         ] {
             let source = try String(
                 contentsOf: viewsDirURL.appendingPathComponent(fileName),

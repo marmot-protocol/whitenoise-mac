@@ -16,7 +16,7 @@ import SwiftUI
 /// 1. **It does not name a content color.** The prototype resolves black or white off
 ///    `colorScheme` because its label is drawn as an `overlay` over a hidden button, so it is
 ///    outside the button style and inherits nothing. Here the label is the button's own, and the
-///    styles it goes into — `.glassProminent` for the primary tier, `WNElevatedButtonStyle` for
+///    styles it goes into — `.glassProminent` for the primary tier, `WNSecondaryButtonStyle` for
 ///    the raised one — already own their ink and adapt it to the appearance, the accent and the
 ///    contrast settings. Naming a color here would override all three.
 /// 2. **The title stays visible while working**, with the spinner beside it rather than crossed

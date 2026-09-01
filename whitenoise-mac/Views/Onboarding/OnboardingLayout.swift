@@ -109,7 +109,7 @@ enum OnboardingLayout {
     /// How tall every onboarding push button draws, both tiers.
     ///
     /// 44 rather than whatever each style comes out at on its own, because on their own they come
-    /// out at **different** heights: at `.large`, `WNElevatedButtonStyle` draws 32pt and the glass
+    /// out at **different** heights: at `.large`, `WNSecondaryButtonStyle` draws 32pt and the glass
     /// primary draws 28pt around the same label. Stacked, that is a visible 4pt step between two
     /// buttons that are meant to be a pair — and it cannot be fixed with `.frame(height:)`, which
     /// a button style ignores. The only knob is the label, so the label carries the difference.
@@ -121,8 +121,8 @@ enum OnboardingLayout {
     /// What each style adds around its label at `.large`, measured rather than assumed —
     /// `OnboardingTests.bothActionTiersDrawTheSameHeight` re-measures both through `ImageRenderer`
     /// and fails if either style's padding moves under us.
-    static let elevatedActionChromeHeight: CGFloat = 16
-    /// The glass primary's chrome, which is 4pt tighter than the elevated tier's.
+    static let secondaryActionChromeHeight: CGFloat = 16
+    /// The glass primary's chrome, which is 4pt tighter than the secondary tier's.
     static let primaryActionChromeHeight: CGFloat = 12
 
     /// The minimum height an action's *label* must claim for its button to come out
@@ -130,7 +130,7 @@ enum OnboardingLayout {
     static func actionLabelHeight(for tier: OnboardingActionTier) -> CGFloat {
         switch tier {
         case .primary: actionHeight - primaryActionChromeHeight
-        case .elevated: actionHeight - elevatedActionChromeHeight
+        case .secondary: actionHeight - secondaryActionChromeHeight
         }
     }
 

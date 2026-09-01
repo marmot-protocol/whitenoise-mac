@@ -865,9 +865,10 @@ extension View {
 /// matching the settings header's chevron and `WNSecondaryButtonStyle`.
 ///
 /// Note that circle control still strokes `borderTertiary`, which is the same value as its own
-/// `fillSecondary` in Dark Aqua — so its ring is invisible there, exactly the defect
-/// `WNSecondaryButtonStyle` moved to `borderSecondary` to fix. The demotion from glass holds
-/// either way; raising that ring is a separate change because it also restyles the composer.
+/// `fillSecondary` in Dark Aqua — so its ring is invisible there. The push tier hit the same defect
+/// and answered it by dropping the ring altogether: `WNSecondaryButtonStyle` is raised now, not
+/// outlined. The demotion from glass holds either way; giving the discs a visible edge — or a lift
+/// — is a separate change, because it also restyles the composer and the account rail.
 struct GlassCircleCloseButton: View {
     enum Appearance {
         /// The glass disc. For a ✕ that dismisses and is meant to read as prominent.

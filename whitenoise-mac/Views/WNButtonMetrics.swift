@@ -5,7 +5,7 @@
 //  The one shape the push-button tiers draw, so a primary button and the
 //  secondary one beside it cannot disagree about their outline. The tiers
 //  themselves are `WNPrimaryButton`, `WNSecondaryButtonStyle` and
-//  `WNElevatedButtonStyle`.
+//  `WNDestructiveButtonStyle`.
 //
 
 import SwiftUI

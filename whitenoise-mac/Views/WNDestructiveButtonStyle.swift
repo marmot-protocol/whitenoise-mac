@@ -13,8 +13,8 @@ import SwiftUI
 /// documentation says why: the secondary buttons that carried `.destructive` were the ones asked
 /// to be *not* red — Remove Account, Clear Cache, Decline — so reading the role there would have
 /// turned all three red at once. The note ends by naming what a genuinely destructive action wants
-/// instead: `WnButton.destructive`, a `fillDestructive` ground rather than an outline with red
-/// text. This is that tier, token for token with `_buildDestructiveButton`
+/// instead: `WnButton.destructive`, a `fillDestructive` ground rather than a quiet button with
+/// red text. This is that tier, token for token with `_buildDestructiveButton`
 /// (`lib/widgets/wn_button.dart`):
 ///
 /// | | Flutter `_buildDestructiveButton` | here |
@@ -81,8 +81,8 @@ private struct WNDestructiveButtonBody: View {
         isEnabled ? WNColor.fillContentQuaternary : WNColor.fillContentDisabled
     }
 
-    /// The same table the other two tiers read, so a destructive button under a `.wnSecondary`
-    /// Cancel draws the same outline.
+    /// The same table `WNSecondaryButtonStyle` reads, so a destructive button under a
+    /// `.wnSecondary` Cancel draws at the same height.
     private var verticalPadding: CGFloat {
         switch controlSize {
         case .large: 8

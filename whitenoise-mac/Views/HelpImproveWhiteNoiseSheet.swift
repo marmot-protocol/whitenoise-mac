@@ -35,11 +35,11 @@ struct HelpImproveWhiteNoiseSheet: View {
     /// trailing end of the header, as `MessageEditHistorySheet` and `ProfileImagePickerSheet` do.
     /// `help:` takes the catalog *key* — `GlassCircleCloseButton` localizes it itself.
     ///
-    /// `.outline`, the secondary tier — `WnIconButton.outline` on the same four tokens as
-    /// `WNSecondaryButtonStyle` — rather than the glass disc, which reads as a primary action and
-    /// would compete with `Done` below. That is also the tier `WNElevatedButtonStyle`'s own note
-    /// asks for here: the raised tier is for a button standing on a bare pane, and inside a sheet
-    /// one more elevation fights the chrome it already sits in.
+    /// `.outline`, the secondary tier — `WnIconButton.outline`, the disc half of the `WnButton`
+    /// port — rather than the glass disc, which reads as a primary action and would compete with
+    /// `Done` below. The discs keep their ring: unifying the *push* tiers on the raised drawing
+    /// (see `WNSecondaryButtonStyle`) says nothing about `MessagesCircleControlBackground`, which
+    /// is a different component with its own vocabulary in the composer and the account rail.
     private var header: some View {
         HStack {
             Text(L10n.string("Help Improve White Noise"))

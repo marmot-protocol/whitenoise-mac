@@ -45,14 +45,13 @@ struct ProfileImageSourceMenu<Label: View>: View {
         /// A push button whose label is its own words, wearing whichever tier the screen around it
         /// asked for. The sign-up hero.
         ///
-        /// **This case names no style on purpose.** It used to reach for `.wnSecondary` — the
-        /// ringed tier — while the pane it stands on draws its own secondary action, `Sign In`,
-        /// with the *raised* one. Two secondary buttons on one flow, one ringed and one lifted,
-        /// which is the inconsistency; and naming the right style here would be a second copy of a
-        /// decision `OnboardingActionTier` already owns. Leaving the style out lets the caller hand
-        /// it over — `OnboardingSignUpAvatar` does, with `.onboardingActionTier(.elevated)` — so
-        /// the pill and the pane's buttons cannot drift apart again. The capsule comes from
-        /// `wnButtonShape` in the environment, which the pane sets for all of them at once.
+        /// **This case names no style on purpose.** Not because there are two secondary tiers to
+        /// choose between any more — there is one, `.wnSecondary` — but because naming it here
+        /// would be a second copy of a decision `OnboardingActionTier` already owns, and the tier
+        /// carries a label height as well as a style. Leaving it out lets the caller hand both
+        /// over: `OnboardingSignUpAvatar` does, with `.onboardingActionTier(.secondary)`. The
+        /// capsule comes from `wnButtonShape` in the environment, which the pane sets for all of
+        /// them at once.
         case pushButton
     }
 
