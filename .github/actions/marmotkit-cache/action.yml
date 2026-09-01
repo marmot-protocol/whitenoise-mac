@@ -1,0 +1,18 @@
+name: Cache MarmotKit binary artifact
+description: >-
+  Restore the pinned MarmotKit XCFramework so a job that resolves SwiftPM does
+  not re-download it. Every job that runs xcodebuild needs this; the jobs that
+  only read source (swift-format, the localization catalogs) do not, and should
+  not use it.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache MarmotKit binary artifact
+      uses: actions/cache@v4
+      with:
+        # MarmotKit is a pinned remote binaryTarget; without this each job
+        # re-downloads the XCFramework. The checksum lives in Package.swift,
+        # so the key rotates exactly when the artifact does.
+        path: ~/Library/Caches/org.swift.swiftpm/artifacts
+        key: marmotkit-${{ hashFiles('Vendored/MarmotKit/Package.swift') }}

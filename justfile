@@ -1,6 +1,18 @@
 # Local mirror of .github/workflows/mac-ci.yml.
 # Keep the recipes below in sync with that workflow so `just precommit`
 # stays a faithful predictor of the GitHub Actions result.
+#
+# CI runs these as four independent jobs in parallel; `just precommit` runs the
+# same work serially, cheapest-first, so a formatting slip fails in seconds
+# instead of after a Release build. The recipes map one-to-one:
+#
+#   CI job "Static checks"   -> just checks   (lint, locales, sanity)
+#   CI job "Unit tests"      -> just test
+#   CI job "Release build"   -> just build-release
+#   CI job "Static analysis" -> just analyze
+#
+# CI's "PR Checks" is only an aggregate gate over those four; it has no local
+# counterpart beyond `just precommit` itself.
 
 PROJECT := "whitenoise-mac.xcodeproj"
 SCHEME := "whitenoise-mac"
@@ -15,10 +27,13 @@ default: precommit
 help:
     @just --list
 
-# Run everything CI runs on a PR — both the "PR Checks" and "Static Analysis" jobs
-precommit: lint locales sanity test build-release analyze
+# Run everything CI runs on a PR — all four jobs, serially
+precommit: checks test build-release analyze
     @echo ""
     @echo "✅ precommit passed — mac-ci.yml should be green."
+
+# CI job: Static checks — the three checks that need no compile of their own
+checks: lint locales sanity
 
 # CI step: Swift format lint (strict — warnings fail the build)
 lint:
@@ -71,7 +86,7 @@ build-release:
         ONLY_ACTIVE_ARCH=NO \
         CODE_SIGNING_ALLOWED=NO
 
-# CI job: Static Analysis — analyze the Debug build
+# CI job: Static analysis — analyze the Debug build
 analyze:
     xcodebuild analyze \
         -project "{{PROJECT}}" \
