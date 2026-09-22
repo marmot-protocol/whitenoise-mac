@@ -108,6 +108,29 @@ analyze:
 coverage *ARGS:
     scripts/ci/coverage.sh {{ARGS}}
 
+# Replaces any running White Noise so exactly one instance is up (AGENTS.md).
+# Built unsigned, so no entitlements apply and the app runs unsandboxed: its
+# data lives in ~/Library/Application Support/White Noise, not the sandbox
+# container a team-signed Xcode ⌘R build uses. The two hold different accounts.
+# Extra args go to xcodebuild. Not part of precommit.
+# Build Debug and launch the app
+run *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    xcodebuild build \
+        -project "{{PROJECT}}" \
+        -scheme "{{SCHEME}}" \
+        -configuration Debug \
+        -destination "{{DESTINATION}}" \
+        -derivedDataPath build \
+        CODE_SIGNING_ALLOWED=NO \
+        {{ARGS}}
+    if pgrep -x "White Noise" >/dev/null; then
+        osascript -e 'tell application "White Noise" to quit'
+        while pgrep -x "White Noise" >/dev/null; do sleep 0.2; done
+    fi
+    open "build/Build/Products/Debug/White Noise.app"
+
 # Repin MarmotKit to a published mdk release (version or full master SHA).
 # Not part of precommit — run it deliberately when moving the core.
 sync-bindings REF:
