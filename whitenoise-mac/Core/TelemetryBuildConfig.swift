@@ -125,19 +125,23 @@ struct TelemetryBuildConfig: Equatable {
         )
     }
 
-    func runtimeConfig(installId: String) -> RelayTelemetryRuntimeConfigFfi {
+    /// `serviceInstanceId` is left empty on purpose: MarmotKit substitutes its own consent-scoped
+    /// diagnostic id whenever it builds an exporter. Asking the host to fetch it first
+    /// (`telemetryInstallId()`) throws `ConsentRequired` until the user grants usage diagnostics,
+    /// which surfaced as a raw error banner on every launch.
+    func runtimeConfig() -> RelayTelemetryRuntimeConfigFfi {
         RelayTelemetryRuntimeConfigFfi(
             otlpEndpoint: otlpEndpoint,
             authorizationBearerToken: bearerToken,
             resource: RelayTelemetryResourceFfi(
                 serviceVersion: serviceVersion,
-                serviceInstanceId: installId,
+                serviceInstanceId: "",
                 deploymentEnvironment: deploymentEnvironment,
                 tenant: Self.tenant,
                 osType: "darwin",
                 osVersion: osVersion,
                 // The audit-log source may still use the local model label, but the
-                // relay telemetry resource is exported to OTLP with a stable install
+                // relay telemetry resource is exported to OTLP with MarmotKit's install
                 // id. Do not include hw.model in the OTLP-exported resource.
                 deviceModelIdentifier: nil
             )

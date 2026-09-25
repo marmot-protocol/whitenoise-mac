@@ -537,8 +537,8 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(runtime.syncCallThreadRecord("npub").allSatisfy { !$0 })
         #expect(runtime.syncCallThreadRecord("notificationSettings").contains(false))
         #expect(runtime.syncCallThreadRecord("notificationSettings").allSatisfy { !$0 })
-        #expect(runtime.syncCallThreadRecord("telemetryInstallId").contains(false))
-        #expect(runtime.syncCallThreadRecord("telemetryInstallId").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("setProductAnalyticsRuntimeConfig").contains(false))
+        #expect(runtime.syncCallThreadRecord("setProductAnalyticsRuntimeConfig").allSatisfy { !$0 })
         #expect(runtime.syncCallThreadRecord("setAuditLogTrackerConfig").contains(false))
         #expect(runtime.syncCallThreadRecord("setAuditLogTrackerConfig").allSatisfy { !$0 })
     }
@@ -2112,7 +2112,7 @@ struct AccountTests: WorkspaceTestSupport {
     @Test func observabilityFailureDoesNotAbortReadyStateActivation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: account)
-        runtime.telemetryInstallIdError = FakeMarmotRuntimeError.observabilityConfigurationFailed
+        runtime.productAnalyticsRuntimeConfigError = FakeMarmotRuntimeError.observabilityConfigurationFailed
         let state = WorkspaceState(
             telemetryBuildConfigProvider: { telemetryBuildConfig(environment: "production") },
             clientFactory: { runtime }
