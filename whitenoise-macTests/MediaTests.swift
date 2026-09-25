@@ -25,6 +25,15 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct MediaTests: WorkspaceTestSupport {
+    /// SwiftUI's `VideoPlayer` subclasses AppKit's `AVPlayerView`, which `_AVKit_SwiftUI` does not
+    /// load on its own. `import AVKit` alone does not keep AVKit linked, so without the explicit
+    /// `-framework AVKit` the first played video aborts with "failed to demangle superclass of
+    /// VideoPlayerView from mangled name 'So12AVPlayerViewC'". This file deliberately does not
+    /// import AVKit, so the lookup reflects what the app binary loaded.
+    @Test func appBinaryLoadsAVKitSoVideoPlayerCanResolveItsSuperclass() {
+        #expect(NSClassFromString("AVPlayerView") != nil)
+    }
+
     @Test func mediaPlaybackTempStoreLivesInsideAppContainerNotSharedTemp() {
         let base = URL(fileURLWithPath: "/Container", isDirectory: true)
         let directory = MediaPlaybackTempStore.directoryURL(baseURL: base)
