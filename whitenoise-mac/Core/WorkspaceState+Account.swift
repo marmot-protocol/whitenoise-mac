@@ -1055,6 +1055,7 @@ extension WorkspaceState {
         // process-lifetime decoded-image cache; those images derive from attacker-controlled
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
         RemoteImageLoader.shared.clearCache()
+        RemoteGIFLoadingPreference.shared.reset()
         settingsLoadTask?.cancel()
         settingsLoadTask = nil
         settingsLoadAccountId = nil

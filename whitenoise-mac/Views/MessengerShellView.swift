@@ -771,6 +771,18 @@ private struct ConversationView: View {
                     .buttonStyle(.plain)
                     .disabled(workspace.isSending)
                     .help(L10n.string("Attach files"))
+
+                    if let giphyAPIKey = GiphyBuildConfig.current().apiKey {
+                        // A GIF goes out as its GIPHY text envelope, through the same durable text
+                        // send the conversation model uses, so it needs no composer state of its own.
+                        ComposerGiphyButton(
+                            apiKey: giphyAPIKey,
+                            isDisabled: workspace.isSending || !canUseComposer,
+                            send: { [model] media in
+                                try await model.sendText(media.wireText)
+                            }
+                        )
+                    }
                 }
 
                 ComposerMessageInputView(

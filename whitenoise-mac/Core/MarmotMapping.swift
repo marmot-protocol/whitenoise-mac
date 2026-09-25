@@ -259,13 +259,18 @@ extension ChatItem {
         }
 
         let presentation = MessageItem.presentation(for: preview.kind)
-        let text = MessageItem.displayText(
-            presentation: presentation,
-            plaintext: preview.plaintext,
-            tags: [],
-            deleted: preview.deleted,
-            hasMediaAttachments: false
-        )
+        // A GIF travels as its GIPHY envelope; the row names it rather than showing the CDN URL.
+        let giphyLabel =
+            presentation.isChatBubble ? RemoteGiphyMedia.envelopePreviewText(for: preview.plaintext) : nil
+        let text =
+            giphyLabel
+            ?? MessageItem.displayText(
+                presentation: presentation,
+                plaintext: preview.plaintext,
+                tags: [],
+                deleted: preview.deleted,
+                hasMediaAttachments: false
+            )
         let sourceTextIsEmpty = preview.plaintext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let isMediaOnlyChat =
             presentation.isChatBubble
@@ -1157,10 +1162,13 @@ nonisolated extension MessageItem {
             deletionSource: preview.deletionSource,
             hasMediaAttachments: !mediaAttachments.isEmpty
         )
+        let giphyLabel =
+            preview.deleted || !mediaAttachments.isEmpty
+            ? nil : RemoteGiphyMedia.envelopePreviewText(for: preview.plaintext)
         return MessageReplyContext(
             targetMessageId: preview.messageIdHex,
             senderName: MessageItem.displayName(for: preview.sender, profile: senderProfiles[preview.sender]),
-            body: body.isEmpty ? MessageMediaAttachment.previewText(for: mediaAttachments) : body
+            body: giphyLabel ?? (body.isEmpty ? MessageMediaAttachment.previewText(for: mediaAttachments) : body)
         )
     }
 

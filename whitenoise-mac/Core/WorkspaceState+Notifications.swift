@@ -259,7 +259,11 @@ extension WorkspaceState {
             ?? L10n.string("Someone")
         let senderTemplateName = PeerDisplayText.templateFragment(senderName)
         let groupName = PeerDisplayText.sanitize(update.groupName)
-        let previewText = PeerDisplayText.sanitize(update.previewText) ?? L10n.string("New message")
+        // A GIF's envelope would otherwise put a GIPHY CDN URL on the banner and the lock screen.
+        let previewText =
+            PeerDisplayText.sanitize(
+                update.previewText.map { RemoteGiphyMedia.envelopePreviewText(for: $0) ?? $0 }
+            ) ?? L10n.string("New message")
         let previewTemplateText = PeerDisplayText.templateFragment(previewText)
 
         // For an E2EE messenger, notification content is rendered as banners,

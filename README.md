@@ -84,7 +84,8 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
    XCFramework on the mdk releases page. SwiftPM downloads it on the first
    build and caches it, so a fresh clone builds with no mdk checkout at all.
 
-2. **(Optional) configure local secrets.** Telemetry/audit-log tokens are
+2. **(Optional) configure local secrets.** Telemetry/audit-log tokens and the
+   GIPHY API key (`GIPHY_API_KEY_WN_MAC`, which turns on GIF search) are
    build-time secrets. Copy the example and fill in values if you have them —
    the real file is gitignored and the app builds fine without it:
 
