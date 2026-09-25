@@ -462,6 +462,8 @@
 					"$(inherited)",
 					"-framework",
 					AppIntents,
+					"-framework",
+					AVKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.ipf.whitenoise.mac;
 				PRODUCT_MODULE_NAME = whitenoise_mac;
@@ -514,6 +516,8 @@
 					"$(inherited)",
 					"-framework",
 					AppIntents,
+					"-framework",
+					AVKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.ipf.whitenoise.mac;
 				PRODUCT_MODULE_NAME = whitenoise_mac;
