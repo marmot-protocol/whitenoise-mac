@@ -2517,6 +2517,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// joined families. Used by the chat row to opt into the large, bubble-free treatment.
     var singleEmoji: String? { EmojiPresentation.singleEmoji(in: trimmedBody) }
 
+    /// The GIF this row carries when its text is a GIPHY envelope (see `RemoteGiphyMedia`). A row
+    /// with attachments or a deleted row renders its text as usual, as on the other clients.
+    var remoteGiphyMedia: RemoteGiphyMedia? {
+        guard !isDeleted, mediaAttachments.isEmpty, presentation.isChatBubble else { return nil }
+        return RemoteGiphyMedia.parse(wireText: trimmedBody)
+    }
+
     /// The sender's avatar URL, passed through the remote-image policy for incoming-bubble avatars.
     var senderSanitizedPictureURL: URL? { RemoteImageURLPolicy.sanitizedURL(from: senderPictureURL) }
 
@@ -2794,6 +2801,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     }
 
     var replyPreviewText: String {
+        if let label = RemoteGiphyMedia.envelopePreviewText(for: trimmedBody) {
+            return label
+        }
         if !trimmedBody.isEmpty {
             return trimmedBody
         }

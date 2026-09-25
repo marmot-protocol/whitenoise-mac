@@ -51,6 +51,8 @@ struct PrivacySecuritySettingsView: View {
                 )
             }
 
+            RemoteGIFLoadingSection(preference: .shared)
+
             DiagnosticsAndImprovementsSections(model: model)
 
             StoredDiagnosticLogsSection(
@@ -113,6 +115,40 @@ struct PrivacySecuritySettingsView: View {
             )
         }
     }
+}
+
+/// Whether a received GIF loads from GIPHY without a click. Its own group rather than a second row
+/// under Remote Content, because that group's footer is about profile pictures and this one needs a
+/// footer of its own saying what it gives away.
+struct RemoteGIFLoadingSection: View {
+    let preference: RemoteGIFLoadingPreference
+
+    var body: some View {
+        SettingsSection(
+            footer: L10n.string(
+                "When enabled, opening a conversation can tell GIPHY your IP address and which GIF was requested. Otherwise, received GIFs load only when you tap them."
+            )
+        ) {
+            WNToggle(
+                L10n.string("Automatically Load Remote GIFs"),
+                systemImage: "play.rectangle",
+                isOn: Binding(
+                    get: { preference.automaticallyLoads },
+                    set: { preference.setAutomaticallyLoads($0) }
+                )
+            )
+        }
+    }
+}
+
+#Preview("Remote GIF loading") {
+    Form {
+        RemoteGIFLoadingSection(
+            preference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: "gif-settings-preview")!)
+        )
+    }
+    .formStyle(.grouped)
+    .frame(width: 520, height: 200)
 }
 
 /// The two data-sharing choices, one group each.

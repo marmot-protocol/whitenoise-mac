@@ -37,6 +37,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>WhiteNoiseGiphyAPIKey</key>
+	<string>$(WN_GIPHY_API_KEY)</string>
 	<key>WhiteNoiseAuditLogBearerToken</key>
 	<string>$(WN_AUDIT_LOG_BEARER_TOKEN)</string>
 	<key>WhiteNoiseTelemetryBearerToken</key>
