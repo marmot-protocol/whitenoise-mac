@@ -605,13 +605,13 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var didReachNotificationSettingsGate: Bool {
         notificationSettingsGate.didReach
     }
-    private let telemetryInstallIdGate = BlockingFfiGate()
-    var telemetryInstallIdGateEnabled: Bool {
-        get { telemetryInstallIdGate.isEnabled }
-        set { telemetryInstallIdGate.isEnabled = newValue }
+    private let productAnalyticsRuntimeConfigGate = BlockingFfiGate()
+    var productAnalyticsRuntimeConfigGateEnabled: Bool {
+        get { productAnalyticsRuntimeConfigGate.isEnabled }
+        set { productAnalyticsRuntimeConfigGate.isEnabled = newValue }
     }
-    var didReachTelemetryInstallIdGate: Bool {
-        telemetryInstallIdGate.didReach
+    var didReachProductAnalyticsRuntimeConfigGate: Bool {
+        productAnalyticsRuntimeConfigGate.didReach
     }
     var setNativePushEnabledError: Error?
     private(set) var nativePushEnabledSet: Bool?
@@ -707,8 +707,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private(set) var didPostAuditLogTrackerUpdate = false
     private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
     private(set) var relayTelemetryRuntimeConfigSetCallCount = 0
-    private(set) var telemetryInstallIdCallCount = 0
-    var telemetryInstallIdError: Error?
+    var productAnalyticsRuntimeConfigError: Error?
     private(set) var removedAccountRefs: [String] = []
     var removeAccountError: Error?
     private(set) var didDeleteAllLocalData = false
@@ -1361,16 +1360,6 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         relayTelemetryRuntimeConfig = config
     }
 
-    func telemetryInstallId() throws -> String {
-        telemetryInstallIdCallCount += 1
-        recordSyncCall("telemetryInstallId")
-        telemetryInstallIdGate.passIfArmed()
-        if let telemetryInstallIdError {
-            throw telemetryInstallIdError
-        }
-        return "test-install-id"
-    }
-
     func usageDiagnosticsSettings() throws -> UsageDiagnosticsSettingsFfi {
         usageSettings
     }
@@ -1401,6 +1390,11 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     }
 
     func setProductAnalyticsRuntimeConfig(config: ProductAnalyticsRuntimeConfigFfi) throws {
+        recordSyncCall("setProductAnalyticsRuntimeConfig")
+        productAnalyticsRuntimeConfigGate.passIfArmed()
+        if let productAnalyticsRuntimeConfigError {
+            throw productAnalyticsRuntimeConfigError
+        }
         productAnalyticsRuntimeConfig = config
         productAnalyticsRuntimeConfigSetCallCount += 1
     }
@@ -1750,8 +1744,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         return snapshot
     }
 
-    func releaseTelemetryInstallIdGate() {
-        telemetryInstallIdGate.release()
+    func releaseProductAnalyticsRuntimeConfigGate() {
+        productAnalyticsRuntimeConfigGate.release()
     }
 
     func deleteAllLocalData() async throws {
