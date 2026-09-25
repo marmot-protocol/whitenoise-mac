@@ -197,26 +197,18 @@ extension WorkspaceState {
         let activeRows = rows.filter { !$0.archived }
         let archivedRows = rows.filter(\.archived)
         let nicknames = contactNicknames(forOwnerAccountIdHex: account.accountIdHex)
-        let readyAvatarReferences = Array(
-            Set(
-                preparedRows.values.compactMap { presented -> String? in
-                    guard presented.avatarAsset?.availability == .ready else { return nil }
-                    return presented.avatarAsset?.reference
-                }))
+        let readyAvatarReferences = AvatarAssetReads.readableReferences(preparedRows.values.map(\.avatarAsset))
         let avatarBytesByReference: [String: AvatarBytesFfi]
         if let preparedAvatarBytes {
             avatarBytesByReference = preparedAvatarBytes
         } else if let client, !readyAvatarReferences.isEmpty,
-            let payloads = try? await client.readAvatarAssets(
+            let payloads = try? await AvatarAssetReads.read(
+                runtime: client,
                 accountRef: account.accountRef,
-                references: readyAvatarReferences,
-                maxBytes: 32 * 1_024 * 1_024
+                references: readyAvatarReferences
             )
         {
-            avatarBytesByReference = Dictionary(
-                payloads.map { ($0.reference, $0) },
-                uniquingKeysWith: { _, latest in latest }
-            )
+            avatarBytesByReference = payloads
         } else {
             avatarBytesByReference = [:]
         }

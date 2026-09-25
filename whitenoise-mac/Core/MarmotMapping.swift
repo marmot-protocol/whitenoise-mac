@@ -60,14 +60,9 @@ extension ConversationWindowSnapshotFfi {
                 displayName: nickname ?? publishedName,
                 publishedDisplayName: nickname == nil ? nil : publishedName,
                 pictureURL: pictureURL,
-                imagePayload: identity.avatarAsset?.reference.flatMap { reference in
-                    avatarBytesByReference[reference].flatMap { payload in
-                        guard payload.availability == .ready, !payload.deferred, !payload.bytes.isEmpty else {
-                            return nil
-                        }
-                        return DownloadedMediaPayload(id: reference, data: payload.bytes)
-                    }
-                }
+                imagePayload: AvatarAssetReads.drawablePayload(
+                    identity.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] }
+                )
             )
         }
     }
@@ -129,6 +124,7 @@ extension ChatItem {
         directPeer: ChatPeerProfile? = nil,
         groupAvatarURL: String? = nil,
         groupImagePayload: DownloadedMediaPayload? = nil,
+        selectedAvatarPayload: DownloadedMediaPayload? = nil,
         mentionNames: MarkdownMentionNames = [:],
         lastSenderNickname: String? = nil
     ) {
@@ -199,7 +195,10 @@ extension ChatItem {
             updatedAt: updatedAt,
             avatarSeed: peer?.accountIdHex ?? row.groupIdHex,
             pictureURL: peer?.pictureURL ?? groupAvatarURL,
-            groupImagePayload: isDirect ? nil : groupImagePayload,
+            // MDK's own retained bytes for the avatar it selected apply to direct chats as well:
+            // for a DM they are the peer's picture. Only the legacy encrypted-group payload is
+            // group-only.
+            groupImagePayload: selectedAvatarPayload ?? (isDirect ? nil : groupImagePayload),
             groupImageHashHex: isDirect ? nil : row.avatar?.imageHashHex.nilIfBlank,
             unreadCount: Int(clamping: row.unreadCount),
             hasUnread: row.hasUnread,
