@@ -313,28 +313,22 @@ final class ChatListViewModel {
                         && replacement.sequence >= current.sequence)
             else { return }
         }
-        let missingReferences = Array(
-            Set(
-                replacement.rows.compactMap { presented -> String? in
-                    guard presented.avatarAsset?.availability == .ready,
-                        let reference = presented.avatarAsset?.reference,
-                        avatarBytesByReference[reference] == nil
-                    else { return nil }
-                    return reference
-                }
-            )
+        // Re-read when the core's content revision moves, not only when the reference is new: a
+        // `.stale` picture and its refreshed replacement share one reference.
+        let missingReferences = AvatarAssetReads.readableReferences(
+            replacement.rows.map(\.avatarAsset).filter { asset in
+                guard let reference = asset?.reference else { return false }
+                return avatarBytesByReference[reference]?.contentRevision != asset?.contentRevision
+            }
         )
         if !missingReferences.isEmpty {
             do {
-                let payloads = try await runtime.readAvatarAssets(
+                let payloads = try await AvatarAssetReads.read(
+                    runtime: runtime,
                     accountRef: account.accountRef,
-                    references: missingReferences,
-                    maxBytes: 32 * 1_024 * 1_024
+                    references: missingReferences
                 )
-                try Task.checkCancellation()
-                for payload in payloads {
-                    avatarBytesByReference[payload.reference] = payload
-                }
+                avatarBytesByReference.merge(payloads) { _, latest in latest }
             } catch is CancellationError {
                 return
             } catch {
@@ -347,25 +341,15 @@ final class ChatListViewModel {
     }
 
     private func install(_ snapshot: PresentedChatListSnapshotFfi) async {
-        let readyReferences = Array(
-            Set(
-                snapshot.rows.compactMap { presented -> String? in
-                    guard presented.avatarAsset?.availability == .ready else { return nil }
-                    return presented.avatarAsset?.reference
-                }))
+        let readyReferences = AvatarAssetReads.readableReferences(snapshot.rows.map(\.avatarAsset))
         if readyReferences.isEmpty {
             avatarBytesByReference = [:]
         } else {
             do {
-                let payloads = try await runtime.readAvatarAssets(
+                avatarBytesByReference = try await AvatarAssetReads.read(
+                    runtime: runtime,
                     accountRef: account.accountRef,
-                    references: readyReferences,
-                    maxBytes: 32 * 1_024 * 1_024
-                )
-                try Task.checkCancellation()
-                avatarBytesByReference = Dictionary(
-                    payloads.map { ($0.reference, $0) },
-                    uniquingKeysWith: { _, latest in latest }
+                    references: readyReferences
                 )
             } catch is CancellationError {
                 return

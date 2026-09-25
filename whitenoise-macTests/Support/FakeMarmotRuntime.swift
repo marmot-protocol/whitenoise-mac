@@ -109,6 +109,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var attachmentBytesByReference: [String: Data] = [:]
     var avatarAssets: [AvatarAssetFfi] = []
     var avatarBytes: [AvatarBytesFfi] = []
+    private(set) var requestedAvatarTargetBatches: [[String]] = []
+    private(set) var readAvatarReferenceBatches: [[String]] = []
     private(set) var didClearAvatarCache = false
     var blockedUsers: [BlockedUserFfi] = []
     var blockedUserSnapshots: [BlockListSnapshotFfi] = []
@@ -1504,12 +1506,26 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         return AttachmentLocalBytesFfi(available: true, bytes: bytes.subdata(in: start..<end))
     }
 
+    /// Mirrors the core's hard limits (mdk `MAX_AVATAR_BATCH_ITEMS` / `MAX_AVATAR_BATCH_BYTES`):
+    /// an over-limit call is rejected whole. Accepting it here is how a 32 MiB budget passed every
+    /// test while no real read ever succeeded.
     func requestAvatarAssets(accountRef: String, targets: [String]) async throws -> [AvatarAssetFfi] {
-        avatarAssets.filter { targets.contains($0.target) }
+        guard targets.count <= 16 else {
+            throw MarmotKitError.InvalidMediaReference(details: "avatar batch exceeds 16 items")
+        }
+        requestedAvatarTargetBatches.append(targets)
+        return avatarAssets.filter { targets.contains($0.target) }
     }
 
     func readAvatarAssets(accountRef: String, references: [String], maxBytes: UInt64) async throws -> [AvatarBytesFfi] {
-        avatarBytes.filter { references.contains($0.reference) }
+        guard references.count <= 16 else {
+            throw MarmotKitError.InvalidMediaReference(details: "avatar batch exceeds 16 items")
+        }
+        guard maxBytes > 0, maxBytes <= 16 * 1_024 * 1_024 else {
+            throw MarmotKitError.InvalidMediaReference(details: "invalid avatar byte budget")
+        }
+        readAvatarReferenceBatches.append(references)
+        return avatarBytes.filter { references.contains($0.reference) }
     }
 
     func clearAvatarCache(accountRef: String) async throws {
