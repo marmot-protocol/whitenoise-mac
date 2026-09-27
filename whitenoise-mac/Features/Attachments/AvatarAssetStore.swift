@@ -19,25 +19,18 @@ final class AvatarAssetStore {
         self.runtime = runtime
     }
 
-    func request(targets: [String], maxBytes: UInt64 = 8 * 1_024 * 1_024) async {
+    /// Registers visible demand for `targets` and reads whichever of them the core already holds.
+    /// Acquisition itself completes later, through a projection update that calls `load` again.
+    func request(targets: [String]) async {
         guard !targets.isEmpty else { return }
         do {
-            let assets = try await runtime.requestAvatarAssets(accountRef: accountRef, targets: targets)
+            var assets: [AvatarAssetFfi] = []
+            for batch in AvatarAssetReads.batches(Array(Set(targets)).sorted()) {
+                assets += try await runtime.requestAvatarAssets(accountRef: accountRef, targets: batch)
+                try Task.checkCancellation()
+            }
             for asset in assets { assetsByTarget[asset.target] = asset }
-            let references = assets.compactMap { asset -> String? in
-                guard asset.availability == .ready else { return nil }
-                return asset.reference
-            }
-            guard !references.isEmpty else {
-                error = nil
-                return
-            }
-            let payloads = try await runtime.readAvatarAssets(
-                accountRef: accountRef, references: references, maxBytes: maxBytes
-            )
-            for payload in payloads where payload.availability == .ready && !payload.deferred {
-                bytesByReference[payload.reference] = payload
-            }
+            try await readMissingBytes(for: assets)
             error = nil
         } catch is CancellationError {
             return
@@ -46,31 +39,41 @@ final class AvatarAssetStore {
         }
     }
 
-    func load(assets: [AvatarAssetFfi], maxBytes: UInt64 = 32 * 1_024 * 1_024) async {
+    /// Installs the assets a snapshot carries. Readable ones are read; the rest are requested,
+    /// because the core only acquires an identity avatar something on screen has asked for — the
+    /// chat list's own rows get background demand, message senders do not.
+    func load(assets: [AvatarAssetFfi]) async {
         guard !assets.isEmpty else { return }
         for asset in assets { assetsByTarget[asset.target] = asset }
-        let references = Array(
-            Set(
-                assets.compactMap { asset in
-                    asset.availability == .ready ? asset.reference : nil
-                }))
-        guard !references.isEmpty else { return }
+        let unrequested = assets.filter { asset in
+            (asset.availability == .missing || asset.availability == .stale)
+                && (asset.acquisition == nil || asset.acquisition == .idle)
+        }
         do {
-            let payloads = try await runtime.readAvatarAssets(
-                accountRef: accountRef,
-                references: references,
-                maxBytes: maxBytes
-            )
-            try Task.checkCancellation()
-            for payload in payloads where payload.availability == .ready && !payload.deferred {
-                bytesByReference[payload.reference] = payload
-            }
+            try await readMissingBytes(for: assets)
             error = nil
         } catch is CancellationError {
             return
         } catch {
             self.error = error.localizedDescription
         }
+        if !unrequested.isEmpty {
+            await request(targets: unrequested.map(\.target))
+        }
+    }
+
+    private func readMissingBytes(for assets: [AvatarAssetFfi]) async throws {
+        let references = AvatarAssetReads.readableReferences(
+            assets.filter { asset in
+                guard let reference = asset.reference else { return false }
+                return bytesByReference[reference]?.contentRevision != asset.contentRevision
+            }
+        )
+        guard !references.isEmpty else { return }
+        let payloads = try await AvatarAssetReads.read(
+            runtime: runtime, accountRef: accountRef, references: references
+        )
+        bytesByReference.merge(payloads) { _, latest in latest }
     }
 
     func clear() async {

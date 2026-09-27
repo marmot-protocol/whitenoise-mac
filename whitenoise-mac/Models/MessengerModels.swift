@@ -150,9 +150,10 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     private(set) var pictureURL: String?
     /// Pre-sanitized avatar URL for chat rows/headers; the view still applies `loadRemoteImages`.
     private(set) var sanitizedPictureURL: URL?
-    /// Decrypted encrypted-Blossom group image. Direct chats leave this nil and use the peer
-    /// profile picture instead. The payload id is the component's content hash, so decoded-image
-    /// caching naturally invalidates when the group commits a replacement image.
+    /// Locally held avatar bytes, drawn ahead of any URL: the decrypted encrypted-Blossom group
+    /// image, or — for any chat built from a prepared row — MDK's retained copy of the avatar it
+    /// selected, which for a direct chat is the peer's picture. The payload id is the content hash
+    /// or asset reference, so decoded-image caching invalidates when the image is replaced.
     let groupImagePayload: DownloadedMediaPayload?
     let groupImageHashHex: String?
     let unreadCount: Int
@@ -471,12 +472,7 @@ extension ChatItem {
             activeAccountIdHex: activeAccountIdHex,
             directPeer: peer,
             groupAvatarURL: peer == nil ? pictureURL : nil,
-            groupImagePayload: avatarBytes.flatMap { payload in
-                guard payload.availability == .ready, !payload.deferred, !payload.bytes.isEmpty else {
-                    return nil
-                }
-                return DownloadedMediaPayload(id: payload.reference, data: payload.bytes)
-            },
+            selectedAvatarPayload: AvatarAssetReads.drawablePayload(avatarBytes),
             lastSenderNickname: lastSenderNickname
         )
 
