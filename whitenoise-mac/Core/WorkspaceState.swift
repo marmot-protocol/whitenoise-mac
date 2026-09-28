@@ -2025,20 +2025,7 @@ final class WorkspaceState {
         observabilityRuntimeGeneration &+= 1
         let generation = observabilityRuntimeGeneration
 
-        let relayRuntimeConfig: RelayTelemetryRuntimeConfigFfi
-        if let cached = observabilityRuntimeConfiguration,
-            cached.buildConfig == config
-        {
-            relayRuntimeConfig = cached.relayTelemetryRuntimeConfig
-        } else {
-            let installId = try await FFIExecutor.run {
-                try client.telemetryInstallId()
-            }
-            guard !Task.isCancelled, observabilityRuntimeGeneration == generation,
-                activeAccountId == accountId
-            else { return }
-            relayRuntimeConfig = config.runtimeConfig(installId: installId)
-        }
+        let relayRuntimeConfig = config.runtimeConfig()
         let auditTrackerConfig = config.auditTrackerConfig()
         let productAnalyticsRuntimeConfig = config.productAnalyticsRuntimeConfig()
 

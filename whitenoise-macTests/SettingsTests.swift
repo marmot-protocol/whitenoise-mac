@@ -1395,10 +1395,10 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(config.productAnalyticsAppKey == "product-key")
         #expect(config.productAnalyticsRetentionDisclosure == "180 days")
 
-        let runtimeConfig = config.runtimeConfig(installId: "install-id")
+        let runtimeConfig = config.runtimeConfig()
         #expect(runtimeConfig.authorizationBearerToken == "otlp-token")
         #expect(runtimeConfig.resource?.serviceVersion == "2026.6+12")
-        #expect(runtimeConfig.resource?.serviceInstanceId == "install-id")
+        #expect(runtimeConfig.resource?.serviceInstanceId == "")
         #expect(runtimeConfig.resource?.deploymentEnvironment == "production")
         #expect(runtimeConfig.resource?.tenant == "whitenoise-mac")
         #expect(runtimeConfig.resource?.osType == "darwin")
@@ -1445,7 +1445,7 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(!config.osVersion.contains("Version"))
         #expect(config.osVersion.allSatisfy { $0.isNumber || $0 == "." })
 
-        let runtimeResource = config.runtimeConfig(installId: "install-id").resource
+        let runtimeResource = config.runtimeConfig().resource
         #expect(runtimeResource?.osVersion == expected)
         #expect(runtimeResource?.osVersion != ProcessInfo.processInfo.operatingSystemVersionString)
     }
@@ -1504,7 +1504,7 @@ struct SettingsTests: WorkspaceTestSupport {
 
         #expect(config.deploymentEnvironment == "development")
 
-        let runtimeResource = config.runtimeConfig(installId: "install-id").resource
+        let runtimeResource = config.runtimeConfig().resource
         #expect(runtimeResource?.deploymentEnvironment == "development")
     }
 
@@ -1523,7 +1523,7 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(config.bearerToken == "release-otlp-token")
         #expect(config.deploymentEnvironment == "unknown")
 
-        let runtimeResource = config.runtimeConfig(installId: "install-id").resource
+        let runtimeResource = config.runtimeConfig().resource
         #expect(runtimeResource?.deploymentEnvironment == "unknown")
     }
 
@@ -1585,7 +1585,10 @@ struct SettingsTests: WorkspaceTestSupport {
 
         await state.bootstrap()
 
-        #expect(runtime.telemetryInstallIdCallCount == 1)
+        // MarmotKit fills in its consent-scoped install id itself; the host must not ask for it,
+        // because `telemetryInstallId()` throws `ConsentRequired` before diagnostics are granted.
+        #expect(runtime.relayTelemetryRuntimeConfig?.resource?.serviceInstanceId == "")
+        #expect(state.backgroundStatus == nil)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
         #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
         #expect(runtime.productAnalyticsRuntimeConfigSetCallCount == 1)
@@ -1601,7 +1604,6 @@ struct SettingsTests: WorkspaceTestSupport {
         }
 
         #expect(didSwitch)
-        #expect(runtime.telemetryInstallIdCallCount == 1)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
         #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
         #expect(runtime.productAnalyticsRuntimeConfigSetCallCount == 1)
@@ -1656,16 +1658,16 @@ struct SettingsTests: WorkspaceTestSupport {
         await state.bootstrap()
 
         buildConfig = telemetryBuildConfig(environment: "staging")
-        runtime.telemetryInstallIdGateEnabled = true
+        runtime.productAnalyticsRuntimeConfigGateEnabled = true
         async let stalePrimaryConfiguration: Void = state.configureObservabilityRuntime()
-        while !runtime.didReachTelemetryInstallIdGate {
+        while !runtime.didReachProductAnalyticsRuntimeConfigGate {
             await Task.yield()
         }
 
         let secondaryItem = try #require(state.accounts.first { $0.id == secondary.label })
         state.prepareForActiveAccountSwitch(to: secondaryItem, preservingMessageCacheFor: nil)
         try await state.configureObservabilityRuntime()
-        runtime.releaseTelemetryInstallIdGate()
+        runtime.releaseProductAnalyticsRuntimeConfigGate()
         try await stalePrimaryConfiguration
 
         #expect(state.activeAccountId == secondary.label)
