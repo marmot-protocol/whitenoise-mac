@@ -160,9 +160,15 @@ build.
   attention, conversation windows, transfer snapshots, block lists, and
   onboarding snapshots are complete replacements; do not merge them with an
   older snapshot or restart per-row enrichment.
-- MarmotKit 0.10.4 upgrades account databases through migrations 57–89. An older
-  0.9.x app must not reopen an upgraded database; see
-  `docs/MarmotKit-0.10.4-migration.md`.
+- MarmotKit 0.10.4 upgrades account databases through migrations 57–89, and 0.11.0
+  through 90–98. An older app must not reopen an upgraded database (0.10.4 refuses a
+  0.11.0 one with `UnsupportedSchemaVersion`; locally that shows as a `storage_backend`
+  startup error after a branch switch); see `docs/MarmotKit-0.10.4-migration.md` and
+  `docs/MarmotKit-0.11.0-migration.md`.
+- 0.11.0 hosts must surface and let the user dismiss "history may be incomplete"
+  notices: a parked loss keeps the account's transport cursor fenced until dismissed.
+  `HistoryNoticesViewModel` on `AccountScope` owns this, re-reading on the runtime's
+  `historyNoticesChanged` event.
 - FFI value records crossing the off-main boundary (`WorkspaceState.runOffMain`)
   no longer need app-side `Sendable` conformances: since UniFFI 0.29 the
   generated module declares (checked) `Sendable` on them itself, which is why

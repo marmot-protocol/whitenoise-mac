@@ -6,6 +6,16 @@ struct GroupRecoverySection: View {
     @State private var selection: GroupRejoinSelection?
 
     var body: some View {
+        let historyNoticeIds = model.historyNoticeIds
+        if !historyNoticeIds.isEmpty {
+            Section {
+                HistoryNoticeBanner(
+                    message: model.historyNoticeMessage,
+                    isDismissing: model.isDismissingHistoryNotice,
+                    onDismiss: { Task { await model.dismissHistoryNotice() } }
+                )
+            }
+        }
         if let recovery = model.recovery, recovery.requiresAttention {
             Section(L10n.string("Invitation")) {
                 GroupRecoveryStatusRows(status: recovery)

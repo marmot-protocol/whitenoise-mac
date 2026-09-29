@@ -104,6 +104,10 @@ nonisolated protocol MarmotRuntime: Sendable {
     func quarantinedGroups(accountRef: String) async throws -> [AppQuarantinedGroupFfi]
     func retryHydrateQuarantinedGroup(accountRef: String, groupIdHex: String) async throws -> Bool
     func groupRecoveryStatus(accountRef: String, groupIdHex: String) async throws -> GroupRecoveryStatusFfi
+    func historyNotices(accountRef: String) async throws -> [HistoryNoticeFfi]
+    func dismissHistoryNotice(accountRef: String, noticeId: String) async throws -> Bool
+    func subscribeEvents() -> EventsSubscription
+    func nextEvent(subscription: EventsSubscription) async throws -> MarmotEventFfi?
     func confirmGroupRejoin(
         accountRef: String, welcomeIdHex: String, localStateToken: String
     ) async throws -> GroupRecoveryStatusFfi
@@ -654,6 +658,22 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func groupRecoveryStatus(accountRef: String, groupIdHex: String) async throws -> GroupRecoveryStatusFfi {
         try await marmot.groupRecoveryStatus(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func historyNotices(accountRef: String) async throws -> [HistoryNoticeFfi] {
+        try await marmot.historyNotices(accountRef: accountRef)
+    }
+
+    func dismissHistoryNotice(accountRef: String, noticeId: String) async throws -> Bool {
+        try await marmot.dismissHistoryNotice(accountRef: accountRef, noticeId: noticeId)
+    }
+
+    func subscribeEvents() -> EventsSubscription {
+        marmot.subscribeEvents()
+    }
+
+    func nextEvent(subscription: EventsSubscription) async throws -> MarmotEventFfi? {
+        try await subscription.nextCancellable()
     }
 
     func confirmGroupRejoin(

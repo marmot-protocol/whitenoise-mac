@@ -159,9 +159,11 @@ struct ChatListDrawerView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     let model: ChatListViewModel?
+    let historyNotices: HistoryNoticesViewModel?
 
-    init(model: ChatListViewModel? = nil) {
+    init(model: ChatListViewModel? = nil, historyNotices: HistoryNoticesViewModel? = nil) {
         self.model = model
+        self.historyNotices = historyNotices
     }
 
     private var isShowingSettings: Bool {
@@ -197,6 +199,10 @@ struct ChatListDrawerView: View {
                 }
 
                 GlassSeparator(axis: .horizontal)
+
+                if !isCollapsed, let historyNotices {
+                    AccountHistoryNoticesView(model: historyNotices)
+                }
 
                 ScrollView {
                     LazyVStack(spacing: 3) {

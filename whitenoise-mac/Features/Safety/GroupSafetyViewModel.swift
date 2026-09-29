@@ -18,14 +18,50 @@ final class GroupSafetyViewModel {
     private(set) var isModerating = false
     private(set) var canModerate = false
     private(set) var error: String?
+    /// The account's notices, for the cause behind this group's `historyNoticeIds` and for
+    /// routing their dismissal. `nil` only where no account scope exists (previews).
+    let historyNotices: HistoryNoticesViewModel?
 
     @ObservationIgnored private let accountRef: String
     @ObservationIgnored private let runtime: any MarmotRuntime
 
-    init(accountRef: String, groupIdHex: String, runtime: any MarmotRuntime) {
+    init(
+        accountRef: String,
+        groupIdHex: String,
+        runtime: any MarmotRuntime,
+        historyNotices: HistoryNoticesViewModel? = nil
+    ) {
         self.accountRef = accountRef
         self.groupIdHex = groupIdHex
         self.runtime = runtime
+        self.historyNotices = historyNotices
+    }
+
+    /// This group's own "history may be incomplete" occurrences, oldest first. Empty unless the
+    /// core both flags the group and names the occurrences, so there is always something to dismiss.
+    var historyNoticeIds: [String] {
+        guard let recovery, recovery.historyMayBeIncomplete else { return [] }
+        return recovery.historyNoticeIds
+    }
+
+    var historyNoticeMessage: String {
+        HistoryNoticePresentation.groupMessage(
+            noticeIds: historyNoticeIds,
+            notices: historyNotices?.notices ?? []
+        )
+    }
+
+    var isDismissingHistoryNotice: Bool {
+        historyNotices?.isDismissing(historyNoticeIds) ?? false
+    }
+
+    /// Dismisses what the user was shown, then re-reads the group's status so the flag and ids
+    /// reflect the core rather than the local guess.
+    func dismissHistoryNotice() async {
+        let noticeIds = historyNoticeIds
+        guard let historyNotices, !noticeIds.isEmpty else { return }
+        await historyNotices.dismiss(noticeIds)
+        await load(canModerate: canModerate)
     }
 
     func load(canModerate: Bool) async {

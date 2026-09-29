@@ -46,14 +46,17 @@ struct MessengerShellView: View {
 
                         Group {
                             if workspace.isChatListVisible {
-                                ChatListDrawerView(model: session.accountScope?.chatListModel)
-                                    // Deliberately un-animated: the width is dragged, so animating
-                                    // it would re-wrap the non-lazy transcript on every frame of the
-                                    // drag *and* again through the collapse snap — the same layout
-                                    // storm the `isChatListVisible` transition below is scoped away
-                                    // from. The snap is a single jump instead.
-                                    .frame(width: workspace.chatListDrawerWidth, alignment: .leading)
-                                    .transition(.move(edge: .leading).combined(with: .opacity))
+                                ChatListDrawerView(
+                                    model: session.accountScope?.chatListModel,
+                                    historyNotices: session.accountScope?.historyNotices
+                                )
+                                // Deliberately un-animated: the width is dragged, so animating
+                                // it would re-wrap the non-lazy transcript on every frame of the
+                                // drag *and* again through the collapse snap — the same layout
+                                // storm the `isChatListVisible` transition below is scoped away
+                                // from. The snap is a single jump instead.
+                                .frame(width: workspace.chatListDrawerWidth, alignment: .leading)
+                                .transition(.move(edge: .leading).combined(with: .opacity))
 
                                 ChatListResizeHandle()
                                     .transition(.opacity)

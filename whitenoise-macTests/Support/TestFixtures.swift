@@ -385,6 +385,53 @@ final class FakeAccountAttentionSubscription: AccountAttentionSubscription, @unc
     }
 }
 
+/// Fans test-pushed runtime events out to every live `FakeEventsSubscription`, like the core's
+/// broadcast firehose. An event emitted before anyone subscribes is dropped, as it would be there.
+final class FakeEventHub: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuations: [UUID: AsyncStream<MarmotEventFfi>.Continuation] = [:]
+
+    var subscriberCount: Int {
+        lock.withLock { continuations.count }
+    }
+
+    func subscribe() -> FakeEventsSubscription {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<MarmotEventFfi>.makeStream()
+        continuation.onTermination = { [weak self] _ in
+            guard let self else { return }
+            _ = self.lock.withLock { self.continuations.removeValue(forKey: id) }
+        }
+        lock.withLock { continuations[id] = continuation }
+        return FakeEventsSubscription(stream: stream)
+    }
+
+    func emit(_ event: MarmotEventFfi) {
+        let targets = lock.withLock { Array(continuations.values) }
+        for continuation in targets {
+            continuation.yield(event)
+        }
+    }
+}
+
+final class FakeEventsSubscription: EventsSubscription, @unchecked Sendable {
+    private var iterator: AsyncStream<MarmotEventFfi>.AsyncIterator?
+
+    required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        iterator = nil
+        super.init(unsafeFromRawPointer: pointer)
+    }
+
+    init(stream: AsyncStream<MarmotEventFfi>) {
+        iterator = stream.makeAsyncIterator()
+        super.init(noPointer: NoPointer())
+    }
+
+    override func next() async -> MarmotEventFfi? {
+        await iterator?.next()
+    }
+}
+
 final class FakeConversationWindowSubscription: ConversationWindowSubscription, @unchecked Sendable {
     private var current: ConversationWindowSnapshotFfi?
     private var updates: [ConversationWindowSnapshotFfi]

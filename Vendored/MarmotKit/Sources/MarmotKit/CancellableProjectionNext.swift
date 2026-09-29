@@ -74,6 +74,18 @@ public extension OnboardingSubscription {
     }
 }
 
+// The runtime event firehose is owned by an `AccountScope` task; without this, an account
+// switch would leave the old scope's `next()` parked until some unrelated event arrived.
+public extension EventsSubscription {
+    func nextCancellable() async throws -> MarmotEventFfi? {
+        try Task.checkCancellation()
+        return try await cancellableProjectionNext(
+            uniffi_marmot_uniffi_fn_method_eventssubscription_next(uniffiClonePointer()),
+            read: FfiConverterTypeMarmotEventFfi.read
+        )
+    }
+}
+
 private func cancellableProjectionNext<Value>(
     _ handle: UInt64,
     read: (inout (data: Data, offset: Data.Index)) throws -> Value

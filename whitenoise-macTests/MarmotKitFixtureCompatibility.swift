@@ -352,11 +352,13 @@ nonisolated extension TimelineMessageRecordFfi {
         reactions: TimelineReactionSummaryFfi,
         deleted: Bool,
         deletedByMessageIdHex: String?,
-        invalidationStatus: String?
+        invalidationStatus: String?,
+        poll: PollProjectionFfi? = nil
     ) {
         self.init(
             clientToken: clientToken,
             hasReports: false,
+            poll: poll,
             messageIdHex: messageIdHex,
             sourceMessageIdHex: sourceMessageIdHex,
             sourceEpoch: nil,
