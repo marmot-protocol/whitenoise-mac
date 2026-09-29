@@ -175,6 +175,26 @@ struct StubNIP05Resolver: NIP05Resolving {
     }
 }
 
+/// `StubNIP05Resolver`'s Namecoin twin: maps `.bit` / `d/` / `id/` identifiers to member
+/// refs and records what it was asked, so routing tests can prove which resolver a query
+/// went to.
+nonisolated final class RecordingNamecoinResolver: NamecoinResolving {
+    let accountReferences: [String: String]
+    private(set) var requestedIdentifiers: [String] = []
+
+    init(accountReferences: [String: String]) {
+        self.accountReferences = accountReferences
+    }
+
+    func accountReference(for identifier: String) async throws -> String {
+        requestedIdentifiers.append(identifier)
+        guard let reference = accountReferences[identifier] else {
+            throw NamecoinResolutionError.notFound(identifier)
+        }
+        return reference
+    }
+}
+
 struct MediaResolutionFixture {
     let message: MessageItem
     let attachment: MessageMediaAttachment
