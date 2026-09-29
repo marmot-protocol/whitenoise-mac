@@ -19,6 +19,7 @@ final class AccountScope {
     let avatarAssets: AvatarAssetStore
     let blockedUsers: BlockedUsersViewModel
     let onboarding: OnboardingCoordinator
+    let historyNotices: HistoryNoticesViewModel
     let productAnalytics: ProductAnalyticsRecorder
     private(set) var selectedConversationModel: ConversationViewModel?
     @ObservationIgnored private var attachmentPolicyTask: Task<Void, Never>?
@@ -55,6 +56,11 @@ final class AccountScope {
         self.avatarAssets = AvatarAssetStore(accountRef: account.accountRef, runtime: runtime)
         self.blockedUsers = blockedUsers
         self.onboarding = OnboardingCoordinator(accountRef: account.accountRef, runtime: runtime)
+        self.historyNotices = HistoryNoticesViewModel(
+            accountRef: account.accountRef,
+            accountIdHex: account.accountIdHex,
+            runtime: runtime
+        )
         self.productAnalytics = productAnalytics
     }
 
@@ -63,15 +69,18 @@ final class AccountScope {
         attentionModel.start()
         blockedUsers.start()
         onboarding.start()
+        historyNotices.start()
         let diagnosticsTask = Task { [settingsModel] in
             await settingsModel.diagnostics.load()
         }
         addCancellation {
-            [chatListModel, attentionModel, blockedUsers, onboarding, productAnalytics, settingsModel] in
+            [chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, productAnalytics, settingsModel]
+            in
             chatListModel.stop()
             attentionModel.stop()
             blockedUsers.stop()
             onboarding.stop()
+            historyNotices.stop()
             productAnalytics.deactivate()
             settingsModel.deactivate()
         }
@@ -175,7 +184,12 @@ final class AccountScope {
 
     func safetyModel(groupIdHex: String) -> GroupSafetyViewModel {
         if let existing = groupSafety[groupIdHex] { return existing }
-        let model = GroupSafetyViewModel(accountRef: account.accountRef, groupIdHex: groupIdHex, runtime: runtime)
+        let model = GroupSafetyViewModel(
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex,
+            runtime: runtime,
+            historyNotices: historyNotices
+        )
         groupSafety[groupIdHex] = model
         return model
     }

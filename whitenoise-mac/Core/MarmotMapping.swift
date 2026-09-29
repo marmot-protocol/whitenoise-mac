@@ -258,6 +258,9 @@ extension ChatItem {
         }
 
         let presentation = MessageItem.presentation(for: preview.kind)
+        if presentation == .poll {
+            return PreviewProjection(text: MessageItem.pollLabel(question: preview.plaintext))
+        }
         let text = MessageItem.displayText(
             presentation: presentation,
             plaintext: preview.plaintext,
@@ -592,6 +595,8 @@ nonisolated extension MessageItem {
             return .agentOperation
         case MarmotTimelineKind.groupSystem:
             return .groupSystem
+        case MarmotTimelineKind.poll:
+            return .poll
         default:
             return .unsupported
         }
@@ -1132,9 +1137,18 @@ nonisolated extension MessageItem {
                 return text
             }
             return groupSystemFallback(payload?.systemType ?? tagValue("system", in: tags))
+        case .poll:
+            return "\(pollLabel(question: body)) \(L10n.string("This poll can’t be displayed."))"
         case .unsupported:
             return body.isEmpty ? L10n.string("Unsupported message") : body
         }
+    }
+
+    /// "📊 Poll: <question>", the label every client uses for a poll in a preview. The poll's
+    /// plaintext is its question.
+    static func pollLabel(question: String) -> String {
+        let question = PeerDisplayText.sanitize(question) ?? ""
+        return question.isEmpty ? L10n.string("Poll") : String(format: L10n.string("📊 Poll: %@"), question)
     }
 
     private static func replyContext(
@@ -1184,7 +1198,7 @@ nonisolated extension MessageItem {
             return L10n.string("Agent")
         case .groupSystem:
             return L10n.string("System")
-        case .chat, .unsupported:
+        case .chat, .poll, .unsupported:
             return displayName(for: sender, profile: profile)
         }
     }
@@ -1201,7 +1215,7 @@ nonisolated extension MessageItem {
         switch presentation {
         case .agentStreamStart, .agentActivity, .agentOperation, .groupSystem:
             return nil
-        case .chat, .unsupported:
+        case .chat, .poll, .unsupported:
             guard profile?.publishedDisplayName != nil else { return nil }
             return PeerDisplayText.sanitize(profile?.publishedDisplayName) ?? DisplayText.short(sender)
         }
@@ -1248,6 +1262,7 @@ private nonisolated enum MarmotTimelineKind {
     static let agentActivity: UInt64 = 1201
     static let agentOperation: UInt64 = 1202
     static let groupSystem: UInt64 = 1210
+    static let poll: UInt64 = 1068
 }
 
 private nonisolated enum UntrustedJSON {

@@ -2351,6 +2351,9 @@ nonisolated enum MessagePresentation: Hashable {
     case agentActivity
     case agentOperation
     case groupSystem
+    /// A kind-1068 poll. This build can't show or vote in polls yet, so the row names the
+    /// question and says so rather than passing the bare question off as a message.
+    case poll
     case unsupported
 
     var isChatBubble: Bool {
@@ -2369,6 +2372,8 @@ nonisolated enum MessagePresentation: Hashable {
             return "hammer"
         case .groupSystem:
             return "person.2"
+        case .poll:
+            return "chart.bar.xaxis"
         case .unsupported:
             return "questionmark.bubble"
         }
@@ -2386,6 +2391,8 @@ nonisolated enum MessagePresentation: Hashable {
             return "agent-operation"
         case .groupSystem:
             return "group-system"
+        case .poll:
+            return "poll"
         case .unsupported:
             return "unsupported"
         }

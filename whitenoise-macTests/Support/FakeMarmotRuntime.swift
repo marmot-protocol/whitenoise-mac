@@ -118,6 +118,13 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var unblockUserError: Error?
     var quarantinedGroupRecords: [AppQuarantinedGroupFfi] = []
     var groupRecoveryStatuses: [String: GroupRecoveryStatusFfi] = [:]
+    /// The account's "history may be incomplete" notices. `dismissHistoryNotice` removes by id and
+    /// answers `false` for an id it no longer holds, as the core does for a re-armed occurrence.
+    var historyNoticeRecords: [HistoryNoticeFfi] = []
+    var historyNoticesError: Error?
+    private(set) var historyNoticesCallCount = 0
+    private(set) var dismissedHistoryNoticeIds: [String] = []
+    let eventHub = FakeEventHub()
     var contentReportPage = ContentReportPageFfi(reports: [], nextCursor: nil)
     private(set) var contentReportRequests: [(groupIdHex: String, messageId: String?)] = []
     var agentPublisher: AgentTextPublisher?
@@ -1576,6 +1583,27 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
                 failedReinvites: 0,
                 rejoinInvitations: []
             )
+    }
+
+    func historyNotices(accountRef: String) async throws -> [HistoryNoticeFfi] {
+        historyNoticesCallCount += 1
+        if let historyNoticesError { throw historyNoticesError }
+        return historyNoticeRecords
+    }
+
+    func dismissHistoryNotice(accountRef: String, noticeId: String) async throws -> Bool {
+        dismissedHistoryNoticeIds.append(noticeId)
+        guard let index = historyNoticeRecords.firstIndex(where: { $0.noticeId == noticeId }) else { return false }
+        historyNoticeRecords.remove(at: index)
+        return true
+    }
+
+    func subscribeEvents() -> EventsSubscription {
+        eventHub.subscribe()
+    }
+
+    func nextEvent(subscription: EventsSubscription) async throws -> MarmotEventFfi? {
+        await subscription.next()
     }
 
     func confirmGroupRejoin(

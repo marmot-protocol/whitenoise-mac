@@ -51,7 +51,7 @@ struct DisplayCopyTests {
         expectResolvableSymbols(
             [
                 MessagePresentation.chat, .agentStreamStart, .agentActivity, .agentOperation, .groupSystem,
-                .unsupported,
+                .poll, .unsupported,
             ].map(\.systemImage)
         )
         expectResolvableSymbols([ChatSelfMembership.left, .removed].compactMap(\.endedSymbolName))
@@ -62,7 +62,8 @@ struct DisplayCopyTests {
 
     @Test func messagePresentationDebugLabelsAreDistinct() {
         let labels = [
-            MessagePresentation.chat, .agentStreamStart, .agentActivity, .agentOperation, .groupSystem, .unsupported,
+            MessagePresentation.chat, .agentStreamStart, .agentActivity, .agentOperation, .groupSystem, .poll,
+            .unsupported,
         ].map(\.debugLabel)
         #expect(Set(labels).count == labels.count)
         #expect(MessagePresentation.chat.isChatBubble)
