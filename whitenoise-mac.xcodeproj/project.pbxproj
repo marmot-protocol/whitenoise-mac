@@ -477,6 +477,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				WN_AUDIT_LOG_BEARER_TOKEN = "$(AUDIT_LOG_TOKEN_WN_MAC)";
+				WN_AUDIT_OTLP_ENDPOINT = "https://otlp.whitenoise.chat/v1/logs";
 				WN_OTLP_BEARER_TOKEN = "$(OTLP_TOKEN_WN_MAC)";
 				WN_OTLP_ENDPOINT = "https://otlp.ipf.dev/v1/metrics";
 				WN_TELEMETRY_ENVIRONMENT = development;
@@ -531,6 +532,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				WN_AUDIT_LOG_BEARER_TOKEN = "$(AUDIT_LOG_TOKEN_WN_MAC)";
+				WN_AUDIT_OTLP_ENDPOINT = "https://otlp.whitenoise.chat/v1/logs";
 				WN_OTLP_BEARER_TOKEN = "$(OTLP_TOKEN_WN_MAC)";
 				WN_OTLP_ENDPOINT = "https://otlp.ipf.dev/v1/metrics";
 				WN_TELEMETRY_ENVIRONMENT = production;

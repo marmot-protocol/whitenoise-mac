@@ -702,14 +702,19 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
     var auditLogDeleteFailurePaths: Set<String> = []
-    var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultFfi(
+    var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultV5Ffi(
         enabled: true,
-        uploaded: [],
-        skippedReason: nil
+        v4Uploaded: [],
+        v4SkippedReason: nil,
+        v5: nil
     )
+    /// Thrown by `setAuditOtlpConfigV5`, standing in for the core rejecting a destination.
+    var setAuditOtlpConfigV5Error: Error?
     private(set) var localNotificationsEnabledSet: Bool?
     private(set) var auditLogTrackerConfig: AuditLogTrackerConfigV4Ffi?
     private(set) var auditLogTrackerConfigSetCallCount = 0
+    private(set) var auditOtlpConfigV5: AuditOtlpConfigV5Ffi?
+    private(set) var auditOtlpConfigV5SetCallCount = 0
     private(set) var deletedAuditLogFilePaths: [String] = []
     private(set) var didPostAuditLogTrackerUpdate = false
     private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
@@ -1302,7 +1307,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         notificationSettingsGate.release()
     }
 
-    func postAuditLogTrackerUpdate() async throws -> AuditLogTrackerUpdateResultFfi {
+    func postAuditLogTrackerUpdateV5() async throws -> AuditLogTrackerUpdateResultV5Ffi {
         didPostAuditLogTrackerUpdate = true
         return nextAuditLogTrackerUpdate
     }
@@ -1320,6 +1325,17 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         recordSyncCall("setAuditLogTrackerConfig")
         auditLogTrackerConfig = config
         return config
+    }
+
+    func setAuditOtlpConfigV5(config: AuditOtlpConfigV5Ffi) throws -> AuditOtlpConfigV5Ffi {
+        auditOtlpConfigV5SetCallCount += 1
+        recordSyncCall("setAuditOtlpConfigV5")
+        if let setAuditOtlpConfigV5Error { throw setAuditOtlpConfigV5Error }
+        auditOtlpConfigV5 = config
+        // The core confirms what it stored but never echoes the token back.
+        var stored = config
+        stored.authorizationBearerToken = nil
+        return stored
     }
 
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi {
@@ -3399,6 +3415,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 enum FakeMarmotRuntimeError: Error, LocalizedError {
     case missingCreatedAccount
     case auditLogDeleteFailed
+    case auditOtlpConfigRejected
     case observabilityConfigurationFailed
     case mediaUploadFailed
     case followListReadFailed
@@ -3414,6 +3431,8 @@ enum FakeMarmotRuntimeError: Error, LocalizedError {
             return "Missing created account."
         case .auditLogDeleteFailed:
             return "Audit log delete failed."
+        case .auditOtlpConfigRejected:
+            return "Audit destination rejected."
         case .observabilityConfigurationFailed:
             return "Observability configuration failed."
         case .mediaUploadFailed:

@@ -43,9 +43,10 @@ nonisolated protocol MarmotRuntime: Sendable {
     func auditLogSettings() throws -> AuditLogSettingsFfi
     func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi
-    func postAuditLogTrackerUpdate() async throws -> AuditLogTrackerUpdateResultFfi
+    func postAuditLogTrackerUpdateV5() async throws -> AuditLogTrackerUpdateResultV5Ffi
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigV4Ffi) throws -> AuditLogTrackerConfigV4Ffi
+    func setAuditOtlpConfigV5(config: AuditOtlpConfigV5Ffi) throws -> AuditOtlpConfigV5Ffi
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi
     func setNativePushEnabled(accountRef: String, enabled: Bool) async throws -> NotificationSettingsFfi
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws
@@ -470,8 +471,8 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try marmot.notificationSettings(accountRef: accountRef)
     }
 
-    func postAuditLogTrackerUpdate() async throws -> AuditLogTrackerUpdateResultFfi {
-        try await marmot.postAuditLogTrackerUpdate()
+    func postAuditLogTrackerUpdateV5() async throws -> AuditLogTrackerUpdateResultV5Ffi {
+        try await marmot.postAuditLogTrackerUpdateV5()
     }
 
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi {
@@ -480,6 +481,10 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigV4Ffi) throws -> AuditLogTrackerConfigV4Ffi {
         try marmot.setAuditLogTrackerConfig(config: config)
+    }
+
+    func setAuditOtlpConfigV5(config: AuditOtlpConfigV5Ffi) throws -> AuditOtlpConfigV5Ffi {
+        try marmot.setAuditOtlpConfigV5(config: config)
     }
 
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi {

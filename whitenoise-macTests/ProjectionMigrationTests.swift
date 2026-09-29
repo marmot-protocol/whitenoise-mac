@@ -1030,10 +1030,17 @@ struct ProjectionMigrationTests {
                 modifiedAtMs: 2
             ),
         ]
-        runtime.nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultFfi(
+        runtime.nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultV5Ffi(
             enabled: true,
-            uploaded: [],
-            skippedReason: "offline"
+            v4Uploaded: [],
+            v4SkippedReason: nil,
+            v5: AuditOtlpTrackerResultV5Ffi(
+                acceptedBatches: 0,
+                pendingAccounts: 0,
+                blockedAccounts: 0,
+                idleAccounts: 0,
+                skippedReason: "offline"
+            )
         )
         let model = DiagnosticsSettingsViewModel(runtime: runtime)
 

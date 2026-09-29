@@ -1409,7 +1409,14 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(auditConfig.authorizationBearerToken == "audit-token")
         #expect(auditConfig.source.hardwareModel == "Mac15,3")
         #expect(auditConfig.source.platform == "macos")
-        #expect(auditConfig.source.appVersion == "2026.6+12")
+        #expect(auditConfig.source.appVersion == "2026.6+12.production")
+
+        let auditOtlpConfig = config.auditOtlpConfig()
+        #expect(auditOtlpConfig.enabled)
+        #expect(auditOtlpConfig.destination == TelemetryBuildConfig.auditOtlpDestination)
+        #expect(auditOtlpConfig.endpoint == "https://otlp.whitenoise.chat/v1/logs")
+        #expect(auditOtlpConfig.authorizationBearerToken == "audit-token")
+        #expect(auditOtlpConfig.allowLoopbackDev == false)
 
         let productConfig = config.productAnalyticsRuntimeConfig()
         #expect(productConfig.eventsEndpoint == "https://events.example")
@@ -1591,6 +1598,7 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(state.backgroundStatus == nil)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
         #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
+        #expect(runtime.auditOtlpConfigV5SetCallCount == 1)
         #expect(runtime.productAnalyticsRuntimeConfigSetCallCount == 1)
 
         // Account identity now lives in the core's JSONL source_context (Goggles
@@ -1606,7 +1614,41 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(didSwitch)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
         #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
+        #expect(runtime.auditOtlpConfigV5SetCallCount == 1)
         #expect(runtime.productAnalyticsRuntimeConfigSetCallCount == 1)
+    }
+
+    /// MarmotKit holds the v5 audit destination in memory only, so it has to be applied on every
+    /// launch; and a destination the core rejects must not take the rest of startup down with it.
+    @MainActor
+    @Test func aRejectedAuditDestinationDoesNotBlockObservabilityStartup() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.activeAccountId")
+
+        let account = AccountSummaryFfi(
+            label: "primary-account",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.setAuditOtlpConfigV5Error = FakeMarmotRuntimeError.auditOtlpConfigRejected
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: { telemetryBuildConfig(auditToken: "audit-token") },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+
+        #expect(runtime.auditOtlpConfigV5SetCallCount == 1)
+        #expect(runtime.auditOtlpConfigV5 == nil)
+        #expect(state.backgroundStatus == nil)
+        // Everything after the audit destination is still configured.
+        #expect(runtime.productAnalyticsRuntimeConfigSetCallCount == 1)
+        #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
     }
 
     @MainActor

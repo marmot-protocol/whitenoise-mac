@@ -541,6 +541,8 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(runtime.syncCallThreadRecord("setProductAnalyticsRuntimeConfig").allSatisfy { !$0 })
         #expect(runtime.syncCallThreadRecord("setAuditLogTrackerConfig").contains(false))
         #expect(runtime.syncCallThreadRecord("setAuditLogTrackerConfig").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("setAuditOtlpConfigV5").contains(false))
+        #expect(runtime.syncCallThreadRecord("setAuditOtlpConfigV5").allSatisfy { !$0 })
     }
 
     @MainActor
