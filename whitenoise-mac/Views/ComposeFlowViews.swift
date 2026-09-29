@@ -33,7 +33,7 @@ struct NewChatPanelView: View {
             MessagesSearchField(
                 text: $workspace.newChatQuery,
                 accessibilityIdentifier: "compose.search",
-                placeholder: L10n.string("Name or npub"),
+                placeholder: L10n.string("Name, npub, or .bit"),
                 autofocus: true
             )
             .padding(.horizontal, 12)

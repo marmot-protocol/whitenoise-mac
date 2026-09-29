@@ -705,6 +705,9 @@ final class WorkspaceState {
     let groupImageSearchClient: any GroupImageSearchClient
     let groupImageSourceLoader: any GroupImageSourceLoading
     let nip05Resolver: any NIP05Resolving
+    /// Namecoin `.bit` resolver backing the same identifier surfaces as `nip05Resolver`
+    /// (invite + new-chat). Injectable for the same reason: tests drive it with a stub.
+    let namecoinResolver: any NamecoinResolving
     /// Injectable clock for peer-profile cache TTL decisions, so tests can drive cache
     /// expiry deterministically (whitenoise-mac#8). Defaults to the system clock.
     let nowProvider: @MainActor () -> Date
@@ -1200,6 +1203,7 @@ final class WorkspaceState {
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         groupImageSourceLoader: (any GroupImageSourceLoading)? = nil,
         nip05Resolver: (any NIP05Resolving)? = nil,
+        namecoinResolver: (any NamecoinResolving)? = nil,
         nowProvider: @escaping @MainActor () -> Date = { Date() },
         microphoneAccessProvider: @escaping @MainActor () async -> Bool = {
             await WorkspaceState.requestSystemMicrophoneAccess()
@@ -1237,6 +1241,7 @@ final class WorkspaceState {
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.groupImageSourceLoader = groupImageSourceLoader ?? SecureGroupImageSourceLoader()
         self.nip05Resolver = nip05Resolver ?? NIP05Resolver()
+        self.namecoinResolver = namecoinResolver ?? NamecoinResolver()
         self.nowProvider = nowProvider
         self.microphoneAccessProvider = microphoneAccessProvider
         self.mediaDiskCache = mediaDiskCache

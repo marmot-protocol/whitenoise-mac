@@ -55,6 +55,13 @@ extension WorkspaceState {
             }
             newChatRecipient = recipient
             return recipient
+        } catch let error as NamecoinResolutionError {
+            guard isCurrentNewChatLookup(generation: lookupGeneration, query: query) else {
+                return nil
+            }
+            newChatRecipient = nil
+            lastError = error.userMessage
+            return nil
         } catch {
             guard isCurrentNewChatLookup(generation: lookupGeneration, query: query) else {
                 return nil
@@ -369,6 +376,9 @@ extension WorkspaceState {
 
     func looksLikeMemberRef(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if NamecoinIdentifier.isBit(trimmed) {
+            return true
+        }
         if NIP05Identifier(trimmed) != nil {
             return true
         }
@@ -382,6 +392,14 @@ extension WorkspaceState {
     }
 
     func memberRefCandidate(for query: String) async throws -> String {
+        // `.bit` / `d/` / `id/` route to the Namecoin resolver. This check must precede BOTH
+        // the nostr-marker guard (upstream's nc_is_bit strips a leading `nostr:` and resolves
+        // the name; a `.bit` name is never a profile reference, so the guard's SSRF protection
+        // is unaffected) and the NIP-05 branch (`alice@example.bit` is a syntactically valid
+        // NIP-05 identifier but resolves over Namecoin, never DNS).
+        if NamecoinIdentifier.isBit(query) {
+            return try await namecoinResolver.accountReference(for: query)
+        }
         // A query carrying a nostr marker must never resolve as NIP-05 — an embedded `@domain`
         // would fire a request at that host before the authoritative FFI parse runs.
         if MarkdownLinkPolicy.containsNostrReferenceMarker(query) {
@@ -1147,5 +1165,25 @@ private func latestDate(_ first: Date?, _ second: Date?) -> Date? {
         return second
     default:
         return nil
+    }
+}
+
+extension NamecoinResolutionError {
+    /// The user-facing message for a failed `.bit` lookup, distinct from the generic
+    /// member-ref error so a Namecoin miss never masquerades as a malformed npub.
+    /// `.invalidIdentifier` is unreachable from the gated call sites (they all check
+    /// `NamecoinIdentifier.isBit` first), so it shares the generic wording.
+    var userMessage: String {
+        switch self {
+        case .invalidIdentifier:
+            L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key.")
+        case .notFound(let identifier):
+            String(
+                format: L10n.string("Couldn't resolve %@ on Namecoin. Double-check it and try again."),
+                identifier
+            )
+        case .unavailable:
+            L10n.string("Couldn't reach the Namecoin resolvers. Please try again.")
+        }
     }
 }

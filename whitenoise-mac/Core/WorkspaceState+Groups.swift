@@ -533,6 +533,12 @@ extension WorkspaceState {
                     groupIdHex: groupIdHex
                 )
             else { return }
+            if let namecoinError = error as? NamecoinResolutionError {
+                // A `.bit` lookup failure is about the name, not the roster — surface the
+                // Namecoin wording rather than the member-ref taxonomy.
+                lastError = namecoinError.userMessage
+                return
+            }
             // The typed identifier never became a `NewChatRecipient`, so there is no display name
             // to name — the taxonomy still keeps the raw `MarmotKitError` dump off the screen.
             lastError = ChatCreationFailure.message(for: error, candidates: [])
