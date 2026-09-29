@@ -3,9 +3,12 @@ import AppKit
 import Combine
 import Foundation
 import MarmotKit
+import OSLog
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
+
+private let auditDeliveryLogger = Logger(subsystem: "com.whitenoise.telemetry", category: "AuditDelivery")
 
 @MainActor
 @Observable
@@ -54,6 +57,9 @@ final class WorkspaceState {
         let accountLabel: String?
         let relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi
         let auditLogTrackerConfig: AuditLogTrackerConfigV4Ffi
+        /// What was last handed to `setAuditOtlpConfigV5`, accepted or not. A rejection is
+        /// deterministic for a given build config, so it is not retried on every account switch.
+        let auditOtlpConfig: AuditOtlpConfigV5Ffi
         let productAnalyticsRuntimeConfig: ProductAnalyticsRuntimeConfigFfi
     }
 
@@ -1754,6 +1760,7 @@ final class WorkspaceState {
                 title: L10n.string("Telemetry token"),
                 value: config.telemetryCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing")
             ),
+            DiagnosticsInfoItem(title: L10n.string("Audit endpoint"), value: config.auditOtlpEndpoint),
             DiagnosticsInfoItem(
                 title: L10n.string("Audit token"),
                 value: config.auditLogCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing")
@@ -2027,6 +2034,7 @@ final class WorkspaceState {
 
         let relayRuntimeConfig = config.runtimeConfig()
         let auditTrackerConfig = config.auditTrackerConfig()
+        let auditOtlpConfig = config.auditOtlpConfig()
         let productAnalyticsRuntimeConfig = config.productAnalyticsRuntimeConfig()
 
         if observabilityRuntimeConfiguration?.relayTelemetryRuntimeConfig != relayRuntimeConfig {
@@ -2038,6 +2046,22 @@ final class WorkspaceState {
         if observabilityRuntimeConfiguration?.auditLogTrackerConfig != auditTrackerConfig {
             _ = try await FFIExecutor.run {
                 try client.setAuditLogTrackerConfig(config: auditTrackerConfig)
+            }
+            guard !Task.isCancelled, observabilityRuntimeGeneration == generation,
+                activeAccountId == accountId
+            else { return }
+        }
+        if observabilityRuntimeConfiguration?.auditOtlpConfig != auditOtlpConfig {
+            // A rejected audit destination must not block the rest of startup: recordings stay on
+            // this Mac, and the Diagnostics upload reports that no destination is configured.
+            do {
+                _ = try await FFIExecutor.run {
+                    try client.setAuditOtlpConfigV5(config: auditOtlpConfig)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                auditDeliveryLogger.error("audit_otlp_config_rejected")
             }
             guard !Task.isCancelled, observabilityRuntimeGeneration == generation,
                 activeAccountId == accountId
@@ -2058,6 +2082,7 @@ final class WorkspaceState {
             accountLabel: accountLabel,
             relayTelemetryRuntimeConfig: relayRuntimeConfig,
             auditLogTrackerConfig: auditTrackerConfig,
+            auditOtlpConfig: auditOtlpConfig,
             productAnalyticsRuntimeConfig: productAnalyticsRuntimeConfig
         )
     }

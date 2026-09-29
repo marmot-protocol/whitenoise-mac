@@ -39,6 +39,8 @@
 	</array>
 	<key>WhiteNoiseAuditLogBearerToken</key>
 	<string>$(WN_AUDIT_LOG_BEARER_TOKEN)</string>
+	<key>WhiteNoiseAuditOTLPEndpoint</key>
+	<string>$(WN_AUDIT_OTLP_ENDPOINT)</string>
 	<key>WhiteNoiseTelemetryBearerToken</key>
 	<string>$(WN_OTLP_BEARER_TOKEN)</string>
 	<key>WhiteNoiseTelemetryEnvironment</key>

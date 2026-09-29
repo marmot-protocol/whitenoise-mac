@@ -4,11 +4,19 @@ import MarmotKit
 
 struct TelemetryBuildConfig: Equatable {
     static let defaultOtlpEndpoint = "https://otlp.ipf.dev/v1/metrics"
+    static let defaultAuditOtlpEndpoint = "https://otlp.whitenoise.chat/v1/logs"
+    /// MarmotKit binds its v5 delivery cursor to this identity, so it has to stay the same across
+    /// token rotations and endpoint moves. Changing it makes the core treat the receiver as new.
+    static let auditOtlpDestination = "whitenoise-audit-receiver"
     static let tenant = "whitenoise-mac"
 
     let otlpEndpoint: String
     let bearerToken: String?
+    /// Write token for the audit receiver. Both delivery paths use it: v5 OTLP batches to
+    /// `auditOtlpEndpoint`, and the v4 whole-file tracker that drains files left by MarmotKit
+    /// 0.10.4. It is separate from `bearerToken` because metrics go to a different service.
     let auditLogBearerToken: String?
+    let auditOtlpEndpoint: String
     let deploymentEnvironment: String
     let serviceVersion: String
     let osVersion: String
@@ -22,6 +30,7 @@ struct TelemetryBuildConfig: Equatable {
         otlpEndpoint: String,
         bearerToken: String?,
         auditLogBearerToken: String?,
+        auditOtlpEndpoint: String = TelemetryBuildConfig.defaultAuditOtlpEndpoint,
         deploymentEnvironment: String,
         serviceVersion: String,
         osVersion: String,
@@ -34,6 +43,7 @@ struct TelemetryBuildConfig: Equatable {
         self.otlpEndpoint = otlpEndpoint
         self.bearerToken = bearerToken
         self.auditLogBearerToken = auditLogBearerToken
+        self.auditOtlpEndpoint = auditOtlpEndpoint
         self.deploymentEnvironment = deploymentEnvironment
         self.serviceVersion = serviceVersion
         self.osVersion = osVersion
@@ -87,6 +97,12 @@ struct TelemetryBuildConfig: Equatable {
                 ],
                 environment: environment
             ),
+            auditOtlpEndpoint: stringValue(
+                for: "WhiteNoiseAuditOTLPEndpoint",
+                in: info,
+                environmentKeys: ["WN_AUDIT_OTLP_ENDPOINT"],
+                environment: environment
+            ) ?? defaultAuditOtlpEndpoint,
             deploymentEnvironment: deploymentEnvironment(
                 from: stringValue(
                     for: "WhiteNoiseTelemetryEnvironment",
@@ -148,6 +164,34 @@ struct TelemetryBuildConfig: Equatable {
         )
     }
 
+    /// v5 audit delivery. MarmotKit 0.11 writes only v5 files while audit logging is on, and holds
+    /// this config in memory only, so it is applied on every launch. Without a token the sender is
+    /// disabled and recordings stay on this Mac. Recording itself is the user's separate setting:
+    /// a destination never turns it on.
+    func auditOtlpConfig() -> AuditOtlpConfigV5Ffi {
+        guard let auditLogBearerToken else {
+            return AuditOtlpConfigV5Ffi(
+                enabled: false,
+                destination: nil,
+                endpoint: nil,
+                authorizationBearerToken: nil,
+                allowLoopbackDev: false
+            )
+        }
+        return AuditOtlpConfigV5Ffi(
+            enabled: true,
+            destination: Self.auditOtlpDestination,
+            endpoint: auditOtlpEndpoint,
+            authorizationBearerToken: auditLogBearerToken,
+            allowLoopbackDev: false
+        )
+    }
+
+    /// The v4 tracker config. It is more than the v4 drain: in MarmotKit 0.11 its `source` is the
+    /// only way the host gets data into v5 records. mdk copies `appVersion`, `platform` and
+    /// `hardwareModel` into every v5 `source_context`, and neither the v5 OTLP envelope nor
+    /// `AuditOtlpConfigV5Ffi` has a field of its own for them. Deleting this config therefore
+    /// strips the version and flavor from delivered audit data, even after the v4 files drain.
     func auditTrackerConfig() -> AuditLogTrackerConfigV4Ffi {
         // Account identity now lives in the JSONL source_context emitted by the
         // Marmot core (Goggles contract), so the host no longer supplies an
@@ -158,9 +202,25 @@ struct TelemetryBuildConfig: Equatable {
             source: AuditLogUploadSourceV4Ffi(
                 hardwareModel: deviceModelIdentifier,
                 platform: "macos",
-                appVersion: serviceVersion
+                appVersion: auditAppVersion
             )
         )
+    }
+
+    /// The app version as audit data sees it, with the flavor appended: `2026.9.22+16.production`,
+    /// or `2026.9.22+production` when the build has no build number.
+    ///
+    /// Prod and staging share one audit token, so the receiver can tell them apart only from the
+    /// records, and the v5 schema has no environment field (`producer.host_build` exists but mdk
+    /// always writes it as null). The flavor therefore rides in `app_version` as semver build
+    /// metadata. The schema limits the field to `[A-Za-z0-9._,+-]` and 128 characters; mdk only
+    /// trims it, so anything else is dropped here rather than producing a record that fails
+    /// validation. An over-long version is cut, never the flavor.
+    var auditAppVersion: String {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._,+-")
+        let version = serviceVersion.filter { allowed.contains($0) }
+        let flavor = (version.contains("+") ? "." : "+") + deploymentEnvironment.filter { allowed.contains($0) }
+        return String(version.prefix(max(0, 128 - flavor.count))) + flavor
     }
 
     func productAnalyticsRuntimeConfig() -> ProductAnalyticsRuntimeConfigFfi {

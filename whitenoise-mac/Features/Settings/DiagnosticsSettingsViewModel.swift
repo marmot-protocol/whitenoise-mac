@@ -163,7 +163,7 @@ final class DiagnosticsSettingsViewModel {
         auditUploadStatus = nil
         defer { isUploadingAuditLogs = false }
         do {
-            let result = try await runtime.postAuditLogTrackerUpdate()
+            let result = try await runtime.postAuditLogTrackerUpdateV5()
             auditUploadStatus = Self.auditUploadStatusMessage(result)
             error = nil
             await loadAuditLogs()
@@ -213,21 +213,57 @@ final class DiagnosticsSettingsViewModel {
         )
     }
 
-    private static func auditUploadStatusMessage(_ result: AuditLogTrackerUpdateResultFfi) -> String {
-        if let skippedReason = result.skippedReason, !skippedReason.isEmpty {
-            return String(format: L10n.string("Audit upload skipped: %@"), skippedReason)
+    /// One pass reports two paths. v5 carries everything MarmotKit 0.11 records; the v4 upload
+    /// list only drains files left by 0.10.4, so an empty one says nothing about success. The v4
+    /// skip reason is not shown while v5 is configured: once those files are gone it reads
+    /// "audit log files missing" on every pass.
+    static func auditUploadStatusMessage(_ result: AuditLogTrackerUpdateResultV5Ffi) -> String {
+        guard result.enabled else {
+            guard let reason = nonEmpty(result.v5?.skippedReason) ?? nonEmpty(result.v4SkippedReason) else {
+                return L10n.string("No audit logs uploaded.")
+            }
+            return String(format: L10n.string("Audit upload skipped: %@"), reason)
         }
-        guard !result.uploaded.isEmpty else {
-            return L10n.string("No audit logs uploaded.")
-        }
-        let totalBytes = result.uploaded.reduce(UInt64(0)) { $0 + $1.bytesSent }
-        return String(
-            format: L10n.string("Uploaded %d audit log files (%@)."),
-            result.uploaded.count,
-            ByteCountFormatter.string(
-                fromByteCount: Int64(clamping: totalBytes),
-                countStyle: .file
+
+        var lines: [String] = []
+        if !result.v4Uploaded.isEmpty {
+            let totalBytes = result.v4Uploaded.reduce(UInt64(0)) { $0 + $1.bytesSent }
+            lines.append(
+                String(
+                    format: L10n.string("Uploaded %d audit log files (%@)."),
+                    result.v4Uploaded.count,
+                    ByteCountFormatter.string(
+                        fromByteCount: Int64(clamping: totalBytes),
+                        countStyle: .file
+                    )
+                )
             )
-        )
+        }
+        guard let v5 = result.v5 else {
+            lines.append(L10n.string("No audit destination is configured, so audit logs stay on this Mac."))
+            return lines.joined(separator: " ")
+        }
+        if let reason = nonEmpty(v5.skippedReason) {
+            lines.append(String(format: L10n.string("Audit upload skipped: %@"), reason))
+            return lines.joined(separator: " ")
+        }
+        if v5.acceptedBatches > 0 {
+            lines.append(L10n.string("Audit logs sent."))
+        }
+        if v5.blockedAccounts > 0 {
+            lines.append(L10n.string("Some accounts could not send their audit logs."))
+        }
+        if v5.pendingAccounts > 0 {
+            lines.append(L10n.string("Some audit logs are still waiting to be sent. Try again later."))
+        }
+        if lines.isEmpty {
+            lines.append(L10n.string("Audit logs are up to date."))
+        }
+        return lines.joined(separator: " ")
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 }
