@@ -954,6 +954,42 @@ struct ProjectionMigrationTests {
         model.stop()
     }
 
+    /// A newer page loads when a reader reaches the foot of a detached window, and its rows land
+    /// below the old last row the transcript restores. Installing it with the reader still counted
+    /// as at the bottom marked that unseen page read; so did a jump from the bottom.
+    @Test func newerPageAndJumpInstallWithoutCountingTheReaderAtTheBottom() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            hasMoreAfter: true
+        )
+        let model = ConversationViewModel(
+            account: AccountItem.samples[0],
+            groupIdHex: "group",
+            runtime: runtime
+        )
+        var atBottomWhenPresented: [Bool] = []
+        await model.setSnapshotObserver { [weak model] _ in
+            atBottomWhenPresented.append(model?.isAtWindowBottom ?? true)
+        }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        atBottomWhenPresented.removeAll()
+
+        model.setAtWindowBottom(true)
+        await model.page(.newer)
+        #expect(atBottomWhenPresented == [false])
+        #expect(!model.isAtWindowBottom)
+
+        model.setAtWindowBottom(true)
+        await model.jump(to: "elsewhere")
+        #expect(atBottomWhenPresented == [false, false])
+        #expect(!model.isAtWindowBottom)
+        model.stop()
+    }
+
     @Test func conversationOpenedAtTheLatestRowHasNoUnreadDivider() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
@@ -1504,7 +1540,8 @@ struct ProjectionMigrationTests {
         title: String,
         unreadCount: UInt64 = 0,
         firstUnreadMessageIdHex: String? = nil,
-        anchorKind: ConversationAnchorKindFfi? = nil
+        anchorKind: ConversationAnchorKindFfi? = nil,
+        hasMoreAfter: Bool = false
     ) -> ConversationWindowSnapshotFfi {
         let presentation = ConversationPresentationFfi(
             title: .literal(text: title),
@@ -1559,7 +1596,7 @@ struct ProjectionMigrationTests {
                 index: nil
             ),
             hasMoreBefore: false,
-            hasMoreAfter: false
+            hasMoreAfter: hasMoreAfter
         )
     }
 

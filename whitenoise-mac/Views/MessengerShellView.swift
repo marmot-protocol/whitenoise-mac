@@ -273,6 +273,10 @@ private struct ConversationView: View {
     /// and read marking wait for the divider scroll to land.
     @State private var positionedUnreadDividerId: String?
     @State private var scrollMetrics = TimelineScrollMetricsBox()
+    /// Newer-page loads and jumps still settling. Each replaces the window under the viewport and
+    /// then scrolls it (the append-anchor restore, the jump target), so until that scroll lands a
+    /// bottom-pinned reading would describe rows the user has not reached.
+    @State private var windowMovesInFlight = 0
     @State private var isFileImporterPresented = false
     @State private var isFileDropTargeted = false
     @State private var isComposerEmojiPickerPresented = false
@@ -317,7 +321,7 @@ private struct ConversationView: View {
         let readingState = TranscriptReadingState(
             model: ObjectIdentifier(model),
             isAtWindowBottom: model.hasPresentedWindow && isPinnedToBottom && !isPositioningAtUnreadDivider
-                && !messageIDs.isEmpty
+                && windowMovesInFlight == 0 && !messageIDs.isEmpty
         )
 
         ZStack {
@@ -976,15 +980,32 @@ private struct ConversationView: View {
     }
 
     private func revealMessage(_ messageId: String, using proxy: ScrollViewProxy) async {
-        if !workspace.selectedTimelineContainsMessage(messageId) {
-            await model.jump(to: messageId)
+        await settlingWindowMove {
+            if !workspace.selectedTimelineContainsMessage(messageId) {
+                await model.jump(to: messageId)
+            }
+            guard workspace.selectedChat?.id == chat.id,
+                workspace.selectedTimelineContainsMessage(messageId)
+            else { return }
+            withAnimation(.smooth(duration: 0.2)) {
+                proxy.scrollTo(messageId, anchor: .center)
+            }
         }
-        guard workspace.selectedChat?.id == chat.id,
-            workspace.selectedTimelineContainsMessage(messageId)
-        else { return }
-        withAnimation(.smooth(duration: 0.2)) {
-            proxy.scrollTo(messageId, anchor: .center)
-        }
+    }
+
+    /// Runs a command that replaces or scrolls the window under the viewport with read marking
+    /// held off, then re-reads where the transcript settled. The model already stops a newer page
+    /// or jump from marking on install; this keeps the transcript from reporting a bottom-pinned
+    /// position until the follow-up scroll has landed and reported its geometry.
+    private func settlingWindowMove(_ move: () async -> Void) async {
+        windowMovesInFlight += 1
+        await move()
+        // The append-anchor restore runs on a later main-actor turn than the install, and a
+        // scroll's geometry lands after its layout pass.
+        try? await Task.sleep(for: .milliseconds(200))
+        windowMovesInFlight -= 1
+        guard windowMovesInFlight == 0, let metrics = scrollMetrics.latest else { return }
+        isPinnedToBottom = metrics.atBottom
     }
 
     private func jumpToNewest(using proxy: ScrollViewProxy) async {
@@ -1032,7 +1053,7 @@ private struct ConversationView: View {
         pendingAppendAnchorId = anchorId
         TimelineSignpost.scroll.emitEvent("loadNewerTriggered")
         Task {
-            await model.page(.newer)
+            await settlingWindowMove { await model.page(.newer) }
             if pendingAppendAnchorId == anchorId, workspace.selectedMessageIDs.last == anchorId {
                 pendingAppendAnchorId = nil
             }

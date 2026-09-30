@@ -132,10 +132,19 @@ final class ConversationViewModel {
         self.isAtWindowBottom = isAtWindowBottom
     }
 
+    /// A newer page or a jump replaces the window under a reader who may be at its foot. The
+    /// replacement's newest rows are below anything they have seen — the transcript restores the
+    /// old last row, or centers the jump target — so its install must not advance the read
+    /// marker. The transcript re-reports the position once the move settles.
+    private func leaveWindowBottom() {
+        isAtWindowBottom = false
+    }
+
     func page(_ direction: ConversationPageDirectionFfi, count: UInt32 = 50) async {
         guard !isPaging, let subscription, let revision = snapshot?.revision else { return }
         if direction == .older, snapshot?.hasMoreBefore != true { return }
         if direction == .newer, snapshot?.hasMoreAfter != true { return }
+        if direction == .newer { leaveWindowBottom() }
         isPaging = true
         defer { isPaging = false }
         do {
@@ -157,6 +166,7 @@ final class ConversationViewModel {
 
     func jump(to messageIdHex: String) async {
         guard let subscription, let revision = snapshot?.revision else { return }
+        leaveWindowBottom()
         do {
             await install(
                 try await subscription.jumpToMessage(
