@@ -185,10 +185,16 @@ private struct DetailPaneView: View {
 /// threshold booleans (rather than raw offsets) means `onScrollGeometryChange` only invokes
 /// its action when the transcript actually crosses an edge — not on every scrolled pixel —
 /// keeping pagination/pin updates off the per-frame path.
-private struct TimelineScrollMetrics: Equatable {
+nonisolated struct TimelineScrollMetrics: Equatable {
     let atBottom: Bool
     let nearTop: Bool
     let nearBottom: Bool
+
+    init(atBottom: Bool, nearTop: Bool, nearBottom: Bool) {
+        self.atBottom = atBottom
+        self.nearTop = nearTop
+        self.nearBottom = nearBottom
+    }
 
     init(geometry: ScrollGeometry, bottomPadding: CGFloat) {
         let fromTop = max(0, geometry.visibleRect.minY)
@@ -215,6 +221,36 @@ private final class TimelineScrollMetricsBox {
 private struct TranscriptReadingState: Equatable {
     let model: ObjectIdentifier
     let isAtWindowBottom: Bool
+}
+
+/// What the transcript does once the scroll to the unread divider has landed.
+nonisolated struct TimelineUnreadDividerSettleAction: Equatable {
+    let isPinnedToBottom: Bool
+    let loadsOlder: Bool
+    let loadsNewer: Bool
+}
+
+/// Replays the settled scroll position after the divider scroll, which may cross no threshold and
+/// so fire no geometry action of its own.
+///
+/// Newer history loads only when the reader is genuinely at the foot (`atBottom`), not merely
+/// within the viewport-wide prefetch band (`nearBottom`). An automatic open holds about 25 rows
+/// after the first unread row, so `nearBottom` is usually already true at the divider, and the
+/// append-anchor restore that follows a newer page would scroll the divider off screen. With no
+/// scroll sample, or when a search jump owns the opening position, nothing loads and the reader is
+/// not counted as pinned: a detached window must not be treated as caught up and marked read.
+func timelineUnreadDividerSettleAction(
+    metrics: TimelineScrollMetrics?,
+    yieldsToNavigation: Bool
+) -> TimelineUnreadDividerSettleAction {
+    guard let metrics, !yieldsToNavigation else {
+        return TimelineUnreadDividerSettleAction(isPinnedToBottom: false, loadsOlder: false, loadsNewer: false)
+    }
+    return TimelineUnreadDividerSettleAction(
+        isPinnedToBottom: metrics.atBottom,
+        loadsOlder: metrics.nearTop,
+        loadsNewer: metrics.atBottom
+    )
 }
 
 nonisolated enum TimelineNewestMessageScrollAction: Equatable {
@@ -572,6 +608,9 @@ private struct ConversationView: View {
                         guard let target = workspace.pendingMessageNavigation,
                             target.groupId == chat.id
                         else { return }
+                        if let dividerId = model.unreadDivider?.messageIdHex, isPositioningAtUnreadDivider {
+                            finishUnreadDividerPositioning(dividerId)
+                        }
                         await revealMessage(target.messageId, using: proxy)
                         workspace.completePendingMessageNavigation(target)
                     }
@@ -940,19 +979,18 @@ private struct ConversationView: View {
     /// foot of the page after the first unread row — neither the divider nor the latest message.
     private func positionAtUnreadDivider(_ messageId: String?, using proxy: ScrollViewProxy) {
         guard let messageId, positionedUnreadDividerId != messageId else { return }
-        // A search result or reply jump that opened this chat owns the initial position, and a
-        // divider row the transcript does not render (hidden locally) has nothing to scroll to.
-        guard workspace.pendingMessageNavigation?.groupId != chat.id,
-            workspace.selectedTimelineContainsMessage(messageId)
-        else {
+        // A divider row the transcript does not render (hidden locally) has nothing to scroll to.
+        guard !hasPendingNavigation(in: chat.id), workspace.selectedTimelineContainsMessage(messageId) else {
             finishUnreadDividerPositioning(messageId)
             return
         }
         let groupIdHex = model.groupIdHex
         DispatchQueue.main.async {
-            guard workspace.selectedChat?.id == groupIdHex,
-                model.unreadDivider?.messageIdHex == messageId
-            else { return }
+            guard isStillPositioning(at: messageId, in: groupIdHex) else { return }
+            guard !hasPendingNavigation(in: groupIdHex) else {
+                finishUnreadDividerPositioning(messageId)
+                return
+            }
             TimelineSignpost.scroll.interval("positionAtUnreadDivider") {
                 proxy.scrollTo(unreadDividerAnchorId, anchor: UnitPoint(x: 0.5, y: 0.1))
             }
@@ -960,12 +998,22 @@ private struct ConversationView: View {
                 // Let the scroll's layout land and report its geometry before scroll position
                 // drives paging and read marking again.
                 try? await Task.sleep(for: .milliseconds(150))
-                guard workspace.selectedChat?.id == groupIdHex,
-                    model.unreadDivider?.messageIdHex == messageId
-                else { return }
+                guard isStillPositioning(at: messageId, in: groupIdHex) else { return }
                 finishUnreadDividerPositioning(messageId)
             }
         }
+    }
+
+    /// A search result's target is assigned only after its chat loads, so it can arrive while the
+    /// divider scroll is already scheduled. Whenever it arrives, the jump owns the position.
+    private func hasPendingNavigation(in groupIdHex: String) -> Bool {
+        workspace.pendingMessageNavigation?.groupId == groupIdHex
+    }
+
+    private func isStillPositioning(at messageId: String, in groupIdHex: String) -> Bool {
+        workspace.selectedChat?.id == groupIdHex
+            && model.unreadDivider?.messageIdHex == messageId
+            && positionedUnreadDividerId != messageId
     }
 
     /// Hands scroll position back to the geometry rules. The geometry action fires only when a
@@ -973,10 +1021,13 @@ private struct ConversationView: View {
     /// the bottom), so replay the latest metrics rather than wait for the next crossing.
     private func finishUnreadDividerPositioning(_ messageId: String) {
         positionedUnreadDividerId = messageId
-        guard let metrics = scrollMetrics.latest else { return }
-        isPinnedToBottom = metrics.atBottom
-        if metrics.nearTop { loadOlderIfNeeded() }
-        if metrics.nearBottom { loadNewerIfNeeded() }
+        let action = timelineUnreadDividerSettleAction(
+            metrics: scrollMetrics.latest,
+            yieldsToNavigation: hasPendingNavigation(in: model.groupIdHex)
+        )
+        isPinnedToBottom = action.isPinnedToBottom
+        if action.loadsOlder { loadOlderIfNeeded() }
+        if action.loadsNewer { loadNewerIfNeeded() }
     }
 
     private func revealMessage(_ messageId: String, using proxy: ScrollViewProxy) async {

@@ -2654,6 +2654,31 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.markedReadMessageIds == markedBefore)
     }
 
+    /// At the divider the prefetch band usually already reaches the foot of an automatic window
+    /// (`nearBottom`) while the reader is not at it (`atBottom`). Loading a newer page there
+    /// restored the old last row and scrolled the divider off screen before the reader moved.
+    @Test func unreadDividerSettleLoadsNewerHistoryOnlyAtTheFoot() {
+        let atDivider = TimelineScrollMetrics(atBottom: false, nearTop: false, nearBottom: true)
+        #expect(
+            timelineUnreadDividerSettleAction(metrics: atDivider, yieldsToNavigation: false)
+                == TimelineUnreadDividerSettleAction(isPinnedToBottom: false, loadsOlder: false, loadsNewer: false))
+
+        let shortUnreadRun = TimelineScrollMetrics(atBottom: true, nearTop: true, nearBottom: true)
+        #expect(
+            timelineUnreadDividerSettleAction(metrics: shortUnreadRun, yieldsToNavigation: false)
+                == TimelineUnreadDividerSettleAction(isPinnedToBottom: true, loadsOlder: true, loadsNewer: true))
+    }
+
+    /// No scroll sample, or a search jump that arrived while the divider scroll was in flight:
+    /// neither may page nor count a detached window as read to its foot.
+    @Test func unreadDividerSettleDoesNothingWithoutASampleOrUnderASearchJump() {
+        let nothing = TimelineUnreadDividerSettleAction(isPinnedToBottom: false, loadsOlder: false, loadsNewer: false)
+        let atFoot = TimelineScrollMetrics(atBottom: true, nearTop: true, nearBottom: true)
+
+        #expect(timelineUnreadDividerSettleAction(metrics: nil, yieldsToNavigation: false) == nothing)
+        #expect(timelineUnreadDividerSettleAction(metrics: atFoot, yieldsToNavigation: true) == nothing)
+    }
+
     /// Mirrors MarmotKit's activity rule: chat and polls always, membership and admin changes
     /// outside direct chats, nothing else.
     @Test func readActivityMatchesMarmotKitUnreadRows() {
