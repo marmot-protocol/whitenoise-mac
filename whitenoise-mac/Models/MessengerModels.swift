@@ -2458,6 +2458,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let nonvisualMediaAttachments: [MessageMediaAttachment]
     let hasBubbleContent: Bool
     let presentation: MessagePresentation
+    /// The kind-1210 `system_type` (`member_added`, `admin_removed`, …); nil for every other kind.
+    let groupSystemType: String?
     let timeLabel: String
     let statusLabel: String?
     let metadataLabel: String
@@ -2475,6 +2477,27 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     /// Whether the bubble should render the parsed Markdown AST instead of plain text.
     var rendersMarkdown: Bool { contentMarkdown != nil }
+
+    /// Group-system changes MarmotKit promotes to chat activity. Mirrors MDK's
+    /// `CHAT_LIST_GROUP_ACTIVITY_TYPES`; other system rows (renames, timer changes) are not.
+    nonisolated static let readActivityGroupSystemTypes: Set<String> = [
+        "member_added", "member_removed", "member_left", "admin_added", "admin_removed",
+    ]
+
+    /// Whether MarmotKit counts this row toward a chat's unread state, and so accepts it as a
+    /// read-marker target. Chat messages and polls always count; membership and admin changes
+    /// count except in a direct chat. A read marker parked on the newest chat message leaves any
+    /// member change after it unread, which is why the marker must consider these rows too.
+    nonisolated func countsAsReadActivity(inDirectChat isDirectChat: Bool) -> Bool {
+        switch presentation {
+        case .chat, .poll:
+            return true
+        case .groupSystem:
+            return !isDirectChat && groupSystemType.map(Self.readActivityGroupSystemTypes.contains) == true
+        case .agentStreamStart, .agentActivity, .agentOperation, .unsupported:
+            return false
+        }
+    }
     nonisolated func applyingSenderNickname(_ nickname: String?) -> MessageItem? {
         let published = publishedSenderName ?? senderName
         var copy = self
@@ -2627,7 +2650,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         reactions: [MessageReaction] = [],
         replyContext: MessageReplyContext? = nil,
         mediaAttachments: [MessageMediaAttachment] = [],
-        presentation: MessagePresentation = .chat
+        presentation: MessagePresentation = .chat,
+        groupSystemType: String? = nil
     ) {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         let partitionedAttachments = Self.partitionMediaAttachments(mediaAttachments)
@@ -2690,6 +2714,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.nonvisualMediaAttachments = partitionedAttachments.nonvisual
         self.hasBubbleContent = replyContext != nil || !trimmedBody.isEmpty
         self.presentation = presentation
+        self.groupSystemType = groupSystemType
         let timeLabel = DisplayText.messageTimestamp(for: sentAt)
         self.timeLabel = timeLabel
         let statusLabel: String?
@@ -3030,6 +3055,7 @@ extension MessageItem {
             && lhs.replyContext == rhs.replyContext
             && lhs.mediaAttachments == rhs.mediaAttachments
             && lhs.presentation == rhs.presentation
+            && lhs.groupSystemType == rhs.groupSystemType
             && lhs.timeLabel == rhs.timeLabel
             && lhs.statusLabel == rhs.statusLabel
             && lhs.metadataLabel == rhs.metadataLabel

@@ -908,10 +908,9 @@ struct ProjectionMigrationTests {
         second.stop()
     }
 
-    /// `.automatic` anchors on the first unread row and detaches the window from the tail, and
-    /// the transcript pins to the bottom of whatever window it gets — so a long unread chat
-    /// opened far above its newest message. Selecting a chat must open at the live edge.
-    @Test func selectedConversationOpensAtTheLatestMessage() async {
+    /// Selecting a chat opens it in `.automatic`, so MarmotKit can anchor it on the first unread
+    /// row; the transcript scrolls to the divider that anchor produces.
+    @Test func selectedConversationOpensAutomatically() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(sequence: 1, title: "Group")
         let scope = AccountScope(account: AccountItem.samples[0], runtime: runtime)
@@ -920,8 +919,63 @@ struct ProjectionMigrationTests {
         let didInstall = await waitFor { conversation.snapshot != nil }
 
         #expect(didInstall)
-        #expect(runtime.openedConversationWindowModes["group"] == [.latest])
+        #expect(runtime.openedConversationWindowModes["group"] == [.automatic])
         conversation.stop()
+    }
+
+    /// The divider comes from the open's first snapshot and stays put: later replacements carry
+    /// an advanced read state, and moving the divider with it would slide it under the reader.
+    @Test func unreadDividerIsCapturedFromTheFirstUnreadOpenAndThenFrozen() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 3,
+            firstUnreadMessageIdHex: "first-unread"
+        )
+        runtime.conversationWindowUpdates["group"] = [
+            Self.conversationSnapshot(sequence: 2, title: "Group")
+        ]
+        let model = ConversationViewModel(
+            account: AccountItem.samples[0],
+            groupIdHex: "group",
+            runtime: runtime
+        )
+        var observed: [UInt64] = []
+        await model.setSnapshotObserver { observed.append($0.revision.sequence) }
+
+        model.start()
+        let didReceiveUpdate = await waitFor { model.snapshot?.revision.sequence == 2 }
+
+        #expect(didReceiveUpdate)
+        #expect(model.unreadDivider == ConversationUnreadDivider(messageIdHex: "first-unread", unreadCount: 3))
+        #expect(model.hasPresentedWindow)
+        #expect(observed == [1, 2])
+        model.stop()
+    }
+
+    @Test func conversationOpenedAtTheLatestRowHasNoUnreadDivider() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 3,
+            firstUnreadMessageIdHex: "first-unread",
+            anchorKind: .latest
+        )
+        let model = ConversationViewModel(
+            account: AccountItem.samples[0],
+            groupIdHex: "group",
+            runtime: runtime
+        )
+
+        model.start()
+        let didInstall = await waitFor { model.snapshot != nil }
+
+        #expect(didInstall)
+        #expect(model.unreadDivider == nil)
+        #expect(!model.hasPresentedWindow)
+        model.stop()
     }
 
     @Test func cancelledAccountScopeRejectsLateConversationAndAttachmentSnapshots() async throws {
@@ -1448,7 +1502,9 @@ struct ProjectionMigrationTests {
     private static func conversationSnapshot(
         sequence: UInt64,
         title: String,
-        unreadCount: UInt64 = 0
+        unreadCount: UInt64 = 0,
+        firstUnreadMessageIdHex: String? = nil,
+        anchorKind: ConversationAnchorKindFfi? = nil
     ) -> ConversationWindowSnapshotFfi {
         let presentation = ConversationPresentationFfi(
             title: .literal(text: title),
@@ -1491,14 +1547,17 @@ struct ProjectionMigrationTests {
                 manuallyMarkedUnread: false,
                 unreadCount: unreadCount,
                 unreadMentionCount: 0,
-                firstUnreadMessageIdHex: nil
+                firstUnreadMessageIdHex: firstUnreadMessageIdHex
             ),
             draft: SelectedMessageDraftFfi(
                 revision: MessageDraftRevisionFfi(noPointer: .init()),
                 draft: nil
             ),
             pendingConfirmation: false,
-            anchor: ConversationAnchorOutcomeFfi(kind: .latest, index: nil),
+            anchor: ConversationAnchorOutcomeFfi(
+                kind: anchorKind ?? (firstUnreadMessageIdHex == nil ? .latest : .firstUnread),
+                index: nil
+            ),
             hasMoreBefore: false,
             hasMoreAfter: false
         )

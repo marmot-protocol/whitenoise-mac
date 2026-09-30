@@ -8,6 +8,14 @@ enum ConversationFeatureError: Equatable {
     case draftConflict
 }
 
+/// Where the "New messages" divider sits: the first row MarmotKit reported unread when the
+/// conversation opened. Captured once per open and never moved, so marking rows read while the
+/// user reads does not slide the divider down under them.
+struct ConversationUnreadDivider: Equatable {
+    let messageIdHex: String
+    let unreadCount: UInt64
+}
+
 struct PendingDurableSend: Identifiable, Equatable {
     let id: String
     let text: String
@@ -49,6 +57,16 @@ final class ConversationViewModel {
     private(set) var isLoading = false
     private(set) var isPaging = false
     private(set) var error: ConversationFeatureError?
+    /// Set from the first snapshot of an open that MarmotKit anchored on the first unread row.
+    private(set) var unreadDivider: ConversationUnreadDivider?
+    /// True once a snapshot has been handed to the snapshot observer, i.e. the host transcript
+    /// renders this window's rows rather than whatever it showed before. The transcript waits
+    /// for this before positioning at the divider or treating its scroll position as reading.
+    private(set) var hasPresentedWindow = false
+    /// Whether the transcript is scrolled to the foot of the rendered window. The snapshot host
+    /// reads it to decide whether a replacement may advance the read marker. Ignored by
+    /// observation: the transcript writes it on scroll-edge crossings and no view renders it.
+    @ObservationIgnored private(set) var isAtWindowBottom = false
 
     @ObservationIgnored private let runtime: any MarmotRuntime
     @ObservationIgnored private let productAnalytics: ProductAnalyticsRecorder?
@@ -59,6 +77,7 @@ final class ConversationViewModel {
     /// both paging and expiry work without a separate staleness generation.
     @ObservationIgnored private var retentionExpiryTask: Task<Void, Never>?
     @ObservationIgnored private var snapshotObserver: (@MainActor (ConversationWindowSnapshotFfi) async -> Void)?
+    @ObservationIgnored private var capturesUnreadDivider = false
 
     init(
         account: AccountItem,
@@ -72,9 +91,11 @@ final class ConversationViewModel {
         self.productAnalytics = productAnalytics
     }
 
-    func start(mode: ConversationOpenModeFfi = .latest, messageIdHex: String? = nil) {
+    func start(mode: ConversationOpenModeFfi = .automatic, messageIdHex: String? = nil) {
         stop()
         isLoading = snapshot == nil
+        unreadDivider = nil
+        capturesUnreadDivider = true
         let timing = productAnalytics?.beginTiming()
         subscriptionTask = Task { [weak self] in
             await self?.runSubscription(
@@ -103,7 +124,12 @@ final class ConversationViewModel {
         snapshotObserver = observer
         if let snapshot, let observer {
             await observer(snapshot)
+            hasPresentedWindow = true
         }
+    }
+
+    func setAtWindowBottom(_ isAtWindowBottom: Bool) {
+        self.isAtWindowBottom = isAtWindowBottom
     }
 
     func page(_ direction: ConversationPageDirectionFfi, count: UInt32 = 50) async {
@@ -320,6 +346,10 @@ final class ConversationViewModel {
             else { return }
         }
         snapshot = replacement
+        if capturesUnreadDivider {
+            capturesUnreadDivider = false
+            unreadDivider = Self.unreadDivider(in: replacement)
+        }
         scheduleRetentionExpiry(for: replacement)
         let projectedTokens = Set(replacement.messages.compactMap(\.timeline.clientToken))
         for token in projectedTokens {
@@ -327,7 +357,18 @@ final class ConversationViewModel {
         }
         error = nil
         isLoading = false
-        await snapshotObserver?(replacement)
+        if let snapshotObserver {
+            await snapshotObserver(replacement)
+            hasPresentedWindow = true
+        }
+    }
+
+    private static func unreadDivider(in snapshot: ConversationWindowSnapshotFfi) -> ConversationUnreadDivider? {
+        guard snapshot.anchor.kind == .firstUnread,
+            snapshot.readState.unreadCount > 0,
+            let messageIdHex = snapshot.readState.firstUnreadMessageIdHex
+        else { return nil }
+        return ConversationUnreadDivider(messageIdHex: messageIdHex, unreadCount: snapshot.readState.unreadCount)
     }
 
     private func scheduleRetentionExpiry(for snapshot: ConversationWindowSnapshotFfi) {

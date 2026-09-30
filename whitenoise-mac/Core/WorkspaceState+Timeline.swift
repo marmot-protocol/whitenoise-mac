@@ -300,6 +300,10 @@ extension WorkspaceState {
     /// Render an authoritative timeline window from the subscription (initial snapshot,
     /// pagination result, or live update). The window is already ordered/deduped/capped by
     /// the runtime, so we map + resolve senders and replace the transcript wholesale.
+    ///
+    /// `userIsAtWindowBottom` gates read marking: the projection host passes whether the
+    /// transcript is scrolled to the foot of the window, so a window opened at the first unread
+    /// row — or one the user has scrolled up in — never marks rows they have not reached.
     func applyTimelineWindow(
         _ page: TimelinePageFfi,
         groupIdHex: String,
@@ -308,7 +312,8 @@ extension WorkspaceState {
         owner: TimelineWindowOwner?,
         preparedSenderProfiles: [String: ChatPeerProfile]? = nil,
         preparedMentionNames: MarkdownMentionNames? = nil,
-        projectedClientTokens: Set<String>? = nil
+        projectedClientTokens: Set<String>? = nil,
+        userIsAtWindowBottom: Bool = true
     ) async {
         guard
             canApplyTimelineWindow(
@@ -450,6 +455,7 @@ extension WorkspaceState {
                 pendingOutgoingMediaMessagesByConversation[draftKey] = remaining.isEmpty ? nil : remaining
             }
         }
+        guard userIsAtWindowBottom else { return }
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
 
@@ -1626,9 +1632,12 @@ extension WorkspaceState {
         // handleNotificationUpdate(_:). Marking is deferred until the conversation becomes
         // visible again (see handleConversationVisibilityChange()).
         guard selectedConversationIsVisible() else { return }
+        // The newest row MarmotKit counts as unread activity, not just the newest chat message:
+        // parking the marker on a chat message left trailing member changes unread for good.
+        let isDirectChat = selectedChat?.isDirect ?? false
         guard
             let latest = ensureMessageTimelineStore(for: groupIdHex).messages.last(where: { message in
-                message.timelineKind == 9 && !message.isDeleted
+                message.countsAsReadActivity(inDirectChat: isDirectChat) && !message.isDeleted
             })
         else {
             return
@@ -1685,9 +1694,11 @@ extension WorkspaceState {
     /// is inactive or its conversation window has no visible key window, so messages that
     /// arrive while the user is away stay unread. When the conversation becomes visible
     /// again it is safe to advance the marker to the latest visible message. Call this from
-    /// app/window activation hooks (see ContentView).
-    func handleConversationVisibilityChange() async {
-        guard selectedConversationIsVisible() else { return }
+    /// app/window activation hooks (see ContentView), and from the transcript when the user
+    /// scrolls to the foot of the window. `userIsAtWindowBottom` is false while the user is
+    /// reading above it, so regaining focus does not mark rows below their scroll position.
+    func handleConversationVisibilityChange(userIsAtWindowBottom: Bool = true) async {
+        guard userIsAtWindowBottom, selectedConversationIsVisible() else { return }
         guard let client, let activeAccount, let selectedChat else { return }
         await markLatestVisibleMessageRead(
             groupIdHex: selectedChat.id,

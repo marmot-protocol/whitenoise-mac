@@ -105,7 +105,7 @@ struct ContentView: View {
                 // while it was in the background so the selected chat clears its unread
                 // state now that the user may be looking at it again.
                 Task {
-                    await workspace.handleConversationVisibilityChange()
+                    await workspace.handleConversationVisibilityChange(userIsAtWindowBottom: userIsAtWindowBottom)
                     workspace.recordForegroundLocalReady(since: foregroundStartedAt)
                     await workspace.refreshAccountProfiles()
                 }
@@ -122,7 +122,7 @@ struct ContentView: View {
                     for: NSWindow.didBecomeKeyNotification
                 )
             ) { _ in
-                Task { await workspace.handleConversationVisibilityChange() }
+                Task { await workspace.handleConversationVisibilityChange(userIsAtWindowBottom: userIsAtWindowBottom) }
             }
             .sheet(isPresented: $workspace.isGlobalMessageSearchPresented) {
                 GlobalMessageSearchView()
@@ -144,8 +144,14 @@ struct ContentView: View {
                     for: NSWindow.didDeminiaturizeNotification
                 )
             ) { _ in
-                Task { await workspace.handleConversationVisibilityChange() }
+                Task { await workspace.handleConversationVisibilityChange(userIsAtWindowBottom: userIsAtWindowBottom) }
             }
+    }
+
+    /// Regaining focus may only mark rows read when the open transcript is scrolled to its foot.
+    /// No projected conversation means the legacy timeline path, which marks unconditionally.
+    private var userIsAtWindowBottom: Bool {
+        session.accountScope?.selectedConversationModel?.isAtWindowBottom ?? true
     }
 
     private func applyAppearance(_ preference: AppearancePreference) {

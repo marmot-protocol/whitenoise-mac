@@ -169,7 +169,8 @@ struct whitenoise_macApp: App {
                     avatarBytesByReference: avatarAssets?.bytesByReference ?? [:]
                 ),
                 preparedMentionNames: mentionNames,
-                projectedClientTokens: Set(timelineRecords.compactMap(\.clientToken))
+                projectedClientTokens: Set(timelineRecords.compactMap(\.clientToken)),
+                userIsAtWindowBottom: model.isAtWindowBottom
             )
         }
         await model.setSnapshotObserver(installSnapshot)

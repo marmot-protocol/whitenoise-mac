@@ -111,13 +111,11 @@ final class AccountScope {
         cancellations[id] = nil
     }
 
-    /// Conversations open at the live edge (`.latest`). MarmotKit's `.automatic` anchors the
-    /// window on the first unread row instead, leaving it detached from the tail; the transcript
-    /// has no first-unread position to honor, so it pinned to the foot of that detached window and
-    /// long unread conversations opened far above their newest message.
+    /// Conversations open in `.automatic`: MarmotKit anchors the window on the first unread row
+    /// (which the transcript scrolls to under a "New messages" divider), else on the latest row.
     func conversationModel(
         groupIdHex: String,
-        mode: ConversationOpenModeFfi = .latest,
+        mode: ConversationOpenModeFfi = .automatic,
         messageIdHex: String? = nil
     ) -> ConversationViewModel {
         if let existing = conversations[groupIdHex]?.model {
@@ -138,7 +136,7 @@ final class AccountScope {
     @discardableResult
     func selectConversation(
         groupIdHex: String,
-        mode: ConversationOpenModeFfi = .latest,
+        mode: ConversationOpenModeFfi = .automatic,
         messageIdHex: String? = nil
     ) -> ConversationViewModel {
         if let selectedConversationModel, selectedConversationModel.groupIdHex == groupIdHex {

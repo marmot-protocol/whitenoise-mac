@@ -202,6 +202,21 @@ private struct TimelineScrollMetrics: Equatable {
     }
 }
 
+/// The most recent `TimelineScrollMetrics`, written from the geometry transform. The geometry
+/// action only fires when a threshold flips, so after a programmatic scroll that crosses nothing
+/// this is the only way to learn where the transcript now sits. A plain reference, not observed:
+/// no view renders from it, and writing it must not invalidate the transcript on every frame.
+private final class TimelineScrollMetricsBox {
+    var latest: TimelineScrollMetrics?
+}
+
+/// Keyed by the model as well as the flag, so switching between two chats that are both at the
+/// bottom still reports the new model's position instead of looking like no change.
+private struct TranscriptReadingState: Equatable {
+    let model: ObjectIdentifier
+    let isAtWindowBottom: Bool
+}
+
 nonisolated enum TimelineNewestMessageScrollAction: Equatable {
     case none
     case clearPendingAppendAnchor
@@ -252,6 +267,12 @@ private struct ConversationView: View {
     /// geometry — never from a view's `.onAppear`/`.onDisappear`, which would write state
     /// during layout and feed back into it.
     @State private var isPinnedToBottom = true
+    /// The unread divider this transcript has already scrolled to (or decided not to). While the
+    /// model's divider differs from it, the transcript is still bottom-anchored at the foot of a
+    /// window that opened at the first unread row, so its scroll position means nothing: paging
+    /// and read marking wait for the divider scroll to land.
+    @State private var positionedUnreadDividerId: String?
+    @State private var scrollMetrics = TimelineScrollMetricsBox()
     @State private var isFileImporterPresented = false
     @State private var isFileDropTargeted = false
     @State private var isComposerEmojiPickerPresented = false
@@ -292,6 +313,12 @@ private struct ConversationView: View {
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
         let pendingOutgoingRows = workspace.selectedPendingOutgoingMessageRows
+        let unreadDividerMessageId = model.unreadDivider?.messageIdHex
+        let readingState = TranscriptReadingState(
+            model: ObjectIdentifier(model),
+            isAtWindowBottom: model.hasPresentedWindow && isPinnedToBottom && !isPositioningAtUnreadDivider
+                && !messageIDs.isEmpty
+        )
 
         ZStack {
             VStack(spacing: 0) {
@@ -325,6 +352,11 @@ private struct ConversationView: View {
                                 }
 
                                 ForEach(displayItems) { item in
+                                    if item.message.id == unreadDividerMessageId {
+                                        UnreadMessagesDivider()
+                                            .id(unreadDividerAnchorId)
+                                    }
+
                                     if let dayLabel = item.dayLabel {
                                         TimelineDayHeaderView(title: dayLabel)
                                     }
@@ -407,20 +439,37 @@ private struct ConversationView: View {
                     .onScrollPhaseChange { _, phase in
                         isActivelyScrolling = phase != .idle
                     }
-                    .onScrollGeometryChange(for: TimelineScrollMetrics.self) { geometry in
-                        TimelineScrollMetrics(geometry: geometry, bottomPadding: bottomTranscriptPadding)
+                    .onScrollGeometryChange(for: TimelineScrollMetrics.self) { [scrollMetrics] geometry in
+                        let metrics = TimelineScrollMetrics(geometry: geometry, bottomPadding: bottomTranscriptPadding)
+                        scrollMetrics.latest = metrics
+                        return metrics
                     } action: { _, metrics in
                         // Threshold-crossing state only (booleans), so this runs when the user
                         // crosses an edge — not on every scrolled pixel — and only ever writes
                         // `isPinnedToBottom`, which no view's layout depends on.
                         isPinnedToBottom = metrics.atBottom
+                        guard !isPositioningAtUnreadDivider else { return }
                         if metrics.nearTop { loadOlderIfNeeded() }
                         if metrics.nearBottom { loadNewerIfNeeded() }
+                    }
+                    .onChange(of: model.hasPresentedWindow ? unreadDividerMessageId : nil, initial: true) {
+                        _, messageId in
+                        positionAtUnreadDivider(messageId, using: proxy)
+                    }
+                    .onChange(of: readingState, initial: true) { _, state in
+                        // Read marking follows what the user has reached, not what the window
+                        // holds: a window opened at the first unread row, or one scrolled up in,
+                        // must not mark rows below the viewport read.
+                        model.setAtWindowBottom(state.isAtWindowBottom)
+                        guard state.isAtWindowBottom else { return }
+                        Task { await workspace.handleConversationVisibilityChange(userIsAtWindowBottom: true) }
                     }
                     .onChange(of: chat.id) { _, _ in
                         pendingPrependAnchorId = nil
                         pendingAppendAnchorId = nil
                         isPinnedToBottom = true
+                        positionedUnreadDividerId = nil
+                        scrollMetrics.latest = nil
                         // The fresh ScrollView starts idle without emitting a phase transition, so
                         // clear the gate here or the new transcript stays non-interactive until a scroll.
                         isActivelyScrolling = false
@@ -436,7 +485,7 @@ private struct ConversationView: View {
                             pendingPrependAnchorId: pendingPrependAnchorId,
                             pendingAppendAnchorId: pendingAppendAnchorId,
                             newMessageId: newMessageId,
-                            isPinnedToBottom: isPinnedToBottom
+                            isPinnedToBottom: isPinnedToBottom && !isPositioningAtUnreadDivider
                         ) {
                         case .restorePendingAppendAnchor(let anchorId):
                             DispatchQueue.main.async {
@@ -870,6 +919,60 @@ private struct ConversationView: View {
 
     private var bottomAnchorId: String {
         "conversation-bottom-\(chat.id)"
+    }
+
+    private var unreadDividerAnchorId: String {
+        "conversation-unread-divider-\(chat.id)"
+    }
+
+    /// Read live, not captured at body evaluation: the geometry action runs after it.
+    private var isPositioningAtUnreadDivider: Bool {
+        guard let divider = model.unreadDivider else { return false }
+        return divider.messageIdHex != positionedUnreadDividerId
+    }
+
+    /// Scrolls a window MarmotKit opened at the first unread row so the divider sits near the
+    /// top, once per open. The transcript is bottom-anchored, which on such a window lands at the
+    /// foot of the page after the first unread row — neither the divider nor the latest message.
+    private func positionAtUnreadDivider(_ messageId: String?, using proxy: ScrollViewProxy) {
+        guard let messageId, positionedUnreadDividerId != messageId else { return }
+        // A search result or reply jump that opened this chat owns the initial position, and a
+        // divider row the transcript does not render (hidden locally) has nothing to scroll to.
+        guard workspace.pendingMessageNavigation?.groupId != chat.id,
+            workspace.selectedTimelineContainsMessage(messageId)
+        else {
+            finishUnreadDividerPositioning(messageId)
+            return
+        }
+        let groupIdHex = model.groupIdHex
+        DispatchQueue.main.async {
+            guard workspace.selectedChat?.id == groupIdHex,
+                model.unreadDivider?.messageIdHex == messageId
+            else { return }
+            TimelineSignpost.scroll.interval("positionAtUnreadDivider") {
+                proxy.scrollTo(unreadDividerAnchorId, anchor: UnitPoint(x: 0.5, y: 0.1))
+            }
+            Task {
+                // Let the scroll's layout land and report its geometry before scroll position
+                // drives paging and read marking again.
+                try? await Task.sleep(for: .milliseconds(150))
+                guard workspace.selectedChat?.id == groupIdHex,
+                    model.unreadDivider?.messageIdHex == messageId
+                else { return }
+                finishUnreadDividerPositioning(messageId)
+            }
+        }
+    }
+
+    /// Hands scroll position back to the geometry rules. The geometry action fires only when a
+    /// threshold flips, and the divider scroll may flip none (a short unread run still ends at
+    /// the bottom), so replay the latest metrics rather than wait for the next crossing.
+    private func finishUnreadDividerPositioning(_ messageId: String) {
+        positionedUnreadDividerId = messageId
+        guard let metrics = scrollMetrics.latest else { return }
+        isPinnedToBottom = metrics.atBottom
+        if metrics.nearTop { loadOlderIfNeeded() }
+        if metrics.nearBottom { loadNewerIfNeeded() }
     }
 
     private func revealMessage(_ messageId: String, using proxy: ScrollViewProxy) async {
