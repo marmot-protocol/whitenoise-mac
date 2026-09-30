@@ -11,18 +11,21 @@ import SwiftUI
 ///
 /// This is `whitenoise-ios`'s `ComposerAttachmentOption` minus the entries a Mac has nothing
 /// behind: there is no camera or camera roll here (the open panel already takes photos and
-/// videos), and no location, contact, or poll sends. Declaration order is the presented order,
-/// and `available(gifsAvailable:)` is the whole decision the menu makes, so it stays assertable
-/// without a view.
+/// videos), and no location or contact sends. Declaration order is the presented order, and
+/// `available(gifsAvailable:pollsAvailable:)` is the whole decision the menu makes, so it stays
+/// assertable without a view.
 nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Sendable {
     case files
     case gifs
+    case poll
 
-    static func available(gifsAvailable: Bool) -> [Self] {
+    /// `pollsAvailable` is false in direct messages: MDK accepts polls only in groups.
+    static func available(gifsAvailable: Bool, pollsAvailable: Bool = false) -> [Self] {
         allCases.filter { option in
             switch option {
             case .files: true
             case .gifs: gifsAvailable
+            case .poll: pollsAvailable
             }
         }
     }
@@ -31,6 +34,7 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
         switch self {
         case .files: "Files"
         case .gifs: "GIFs"
+        case .poll: "Poll"
         }
     }
 
@@ -38,6 +42,7 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
         switch self {
         case .files: "folder"
         case .gifs: "rectangle.stack.badge.play"
+        case .poll: "chart.bar.xaxis"
         }
     }
 }
@@ -52,11 +57,13 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
 ///
 /// `giphyAPIKey` is nil when this build carries no GIPHY key, or when the conversation cannot send
 /// right now; either way the GIFs entry is left out, the way the iOS menu leaves it out.
+/// `onCreatePoll` is nil where a poll cannot be sent, which leaves the Poll entry out the same way.
 struct ComposerAttachmentMenu: View {
     let giphyAPIKey: String?
     let isDisabled: Bool
     let onAttachFiles: () -> Void
     let sendGIF: GiphySearchViewModel.Send
+    var onCreatePoll: (() -> Void)? = nil
 
     @State private var page: ComposerAttachmentMenuPage?
 
@@ -86,7 +93,10 @@ struct ComposerAttachmentMenu: View {
             switch page {
             case .options:
                 ComposerAttachmentOptionList(
-                    options: ComposerAttachmentOption.available(gifsAvailable: giphyAPIKey != nil),
+                    options: ComposerAttachmentOption.available(
+                        gifsAvailable: giphyAPIKey != nil,
+                        pollsAvailable: onCreatePoll != nil
+                    ),
                     onSelect: select
                 )
             case .gifs(let searchModel):
@@ -102,6 +112,9 @@ struct ComposerAttachmentMenu: View {
         case .files:
             page = nil
             onAttachFiles()
+        case .poll:
+            page = nil
+            onCreatePoll?()
         case .gifs:
             guard let giphyAPIKey else {
                 page = nil

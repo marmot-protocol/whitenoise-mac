@@ -4,8 +4,8 @@ import Testing
 
 @testable import whitenoise_mac
 
-/// Until polls are supported, a kind-1068 row must say it is a poll instead of rendering its
-/// bare question as though a peer had typed it.
+/// A kind-1068 row MDK projected no tally for (a malformed poll) must say it is a poll instead of
+/// rendering its bare question as though a peer had typed it.
 @MainActor
 struct PollFallbackTests {
     private static let pollKind: UInt64 = 1068

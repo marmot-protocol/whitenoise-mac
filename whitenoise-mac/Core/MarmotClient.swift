@@ -281,6 +281,16 @@ nonisolated protocol MarmotRuntime: Sendable {
     func retryGroupConvergence(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
         -> SendSummaryFfi
+    func createPoll(
+        accountRef: String,
+        groupIdHex: String,
+        question: String,
+        options: [String],
+        pollType: PollTypeFfi,
+        endsAt: UInt64?
+    ) async throws -> SendSummaryFfi
+    func castPollVote(accountRef: String, groupIdHex: String, pollEventId: String, optionIds: [String]) async throws
+        -> SendSummaryFfi
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi
     func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws
         -> SendSummaryFfi
@@ -1277,6 +1287,35 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             groupIdHex: groupIdHex,
             targetMessageId: targetMessageId,
             emoji: emoji
+        )
+    }
+
+    func createPoll(
+        accountRef: String,
+        groupIdHex: String,
+        question: String,
+        options: [String],
+        pollType: PollTypeFfi,
+        endsAt: UInt64?
+    ) async throws -> SendSummaryFfi {
+        try await marmot.createPoll(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            question: question,
+            options: options,
+            pollType: pollType,
+            endsAt: endsAt
+        )
+    }
+
+    func castPollVote(accountRef: String, groupIdHex: String, pollEventId: String, optionIds: [String]) async throws
+        -> SendSummaryFfi
+    {
+        try await marmot.castPollVote(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            pollEventId: pollEventId,
+            optionIds: optionIds
         )
     }
 

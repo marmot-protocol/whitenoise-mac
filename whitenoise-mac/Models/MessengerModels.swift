@@ -2351,8 +2351,9 @@ nonisolated enum MessagePresentation: Hashable {
     case agentActivity
     case agentOperation
     case groupSystem
-    /// A kind-1068 poll. This build can't show or vote in polls yet, so the row names the
-    /// question and says so rather than passing the bare question off as a message.
+    /// A kind-1068 poll. A row carrying MDK's projected tally (`MessageItem.poll`) renders as a
+    /// votable poll card; a malformed one has no tally and names the question in a notice
+    /// instead of passing it off as a message.
     case poll
     case unsupported
 
@@ -2458,6 +2459,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let nonvisualMediaAttachments: [MessageMediaAttachment]
     let hasBubbleContent: Bool
     let presentation: MessagePresentation
+    /// MDK's tally for a `.poll` row; nil for every other presentation and for a malformed poll.
+    let poll: MessagePoll?
     let timeLabel: String
     let statusLabel: String?
     let metadataLabel: String
@@ -2634,7 +2637,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         reactions: [MessageReaction] = [],
         replyContext: MessageReplyContext? = nil,
         mediaAttachments: [MessageMediaAttachment] = [],
-        presentation: MessagePresentation = .chat
+        presentation: MessagePresentation = .chat,
+        poll: MessagePoll? = nil
     ) {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         let partitionedAttachments = Self.partitionMediaAttachments(mediaAttachments)
@@ -2697,6 +2701,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.nonvisualMediaAttachments = partitionedAttachments.nonvisual
         self.hasBubbleContent = replyContext != nil || !trimmedBody.isEmpty
         self.presentation = presentation
+        self.poll = presentation == .poll ? poll : nil
         let timeLabel = DisplayText.messageTimestamp(for: sentAt)
         self.timeLabel = timeLabel
         let statusLabel: String?
@@ -2762,7 +2767,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             reactions: reactions,
             replyContext: replyContext,
             mediaAttachments: mediaAttachments,
-            presentation: presentation
+            presentation: presentation,
+            poll: poll
         )
     }
 
@@ -3040,6 +3046,7 @@ extension MessageItem {
             && lhs.replyContext == rhs.replyContext
             && lhs.mediaAttachments == rhs.mediaAttachments
             && lhs.presentation == rhs.presentation
+            && lhs.poll == rhs.poll
             && lhs.timeLabel == rhs.timeLabel
             && lhs.statusLabel == rhs.statusLabel
             && lhs.metadataLabel == rhs.metadataLabel

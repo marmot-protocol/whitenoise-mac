@@ -1429,7 +1429,7 @@ struct ProjectionMigrationTests {
         #expect(message.metadataLabel(at: .now, locale: Locale(identifier: "en_US")).contains("2023"))
     }
 
-    private static func conversationSnapshot(
+    static func conversationSnapshot(
         sequence: UInt64,
         title: String,
         unreadCount: UInt64 = 0
@@ -1488,7 +1488,7 @@ struct ProjectionMigrationTests {
         )
     }
 
-    private static func conversationMessage(
+    static func conversationMessage(
         _ record: TimelineMessageRecordFfi,
         replyAuthor: String? = nil,
         mentions: [String] = [],

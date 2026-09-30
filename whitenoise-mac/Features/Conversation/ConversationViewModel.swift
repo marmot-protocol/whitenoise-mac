@@ -8,6 +8,11 @@ enum ConversationFeatureError: Equatable {
     case draftConflict
 }
 
+private struct PollVoteAttempt {
+    let id: UUID
+    let selection: [String]
+}
+
 struct PendingDurableSend: Identifiable, Equatable {
     let id: String
     let text: String
@@ -49,6 +54,13 @@ final class ConversationViewModel {
     private(set) var isLoading = false
     private(set) var isPaging = false
     private(set) var error: ConversationFeatureError?
+    /// In-flight votes keyed by poll message id, drawn over MDK's tally until a snapshot projects
+    /// the same selection or the vote fails.
+    private(set) var pendingPollSelections: [String: [String]] = [:]
+    /// Every vote per poll message that has not failed or been confirmed by a snapshot, oldest
+    /// first. A failed vote falls back to the newest survivor rather than to whatever it replaced,
+    /// which may itself have failed in the meantime.
+    @ObservationIgnored private var pollVoteAttempts: [String: [PollVoteAttempt]] = [:]
 
     @ObservationIgnored private let runtime: any MarmotRuntime
     @ObservationIgnored private let productAnalytics: ProductAnalyticsRecorder?
@@ -211,6 +223,54 @@ final class ConversationViewModel {
         }
     }
 
+    /// Sends a new poll. MDK accepts polls only in group conversations; the caller decides
+    /// whether this conversation is one.
+    func createPoll(_ submission: PollDraft.Submission) async throws {
+        _ = try await runtime.createPoll(
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex,
+            question: submission.question,
+            options: submission.options,
+            pollType: submission.pollType,
+            endsAt: submission.endsAt
+        )
+    }
+
+    /// The poll with any in-flight local vote applied.
+    func displayedPoll(_ poll: MessagePoll, messageIdHex: String) -> MessagePoll {
+        guard let pending = pendingPollSelections[messageIdHex] else { return poll }
+        return PollPresentation.applyingLocalSelection(pending, to: poll)
+    }
+
+    /// Toggles `optionId` in this account's selection and publishes the whole new selection. The
+    /// click shows immediately; a failed vote restores whatever was showing before it and rethrows.
+    func votePoll(option optionId: String, messageIdHex: String, poll: MessagePoll, now: Date = .now) async throws {
+        guard !messageIdHex.isEmpty, PollPresentation.isOpen(poll, now: now) else { return }
+        let shown = displayedPoll(poll, messageIdHex: messageIdHex)
+        guard
+            let selection = PollPresentation.toggledSelection(
+                current: shown.localSelection,
+                option: optionId,
+                kind: poll.kind,
+                optionOrder: poll.options.map(\.id)
+            )
+        else { return }
+        let attempt = PollVoteAttempt(id: UUID(), selection: selection)
+        pollVoteAttempts[messageIdHex, default: []].append(attempt)
+        pendingPollSelections[messageIdHex] = selection
+        do {
+            _ = try await runtime.castPollVote(
+                accountRef: account.accountRef,
+                groupIdHex: groupIdHex,
+                pollEventId: messageIdHex,
+                optionIds: selection
+            )
+        } catch {
+            discardFailedPollVote(attempt, messageIdHex: messageIdHex)
+            throw error
+        }
+    }
+
     func localSendStatus(clientToken: String) async throws -> LocalSendStatusFfi? {
         try await FFIExecutor.run { [runtime, account, groupIdHex] in
             try runtime.localSendStatus(
@@ -325,9 +385,39 @@ final class ConversationViewModel {
         for token in projectedTokens {
             pendingSends[token] = nil
         }
+        clearProjectedPollSelections(in: replacement)
         error = nil
         isLoading = false
         await snapshotObserver?(replacement)
+    }
+
+    /// Forgets one failed vote. Only the newest vote owns the overlay, so an older failure leaves
+    /// it alone; the newest failing hands the overlay to the latest vote still standing, or clears
+    /// it so MDK's own tally shows.
+    private func discardFailedPollVote(_ attempt: PollVoteAttempt, messageIdHex: String) {
+        guard var attempts = pollVoteAttempts[messageIdHex],
+            let index = attempts.firstIndex(where: { $0.id == attempt.id })
+        else { return }
+        let wasCurrent = index == attempts.index(before: attempts.endIndex)
+        attempts.remove(at: index)
+        pollVoteAttempts[messageIdHex] = attempts.isEmpty ? nil : attempts
+        if wasCurrent {
+            pendingPollSelections[messageIdHex] = attempts.last?.selection
+        }
+    }
+
+    /// Drops each in-flight vote once MDK projects the same selection, so the overlay never
+    /// outlives the vote it stands in for.
+    private func clearProjectedPollSelections(in snapshot: ConversationWindowSnapshotFfi) {
+        guard !pendingPollSelections.isEmpty else { return }
+        for message in snapshot.messages {
+            let id = message.timeline.messageIdHex
+            guard let pending = pendingPollSelections[id], let poll = message.timeline.poll,
+                Set(poll.localSelection) == Set(pending)
+            else { continue }
+            pendingPollSelections[id] = nil
+            pollVoteAttempts[id] = nil
+        }
     }
 
     private func scheduleRetentionExpiry(for snapshot: ConversationWindowSnapshotFfi) {
