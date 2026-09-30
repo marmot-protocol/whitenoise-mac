@@ -199,6 +199,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var conversationWindowInitialSnapshots: [String: ConversationWindowSnapshotFfi] = [:]
     var conversationWindowUpdates: [String: [ConversationWindowSnapshotFfi]] = [:]
     var conversationWindowUpdateDelayNanoseconds: UInt64 = 0
+    private(set) var openedConversationWindowModes: [String: [ConversationOpenModeFfi]] = [:]
     var messageEditHistoryPages: [String: [TimelineEditHistoryPageFfi]] = [:]
     private(set) var messageEditHistoryRequests:
         [(messageIdHex: String, beforeEditedAt: UInt64?, beforeMessageIdHex: String?, limit: UInt32)] = []
@@ -2677,6 +2678,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         initialRows: UInt32?,
         timeoutMs: UInt32
     ) async throws -> ConversationWindowSubscription {
+        openedConversationWindowModes[groupIdHex, default: []].append(mode)
         guard let initial = conversationWindowInitialSnapshots[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
         }

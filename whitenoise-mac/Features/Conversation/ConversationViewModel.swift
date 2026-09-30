@@ -72,7 +72,7 @@ final class ConversationViewModel {
         self.productAnalytics = productAnalytics
     }
 
-    func start(mode: ConversationOpenModeFfi = .automatic, messageIdHex: String? = nil) {
+    func start(mode: ConversationOpenModeFfi = .latest, messageIdHex: String? = nil) {
         stop()
         isLoading = snapshot == nil
         let timing = productAnalytics?.beginTiming()
