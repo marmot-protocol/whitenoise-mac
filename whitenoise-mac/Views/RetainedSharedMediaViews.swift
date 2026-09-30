@@ -545,9 +545,19 @@ private extension View {
                 title: L10n.string("No photos or videos"),
                 systemImage: "photo.on.rectangle.angled"
             )
-            RetainedMediaGridExpanderRow(title: L10n.string("View more")) {}
         }
     }
     .formStyle(.grouped)
     .frame(width: 520, height: 320)
+}
+
+#Preview("Grid expander") {
+    Form {
+        Section(L10n.string("Shared Media")) {
+            RetainedMediaGridExpanderRow(title: L10n.string("View more")) {}
+            RetainedMediaGridExpanderRow(title: L10n.string("View less")) {}
+        }
+    }
+    .formStyle(.grouped)
+    .frame(width: 520, height: 200)
 }
