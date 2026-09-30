@@ -2693,6 +2693,61 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(anchor(pinned: false, hasMoreAfter: true, loadingOlder: true) == .bottom)
     }
 
+    /// Below MarmotKit's cap a newer page is a pure append and prefetches from the band. At the cap
+    /// it also drops rows above the reader, so holding the top edge would carry them forward past
+    /// those rows (and the read marker after them): it waits for the foot and restores there.
+    @Test func newerPagePlanPrefetchesAppendsButLoadsCappedPagesOnlyAtTheFoot() {
+        let inBand = TimelineScrollMetrics(atBottom: false, nearTop: false, nearBottom: true)
+        let atFoot = TimelineScrollMetrics(atBottom: true, nearTop: false, nearBottom: true)
+        let farAbove = TimelineScrollMetrics(atBottom: false, nearTop: false, nearBottom: false)
+
+        #expect(timelineNewerPagePlan(metrics: inBand, trimsWindowHead: false) == .prefetch)
+        #expect(timelineNewerPagePlan(metrics: farAbove, trimsWindowHead: false) == .wait)
+        #expect(timelineNewerPagePlan(metrics: inBand, trimsWindowHead: true) == .wait)
+        #expect(timelineNewerPagePlan(metrics: atFoot, trimsWindowHead: true) == .loadAtFoot)
+        #expect(timelineNewerPagePlan(metrics: nil, trimsWindowHead: false) == .wait)
+
+        #expect(
+            timelineNewestMessageScrollAction(
+                newMessageIsOutgoing: false,
+                paging: TimelinePagingState(
+                    hasMoreBefore: true,
+                    hasMoreAfter: true,
+                    isLoadingBefore: false,
+                    isLoadingAfter: false
+                ),
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: "old-last",
+                newMessageId: "new-last",
+                isPinnedToBottom: true,
+                restoresPendingAppendAnchor: true
+            ) == .restorePendingAppendAnchor("old-last"))
+    }
+
+    /// The divider settle asks for an older and a newer page together. MarmotKit pages one at a
+    /// time, so the newer request used to be swallowed with nothing to retry it; it now waits for
+    /// the older page to settle and then runs.
+    @Test func newerPageRequestedDuringAnOlderPageRunsOnceItSettles() {
+        var queue = TimelinePageRequestQueue()
+
+        let startsWhenIdle = queue.requestNewer(olderPageInFlight: false)
+        let dueAfterIdleStart = queue.olderPageSettled()
+        #expect(startsWhenIdle)
+        #expect(!dueAfterIdleStart)
+
+        let startsDuringOlder = queue.requestNewer(olderPageInFlight: true)
+        let dueOnceOlderSettles = queue.olderPageSettled()
+        let dueAgain = queue.olderPageSettled()
+        #expect(!startsDuringOlder)
+        #expect(dueOnceOlderSettles)
+        #expect(!dueAgain)
+
+        _ = queue.requestNewer(olderPageInFlight: true)
+        queue.reset()
+        let dueAfterChatSwitch = queue.olderPageSettled()
+        #expect(!dueAfterChatSwitch)
+    }
+
     /// No scroll sample, or a search jump that arrived while the divider scroll was in flight:
     /// neither may page nor count a detached window as read to its foot.
     @Test func unreadDividerSettleDoesNothingWithoutASampleOrUnderASearchJump() {

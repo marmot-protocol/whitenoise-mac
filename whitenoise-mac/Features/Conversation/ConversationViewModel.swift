@@ -79,6 +79,11 @@ final class ConversationViewModel {
     /// reads it to decide whether a replacement may advance the read marker. Ignored by
     /// observation: the transcript writes it on scroll-edge crossings and no view renders it.
     @ObservationIgnored private(set) var isAtWindowBottom = false
+    /// Mirrors MarmotKit's row budget for this window: the open's `initialRows`, grown by every
+    /// successful page and capped at `maxWindowRows`. Jumps, `returnToLatest` and live updates
+    /// keep it. Once a newer page would push it past the cap, MarmotKit makes room by dropping
+    /// rows at the head of the window, above the reader — see `newerPageTrimsWindowHead`.
+    @ObservationIgnored private(set) var windowRowBudget = ConversationViewModel.initialRows
 
     @ObservationIgnored private let runtime: any MarmotRuntime
     @ObservationIgnored private let productAnalytics: ProductAnalyticsRecorder?
@@ -103,9 +108,22 @@ final class ConversationViewModel {
         self.productAnalytics = productAnalytics
     }
 
+    nonisolated static let initialRows: UInt32 = 50
+    nonisolated static let pageRows: UInt32 = 50
+    /// MarmotKit's retained-window cap (`CONVERSATION_WINDOW_MAX_ROWS`).
+    nonisolated static let maxWindowRows: UInt32 = 200
+
+    /// Whether the next newer page replaces rows above the reader as well as appending below.
+    /// Such a page cannot keep the reader's place by holding the top edge still, and MarmotKit
+    /// only advances it past the cap from a reported visible anchor.
+    var newerPageTrimsWindowHead: Bool {
+        windowRowBudget + Self.pageRows > Self.maxWindowRows
+    }
+
     func start(mode: ConversationOpenModeFfi = .automatic, messageIdHex: String? = nil) {
         stop()
         isLoading = snapshot == nil
+        windowRowBudget = Self.initialRows
         unreadDivider = nil
         capturesUnreadDivider = true
         let timing = productAnalytics?.beginTiming()
@@ -152,20 +170,38 @@ final class ConversationViewModel {
         isAtWindowBottom = false
     }
 
-    func page(_ direction: ConversationPageDirectionFfi, count: UInt32 = 50) async {
-        guard !isPaging, let subscription, let revision = snapshot?.revision else { return }
+    /// Pages the window. `visibleAnchorMessageIdHex` is reported first with `set_visible_anchor`,
+    /// which MarmotKit requires before paging beyond its retained cap: without it a newer page at
+    /// the cap keeps the opening anchor, runs out of rows to drop above it, and returns the same
+    /// window while `hasMoreAfter` stays true.
+    func page(
+        _ direction: ConversationPageDirectionFfi,
+        count: UInt32 = ConversationViewModel.pageRows,
+        visibleAnchorMessageIdHex: String? = nil
+    ) async {
+        guard !isPaging, let subscription, var revision = snapshot?.revision else { return }
         if direction == .older, snapshot?.hasMoreBefore != true { return }
         if direction == .newer, snapshot?.hasMoreAfter != true { return }
         if direction == .newer { leaveWindowBottom() }
         isPaging = true
         defer { isPaging = false }
         do {
+            if let visibleAnchorMessageIdHex {
+                let anchored = try await subscription.setVisibleAnchor(
+                    revision: revision,
+                    messageIdHex: visibleAnchorMessageIdHex,
+                    timeoutMs: 0
+                )
+                await install(anchored)
+                revision = anchored.revision
+            }
             let replacement = try await subscription.page(
                 revision: revision,
                 direction: direction,
                 count: count,
                 timeoutMs: 0
             )
+            windowRowBudget = min(windowRowBudget + count, Self.maxWindowRows)
             await install(replacement)
         } catch is CancellationError {
             return
@@ -383,7 +419,7 @@ final class ConversationViewModel {
                 groupIdHex: groupIdHex,
                 mode: mode,
                 messageIdHex: messageIdHex,
-                initialRows: 50,
+                initialRows: Self.initialRows,
                 timeoutMs: 0
             )
             try Task.checkCancellation()

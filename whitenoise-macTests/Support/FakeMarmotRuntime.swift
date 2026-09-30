@@ -200,6 +200,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var conversationWindowUpdates: [String: [ConversationWindowSnapshotFfi]] = [:]
     var conversationWindowUpdateDelayNanoseconds: UInt64 = 0
     private(set) var openedConversationWindowModes: [String: [ConversationOpenModeFfi]] = [:]
+    private(set) var openedConversationWindows: [String: FakeConversationWindowSubscription] = [:]
     var messageEditHistoryPages: [String: [TimelineEditHistoryPageFfi]] = [:]
     private(set) var messageEditHistoryRequests:
         [(messageIdHex: String, beforeEditedAt: UInt64?, beforeMessageIdHex: String?, limit: UInt32)] = []
@@ -2705,11 +2706,13 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         guard let initial = conversationWindowInitialSnapshots[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
         }
-        return FakeConversationWindowSubscription(
+        let subscription = FakeConversationWindowSubscription(
             initial: initial,
             updates: conversationWindowUpdates[groupIdHex] ?? [],
             updateDelayNanoseconds: conversationWindowUpdateDelayNanoseconds
         )
+        openedConversationWindows[groupIdHex] = subscription
+        return subscription
     }
 
     func conversationWindowSnapshot(subscription: ConversationWindowSubscription) -> ConversationWindowSnapshotFfi? {

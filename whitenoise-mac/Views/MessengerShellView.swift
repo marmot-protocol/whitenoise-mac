@@ -275,9 +275,55 @@ func timelineSizeChangeAnchor(
     return isFollowingLiveEdge ? .bottom : .top
 }
 
+/// How a newer page may load from where the reader is.
+nonisolated enum TimelineNewerPagePlan: Equatable {
+    /// Not yet: no scroll sample, or the page would drop rows above a reader not at the foot.
+    case wait
+    /// A pure append. Loads from anywhere in the prefetch band; the `.top` size-change anchor
+    /// keeps the reader's place.
+    case prefetch
+    /// The page also drops rows above the reader (MarmotKit's 200-row cap), so holding the top
+    /// edge would carry them forward past those rows. It loads only from the foot, reporting the
+    /// last row as the visible anchor, and that row is restored to the bottom afterwards — exact,
+    /// because that is where the reader was.
+    case loadAtFoot
+}
+
+func timelineNewerPagePlan(metrics: TimelineScrollMetrics?, trimsWindowHead: Bool) -> TimelineNewerPagePlan {
+    guard let metrics else { return .wait }
+    if trimsWindowHead { return metrics.atBottom ? .loadAtFoot : .wait }
+    return metrics.nearBottom ? .prefetch : .wait
+}
+
+/// Orders the transcript's two history loads. MarmotKit pages one request at a time, and an older
+/// page lands under the `.bottom` size-change anchor until its prepend is restored, so a newer page
+/// landing in that interval would carry the reader down. A newer request made then is remembered
+/// rather than dropped, and runs once the older page has settled.
+nonisolated struct TimelinePageRequestQueue: Equatable {
+    private(set) var isNewerDeferred = false
+
+    /// Whether a newer page may start now. When an older page is still in flight it is deferred.
+    mutating func requestNewer(olderPageInFlight: Bool) -> Bool {
+        guard olderPageInFlight else { return true }
+        isNewerDeferred = true
+        return false
+    }
+
+    /// The older page's prepend has settled. Returns whether a deferred newer page is now due.
+    mutating func olderPageSettled() -> Bool {
+        defer { isNewerDeferred = false }
+        return isNewerDeferred
+    }
+
+    mutating func reset() {
+        isNewerDeferred = false
+    }
+}
+
 nonisolated enum TimelineNewestMessageScrollAction: Equatable {
     case none
     case clearPendingAppendAnchor
+    case restorePendingAppendAnchor(String)
     case scrollToBottom
 }
 
@@ -287,12 +333,15 @@ func timelineNewestMessageScrollAction(
     pendingPrependAnchorId: String?,
     pendingAppendAnchorId: String?,
     newMessageId: String?,
-    isPinnedToBottom: Bool
+    isPinnedToBottom: Bool,
+    restoresPendingAppendAnchor: Bool = false
 ) -> TimelineNewestMessageScrollAction {
-    // A newer page landed. The `.top` size-change anchor already kept the reader's place, so
-    // there is nothing to restore; only release the gate against re-triggering the load.
-    if pendingAppendAnchorId != nil {
-        return .clearPendingAppendAnchor
+    // A newer page landed. A pure append kept the reader's place under the `.top` size-change
+    // anchor, so only the re-trigger gate is released. A page that also dropped rows above the
+    // reader (`TimelineNewerPagePlan.loadAtFoot`) restores the old last row to the bottom.
+    if let pendingAppendAnchorId {
+        return restoresPendingAppendAnchor
+            ? .restorePendingAppendAnchor(pendingAppendAnchorId) : .clearPendingAppendAnchor
     }
 
     guard newMessageId != nil,
@@ -317,10 +366,13 @@ private struct ConversationView: View {
     /// The top message captured before an older-history prepend, so its on-screen position
     /// can be restored afterward; also gates re-triggering `loadOlder` until the prepend lands.
     @State private var pendingPrependAnchorId: String?
-    /// The bottom message when a newer-history load started. Only a gate against re-triggering
-    /// `loadNewer` until the page lands: the page arrives under the `.top` size-change anchor, so
-    /// the reader's place needs no restoring.
+    /// The bottom message when a newer-history load started. Gates re-triggering `loadNewer` until
+    /// the page lands, and is where a page past MarmotKit's cap puts the reader back.
     @State private var pendingAppendAnchorId: String?
+    /// Whether the newer page in flight also drops rows above the reader, so its landing must put
+    /// `pendingAppendAnchorId` back at the bottom (see `TimelineNewerPagePlan.loadAtFoot`).
+    @State private var appendRestoresFoot = false
+    @State private var pageRequests = TimelinePageRequestQueue()
     /// Whether the transcript is scrolled to (or near) the live edge. Derived from scroll
     /// geometry — never from a view's `.onAppear`/`.onDisappear`, which would write state
     /// during layout and feed back into it.
@@ -540,6 +592,8 @@ private struct ConversationView: View {
                     .onChange(of: chat.id) { _, _ in
                         pendingPrependAnchorId = nil
                         pendingAppendAnchorId = nil
+                        appendRestoresFoot = false
+                        pageRequests.reset()
                         isPinnedToBottom = true
                         positionedUnreadDividerId = nil
                         scrollMetrics.latest = nil
@@ -557,10 +611,28 @@ private struct ConversationView: View {
                             pendingPrependAnchorId: pendingPrependAnchorId,
                             pendingAppendAnchorId: pendingAppendAnchorId,
                             newMessageId: newMessageId,
-                            isPinnedToBottom: isPinnedToBottom && !isPositioningAtUnreadDivider
+                            isPinnedToBottom: isPinnedToBottom && !isPositioningAtUnreadDivider,
+                            restoresPendingAppendAnchor: appendRestoresFoot
+                                && pendingAppendAnchorId.map(workspace.selectedTimelineContainsMessage) == true
                         ) {
+                        case .restorePendingAppendAnchor(let anchorId):
+                            DispatchQueue.main.async {
+                                // Re-validate against live state: the user may have switched
+                                // chats or another newer page may have started since.
+                                guard workspace.selectedChat?.id == chat.id,
+                                    pendingAppendAnchorId == anchorId,
+                                    workspace.selectedTimelineContainsMessage(anchorId)
+                                else { return }
+                                TimelineSignpost.scroll.interval("restoreAppendAnchor") {
+                                    proxy.scrollTo(anchorId, anchor: .bottom)
+                                }
+                                pendingAppendAnchorId = nil
+                                appendRestoresFoot = false
+                            }
+                            return
                         case .clearPendingAppendAnchor:
                             pendingAppendAnchorId = nil
+                            appendRestoresFoot = false
                             return
                         case .scrollToBottom:
                             scrollToBottom(with: proxy)
@@ -598,7 +670,7 @@ private struct ConversationView: View {
                         else {
                             // Anchor evicted or chat changed — release the gate, or every
                             // later older-history load stays silently blocked.
-                            pendingPrependAnchorId = nil
+                            releasePrependGate()
                             return
                         }
                         DispatchQueue.main.async {
@@ -612,13 +684,13 @@ private struct ConversationView: View {
                             guard workspace.selectedChat?.id == chat.id,
                                 workspace.selectedTimelineContainsMessage(anchorId)
                             else {
-                                pendingPrependAnchorId = nil
+                                releasePrependGate()
                                 return
                             }
                             TimelineSignpost.scroll.interval("restorePrependAnchor") {
                                 proxy.scrollTo(anchorId, anchor: .top)
                             }
-                            pendingPrependAnchorId = nil
+                            releasePrependGate()
                         }
                     }
                     .task(id: workspace.pendingMessageNavigation?.requestId) {
@@ -1115,26 +1187,52 @@ private struct ConversationView: View {
             // Fallback clear when no restoration occurs (e.g. already at the oldest message,
             // so `messageIDs.first` never changes and the `.first` onChange won't fire).
             if pendingPrependAnchorId == anchorId, workspace.selectedMessageIDs.first == anchorId {
-                pendingPrependAnchorId = nil
+                releasePrependGate()
             }
         }
     }
 
-    /// Prefetches newer history when the rendered window is detached from the live edge
-    /// (`hasMoreAfter`) and the user scrolls near the bottom. Unlike an older page, nothing is
-    /// restored afterwards: the `.top` size-change anchor keeps the rows on screen where they are.
+    /// Releases the older-page gate, then runs a newer page deferred behind it. The deferred page
+    /// waits a beat so the prepend restore's geometry lands before its plan reads the metrics.
+    private func releasePrependGate() {
+        pendingPrependAnchorId = nil
+        guard pageRequests.olderPageSettled() else { return }
+        let groupIdHex = model.groupIdHex
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard workspace.selectedChat?.id == groupIdHex else { return }
+            loadNewerIfNeeded()
+        }
+    }
+
+    /// Loads newer history when the rendered window is detached from the live edge
+    /// (`hasMoreAfter`) and the user scrolls near the bottom, as `timelineNewerPagePlan` allows: a
+    /// pure append prefetches and keeps the reader's place under the `.top` size-change anchor; a
+    /// page past MarmotKit's cap waits for the foot and restores the old last row there.
     private func loadNewerIfNeeded() {
         let paging = workspace.selectedTimelinePaging
-        guard paging.hasMoreAfter, !model.isPaging,
+        guard paging.hasMoreAfter,
             pendingAppendAnchorId == nil,
-            let anchorId = workspace.selectedMessageIDs.last
+            let anchorId = workspace.selectedMessageIDs.last,
+            pageRequests.requestNewer(olderPageInFlight: pendingPrependAnchorId != nil),
+            !model.isPaging
         else { return }
+        let plan = timelineNewerPagePlan(
+            metrics: scrollMetrics.latest,
+            trimsWindowHead: model.newerPageTrimsWindowHead
+        )
+        guard plan != .wait else { return }
+        let restoresFoot = plan == .loadAtFoot
         pendingAppendAnchorId = anchorId
+        appendRestoresFoot = restoresFoot
         TimelineSignpost.scroll.emitEvent("loadNewerTriggered")
         Task {
-            await settlingWindowMove { await model.page(.newer) }
+            await settlingWindowMove {
+                await model.page(.newer, visibleAnchorMessageIdHex: restoresFoot ? anchorId : nil)
+            }
             if pendingAppendAnchorId == anchorId, workspace.selectedMessageIDs.last == anchorId {
                 pendingAppendAnchorId = nil
+                appendRestoresFoot = false
             }
         }
     }

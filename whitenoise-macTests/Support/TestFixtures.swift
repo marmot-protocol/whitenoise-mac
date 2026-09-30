@@ -437,6 +437,9 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
     private var updates: [ConversationWindowSnapshotFfi]
     private let updateDelayNanoseconds: UInt64
     private(set) var cancelled = false
+    /// Window commands in call order (`anchor:<id>`, `page:older`, `page:newer`), so a test can
+    /// assert that a visible anchor was reported before a page.
+    private(set) var commands: [String] = []
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         current = nil
@@ -490,6 +493,7 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
         count: UInt32,
         timeoutMs: UInt32
     ) async throws -> ConversationWindowSnapshotFfi {
+        commands.append(direction == .newer ? "page:newer" : "page:older")
         guard let current else { throw FakeMarmotRuntimeError.unused }
         return current
     }
@@ -507,6 +511,7 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
         messageIdHex: String,
         timeoutMs: UInt32
     ) async throws -> ConversationWindowSnapshotFfi {
+        commands.append("anchor:\(messageIdHex)")
         guard let current else { throw FakeMarmotRuntimeError.unused }
         return current
     }

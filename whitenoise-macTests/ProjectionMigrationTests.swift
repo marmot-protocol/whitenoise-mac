@@ -990,6 +990,43 @@ struct ProjectionMigrationTests {
         model.stop()
     }
 
+    /// MarmotKit grows the window by each page up to 200 rows; the page that would pass the cap
+    /// drops rows at its head instead, and only advances from a reported visible anchor. The model
+    /// mirrors the budget and reports the anchor before paging when asked.
+    @Test func newerPagePastTheWindowCapReportsItsVisibleAnchorFirst() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            hasMoreAfter: true
+        )
+        let model = ConversationViewModel(
+            account: AccountItem.samples[0],
+            groupIdHex: "group",
+            runtime: runtime
+        )
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+
+        #expect(model.windowRowBudget == 50)
+        #expect(!model.newerPageTrimsWindowHead)
+        await model.page(.newer)
+        await model.page(.newer)
+        #expect(model.windowRowBudget == 150)
+        #expect(!model.newerPageTrimsWindowHead)
+        await model.page(.newer)
+        #expect(model.windowRowBudget == 200)
+        #expect(model.newerPageTrimsWindowHead)
+
+        await model.page(.newer, visibleAnchorMessageIdHex: "old-last")
+        #expect(window.commands == ["page:newer", "page:newer", "page:newer", "anchor:old-last", "page:newer"])
+        #expect(model.windowRowBudget == 200)
+        model.stop()
+    }
+
     @Test func conversationOpenedAtTheLatestRowHasNoUnreadDivider() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
