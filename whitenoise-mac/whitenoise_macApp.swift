@@ -170,7 +170,7 @@ struct whitenoise_macApp: App {
                 ),
                 preparedMentionNames: mentionNames,
                 projectedClientTokens: Set(timelineRecords.compactMap(\.clientToken)),
-                userIsAtWindowBottom: model.isAtWindowBottom
+                userIsAtWindowBottom: { [weak model] in model?.isAtWindowBottom ?? false }
             )
         }
         await model.setSnapshotObserver(installSnapshot)

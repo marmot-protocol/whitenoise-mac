@@ -2613,13 +2613,45 @@ struct TimelineTests: WorkspaceTestSupport {
             account: account,
             client: runtime,
             owner: nil,
-            userIsAtWindowBottom: false
+            userIsAtWindowBottom: { false }
         )
         await state.handleConversationVisibilityChange(userIsAtWindowBottom: false)
         #expect(runtime.markedReadMessageIds == markedBefore)
 
         await state.handleConversationVisibilityChange(userIsAtWindowBottom: true)
         #expect(runtime.markedReadMessageIds.last == "member-added")
+    }
+
+    /// The reading position is read when the replacement commits, not when it starts: a reader
+    /// who scrolls up while the window is mapped off the main actor keeps new arrivals unread.
+    @MainActor
+    @Test func readMarkerRechecksTheReadingPositionAfterMapping() async throws {
+        let (state, runtime, account) = try await Self.loadedGroupForReadMarking()
+        let alice = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let markedBefore = runtime.markedReadMessageIds
+        let isAtBottom = MutableFlag(true)
+        state.timelineApplyMapGateEnabled = true
+
+        async let apply: Void = state.applyTimelineWindow(
+            TimelinePageFfi(
+                messages: Self.chatThenMembershipThenRename(sender: alice),
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            ),
+            groupIdHex: "group",
+            account: account,
+            client: runtime,
+            owner: nil,
+            userIsAtWindowBottom: { isAtBottom.value }
+        )
+        let didReachGate = await waitFor { state.didReachTimelineApplyMapGate }
+        isAtBottom.value = false
+        state.timelineApplyMapGateEnabled = false
+        state.releaseTimelineApplyMapGate()
+        _ = await apply
+
+        #expect(didReachGate)
+        #expect(runtime.markedReadMessageIds == markedBefore)
     }
 
     /// Mirrors MarmotKit's activity rule: chat and polls always, membership and admin changes

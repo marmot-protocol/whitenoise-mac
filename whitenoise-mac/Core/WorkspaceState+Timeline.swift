@@ -303,7 +303,9 @@ extension WorkspaceState {
     ///
     /// `userIsAtWindowBottom` gates read marking: the projection host passes whether the
     /// transcript is scrolled to the foot of the window, so a window opened at the first unread
-    /// row — or one the user has scrolled up in — never marks rows they have not reached.
+    /// row — or one the user has scrolled up in — never marks rows they have not reached. It is a
+    /// closure read at commit time, not a value captured at the call: the user can scroll away
+    /// while this window is being mapped off the main actor.
     func applyTimelineWindow(
         _ page: TimelinePageFfi,
         groupIdHex: String,
@@ -313,7 +315,7 @@ extension WorkspaceState {
         preparedSenderProfiles: [String: ChatPeerProfile]? = nil,
         preparedMentionNames: MarkdownMentionNames? = nil,
         projectedClientTokens: Set<String>? = nil,
-        userIsAtWindowBottom: Bool = true
+        userIsAtWindowBottom: () -> Bool = { true }
     ) async {
         guard
             canApplyTimelineWindow(
@@ -455,7 +457,7 @@ extension WorkspaceState {
                 pendingOutgoingMediaMessagesByConversation[draftKey] = remaining.isEmpty ? nil : remaining
             }
         }
-        guard userIsAtWindowBottom else { return }
+        guard userIsAtWindowBottom() else { return }
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
 
