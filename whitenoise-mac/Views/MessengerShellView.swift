@@ -761,19 +761,16 @@ private struct ConversationView: View {
                         }
                     }
 
-                    Button {
-                        isFileImporterPresented = true
-                    } label: {
-                        Image(systemName: "paperclip")
-                            .wnFont(.medium18)
-                            .frame(width: 30, height: 30)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isSending)
-                    .help(L10n.string("Attach files"))
+                    // A GIF goes out as its GIPHY text envelope, through the same durable text
+                    // send the conversation model uses, so it needs no composer state of its own.
+                    ComposerAttachmentMenu(
+                        giphyAPIKey: canUseComposer ? GiphyBuildConfig.current().apiKey : nil,
+                        isDisabled: workspace.isSending,
+                        onAttachFiles: { isFileImporterPresented = true },
+                        sendGIF: { [model] media in
+                            try await model.sendText(media.wireText)
+                        }
+                    )
                 }
 
                 ComposerMessageInputView(
