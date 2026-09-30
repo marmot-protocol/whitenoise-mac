@@ -104,6 +104,26 @@ extension ConversationWindowSnapshotFfi {
     }
 }
 
+extension PresentedChatRowFfi {
+    /// Whether the line this row previews carries a canonical `@npub1…` mention, so it needs the
+    /// group's mention names to read as a person rather than as bech32.
+    ///
+    /// Callers ask before building those names: they come from the group roster, and a row that
+    /// mentions nobody has no reason to read — or observe — a roster at all.
+    nonisolated var previewMentionsAnyone: Bool {
+        let text: String?
+        switch preview {
+        case .draft(let draft):
+            text = draft.text
+        case .message:
+            text = row.lastMessage?.plaintext
+        case .invitation, .empty:
+            text = nil
+        }
+        return text?.contains("@npub1") == true
+    }
+}
+
 extension ChatSelfMembership {
     nonisolated init(_ membership: SelfMembershipFfi) {
         switch membership {

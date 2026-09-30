@@ -231,7 +231,8 @@ extension WorkspaceState {
                 activeAccountIdHex: account.accountIdHex,
                 nickname: peerNickname,
                 lastSenderNickname: senderNickname,
-                avatarBytes: prepared.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] }
+                avatarBytes: prepared.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] },
+                mentionNames: prepared.previewMentionsAnyone ? self.cachedMentionNames(groupIdHex: row.groupIdHex) : [:]
             )
         }
         let activeItems = activeRows.map(item)
@@ -277,6 +278,17 @@ extension WorkspaceState {
         ensureSelectedMessageTimelineStore()
         if preparedRows.isEmpty {
             startChatListEnrichment(rows: rows, account: account)
+        } else if let client {
+            // Prepared rows skip enrichment, which was the only thing that fetched a roster for
+            // the chat list — so a preview mentioning someone in a group this launch has not
+            // opened would keep its "@npub1…" for good. Fetch just those rosters: landing one
+            // evicts the group's mention names, the rows re-render named, and `storeGroupMembers`
+            // queues the profile refresh that names a member the roster has no name for.
+            for prepared in preparedRows.values
+            where prepared.previewMentionsAnyone && groupMemberDetailsCache[prepared.row.groupIdHex] == nil {
+                let groupIdHex = prepared.row.groupIdHex
+                Task { _ = await self.cachedGroupMembers(groupIdHex: groupIdHex, account: account, client: client) }
+            }
         }
         // AccountScope's live account-attention projection owns rail badges. Chat rows no longer
         // trigger a second one-shot unread query.

@@ -89,10 +89,13 @@ final class ChatListViewModel {
         }
     }
 
+    /// `mentionNames` maps a group id to the names its preview's `@npub1…` mentions resolve to.
+    /// It is asked only for rows that mention someone, so a list with no mentions reads no roster.
     func chats(
         view: ChatListViewFfi,
         nicknames: ContactNicknames,
-        useWindow: Bool = true
+        useWindow: Bool = true,
+        mentionNames: (String) -> MarkdownMentionNames = { _ in [:] }
     ) -> [ChatItem] {
         let sourceRows =
             view == .chats && useWindow
@@ -128,7 +131,8 @@ final class ChatListViewModel {
                     avatarBytes: presented.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] },
                     isBlockedDirectPeer: presented.presentation.peerId.map {
                         blockedUsersModel?.isBlocked(accountID: $0) == true
-                    } ?? false
+                    } ?? false,
+                    mentionNames: presented.previewMentionsAnyone ? mentionNames(presented.row.groupIdHex) : [:]
                 )
             }
             .filter { chat in
