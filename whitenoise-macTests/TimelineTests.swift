@@ -2655,18 +2655,42 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     /// At the divider the prefetch band usually already reaches the foot of an automatic window
-    /// (`nearBottom`) while the reader is not at it (`atBottom`). Loading a newer page there
-    /// restored the old last row and scrolled the divider off screen before the reader moved.
-    @Test func unreadDividerSettleLoadsNewerHistoryOnlyAtTheFoot() {
+    /// (`nearBottom`) while the reader is not at it (`atBottom`). The next page loads straight
+    /// away; `timelineSizeChangeAnchor` is what keeps it from moving the divider.
+    @Test func unreadDividerSettlePrefetchesNewerHistoryFromTheDivider() {
         let atDivider = TimelineScrollMetrics(atBottom: false, nearTop: false, nearBottom: true)
         #expect(
             timelineUnreadDividerSettleAction(metrics: atDivider, yieldsToNavigation: false)
-                == TimelineUnreadDividerSettleAction(isPinnedToBottom: false, loadsOlder: false, loadsNewer: false))
+                == TimelineUnreadDividerSettleAction(isPinnedToBottom: false, loadsOlder: false, loadsNewer: true))
 
         let shortUnreadRun = TimelineScrollMetrics(atBottom: true, nearTop: true, nearBottom: true)
         #expect(
             timelineUnreadDividerSettleAction(metrics: shortUnreadRun, yieldsToNavigation: false)
                 == TimelineUnreadDividerSettleAction(isPinnedToBottom: true, loadsOlder: true, loadsNewer: true))
+    }
+
+    /// Only a reader following the live edge is carried with growth at the bottom. A reader above
+    /// it (at the divider, prefetching newer history, or mid-jump) keeps their place as rows land
+    /// below, and an older page in flight holds the bottom so rows landing above do not shift them.
+    @Test func sizeChangeAnchorFollowsOnlyAPinnedReaderAtTheLiveEdge() {
+        func anchor(pinned: Bool, hasMoreAfter: Bool, loadingOlder: Bool = false, settling: Bool = false) -> UnitPoint {
+            timelineSizeChangeAnchor(
+                isPinnedToBottom: pinned,
+                hasMoreAfter: hasMoreAfter,
+                isLoadingOlder: loadingOlder,
+                isSettlingWindowMove: settling
+            )
+        }
+
+        #expect(anchor(pinned: true, hasMoreAfter: false) == .bottom)
+        #expect(anchor(pinned: false, hasMoreAfter: false) == .top)
+        // At the foot of a detached window, a newer page must land below without carrying the
+        // reader down past it.
+        #expect(anchor(pinned: true, hasMoreAfter: true) == .top)
+        // The page that reaches the live edge clears `hasMoreAfter` in the same update its rows
+        // land in; the settling move keeps it from switching to `.bottom` mid-landing.
+        #expect(anchor(pinned: true, hasMoreAfter: false, settling: true) == .top)
+        #expect(anchor(pinned: false, hasMoreAfter: true, loadingOlder: true) == .bottom)
     }
 
     /// No scroll sample, or a search jump that arrived while the divider scroll was in flight:
@@ -4198,7 +4222,7 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-error-000")
     }
 
-    @Test func newerTimelinePagingRestoresAnchorInsteadOfScrollingToBottom() {
+    @Test func newerTimelinePagingReleasesItsGateInsteadOfScrollingToBottom() {
         let historicalPaging = TimelinePagingState(
             hasMoreBefore: true,
             hasMoreAfter: true,
@@ -4214,17 +4238,15 @@ struct TimelineTests: WorkspaceTestSupport {
 
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-150", "message-249", "message-349"],
                 newMessageIsOutgoing: false,
                 paging: historicalPaging,
                 pendingPrependAnchorId: nil,
                 pendingAppendAnchorId: "message-249",
                 newMessageId: "message-349",
                 isPinnedToBottom: false
-            ) == .restorePendingAppendAnchor("message-249"))
+            ) == .clearPendingAppendAnchor)
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-350", "message-449"],
                 newMessageIsOutgoing: false,
                 paging: historicalPaging,
                 pendingPrependAnchorId: nil,
@@ -4234,7 +4256,6 @@ struct TimelineTests: WorkspaceTestSupport {
             ) == .clearPendingAppendAnchor)
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-350", "message-449"],
                 newMessageIsOutgoing: false,
                 paging: historicalPaging,
                 pendingPrependAnchorId: nil,
@@ -4244,7 +4265,6 @@ struct TimelineTests: WorkspaceTestSupport {
             ) == .none)
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-350", "message-449"],
                 newMessageIsOutgoing: false,
                 paging: liveEdgePaging,
                 pendingPrependAnchorId: nil,
@@ -4270,7 +4290,6 @@ struct TimelineTests: WorkspaceTestSupport {
 
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
                 newMessageIsOutgoing: false,
                 paging: longLiveEdgePaging,
                 pendingPrependAnchorId: nil,
@@ -4280,7 +4299,6 @@ struct TimelineTests: WorkspaceTestSupport {
             ) == .scrollToBottom)
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
                 newMessageIsOutgoing: false,
                 paging: longLiveEdgePaging,
                 pendingPrependAnchorId: nil,
@@ -4290,7 +4308,6 @@ struct TimelineTests: WorkspaceTestSupport {
             ) == .none)
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
                 newMessageIsOutgoing: true,
                 paging: longLiveEdgePaging,
                 pendingPrependAnchorId: nil,
@@ -4300,7 +4317,6 @@ struct TimelineTests: WorkspaceTestSupport {
             ) == .scrollToBottom)
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
                 newMessageIsOutgoing: false,
                 paging: detachedHistoryPaging,
                 pendingPrependAnchorId: nil,
@@ -4310,7 +4326,6 @@ struct TimelineTests: WorkspaceTestSupport {
             ) == .none)
         #expect(
             timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
                 newMessageIsOutgoing: false,
                 paging: longLiveEdgePaging,
                 pendingPrependAnchorId: "message-000",

@@ -233,12 +233,12 @@ nonisolated struct TimelineUnreadDividerSettleAction: Equatable {
 /// Replays the settled scroll position after the divider scroll, which may cross no threshold and
 /// so fire no geometry action of its own.
 ///
-/// Newer history loads only when the reader is genuinely at the foot (`atBottom`), not merely
-/// within the viewport-wide prefetch band (`nearBottom`). An automatic open holds about 25 rows
-/// after the first unread row, so `nearBottom` is usually already true at the divider, and the
-/// append-anchor restore that follows a newer page would scroll the divider off screen. With no
-/// scroll sample, or when a search jump owns the opening position, nothing loads and the reader is
-/// not counted as pinned: a detached window must not be treated as caught up and marked read.
+/// An automatic open holds about 25 rows after the first unread row, so the prefetch band usually
+/// already reaches the foot at the divider and the next page loads straight away. That is safe
+/// because a newer page lands under the `.top` size-change anchor (`timelineSizeChangeAnchor`)
+/// and leaves the divider where it is. With no scroll sample, or when a search jump owns the
+/// opening position, nothing loads and the reader is not counted as pinned: a detached window must
+/// not be treated as caught up and marked read.
 func timelineUnreadDividerSettleAction(
     metrics: TimelineScrollMetrics?,
     yieldsToNavigation: Bool
@@ -249,19 +249,39 @@ func timelineUnreadDividerSettleAction(
     return TimelineUnreadDividerSettleAction(
         isPinnedToBottom: metrics.atBottom,
         loadsOlder: metrics.nearTop,
-        loadsNewer: metrics.atBottom
+        loadsNewer: metrics.nearBottom
     )
+}
+
+/// Which edge the transcript holds still when its content changes size.
+///
+/// Only a reader following the live edge is carried along with growth at the bottom. Anyone
+/// reading above it keeps their place: a newer page or a live arrival lands below them without
+/// moving what is on screen, which is what lets newer history prefetch from anywhere (the unread
+/// divider included) with no scroll-back afterwards. An older page in flight lands above, so it
+/// holds the bottom instead and the prepend restore lines up without a frame of displaced rows.
+///
+/// "Following" requires that nothing is still settling: the newer page that finally reaches the
+/// live edge would otherwise switch to `.bottom` in the same update its rows land in, and carry the
+/// reader down past the whole page.
+func timelineSizeChangeAnchor(
+    isPinnedToBottom: Bool,
+    hasMoreAfter: Bool,
+    isLoadingOlder: Bool,
+    isSettlingWindowMove: Bool
+) -> UnitPoint {
+    if isLoadingOlder { return .bottom }
+    let isFollowingLiveEdge = isPinnedToBottom && !hasMoreAfter && !isSettlingWindowMove
+    return isFollowingLiveEdge ? .bottom : .top
 }
 
 nonisolated enum TimelineNewestMessageScrollAction: Equatable {
     case none
     case clearPendingAppendAnchor
-    case restorePendingAppendAnchor(String)
     case scrollToBottom
 }
 
 func timelineNewestMessageScrollAction(
-    messageIDs: [String],
     newMessageIsOutgoing: Bool,
     paging: TimelinePagingState,
     pendingPrependAnchorId: String?,
@@ -269,10 +289,10 @@ func timelineNewestMessageScrollAction(
     newMessageId: String?,
     isPinnedToBottom: Bool
 ) -> TimelineNewestMessageScrollAction {
-    if let pendingAppendAnchorId {
-        return messageIDs.contains(pendingAppendAnchorId)
-            ? .restorePendingAppendAnchor(pendingAppendAnchorId)
-            : .clearPendingAppendAnchor
+    // A newer page landed. The `.top` size-change anchor already kept the reader's place, so
+    // there is nothing to restore; only release the gate against re-triggering the load.
+    if pendingAppendAnchorId != nil {
+        return .clearPendingAppendAnchor
     }
 
     guard newMessageId != nil,
@@ -297,7 +317,9 @@ private struct ConversationView: View {
     /// The top message captured before an older-history prepend, so its on-screen position
     /// can be restored afterward; also gates re-triggering `loadOlder` until the prepend lands.
     @State private var pendingPrependAnchorId: String?
-    /// The bottom message captured before a newer-history append, mirroring the above.
+    /// The bottom message when a newer-history load started. Only a gate against re-triggering
+    /// `loadNewer` until the page lands: the page arrives under the `.top` size-change anchor, so
+    /// the reader's place needs no restoring.
     @State private var pendingAppendAnchorId: String?
     /// Whether the transcript is scrolled to (or near) the live edge. Derived from scroll
     /// geometry — never from a view's `.onAppear`/`.onDisappear`, which would write state
@@ -354,6 +376,12 @@ private struct ConversationView: View {
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
         let pendingOutgoingRows = workspace.selectedPendingOutgoingMessageRows
         let unreadDividerMessageId = model.unreadDivider?.messageIdHex
+        let sizeChangeAnchor = timelineSizeChangeAnchor(
+            isPinnedToBottom: isPinnedToBottom && !isPositioningAtUnreadDivider,
+            hasMoreAfter: paging.hasMoreAfter,
+            isLoadingOlder: pendingPrependAnchorId != nil,
+            isSettlingWindowMove: windowMovesInFlight > 0
+        )
         let readingState = TranscriptReadingState(
             model: ObjectIdentifier(model),
             isAtWindowBottom: model.hasPresentedWindow && isPinnedToBottom && !isPositioningAtUnreadDivider
@@ -475,7 +503,9 @@ private struct ConversationView: View {
                     }
                     .accessibilityIdentifier("conversation.transcript")
                     .id(chat.id)
-                    .defaultScrollAnchor(.bottom)
+                    .defaultScrollAnchor(.bottom, for: .initialOffset)
+                    .defaultScrollAnchor(.bottom, for: .alignment)
+                    .defaultScrollAnchor(sizeChangeAnchor, for: .sizeChanges)
                     .onScrollPhaseChange { _, phase in
                         isActivelyScrolling = phase != .idle
                     }
@@ -519,7 +549,6 @@ private struct ConversationView: View {
                     }
                     .onChange(of: messageIDs.last) { _, newMessageId in
                         switch timelineNewestMessageScrollAction(
-                            messageIDs: messageIDs,
                             newMessageIsOutgoing: displayItems.last?.message.isOutgoing == true,
                             paging: paging,
                             pendingPrependAnchorId: pendingPrependAnchorId,
@@ -527,21 +556,6 @@ private struct ConversationView: View {
                             newMessageId: newMessageId,
                             isPinnedToBottom: isPinnedToBottom && !isPositioningAtUnreadDivider
                         ) {
-                        case .restorePendingAppendAnchor(let anchorId):
-                            DispatchQueue.main.async {
-                                // Re-validate against live state: the user may have switched
-                                // chats or a newer paging request may have landed since this
-                                // scroll restoration was scheduled.
-                                guard workspace.selectedChat?.id == chat.id,
-                                    pendingAppendAnchorId == anchorId,
-                                    workspace.selectedTimelineContainsMessage(anchorId)
-                                else { return }
-                                TimelineSignpost.scroll.interval("restoreAppendAnchor") {
-                                    proxy.scrollTo(anchorId, anchor: .bottom)
-                                }
-                                pendingAppendAnchorId = nil
-                            }
-                            return
                         case .clearPendingAppendAnchor:
                             pendingAppendAnchorId = nil
                             return
@@ -1093,8 +1107,9 @@ private struct ConversationView: View {
         }
     }
 
-    /// Symmetric to `loadOlderIfNeeded` for newer history when the rendered window is detached
-    /// from the live edge (`hasMoreAfter`) and the user scrolls near the bottom.
+    /// Prefetches newer history when the rendered window is detached from the live edge
+    /// (`hasMoreAfter`) and the user scrolls near the bottom. Unlike an older page, nothing is
+    /// restored afterwards: the `.top` size-change anchor keeps the rows on screen where they are.
     private func loadNewerIfNeeded() {
         let paging = workspace.selectedTimelinePaging
         guard paging.hasMoreAfter, !model.isPaging,
@@ -1120,8 +1135,9 @@ private struct ConversationView: View {
             // re-sizes the Markdown bubbles on every display frame, pinning the main thread
             // at 100% for the whole stream (confirmed via Instruments: continuous
             // AnimatableAttributeHelper / ScrollViewAdjustedState.adjustOffsetIfNeeded /
-            // motionVectors). A plain jump positions in one pass; subsequent growth is
-            // handled instantly by `.defaultScrollAnchor(.bottom)`. See whitenoise-mac#205.
+            // motionVectors). A plain jump positions in one pass; once the jump reports the
+            // transcript pinned, subsequent growth is handled instantly by the `.bottom`
+            // size-change anchor (`timelineSizeChangeAnchor`). See whitenoise-mac#205.
             TimelineSignpost.scroll.interval("scrollToBottom") {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
