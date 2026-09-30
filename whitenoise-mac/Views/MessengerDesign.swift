@@ -453,7 +453,6 @@ struct MessagesCircleControlBackground: View {
                 Circle()
                     .stroke(WNColor.borderTertiary, lineWidth: 1)
             }
-            .nativeBackgroundExtensionEffect()
     }
 }
 
@@ -636,7 +635,6 @@ struct MessagesHeaderBackground: View {
 struct MessagesComposerBarBackground: View {
     var body: some View {
         GlassFill(material: .ultraThinMaterial, darkOpacity: 0.42, lightOpacity: 0.2)
-            .nativeBackgroundExtensionEffect()
     }
 }
 
@@ -667,14 +665,12 @@ struct GlassPaneBackground: View {
     var body: some View {
         GlassFill(darkOpacity: opacity * 0.42, lightOpacity: opacity * 0.32)
             .ignoresSafeArea()
-            .nativeBackgroundExtensionEffect()
     }
 }
 
 struct GlassToolbarBackground: View {
     var body: some View {
         GlassFill(material: .ultraThinMaterial, darkOpacity: 0.24, lightOpacity: 0.34)
-            .nativeBackgroundExtensionEffect()
     }
 }
 
@@ -682,7 +678,6 @@ struct LiquidGlassBackground: View {
     var body: some View {
         GlassFill(darkOpacity: 0.18, lightOpacity: 0.28)
             .ignoresSafeArea()
-            .nativeBackgroundExtensionEffect()
     }
 }
 
@@ -698,7 +693,6 @@ struct GlassRoundedBackground: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(borderColor ?? WNColor.borderTertiary, lineWidth: 1)
             }
-            .nativeBackgroundExtensionEffect()
     }
 }
 
@@ -837,15 +831,6 @@ extension View {
             self.buttonStyle(.glassProminent)
         } else {
             self.buttonStyle(.borderedProminent)
-        }
-    }
-
-    @ViewBuilder
-    func nativeBackgroundExtensionEffect() -> some View {
-        if #available(macOS 26.0, *) {
-            self.backgroundExtensionEffect()
-        } else {
-            self
         }
     }
 

@@ -908,6 +908,22 @@ struct ProjectionMigrationTests {
         second.stop()
     }
 
+    /// `.automatic` anchors on the first unread row and detaches the window from the tail, and
+    /// the transcript pins to the bottom of whatever window it gets — so a long unread chat
+    /// opened far above its newest message. Selecting a chat must open at the live edge.
+    @Test func selectedConversationOpensAtTheLatestMessage() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(sequence: 1, title: "Group")
+        let scope = AccountScope(account: AccountItem.samples[0], runtime: runtime)
+
+        let conversation = scope.selectConversation(groupIdHex: "group")
+        let didInstall = await waitFor { conversation.snapshot != nil }
+
+        #expect(didInstall)
+        #expect(runtime.openedConversationWindowModes["group"] == [.latest])
+        conversation.stop()
+    }
+
     @Test func cancelledAccountScopeRejectsLateConversationAndAttachmentSnapshots() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let initial = Self.conversationSnapshot(sequence: 1, title: "Initial")
