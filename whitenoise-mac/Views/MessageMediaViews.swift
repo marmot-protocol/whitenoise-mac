@@ -74,6 +74,9 @@ struct ConversationMessageRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
     let safetyModel: GroupSafetyViewModel
+    let conversationModel: ConversationViewModel
+    /// Whether this account can vote here; mirrors whether the composer is usable.
+    var canVoteInPolls = false
     var showsDebugMetadata = false
     var timestampReferenceDate = Date()
     var timestampLocale = AppLanguage.currentLocale
@@ -127,6 +130,14 @@ struct ConversationMessageRow: View {
                 onOpenImageGallery: onOpenImageGallery,
                 onNavigateToMessage: onNavigateToMessage
             )
+        } else if message.presentation == .poll, let poll = message.poll {
+            PollMessageRow(
+                poll: conversationModel.displayedPoll(poll, messageIdHex: message.id),
+                isOutgoing: message.isOutgoing,
+                senderName: message.isOutgoing ? nil : message.senderName,
+                timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
+                onVote: canVoteInPolls && message.invalidationStatus == nil ? vote(for: poll) : nil
+            )
         } else {
             TimelineNoticeRow(
                 message: message,
@@ -134,6 +145,22 @@ struct ConversationMessageRow: View {
                 timestampReferenceDate: timestampReferenceDate,
                 timestampLocale: timestampLocale
             )
+        }
+    }
+}
+
+extension ConversationMessageRow {
+    fileprivate func vote(for poll: MessagePoll) -> (String) -> Void {
+        { [workspace, conversationModel, message] optionId in
+            Task {
+                do {
+                    try await conversationModel.votePoll(option: optionId, messageIdHex: message.id, poll: poll)
+                } catch {
+                    workspace.reportUserActionError(
+                        "\(L10n.string("Vote failed")): \(error.localizedDescription)"
+                    )
+                }
+            }
         }
     }
 }
@@ -519,7 +546,13 @@ struct MessageBubble: View {
                 )
             }
 
-            if !message.trimmedBody.isEmpty {
+            if let giphyMedia = message.remoteGiphyMedia {
+                RemoteGiphyMediaView(
+                    media: giphyMedia,
+                    mayLoadAutomatically: message.isOutgoing,
+                    loadingPreference: .shared
+                )
+            } else if !message.trimmedBody.isEmpty {
                 MarkdownMessageView(
                     message: message,
                     trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
@@ -567,6 +600,7 @@ struct MessageBubble: View {
 
     private var showsInlineMetadata: Bool {
         showsBubbleMetadata && !showsDebugMetadata && message.supportsInlineMetadata
+            && message.remoteGiphyMedia == nil
     }
 
     private var showsReservedMetadataRow: Bool {

@@ -336,6 +336,7 @@ private struct ConversationView: View {
     /// bottom-pinned reading would describe rows the user has not reached.
     @State private var windowMovesInFlight = 0
     @State private var isFileImporterPresented = false
+    @State private var isPollComposerPresented = false
     @State private var isFileDropTargeted = false
     @State private var isComposerEmojiPickerPresented = false
     @State private var composerEmojiInsertion: ComposerEmojiInsertion?
@@ -432,6 +433,8 @@ private struct ConversationView: View {
                                     ConversationMessageRow(
                                         message: item.message,
                                         safetyModel: safetyModel,
+                                        conversationModel: model,
+                                        canVoteInPolls: canUseComposer,
                                         showsDebugMetadata: workspace.streamingDebugEnabled,
                                         timestampReferenceDate: timestampReferenceDate,
                                         timestampLocale: locale
@@ -763,9 +766,20 @@ private struct ConversationView: View {
         ) {
             MessageForwardSheet(chatListModel: chatListModel)
         }
+        .sheet(isPresented: $isPollComposerPresented) {
+            PollComposerSheet(
+                onSend: { submission in
+                    try await model.createPoll(submission)
+                    isPollComposerPresented = false
+                },
+                onCancel: { isPollComposerPresented = false }
+            )
+            .environment(\.locale, locale)
+        }
         // Switching conversations must not leave the previous chat's body-level
         // overlays open over a different transcript.
         .onChange(of: chat.id) { _, _ in
+            isPollComposerPresented = false
             imageGallery = nil
             composerMentionContext = nil
             composerMentionInsertion = nil
@@ -867,19 +881,18 @@ private struct ConversationView: View {
                         }
                     }
 
-                    Button {
-                        isFileImporterPresented = true
-                    } label: {
-                        Image(systemName: "paperclip")
-                            .wnFont(.medium18)
-                            .frame(width: 30, height: 30)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isSending)
-                    .help(L10n.string("Attach files"))
+                    // A GIF goes out as its GIPHY text envelope, through the same durable text
+                    // send the conversation model uses, so it needs no composer state of its own.
+                    ComposerAttachmentMenu(
+                        giphyAPIKey: canUseComposer ? GiphyBuildConfig.current().apiKey : nil,
+                        isDisabled: workspace.isSending,
+                        onAttachFiles: { isFileImporterPresented = true },
+                        sendGIF: { [model] media in
+                            try await model.sendText(media.wireText)
+                        },
+                        // MDK accepts polls only in group conversations, never direct messages.
+                        onCreatePoll: chat.isDirect ? nil : { isPollComposerPresented = true }
+                    )
                 }
 
                 ComposerMessageInputView(

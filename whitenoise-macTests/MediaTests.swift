@@ -5583,10 +5583,9 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(nextAcquired.value == 0)
 
         operationGate.release()
-        for _ in 0..<100 where nextAcquired.value == 0 {
-            await Task.yield()
-        }
-        #expect(nextAcquired.value == 1)
+        // The hand-off crosses the orphaned operation, the limiter actor and the waiter task. A
+        // fixed number of yields runs out on a loaded CI runner, so wait against a real deadline.
+        #expect(await waitFor(attempts: 300) { nextAcquired.value == 1 })
 
         await limiter.release()
         _ = await nextWaiter.result

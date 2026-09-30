@@ -2351,8 +2351,9 @@ nonisolated enum MessagePresentation: Hashable {
     case agentActivity
     case agentOperation
     case groupSystem
-    /// A kind-1068 poll. This build can't show or vote in polls yet, so the row names the
-    /// question and says so rather than passing the bare question off as a message.
+    /// A kind-1068 poll. A row carrying MDK's projected tally (`MessageItem.poll`) renders as a
+    /// votable poll card; a malformed one has no tally and names the question in a notice
+    /// instead of passing it off as a message.
     case poll
     case unsupported
 
@@ -2458,6 +2459,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let nonvisualMediaAttachments: [MessageMediaAttachment]
     let hasBubbleContent: Bool
     let presentation: MessagePresentation
+    /// MDK's tally for a `.poll` row; nil for every other presentation and for a malformed poll.
+    let poll: MessagePoll?
     /// The kind-1210 `system_type` (`member_added`, `admin_removed`, …); nil for every other kind.
     let groupSystemType: String?
     let timeLabel: String
@@ -2542,6 +2545,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// A single rendered emoji, including multi-scalar flags, skin tones, keycaps, and
     /// joined families. Used by the chat row to opt into the large, bubble-free treatment.
     var singleEmoji: String? { EmojiPresentation.singleEmoji(in: trimmedBody) }
+
+    /// The GIF this row carries when its text is a GIPHY envelope (see `RemoteGiphyMedia`). A row
+    /// with attachments or a deleted row renders its text as usual, as on the other clients.
+    var remoteGiphyMedia: RemoteGiphyMedia? {
+        guard !isDeleted, mediaAttachments.isEmpty, presentation.isChatBubble else { return nil }
+        return RemoteGiphyMedia.parse(wireText: trimmedBody)
+    }
 
     /// The sender's avatar URL, passed through the remote-image policy for incoming-bubble avatars.
     var senderSanitizedPictureURL: URL? { RemoteImageURLPolicy.sanitizedURL(from: senderPictureURL) }
@@ -2651,6 +2661,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         replyContext: MessageReplyContext? = nil,
         mediaAttachments: [MessageMediaAttachment] = [],
         presentation: MessagePresentation = .chat,
+        poll: MessagePoll? = nil,
         groupSystemType: String? = nil
     ) {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2714,6 +2725,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.nonvisualMediaAttachments = partitionedAttachments.nonvisual
         self.hasBubbleContent = replyContext != nil || !trimmedBody.isEmpty
         self.presentation = presentation
+        self.poll = presentation == .poll ? poll : nil
         self.groupSystemType = groupSystemType
         let timeLabel = DisplayText.messageTimestamp(for: sentAt)
         self.timeLabel = timeLabel
@@ -2780,7 +2792,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             reactions: reactions,
             replyContext: replyContext,
             mediaAttachments: mediaAttachments,
-            presentation: presentation
+            presentation: presentation,
+            poll: poll
         )
     }
 
@@ -2822,6 +2835,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     }
 
     var replyPreviewText: String {
+        if let label = RemoteGiphyMedia.envelopePreviewText(for: trimmedBody) {
+            return label
+        }
         if !trimmedBody.isEmpty {
             return trimmedBody
         }
@@ -3055,6 +3071,7 @@ extension MessageItem {
             && lhs.replyContext == rhs.replyContext
             && lhs.mediaAttachments == rhs.mediaAttachments
             && lhs.presentation == rhs.presentation
+            && lhs.poll == rhs.poll
             && lhs.groupSystemType == rhs.groupSystemType
             && lhs.timeLabel == rhs.timeLabel
             && lhs.statusLabel == rhs.statusLabel
