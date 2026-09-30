@@ -20,8 +20,14 @@ struct RetainedSharedMediaSection: View {
     let model: AttachmentViewModel
     @State private var category = RetainedSharedMediaCategory.media
     @State private var preview: RetainedImagePreview?
+    @State private var isMediaExpanded = false
 
     var body: some View {
+        let mediaGrid = SharedMediaGridPreview(
+            items: model.items.filter(\.isVisualMedia),
+            isExpanded: isMediaExpanded
+        )
+
         Section(L10n.string("Shared Media")) {
             Picker(L10n.string("Shared media type"), selection: $category) {
                 ForEach(RetainedSharedMediaCategory.allCases) { category in
@@ -39,7 +45,8 @@ struct RetainedSharedMediaSection: View {
                 }
             } else if category == .media {
                 RetainedMediaGrid(
-                    items: model.items.filter(\.isVisualMedia),
+                    grid: mediaGrid,
+                    isExpanded: $isMediaExpanded,
                     model: model,
                     onPreview: { preview = RetainedImagePreview(payload: $0) }
                 )
@@ -50,7 +57,7 @@ struct RetainedSharedMediaSection: View {
                 )
             }
 
-            if model.hasMore {
+            if category == .files ? model.hasMore : mediaGrid.showsLoadMore(hasMore: model.hasMore) {
                 Button(L10n.string("Load more")) {
                     Task { await model.loadMore() }
                 }
@@ -58,6 +65,7 @@ struct RetainedSharedMediaSection: View {
             }
         }
         .task(id: model.groupIdHex) {
+            isMediaExpanded = false
             await model.refreshHistory()
         }
         .onChange(of: model.transfers) {
@@ -109,25 +117,48 @@ private struct RetainedSharedMediaErrorRow: View {
 }
 
 private struct RetainedMediaGrid: View {
-    let items: [RetainedAttachmentItem]
+    let grid: SharedMediaGridPreview<RetainedAttachmentItem>
+    @Binding var isExpanded: Bool
     let model: AttachmentViewModel
     let onPreview: (DownloadedMediaPayload) -> Void
     private let columns = Array(repeating: GridItem(.flexible(minimum: 72), spacing: 3), count: 3)
 
     var body: some View {
-        if items.isEmpty {
+        if grid.items.isEmpty {
             RetainedSharedMediaEmptyRow(
                 title: L10n.string("No photos or videos"),
                 systemImage: "photo.on.rectangle.angled"
             )
         } else {
             LazyVGrid(columns: columns, spacing: 3) {
-                ForEach(items) { item in
+                ForEach(grid.visible) { item in
                     RetainedMediaTile(item: item, model: model, onPreview: onPreview)
                 }
             }
             .padding(.vertical, 2)
+
+            if grid.isTruncated {
+                RetainedMediaGridExpanderRow(title: L10n.string("View more")) { isExpanded = true }
+            } else if grid.canCollapse {
+                RetainedMediaGridExpanderRow(title: L10n.string("View less")) { isExpanded = false }
+            }
         }
+    }
+}
+
+private struct RetainedMediaGridExpanderRow: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .wnFont(.semiBold12)
+                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -518,4 +549,15 @@ private extension View {
     }
     .formStyle(.grouped)
     .frame(width: 520, height: 320)
+}
+
+#Preview("Grid expander") {
+    Form {
+        Section(L10n.string("Shared Media")) {
+            RetainedMediaGridExpanderRow(title: L10n.string("View more")) {}
+            RetainedMediaGridExpanderRow(title: L10n.string("View less")) {}
+        }
+    }
+    .formStyle(.grouped)
+    .frame(width: 520, height: 200)
 }
