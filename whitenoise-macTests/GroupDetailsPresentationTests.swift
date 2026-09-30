@@ -66,6 +66,43 @@ struct GroupMemberListTests {
 }
 
 @MainActor
+struct SharedMediaGridPreviewTests {
+    @Test func aShortGridShowsEveryTileWithNoExpander() {
+        let grid = SharedMediaGridPreview(items: Array(1...SharedMediaGridPreview<Int>.previewCount))
+
+        #expect(grid.visible.count == 9)
+        #expect(!grid.isTruncated)
+        #expect(!grid.canCollapse)
+    }
+
+    @Test func aLongGridPreviewsNineUntilExpandedAndCollapsesBack() {
+        var grid = SharedMediaGridPreview(items: Array(1...40))
+
+        #expect(grid.visible == Array(1...9))
+        #expect(grid.isTruncated)
+        #expect(!grid.canCollapse)
+
+        grid.isExpanded = true
+        #expect(grid.visible.count == 40)
+        #expect(!grid.isTruncated)
+        #expect(grid.canCollapse)
+    }
+
+    @Test func loadMoreWaitsUntilEveryLoadedTileIsShown() {
+        var grid = SharedMediaGridPreview(items: Array(1...12))
+
+        #expect(!grid.showsLoadMore(hasMore: true))
+
+        grid.isExpanded = true
+        #expect(grid.showsLoadMore(hasMore: true))
+        #expect(!grid.showsLoadMore(hasMore: false))
+
+        // A grid too short to truncate pages in older history straight away.
+        #expect(SharedMediaGridPreview(items: [1, 2]).showsLoadMore(hasMore: true))
+    }
+}
+
+@MainActor
 struct GroupDetailsPermissionsTests {
     @Test func theCoreCapabilityDecidesEditingOverTheAdminFlag() {
         let admin = snapshot(isSelfAdmin: true)
