@@ -409,16 +409,19 @@ struct GroupsTests: WorkspaceTestSupport {
         // chevron is a *back* control and belongs on the leading edge — where the
         // compose pane and the settings header already put theirs — not trailing next
         // to the add-members button, which reads as an unrelated right-hand action.
-        for declaration in ["GroupDetailsSheet", "ContactDetailsView"] {
-            // Scoped to `body` so helper views declared above it (the custom-duration
-            // popover has its own trailing `Spacer()`) can't stand in for the header's.
+        // Group info draws its header in `GroupDetailsTopBar`, whose avatar moved down into the
+        // centred hero, so only the contact pane still has an avatar beside its back button.
+        for (declaration, hasHeaderAvatar) in [("GroupDetailsTopBar", false), ("ContactDetailsView", true)] {
+            // Scoped to `body` so helper views declared above it can't stand in for the header's.
             let header = try SourceContract.viewBody(declaration)
 
             let backIndex = try #require(header.range(of: #"symbol: "chevron.backward""#)?.lowerBound)
-            let avatarIndex = try #require(header.range(of: "ProfileImageAvatarView(")?.lowerBound)
-            let spacerIndex = try #require(header.range(of: "Spacer()")?.lowerBound)
-            #expect(backIndex < avatarIndex, "\(declaration) back button must precede the avatar")
+            let spacerIndex = try #require(header.range(of: "Spacer(")?.lowerBound)
             #expect(backIndex < spacerIndex, "\(declaration) back button must sit before the spacer")
+            if hasHeaderAvatar {
+                let avatarIndex = try #require(header.range(of: "ProfileImageAvatarView(")?.lowerBound)
+                #expect(backIndex < avatarIndex, "\(declaration) back button must precede the avatar")
+            }
         }
     }
 

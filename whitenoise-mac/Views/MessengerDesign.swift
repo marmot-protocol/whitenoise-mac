@@ -365,6 +365,12 @@ enum MessagesLayout {
     /// Footprint of `GlassCircleCloseButton`. Named because a pane header has to reserve the
     /// same width on the opposite side to keep its title centred in the pane.
     static let circleControlSize: CGFloat = 28
+    /// The group's avatar at the top of group info — the size `ProfileIdentityHeaderView` gives
+    /// your own, since both are the one identity a page is about.
+    static let groupDetailsAvatarSize: CGFloat = 96
+    /// The round buttons in group info's quick-action row. Larger than `circleControlSize`
+    /// because each is a primary action with a caption, not chrome beside a title.
+    static let groupDetailsQuickActionSize: CGFloat = 40
 
     /// Top padding for a header on the window's top edge, given whether a window-level notice
     /// band is already there holding the traffic lights.
