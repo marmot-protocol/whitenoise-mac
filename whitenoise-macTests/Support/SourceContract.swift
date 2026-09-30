@@ -60,7 +60,28 @@ enum SourceContract {
             case .composer: ["ComposerViews.swift"]
             case .destructiveButtonStyle: ["WNDestructiveButtonStyle.swift"]
             case .encryptedPrivateKeyExportSheet: ["Settings/EncryptedPrivateKeyExportSheet.swift"]
-            case .group: ["GroupViews.swift"]
+            case .group:
+                [
+                    "GroupViews.swift",
+                    "GroupDetails/DetailsDestructiveRow.swift",
+                    "GroupDetails/DetailsDisclosureRow.swift",
+                    "GroupDetails/DisappearingTimerPopover.swift",
+                    "GroupDetails/GroupDetailsAdvancedSection.swift",
+                    "GroupDetails/GroupDetailsHero.swift",
+                    "GroupDetails/GroupDetailsIdentitySection.swift",
+                    "GroupDetails/GroupDetailsLeaveSection.swift",
+                    "GroupDetails/GroupDetailsQuickAction.swift",
+                    "GroupDetails/GroupDetailsQuickActionsRow.swift",
+                    "GroupDetails/GroupDetailsSettingsSection.swift",
+                    "GroupDetails/GroupDetailsSheet.swift",
+                    "GroupDetails/GroupDetailsTopBar.swift",
+                    "GroupDetails/GroupDeveloperSection.swift",
+                    "GroupDetails/GroupMemberBadge.swift",
+                    "GroupDetails/GroupMembersSection.swift",
+                    "GroupDetails/GroupMembershipStatusSections.swift",
+                    "GroupDetails/GroupProfileEditorSheet.swift",
+                    "GroupDetails/GroupsInCommonSection.swift",
+                ]
             case .messageMedia: ["MessageMediaViews.swift"]
             case .messengerShell: ["MessengerShellView.swift"]
             case .onboardingSignIn: ["Onboarding/OnboardingSignInView.swift"]
