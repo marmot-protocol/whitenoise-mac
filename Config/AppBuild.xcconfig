@@ -8,4 +8,8 @@ WN_PRODUCT_ANALYTICS_APP_KEY =
 WN_PRODUCT_ANALYTICS_OPERATOR = white_noise
 WN_PRODUCT_ANALYTICS_RETENTION =
 
+// GIF search. Without a key the composer hides its GIF button; received GIFs still render.
+GIPHY_API_KEY_WN_MAC =
+WN_GIPHY_API_KEY = $(GIPHY_API_KEY_WN_MAC)
+
 #include? "AppSecrets.xcconfig"

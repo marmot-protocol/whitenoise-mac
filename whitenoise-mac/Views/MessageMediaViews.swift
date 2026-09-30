@@ -519,7 +519,13 @@ struct MessageBubble: View {
                 )
             }
 
-            if !message.trimmedBody.isEmpty {
+            if let giphyMedia = message.remoteGiphyMedia {
+                RemoteGiphyMediaView(
+                    media: giphyMedia,
+                    mayLoadAutomatically: message.isOutgoing,
+                    loadingPreference: .shared
+                )
+            } else if !message.trimmedBody.isEmpty {
                 MarkdownMessageView(
                     message: message,
                     trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
@@ -567,6 +573,7 @@ struct MessageBubble: View {
 
     private var showsInlineMetadata: Bool {
         showsBubbleMetadata && !showsDebugMetadata && message.supportsInlineMetadata
+            && message.remoteGiphyMedia == nil
     }
 
     private var showsReservedMetadataRow: Bool {
