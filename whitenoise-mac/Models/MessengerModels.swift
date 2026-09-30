@@ -424,14 +424,17 @@ nonisolated enum ChatMessageDeliveryState: Hashable, Sendable {
 
 extension ChatItem {
     /// Builds the row from MarmotKit's selected presentation without any group/profile fan-out.
-    /// Device-local nicknames are the only presentation overlay applied by the host.
+    /// Device-local nicknames are the only presentation overlay applied by the host, plus the
+    /// names that turn the preview's canonical `@npub1…` mentions back into people — the core
+    /// hands the preview over in wire form, exactly as it was sent.
     init(
         presented: PresentedChatRowFfi,
         activeAccountIdHex: String,
         nickname: String? = nil,
         lastSenderNickname: String? = nil,
         avatarBytes: AvatarBytesFfi? = nil,
-        isBlockedDirectPeer: Bool = false
+        isBlockedDirectPeer: Bool = false,
+        mentionNames: MarkdownMentionNames = [:]
     ) {
         let selectedTitle: String
         switch presented.presentation.title {
@@ -473,6 +476,7 @@ extension ChatItem {
             directPeer: peer,
             groupAvatarURL: peer == nil ? pictureURL : nil,
             selectedAvatarPayload: AvatarAssetReads.drawablePayload(avatarBytes),
+            mentionNames: mentionNames,
             lastSenderNickname: lastSenderNickname
         )
 
@@ -491,7 +495,8 @@ extension ChatItem {
                     ? L10n.string("Attachment")
                     : L10n.plural("%lld attachments", Int64(draft.attachmentCount))
             } else {
-                preview = text
+                // A draft is saved in canonical form, so a mention in it is an npub until named.
+                preview = MentionDisplayResolver.resolve(in: text, mentionNames: mentionNames)
             }
             previewAttachmentKind =
                 draft.attachmentCount > 0

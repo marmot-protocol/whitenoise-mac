@@ -284,24 +284,37 @@ extension ChatListDrawerView {
             model?.chats(
                 view: .chats,
                 nicknames: workspace.activeContactNicknames,
-                useWindow: useBoundedWindow
+                useWindow: useBoundedWindow,
+                mentionNames: workspace.cachedMentionNames(groupIdHex:)
             )
             ?? workspace.activeChats
         let archivedChats =
-            model?.chats(view: .archived, nicknames: workspace.activeContactNicknames)
+            model?.chats(
+                view: .archived,
+                nicknames: workspace.activeContactNicknames,
+                mentionNames: workspace.cachedMentionNames(groupIdHex:)
+            )
             ?? workspace.archivedChats
         switch filter {
         case .active:
             chats = activeChats.filter { !$0.isNoLongerMember }
         case .unread:
             chats =
-                model?.chats(view: .unread, nicknames: workspace.activeContactNicknames)
+                model?.chats(
+                    view: .unread,
+                    nicknames: workspace.activeContactNicknames,
+                    mentionNames: workspace.cachedMentionNames(groupIdHex:)
+                )
                 ?? activeChats.filter { $0.hasUnread && !$0.isNoLongerMember }
         case .archived:
             chats = archivedChats
         case .left:
             chats =
-                model?.chats(view: .left, nicknames: workspace.activeContactNicknames)
+                model?.chats(
+                    view: .left,
+                    nicknames: workspace.activeContactNicknames,
+                    mentionNames: workspace.cachedMentionNames(groupIdHex:)
+                )
                 ?? (activeChats + archivedChats).filter(\.isNoLongerMember)
         }
         return workspace.sidebarSearchFilteredChats(chats)

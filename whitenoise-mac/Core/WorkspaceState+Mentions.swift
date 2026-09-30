@@ -99,13 +99,18 @@ extension WorkspaceState {
     /// stamp comparison here rather than an eager sweep over every group's projection.
     func cachedMentionNames(groupIdHex: String) -> MarkdownMentionNames {
         let stamp = contactNicknameStamp
+        // Read the observed inputs before the memo, which is not observed: a chat-list row renders
+        // from this, and one that last rendered from a memo hit would otherwise never learn that
+        // the roster or a member's profile arrived.
+        let members = groupMemberDetailsCache[groupIdHex] ?? []
+        _ = peerProfileGeneration
         if let cached = mentionNamesCache[groupIdHex]?.value(at: stamp) { return cached }
 
         let names = Self.mentionNames(
-            from: groupMemberDetailsCache[groupIdHex] ?? [],
+            from: members,
             nicknames: activeContactNicknames,
             projectedNamesByAccountID: Dictionary(
-                (groupMemberDetailsCache[groupIdHex] ?? []).compactMap { member in
+                members.compactMap { member in
                     let resolved = peerProfileFFICache[member.memberIdHex]?.resolved
                     return MentionPublishedName.resolve(
                         profileDisplayName: resolved?.profileDisplayName,

@@ -3315,4 +3315,195 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(state.activeAccountId == AccountItem.samples[1].id)
         #expect(state.selection == .chat("chat-nvk"))
     }
+
+    // MARK: - Mentions in prepared previews
+
+    @MainActor
+    @Test func preparedMessagePreviewNamesItsCanonicalMentions() {
+        let row = chatListRow(
+            groupIdHex: "group-1",
+            title: "Book club",
+            preview: "ping @npub1alyce about the relay",
+            sender: "bob",
+            timelineAt: 10
+        )
+        let presented = Self.presentedChatRow(row)
+        #expect(presented.previewMentionsAnyone)
+
+        let named = ChatItem(
+            presented: presented,
+            activeAccountIdHex: "self",
+            mentionNames: ["npub1alyce": "Alice"]
+        )
+        let unnamed = ChatItem(presented: presented, activeAccountIdHex: "self")
+
+        #expect(named.preview.contains("ping @Alice about the relay"))
+        #expect(!named.preview.contains("npub1"))
+        #expect(named.previewAttribution?.body == "ping @Alice about the relay")
+        // With nobody to name it, the reference keeps its wire form rather than vanishing.
+        #expect(unnamed.preview.contains("@npub1alyce"))
+    }
+
+    @MainActor
+    @Test func preparedDraftPreviewNamesItsCanonicalMentions() {
+        let row = chatListRow(groupIdHex: "group-1", title: "Book club", preview: "", sender: "bob", timelineAt: 10)
+        let presented = Self.presentedChatRow(
+            row,
+            preview: .draft(
+                draft: ChatListDraftPreviewFfi(
+                    text: "@npub1alyce can you check",
+                    textTruncated: false,
+                    attachmentCount: 0,
+                    attachmentKind: nil
+                ))
+        )
+        #expect(presented.previewMentionsAnyone)
+
+        let chat = ChatItem(
+            presented: presented,
+            activeAccountIdHex: "self",
+            mentionNames: ["npub1alyce": "Alice"]
+        )
+
+        #expect(chat.preview == "@Alice can you check")
+    }
+
+    @MainActor
+    @Test func preparedRowsWarmTheRosterOnlyForPreviewsThatMentionSomeone() async throws {
+        let summary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [summary])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: summary.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let account = AccountItem(
+            id: summary.label,
+            accountRef: summary.label,
+            displayName: summary.label,
+            accountIdHex: summary.accountIdHex
+        )
+        let state = WorkspaceState(accounts: [account], clientFactory: { runtime })
+        state.activeAccountId = account.id
+        state.client = runtime
+
+        let mentioning = chatListRow(
+            groupIdHex: "direct-group",
+            title: "Alice",
+            preview: "@npub1alyce see you there",
+            sender: aliceId,
+            timelineAt: 20
+        )
+        let plain = chatListRow(
+            groupIdHex: "other-group",
+            title: "Other",
+            preview: "no mentions here",
+            sender: aliceId,
+            timelineAt: 10
+        )
+        await state.applyChatRows(
+            [mentioning, plain],
+            account: account,
+            preparedRows: [
+                mentioning.groupIdHex: Self.presentedChatRow(mentioning),
+                plain.groupIdHex: Self.presentedChatRow(plain),
+            ],
+            preparedAvatarBytes: [:]
+        )
+
+        // Nothing but the warm-up can fill this cache here: the rows are prepared, so no
+        // enrichment ran.
+        let didWarm = await waitFor { state.groupMemberDetailsCache["direct-group"] != nil }
+        #expect(didWarm)
+        #expect(runtime.groupDetailsCallCounts["direct-group"] == 1)
+        #expect(runtime.groupDetailsCallCounts["other-group"] == nil)
+
+        let chat = ChatItem(
+            presented: Self.presentedChatRow(mentioning),
+            activeAccountIdHex: account.accountIdHex,
+            mentionNames: state.cachedMentionNames(groupIdHex: "direct-group")
+        )
+        #expect(chat.preview.contains("@Alice see you there"))
+        #expect(!chat.preview.contains("npub1"))
+    }
+
+    @MainActor
+    @Test func mentionNamesMemoHitStillObservesTheRosterArriving() {
+        let state = WorkspaceState.preview()
+        // Prime the memo against a cold roster, so the next read is a memo hit.
+        #expect(state.cachedMentionNames(groupIdHex: "group-1").isEmpty)
+
+        var changed = false
+        withObservationTracking {
+            _ = state.cachedMentionNames(groupIdHex: "group-1")
+        } onChange: {
+            changed = true
+        }
+        state.storeGroupMembers(
+            [
+                GroupMemberDetailsFfi(
+                    memberIdHex: "alice",
+                    account: nil,
+                    local: false,
+                    isAdmin: false,
+                    isSelf: false,
+                    npub: "npub1alyce",
+                    displayName: "Alice"
+                )
+            ],
+            welcomerAccountIdHex: nil,
+            for: "group-1"
+        )
+
+        #expect(changed)
+        #expect(state.cachedMentionNames(groupIdHex: "group-1") == ["npub1alyce": "Alice"])
+    }
+
+    private static func presentedChatRow(
+        _ row: ChatListRowFfi,
+        preview: SelectedChatPreviewFfi = .message
+    ) -> PresentedChatRowFfi {
+        PresentedChatRowFfi(
+            preview: preview,
+            actions: ChatListRowActionsFfi(
+                canMarkRead: row.hasUnread,
+                canMarkUnread: !row.hasUnread,
+                canPin: true,
+                canUnpin: false,
+                canMute: true,
+                canUnmute: false,
+                canArchive: !row.archived,
+                canRestore: row.archived,
+                canStartLeave: row.selfMembership == .member,
+                canDeleteLocal: row.selfMembership != .member
+            ),
+            row: row,
+            presentation: ConversationPresentationFfi(
+                title: .literal(text: row.title),
+                avatar: .placeholder(stableSeed: row.groupIdHex, source: .group),
+                titleSource: .group,
+                avatarSource: .group,
+                peerId: nil,
+                resolution: .cached
+            ),
+            avatarAsset: nil
+        )
+    }
 }
