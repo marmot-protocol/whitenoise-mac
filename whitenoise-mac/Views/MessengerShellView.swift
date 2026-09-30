@@ -687,6 +687,27 @@ private struct ConversationView: View {
         }
     }
 
+    private func mentionCandidates(for context: ComposerMentionContext) -> [ComposerMentionCandidate] {
+        workspace.mentionCandidates(
+            matching: context.query,
+            projectedIdentities: model.snapshot?.identities ?? []
+        )
+    }
+
+    /// Replaces the open "@query" with `candidate`, whether it was clicked in the picker or taken
+    /// with Tab. Returns false when there is no draft to insert into.
+    @discardableResult
+    private func insertMention(_ candidate: ComposerMentionCandidate, for context: ComposerMentionContext) -> Bool {
+        guard let draftKey = workspace.selectedComposerDraftKey else { return false }
+        composerMentionInsertion = ComposerMentionInsertion(
+            scope: draftKey,
+            context: context,
+            candidate: candidate
+        )
+        composerMentionContext = nil
+        return true
+    }
+
     @ViewBuilder
     private var composerControls: some View {
         @Bindable var workspace = workspace
@@ -711,19 +732,10 @@ private struct ConversationView: View {
         }
 
         if let context = composerMentionContext {
-            let candidates = workspace.mentionCandidates(
-                matching: context.query,
-                projectedIdentities: model.snapshot?.identities ?? []
-            )
+            let candidates = mentionCandidates(for: context)
             if !candidates.isEmpty {
                 ComposerMentionPicker(candidates: candidates) { candidate in
-                    guard let draftKey = workspace.selectedComposerDraftKey else { return }
-                    composerMentionInsertion = ComposerMentionInsertion(
-                        scope: draftKey,
-                        context: context,
-                        candidate: candidate
-                    )
-                    composerMentionContext = nil
+                    insertMention(candidate, for: context)
                 }
                 .padding(.bottom, 6)
             }
@@ -810,6 +822,12 @@ private struct ConversationView: View {
                         if context != nil {
                             workspace.ensureMentionRosterLoaded()
                         }
+                    },
+                    onMentionAccept: {
+                        guard let context = composerMentionContext,
+                            let candidate = mentionCandidates(for: context).first
+                        else { return false }
+                        return insertMention(candidate, for: context)
                     },
                     onPasteMedia: { attachments in
                         guard workspace.editingMessageContext == nil else { return }

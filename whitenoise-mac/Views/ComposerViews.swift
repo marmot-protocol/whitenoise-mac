@@ -62,6 +62,9 @@ struct ComposerMessageInputView: View {
     @Binding var mentionSelections: [ComposerMentionSelection]
     let mentionContextScope: WorkspaceState.ComposerDraftKey?
     let onMentionContextChange: (ComposerMentionContext?) -> Void
+    /// Accepts the picker's top candidate for the open "@query". Returns whether one was taken,
+    /// so Tab keeps its ordinary meaning when there is nothing to complete.
+    let onMentionAccept: () -> Bool
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
@@ -79,6 +82,7 @@ struct ComposerMessageInputView: View {
                 mentionSelections: $mentionSelections,
                 mentionContextScope: mentionContextScope,
                 onMentionContextChange: onMentionContextChange,
+                onMentionAccept: onMentionAccept,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend
             )
@@ -102,7 +106,7 @@ private enum ComposerMessageInputMetrics {
 }
 
 /// Autocomplete list of mentionable group members, shown above the composer while an "@query"
-/// is open. Mouse-driven selection; the caret stays in the text field.
+/// is open. Click a row, or press Tab to take the top one; the caret stays in the text field.
 struct ComposerMentionPicker: View {
     let candidates: [ComposerMentionCandidate]
     let onSelect: (ComposerMentionCandidate) -> Void
@@ -213,6 +217,9 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     @Binding var mentionSelections: [ComposerMentionSelection]
     let mentionContextScope: WorkspaceState.ComposerDraftKey?
     let onMentionContextChange: (ComposerMentionContext?) -> Void
+    /// Accepts the picker's top candidate for the open "@query". Returns whether one was taken,
+    /// so Tab keeps its ordinary meaning when there is nothing to complete.
+    let onMentionAccept: () -> Bool
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
@@ -240,7 +247,8 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             mentionContextScope: mentionContextScope,
             onPasteMedia: onPasteMedia,
             onSend: onSend,
-            onMentionContextChange: onMentionContextChange
+            onMentionContextChange: onMentionContextChange,
+            onMentionAccept: onMentionAccept
         )
     }
 
@@ -290,6 +298,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         context.coordinator.onMentionInsertionConsumed = onMentionInsertionConsumed
         context.coordinator.mentionSelections = $mentionSelections
         context.coordinator.onMentionContextChange = onMentionContextChange
+        context.coordinator.onMentionAccept = onMentionAccept
 
         guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
         configureHandlers(for: textView, coordinator: context.coordinator)
@@ -328,6 +337,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         var onEmojiInsertionConsumed: (UUID) -> Void
         var onMentionInsertionConsumed: (UUID) -> Void
         var onMentionContextChange: (ComposerMentionContext?) -> Void
+        var onMentionAccept: () -> Bool
         private var lastEmojiInsertionID: UUID?
         private var lastMentionInsertionID: UUID?
         private var lastMentionContext: ComposerMentionContext?
@@ -342,7 +352,8 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             onSend: @escaping () -> Void,
             onEmojiInsertionConsumed: @escaping (UUID) -> Void = { _ in },
             onMentionInsertionConsumed: @escaping (UUID) -> Void = { _ in },
-            onMentionContextChange: @escaping (ComposerMentionContext?) -> Void = { _ in }
+            onMentionContextChange: @escaping (ComposerMentionContext?) -> Void = { _ in },
+            onMentionAccept: @escaping () -> Bool = { false }
         ) {
             self.text = text
             self.measuredHeight = measuredHeight
@@ -353,6 +364,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             self.onEmojiInsertionConsumed = onEmojiInsertionConsumed
             self.onMentionInsertionConsumed = onMentionInsertionConsumed
             self.onMentionContextChange = onMentionContextChange
+            self.onMentionAccept = onMentionAccept
         }
 
         func scheduleEmojiInsertion(_ insertion: ComposerEmojiInsertion?, into textView: NSTextView) {
@@ -440,6 +452,17 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             publishMentionContext(for: textView)
+        }
+
+        /// Tab completes an open "@query" with the picker's top candidate. Only when there is
+        /// something to complete is the key consumed; otherwise the text view inserts its tab as
+        /// before. Arrives as a command, so it never fires mid-composition — the input context
+        /// keeps Tab while text is marked.
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertTab(_:)) else { return false }
+            publishMentionContext(for: textView)
+            guard lastMentionContext != nil else { return false }
+            return onMentionAccept()
         }
 
         /// Recompute the open mention query left of the caret and forward it upward when it
