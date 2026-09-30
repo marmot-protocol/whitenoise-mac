@@ -487,17 +487,22 @@ nonisolated extension MessageItem {
         let presentation = MessageItem.presentation(for: record.kind)
         let plaintext = editedPlaintext ?? record.plaintext
         let projectedIsEdited = isEdited || record.edit != nil
+        // A poll card sits on its author's side like a bubble does, so it needs the direction too.
         let isOutgoing =
-            presentation.isChatBubble
+            (presentation.isChatBubble || presentation == .poll)
             && (record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound")
+        let poll = record.deleted || presentation != .poll ? nil : record.poll.map(MessagePoll.init(projection:))
         let mediaAttachments = MessageMediaParser.attachments(
             resolvedMedia: record.media,
             mediaJson: record.mediaJson,
             tags: record.tags,
             messageIdHex: record.messageIdHex
         )
+        // A projected poll's body is the one-line label copy and search use; the card draws the
+        // question and options from `poll` itself.
         let body =
-            MessageItem.systemText(
+            poll.map { MessageItem.pollLabel(question: $0.question) }
+            ?? MessageItem.systemText(
                 record.groupSystem,
                 activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles
@@ -556,7 +561,8 @@ nonisolated extension MessageItem {
             reactions: presentation.isChatBubble ? reactions : [],
             replyContext: presentation.isChatBubble ? replyContext : nil,
             mediaAttachments: presentation.isChatBubble ? mediaAttachments : [],
-            presentation: presentation
+            presentation: presentation,
+            poll: poll
         )
     }
 
@@ -1260,6 +1266,20 @@ nonisolated extension MessageItem {
         default:
             return L10n.string("Group updated")
         }
+    }
+}
+
+nonisolated extension MessagePoll {
+    init(projection: PollProjectionFfi) {
+        self.init(
+            question: projection.question,
+            options: projection.options.map { Option(id: $0.id, label: $0.label, votes: $0.votes) },
+            kind: projection.pollType == .multipleChoice ? .multipleChoice : .singleChoice,
+            participants: projection.participants,
+            localSelection: projection.localSelection,
+            endsAt: projection.endsAt,
+            isOpen: projection.open
+        )
     }
 }
 

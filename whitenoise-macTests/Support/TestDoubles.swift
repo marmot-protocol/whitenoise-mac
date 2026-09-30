@@ -390,6 +390,11 @@ struct TranscriptPerformanceRows: View {
         groupIdHex: "performance-group",
         runtime: FakeMarmotRuntime(accounts: [])
     )
+    let conversationModel = ConversationViewModel(
+        account: AccountItem.samples[0],
+        groupIdHex: "performance-group",
+        runtime: FakeMarmotRuntime(accounts: [])
+    )
 
     var body: some View {
         VStack(spacing: 12) {
@@ -397,6 +402,7 @@ struct TranscriptPerformanceRows: View {
                 ConversationMessageRow(
                     message: message,
                     safetyModel: safetyModel,
+                    conversationModel: conversationModel,
                     showsDebugMetadata: false
                 ) { _ in
                 } onNavigateToMessage: { _ in

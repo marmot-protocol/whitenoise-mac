@@ -253,6 +253,7 @@ private struct ConversationView: View {
     /// during layout and feed back into it.
     @State private var isPinnedToBottom = true
     @State private var isFileImporterPresented = false
+    @State private var isPollComposerPresented = false
     @State private var isFileDropTargeted = false
     @State private var isComposerEmojiPickerPresented = false
     @State private var composerEmojiInsertion: ComposerEmojiInsertion?
@@ -332,6 +333,8 @@ private struct ConversationView: View {
                                     ConversationMessageRow(
                                         message: item.message,
                                         safetyModel: safetyModel,
+                                        conversationModel: model,
+                                        canVoteInPolls: canUseComposer,
                                         showsDebugMetadata: workspace.streamingDebugEnabled,
                                         timestampReferenceDate: timestampReferenceDate,
                                         timestampLocale: locale
@@ -657,9 +660,20 @@ private struct ConversationView: View {
         ) {
             MessageForwardSheet(chatListModel: chatListModel)
         }
+        .sheet(isPresented: $isPollComposerPresented) {
+            PollComposerSheet(
+                onSend: { submission in
+                    try await model.createPoll(submission)
+                    isPollComposerPresented = false
+                },
+                onCancel: { isPollComposerPresented = false }
+            )
+            .environment(\.locale, locale)
+        }
         // Switching conversations must not leave the previous chat's body-level
         // overlays open over a different transcript.
         .onChange(of: chat.id) { _, _ in
+            isPollComposerPresented = false
             imageGallery = nil
             composerMentionContext = nil
             composerMentionInsertion = nil
@@ -769,7 +783,9 @@ private struct ConversationView: View {
                         onAttachFiles: { isFileImporterPresented = true },
                         sendGIF: { [model] media in
                             try await model.sendText(media.wireText)
-                        }
+                        },
+                        // MDK accepts polls only in group conversations, never direct messages.
+                        onCreatePoll: chat.isDirect ? nil : { isPollComposerPresented = true }
                     )
                 }
 

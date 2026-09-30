@@ -242,6 +242,29 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var forgetsMissingKeyPackagesAfterAttempts: Int?
     private(set) var repliedMessage: SentReply?
     private(set) var reactedMessage: SentReaction?
+    // `castPollVote` is `nonisolated async`, so overlapping votes record from the cooperative pool
+    // concurrently; like the upload recorders, poll state lives behind `recordedStateLock`.
+    var createdPolls: [CreatedPoll] {
+        recordedStateLock.withLock { _createdPolls }
+    }
+    private var _createdPolls: [CreatedPoll] = []
+    var castPollVotes: [CastPollVote] {
+        recordedStateLock.withLock { _castPollVotes }
+    }
+    private var _castPollVotes: [CastPollVote] = []
+    /// Thrown by `createPoll` and `castPollVote` after recording the call.
+    var pollActionError: Error? {
+        get { recordedStateLock.withLock { _pollActionError } }
+        set { recordedStateLock.withLock { _pollActionError = newValue } }
+    }
+    private var _pollActionError: Error?
+    /// The Nth `castPollVote` suspends at `pollVoteGates[N]` while that gate is armed, so a test can
+    /// hold several votes in flight and settle them in an order of its choosing.
+    var pollVoteGates: [AsyncFfiGate] {
+        get { recordedStateLock.withLock { _pollVoteGates } }
+        set { recordedStateLock.withLock { _pollVoteGates = newValue } }
+    }
+    private var _pollVoteGates: [AsyncFfiGate] = []
     private(set) var deletedMessage: DeletedMessage?
     private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
@@ -3132,6 +3155,47 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         return SendSummaryFfi(published: 1, messageIds: ["reaction"])
     }
 
+    func createPoll(
+        accountRef: String,
+        groupIdHex: String,
+        question: String,
+        options: [String],
+        pollType: PollTypeFfi,
+        endsAt: UInt64?
+    ) async throws -> SendSummaryFfi {
+        let error = recordedStateLock.withLock { () -> Error? in
+            _createdPolls.append(
+                CreatedPoll(
+                    groupIdHex: groupIdHex,
+                    question: question,
+                    options: options,
+                    pollType: pollType,
+                    endsAt: endsAt
+                ))
+            return _pollActionError
+        }
+        if let error {
+            throw error
+        }
+        return SendSummaryFfi(published: 1, messageIds: ["poll"])
+    }
+
+    func castPollVote(accountRef: String, groupIdHex: String, pollEventId: String, optionIds: [String]) async throws
+        -> SendSummaryFfi
+    {
+        let gate = recordedStateLock.withLock { () -> AsyncFfiGate? in
+            let index = _castPollVotes.count
+            _castPollVotes.append(
+                CastPollVote(groupIdHex: groupIdHex, pollEventId: pollEventId, optionIds: optionIds))
+            return _pollVoteGates.indices.contains(index) ? _pollVoteGates[index] : nil
+        }
+        await gate?.passIfArmed()
+        if let error = recordedStateLock.withLock({ _pollActionError }) {
+            throw error
+        }
+        return SendSummaryFfi(published: 1, messageIds: ["poll-vote"])
+    }
+
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi {
         deleteMessageCallCount += 1
         deletedMessage = DeletedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
@@ -3506,6 +3570,20 @@ actor UploadReleaseGate {
             waiter.resume()
         }
     }
+}
+
+struct CreatedPoll: Equatable {
+    let groupIdHex: String
+    let question: String
+    let options: [String]
+    let pollType: PollTypeFfi
+    let endsAt: UInt64?
+}
+
+struct CastPollVote: Equatable {
+    let groupIdHex: String
+    let pollEventId: String
+    let optionIds: [String]
 }
 
 struct SentReaction: Equatable {
