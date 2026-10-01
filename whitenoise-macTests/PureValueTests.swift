@@ -468,6 +468,134 @@ struct PureValueTests {
     }
 
     @MainActor
+    private func tabTestCoordinator(
+        text: String,
+        acceptResult: Bool,
+        sendCalls: @escaping () -> Void = {},
+        acceptCalls: @escaping () -> Void
+    ) -> (ComposerMessageTextViewRepresentable.Coordinator, NSTextView) {
+        var measuredHeight: CGFloat = 20
+        var boundText = text
+        var boundSelections: [ComposerMentionSelection] = []
+        let coordinator = ComposerMessageTextViewRepresentable.Coordinator(
+            text: Binding(get: { boundText }, set: { boundText = $0 }),
+            measuredHeight: Binding(get: { measuredHeight }, set: { measuredHeight = $0 }),
+            mentionSelections: Binding(get: { boundSelections }, set: { boundSelections = $0 }),
+            mentionContextScope: WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "chat"),
+            onPasteMedia: { _ in },
+            onSend: sendCalls,
+            onMentionAccept: {
+                acceptCalls()
+                return acceptResult
+            }
+        )
+        let textView = NSTextView()
+        textView.string = text
+        textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+        return (coordinator, textView)
+    }
+
+    @MainActor
+    @Test func tabAcceptsTheMentionWhileAnAtQueryIsOpen() {
+        var accepts = 0
+        let (coordinator, textView) = tabTestCoordinator(text: "hi @Al", acceptResult: true) { accepts += 1 }
+
+        let handled = coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertTab(_:)))
+
+        #expect(handled)
+        #expect(accepts == 1)
+    }
+
+    @MainActor
+    @Test func tabKeepsItsOrdinaryMeaningWithoutAnOpenAtQuery() {
+        var accepts = 0
+        let (coordinator, textView) = tabTestCoordinator(text: "hello", acceptResult: true) { accepts += 1 }
+
+        let handled = coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertTab(_:)))
+
+        #expect(!handled)
+        #expect(accepts == 0)
+    }
+
+    @MainActor
+    @Test func tabFallsThroughWhenNoCandidateMatchesTheQuery() {
+        var accepts = 0
+        let (coordinator, textView) = tabTestCoordinator(text: "@zzz", acceptResult: false) { accepts += 1 }
+
+        let handled = coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertTab(_:)))
+
+        #expect(!handled)
+        #expect(accepts == 1)
+    }
+
+    @MainActor
+    @Test func returnAcceptsTheMentionInsteadOfSendingALoneAt() {
+        var accepts = 0
+        var sends = 0
+        let (coordinator, textView) = tabTestCoordinator(
+            text: "@",
+            acceptResult: true,
+            sendCalls: { sends += 1 },
+            acceptCalls: { accepts += 1 }
+        )
+
+        coordinator.handleReturnKeySend(in: textView)
+
+        #expect(accepts == 1)
+        #expect(sends == 0)
+    }
+
+    @MainActor
+    @Test func returnSendsWithoutAnOpenAtQuery() {
+        var accepts = 0
+        var sends = 0
+        let (coordinator, textView) = tabTestCoordinator(
+            text: "hello",
+            acceptResult: true,
+            sendCalls: { sends += 1 },
+            acceptCalls: { accepts += 1 }
+        )
+
+        coordinator.handleReturnKeySend(in: textView)
+
+        #expect(accepts == 0)
+        #expect(sends == 1)
+    }
+
+    @MainActor
+    @Test func returnSendsWhenNoCandidateMatchesTheQuery() {
+        var accepts = 0
+        var sends = 0
+        let (coordinator, textView) = tabTestCoordinator(
+            text: "@zzz",
+            acceptResult: false,
+            sendCalls: { sends += 1 },
+            acceptCalls: { accepts += 1 }
+        )
+
+        coordinator.handleReturnKeySend(in: textView)
+
+        #expect(accepts == 1)
+        #expect(sends == 1)
+    }
+
+    /// Return reaches the coordinator through the text view's send shortcut, not as a command, so
+    /// the command path must leave `insertNewline:` alone.
+    @MainActor
+    @Test func onlyTabAcceptsTheMentionAsACommand() {
+        var accepts = 0
+        let (coordinator, textView) = tabTestCoordinator(text: "@Al", acceptResult: true) { accepts += 1 }
+
+        let handled = coordinator.textView(
+            textView,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+
+        #expect(!handled)
+        #expect(accepts == 0)
+    }
+
+    @MainActor
     @Test func mentionSynchronizationDefersObservableWritesUntilAfterTheViewUpdate() async {
         let firstScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "first")
         let secondScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "second")
