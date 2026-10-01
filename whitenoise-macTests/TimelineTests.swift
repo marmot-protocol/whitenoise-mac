@@ -211,6 +211,29 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(short.hiddenGroupCount == 3)
     }
 
+    /// The window fills its eight slots by popularity, so an omitted kind may be the viewer's own.
+    /// One visible own reaction is then no proof that unreacting removes only that one.
+    @Test func unreactRemovalScopeAccountsForOmittedKinds() {
+        func message(_ reactions: [MessageReaction], omitted: Int = 0) -> MessageItem {
+            MessageItem(
+                id: "parent",
+                senderName: "Alice",
+                body: "Ship it",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false,
+                reactions: reactions,
+                omittedReactionKinds: omitted
+            )
+        }
+        let own = MessageReaction(emoji: "👍", count: 3, isOwn: true)
+        let peer = MessageReaction(emoji: "🎉", count: 1, isOwn: false)
+        let ownToo = MessageReaction(emoji: "❤️", count: 1, isOwn: true)
+
+        #expect(!message([own, peer]).unreactMayRemoveSeveralReactions)
+        #expect(message([own, ownToo]).unreactMayRemoveSeveralReactions)
+        #expect(message([own, peer], omitted: 1).unreactMayRemoveSeveralReactions)
+    }
+
     @Test func reactionChipCountClampsSoOnePillCannotWidenTheRowWithoutBound() {
         #expect(MessageReactionChipRow.countLabel(for: 2) == "2")
         #expect(MessageReactionChipRow.countLabel(for: 99) == "99")

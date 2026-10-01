@@ -2482,6 +2482,14 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let reactionTotalCount: Int
     /// Emoji kinds the conversation window omitted from `reactions`.
     let omittedReactionKinds: Int
+
+    /// Whether `unreactFromMessage`, which retracts every reaction the viewer holds on this
+    /// message, may take more than one. True when several visible kinds are the viewer's, and
+    /// whenever kinds were omitted: the window fills its slots by popularity, so one of the
+    /// viewer's own kinds can sit among the omitted ones.
+    var unreactMayRemoveSeveralReactions: Bool {
+        omittedReactionKinds > 0 || reactions.lazy.filter(\.isOwn).count > 1
+    }
     var replyContext: MessageReplyContext?
     let mediaAttachments: [MessageMediaAttachment]
     let visualMediaAttachments: [MessageMediaAttachment]

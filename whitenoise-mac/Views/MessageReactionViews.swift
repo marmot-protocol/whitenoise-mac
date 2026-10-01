@@ -210,10 +210,8 @@ struct MessageReactionDetailsView: View {
         message.reactionTotalCount
     }
 
-    /// `unreactFromMessage` retracts every reaction the viewer holds on the message, so a row
-    /// must not promise a single emoji when there are several.
     private var removesSeveralReactions: Bool {
-        message.reactions.filter(\.isOwn).count > 1
+        message.unreactMayRemoveSeveralReactions
     }
 
     private var filters: some View {
