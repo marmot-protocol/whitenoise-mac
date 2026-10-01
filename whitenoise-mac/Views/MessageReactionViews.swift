@@ -14,11 +14,13 @@ import SwiftUI
 ///
 struct MessageReactionChips: View {
     let reactions: [MessageReaction]
+    /// Emoji kinds the conversation window left out, counted into the overflow pill.
+    var omittedKinds: Int = 0
     /// emoji to focus the viewer on, or nil for the "All" tab.
     let onOpenViewer: (String?) -> Void
 
     var body: some View {
-        let row = MessageReactionChipRow.value(reactions: reactions)
+        let row = MessageReactionChipRow.value(reactions: reactions, omittedKinds: omittedKinds)
         HStack(spacing: Self.pillSpacing) {
             ForEach(row.visible) { reaction in
                 MessageReactionChipPill(isSelected: reaction.isOwn) {
@@ -107,10 +109,9 @@ private struct MessageReactionChipPill<Label: View>: View {
 /// How a reaction tally is split into the pills a chips row actually draws.
 ///
 /// Pure, so the cap and the count clamp are testable without rendering: the row itself only maps
-/// this onto pills. The tally arrives from the core already grouped by emoji
-/// (`TimelineReactionSummaryFfi.byEmoji`, a `BTreeMap` keyed on the emoji), so this neither groups
-/// nor sorts — it keeps the core's deterministic order so a pill does not move under the pointer
-/// when someone else reacts.
+/// this onto pills. The tally arrives from the core already grouped by emoji (the conversation
+/// window's `references.reactions`), so this neither groups nor sorts — it keeps the core's
+/// deterministic order so a pill does not move under the pointer when someone else reacts.
 nonisolated struct MessageReactionChipRow: Equatable {
     /// Emoji groups drawn as their own pill, in the core's order.
     let visible: [MessageReaction]
@@ -120,16 +121,20 @@ nonisolated struct MessageReactionChipRow: Equatable {
     /// How many distinct emojis get a pill before the rest collapse into `+N`.
     static let maxVisibleGroups = 4
 
+    /// `omittedKinds` are emoji groups the core never sent (past the conversation window's cap);
+    /// they have no pill of their own, so they always land in the overflow count.
     static func value(
         reactions: [MessageReaction],
+        omittedKinds: Int = 0,
         maxVisibleGroups: Int = Self.maxVisibleGroups
     ) -> Self {
+        let omitted = max(0, omittedKinds)
         guard reactions.count > maxVisibleGroups else {
-            return Self(visible: reactions, hiddenGroupCount: 0)
+            return Self(visible: reactions, hiddenGroupCount: omitted)
         }
         return Self(
             visible: Array(reactions.prefix(maxVisibleGroups)),
-            hiddenGroupCount: reactions.count - maxVisibleGroups
+            hiddenGroupCount: reactions.count - maxVisibleGroups + omitted
         )
     }
 
@@ -202,7 +207,11 @@ struct MessageReactionDetailsView: View {
     }
 
     private var totalCount: Int {
-        message.reactions.reduce(0) { $0 + $1.count }
+        message.reactionTotalCount
+    }
+
+    private var removesSeveralReactions: Bool {
+        message.unreactMayRemoveSeveralReactions
     }
 
     private var filters: some View {
@@ -319,9 +328,12 @@ struct MessageReactionDetailsView: View {
                     .wnFont(.medium12)
                     .lineLimit(1)
                 if canRemove {
-                    Text(L10n.string("Tap to remove"))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                    Text(
+                        removesSeveralReactions
+                            ? L10n.string("Tap to remove all your reactions") : L10n.string("Tap to remove")
+                    )
+                    .wnFont(.medium10)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
             Spacer(minLength: 8)

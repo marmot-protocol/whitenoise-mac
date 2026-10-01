@@ -102,6 +102,25 @@ extension ConversationWindowSnapshotFfi {
             names[npub] = name
         }
     }
+
+    /// Each row's prepared reactions keyed by message id. The window's `timeline.reactions` is
+    /// always empty, so this is the only reaction source for a conversation snapshot.
+    func preparedReactions(activeAccountIdHex: String) -> [String: PreparedMessageReactions] {
+        Dictionary(
+            messages.map { message in
+                let reactions = message.references.reactions
+                return (
+                    message.timeline.messageIdHex,
+                    PreparedMessageReactions(
+                        reactions: MessageReaction.prepared(reactions, activeAccountIdHex: activeAccountIdHex),
+                        totalCount: Int(clamping: reactions.totalCount),
+                        omittedKinds: Int(clamping: reactions.omittedKinds)
+                    )
+                )
+            },
+            uniquingKeysWith: { _, latest in latest }
+        )
+    }
 }
 
 extension PresentedChatRowFfi {
@@ -502,6 +521,8 @@ nonisolated extension MessageItem {
         editedPlaintext: String? = nil,
         isEdited: Bool = false,
         reactions: [MessageReaction],
+        reactionTotalCount: Int? = nil,
+        omittedReactionKinds: Int = 0,
         replyContext: MessageReplyContext?
     ) {
         let senderProfile = senderProfiles[record.sender]
@@ -580,6 +601,8 @@ nonisolated extension MessageItem {
             editCount: record.edit?.editCount ?? (isEdited ? 1 : 0),
             isOutgoing: isOutgoing,
             reactions: presentation.isChatBubble ? reactions : [],
+            reactionTotalCount: presentation.isChatBubble ? reactionTotalCount : 0,
+            omittedReactionKinds: presentation.isChatBubble ? omittedReactionKinds : 0,
             replyContext: presentation.isChatBubble ? replyContext : nil,
             mediaAttachments: presentation.isChatBubble ? mediaAttachments : [],
             presentation: presentation,
@@ -590,26 +613,36 @@ nonisolated extension MessageItem {
         )
     }
 
+    /// `preparedReactions`, keyed by message id, replaces each record's own reaction summary. A
+    /// conversation window passes it because its records' `reactions` are always empty; a record
+    /// missing from a supplied map has no reactions.
     static func timeline(
         from page: TimelinePageFfi,
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile] = [:],
-        mentionNames: MarkdownMentionNames = [:]
+        mentionNames: MarkdownMentionNames = [:],
+        preparedReactions: [String: PreparedMessageReactions]? = nil
     ) -> [MessageItem] {
         // MarmotKit returns an authoritative timeline window. Keep that order
         // intact: `timelineAt` is second-granular, and re-sorting in the client
         // can reshuffle records that the runtime/database already tie-broke.
         return page.messages.compactMap { record in
             guard record.kind != MarmotTimelineKind.messageEdit else { return nil }
+            let prepared = preparedReactions.map {
+                $0[record.messageIdHex] ?? PreparedMessageReactions(reactions: [], totalCount: 0, omittedKinds: 0)
+            }
             return MessageItem(
                 record: record,
                 activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles,
                 mentionNames: mentionNames,
-                reactions: MessageReaction.summarize(
-                    record.reactions,
-                    activeAccountIdHex: activeAccountIdHex
-                ),
+                reactions: prepared?.reactions
+                    ?? MessageReaction.summarize(
+                        record.reactions,
+                        activeAccountIdHex: activeAccountIdHex
+                    ),
+                reactionTotalCount: prepared?.totalCount,
+                omittedReactionKinds: prepared?.omittedKinds ?? 0,
                 replyContext: MessageItem.replyContext(
                     for: record.replyPreview,
                     senderProfiles: senderProfiles
@@ -1751,25 +1784,40 @@ private extension String {
     }
 }
 
-private nonisolated extension MessageReaction {
-    static func summarize(_ summary: TimelineReactionSummaryFfi, activeAccountIdHex: String?) -> [MessageReaction] {
-        let ownReactionIdsByEmoji =
-            activeAccountIdHex.map { accountIdHex in
-                Dictionary(
-                    summary.userReactions.lazy
-                        .filter { $0.sender == accountIdHex }
-                        .map { ($0.emoji, $0.reactionMessageIdHex) },
-                    uniquingKeysWith: { first, _ in first }
-                )
-            } ?? [:]
-
-        return summary.byEmoji.map { reaction in
+nonisolated extension MessageReaction {
+    fileprivate static func summarize(
+        _ summary: TimelineReactionSummaryFfi,
+        activeAccountIdHex: String?
+    ) -> [MessageReaction] {
+        summary.byEmoji.map { reaction in
             MessageReaction(
                 emoji: reaction.emoji,
                 count: reaction.senders.count,
                 isOwn: activeAccountIdHex.map { reaction.senders.contains($0) } ?? false,
-                ownReactionMessageId: ownReactionIdsByEmoji[reaction.emoji],
                 senders: reaction.senders
+            )
+        }
+    }
+
+    /// Maps a conversation window's prepared reactions. Since MarmotKit 0.11.0 the window blanks
+    /// `timeline.reactions` and ships reactions only here: exact counts, at most a few emoji kinds,
+    /// and a bounded reactor preview per kind. `viewerReacted` is authoritative for the viewing
+    /// account even when the preview leaves it out, so the viewer is listed first in that case —
+    /// the reaction viewer's "You · Tap to remove" row depends on it.
+    static func prepared(
+        _ reactions: ConversationReactionsFfi,
+        activeAccountIdHex: String?
+    ) -> [MessageReaction] {
+        reactions.items.map { reaction in
+            var senders = reaction.reactors
+            if reaction.viewerReacted, let activeAccountIdHex, !senders.contains(activeAccountIdHex) {
+                senders.insert(activeAccountIdHex, at: 0)
+            }
+            return MessageReaction(
+                emoji: reaction.emoji,
+                count: Int(clamping: reaction.count),
+                isOwn: reaction.viewerReacted,
+                senders: senders
             )
         }
     }

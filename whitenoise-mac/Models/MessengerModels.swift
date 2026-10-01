@@ -758,17 +758,18 @@ enum GroupDetailsHeaderAvatar {
 
 nonisolated struct MessageReaction: Identifiable, Hashable {
     let emoji: String
+    /// Exact number of distinct reactors, which can exceed `senders.count`: the prepared
+    /// conversation window carries only a bounded reactor preview per emoji.
     let count: Int
     let isOwn: Bool
-    let ownReactionMessageId: String?
-    /// Account-id-hex of everyone who reacted with this emoji, so the reaction viewer can list them.
+    /// Account-id-hex of the reactors the viewer can list. A bounded preview from the conversation
+    /// window, so it is not a complete roster when `count` is larger.
     let senders: [String]
 
-    init(emoji: String, count: Int, isOwn: Bool, ownReactionMessageId: String? = nil, senders: [String] = []) {
+    init(emoji: String, count: Int, isOwn: Bool, senders: [String] = []) {
         self.emoji = emoji
         self.count = count
         self.isOwn = isOwn
-        self.ownReactionMessageId = ownReactionMessageId
         self.senders = senders
     }
 
@@ -778,9 +779,21 @@ nonisolated struct MessageReaction: Identifiable, Hashable {
         count > 1 ? "\(emoji) \(count)" : emoji
     }
 
+    /// Removal goes through `unreactFromMessage`, which needs only the target message, so any
+    /// reaction the viewing account holds is removable.
     var canRemoveOwnReaction: Bool {
-        ownReactionMessageId != nil
+        isOwn
     }
+}
+
+/// One message's reactions as a conversation window prepares them: the per-emoji tallies plus the
+/// exact aggregates for kinds the window left out.
+nonisolated struct PreparedMessageReactions: Hashable {
+    let reactions: [MessageReaction]
+    /// Exact reaction total across every kind, including omitted ones.
+    let totalCount: Int
+    /// Emoji kinds past the window's cap, absent from `reactions`.
+    let omittedKinds: Int
 }
 
 nonisolated struct MessageReplyContext: Hashable {
@@ -2465,6 +2478,18 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let editCount: UInt64
     let isOutgoing: Bool
     let reactions: [MessageReaction]
+    /// Exact reaction total, which exceeds the sum of `reactions` when kinds were omitted.
+    let reactionTotalCount: Int
+    /// Emoji kinds the conversation window omitted from `reactions`.
+    let omittedReactionKinds: Int
+
+    /// Whether `unreactFromMessage`, which retracts every reaction the viewer holds on this
+    /// message, may take more than one. True when several visible kinds are the viewer's, and
+    /// whenever kinds were omitted: the window fills its slots by popularity, so one of the
+    /// viewer's own kinds can sit among the omitted ones.
+    var unreactMayRemoveSeveralReactions: Bool {
+        omittedReactionKinds > 0 || reactions.lazy.filter(\.isOwn).count > 1
+    }
     var replyContext: MessageReplyContext?
     let mediaAttachments: [MessageMediaAttachment]
     let visualMediaAttachments: [MessageMediaAttachment]
@@ -2671,6 +2696,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         editCount: UInt64 = 0,
         isOutgoing: Bool,
         reactions: [MessageReaction] = [],
+        reactionTotalCount: Int? = nil,
+        omittedReactionKinds: Int = 0,
         replyContext: MessageReplyContext? = nil,
         mediaAttachments: [MessageMediaAttachment] = [],
         presentation: MessagePresentation = .chat,
@@ -2732,6 +2759,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.editCount = editCount
         self.isOutgoing = isOutgoing
         self.reactions = reactions
+        self.reactionTotalCount = reactionTotalCount ?? reactions.reduce(0) { $0 + $1.count }
+        self.omittedReactionKinds = omittedReactionKinds
         self.replyContext = replyContext
         self.mediaAttachments = mediaAttachments
         self.visualMediaAttachments = partitionedAttachments.visual
@@ -2803,6 +2832,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             isEdited: true,
             isOutgoing: isOutgoing,
             reactions: reactions,
+            reactionTotalCount: reactionTotalCount,
+            omittedReactionKinds: omittedReactionKinds,
             replyContext: replyContext,
             mediaAttachments: mediaAttachments,
             presentation: presentation,

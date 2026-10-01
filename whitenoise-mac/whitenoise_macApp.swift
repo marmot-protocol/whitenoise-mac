@@ -169,6 +169,7 @@ struct whitenoise_macApp: App {
                     avatarBytesByReference: avatarAssets?.bytesByReference ?? [:]
                 ),
                 preparedMentionNames: mentionNames,
+                preparedReactions: snapshot.preparedReactions(activeAccountIdHex: account.accountIdHex),
                 projectedClientTokens: Set(timelineRecords.compactMap(\.clientToken))
             )
         }
