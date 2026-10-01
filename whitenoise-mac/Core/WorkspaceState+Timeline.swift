@@ -1628,10 +1628,10 @@ extension WorkspaceState {
         guard selectedConversationIsVisible() else { return }
         // The newest row MarmotKit counts as unread activity, not just the newest chat message:
         // parking the marker on a chat message left trailing member changes unread for good.
-        let isDirectChat = selectedChat?.isDirect ?? false
+        let isAuthoritativeGroup = selectedChat?.isAuthoritativeGroup ?? false
         guard
             let latest = ensureMessageTimelineStore(for: groupIdHex).messages.last(where: { message in
-                message.countsAsReadActivity(inDirectChat: isDirectChat) && !message.isDeleted
+                message.countsAsReadActivity(inAuthoritativeGroup: isAuthoritativeGroup) && !message.isDeleted
             })
         else {
             return

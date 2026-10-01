@@ -226,6 +226,7 @@ extension ChatItem {
             unreadMentionCount: Int(clamping: row.unreadMentionCount),
             isDirect: isDirect,
             hasAuthoritativeConversationKind: row.conversationKind != .unknown,
+            isAuthoritativeGroup: row.conversationKind == .group,
             muted: row.muted,
             mutedUntilMs: row.mutedUntilMs,
             leaveRequestPending: row.leaveRequestPending,

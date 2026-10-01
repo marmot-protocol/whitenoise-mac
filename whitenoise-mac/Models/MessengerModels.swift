@@ -168,6 +168,11 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     private(set) var isBlockedDirectPeer: Bool
     /// True when MDK supplied `.direct`/`.group`; false permits legacy roster enrichment.
     let hasAuthoritativeConversationKind: Bool
+    /// MarmotKit's own `.group` classification: the chat has a name or a member count other than
+    /// two. Only then does MarmotKit count membership and admin changes as unread activity. Not
+    /// `!isDirect`, which also treats a chat with a remembered peer as direct after MarmotKit has
+    /// already reclassified it (an unnamed chat the other person left).
+    let isAuthoritativeGroup: Bool
     let muted: Bool
     /// Absolute Unix epoch milliseconds for a finite mute; nil means indefinite while muted.
     let mutedUntilMs: Int64?
@@ -373,6 +378,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         isDirect: Bool = false,
         isBlockedDirectPeer: Bool = false,
         hasAuthoritativeConversationKind: Bool = false,
+        isAuthoritativeGroup: Bool = false,
         muted: Bool = false,
         mutedUntilMs: Int64? = nil,
         leaveRequestPending: Bool = false,
@@ -401,6 +407,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.isDirect = isDirect
         self.isBlockedDirectPeer = isBlockedDirectPeer
         self.hasAuthoritativeConversationKind = hasAuthoritativeConversationKind
+        self.isAuthoritativeGroup = isAuthoritativeGroup
         self.muted = muted
         self.mutedUntilMs = mutedUntilMs
         self.leaveRequestPending = leaveRequestPending
@@ -2494,14 +2501,15 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     /// Whether MarmotKit counts this row toward a chat's unread state, and so accepts it as a
     /// read-marker target. Chat messages and polls always count; membership and admin changes
-    /// count except in a direct chat. A read marker parked on the newest chat message leaves any
-    /// member change after it unread, which is why the marker must consider these rows too.
-    nonisolated func countsAsReadActivity(inDirectChat isDirectChat: Bool) -> Bool {
+    /// count only in a chat MarmotKit classifies as a group (`ChatItem.isAuthoritativeGroup`). A
+    /// read marker parked on the newest chat message leaves any member change after it unread,
+    /// which is why the marker must consider these rows too.
+    nonisolated func countsAsReadActivity(inAuthoritativeGroup isAuthoritativeGroup: Bool) -> Bool {
         switch presentation {
         case .chat, .poll:
             return true
         case .groupSystem:
-            return !isDirectChat && groupSystemType.map(Self.readActivityGroupSystemTypes.contains) == true
+            return isAuthoritativeGroup && groupSystemType.map(Self.readActivityGroupSystemTypes.contains) == true
         case .agentStreamStart, .agentActivity, .agentOperation, .unsupported:
             return false
         }

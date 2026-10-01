@@ -2595,8 +2595,8 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.markedReadMessageIds.last == "member-added")
     }
 
-    /// Mirrors MarmotKit's activity rule: chat and polls always, membership and admin changes
-    /// outside direct chats, nothing else.
+    /// Mirrors MarmotKit's activity rule: chat and polls always, membership and admin changes only
+    /// in a chat MarmotKit classifies as a group, nothing else.
     @Test func readActivityMatchesMarmotKitUnreadRows() {
         func row(_ presentation: MessagePresentation, systemType: String? = nil) -> MessageItem {
             MessageItem(
@@ -2610,14 +2610,14 @@ struct TimelineTests: WorkspaceTestSupport {
             )
         }
 
-        #expect(row(.chat).countsAsReadActivity(inDirectChat: true))
-        #expect(row(.poll).countsAsReadActivity(inDirectChat: false))
-        #expect(row(.groupSystem, systemType: "member_left").countsAsReadActivity(inDirectChat: false))
-        #expect(row(.groupSystem, systemType: "admin_removed").countsAsReadActivity(inDirectChat: false))
-        #expect(!row(.groupSystem, systemType: "member_added").countsAsReadActivity(inDirectChat: true))
-        #expect(!row(.groupSystem, systemType: "group_renamed").countsAsReadActivity(inDirectChat: false))
-        #expect(!row(.groupSystem).countsAsReadActivity(inDirectChat: false))
-        #expect(!row(.agentActivity).countsAsReadActivity(inDirectChat: false))
+        #expect(row(.chat).countsAsReadActivity(inAuthoritativeGroup: false))
+        #expect(row(.poll).countsAsReadActivity(inAuthoritativeGroup: false))
+        #expect(row(.groupSystem, systemType: "member_left").countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(row(.groupSystem, systemType: "admin_removed").countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(!row(.groupSystem, systemType: "member_added").countsAsReadActivity(inAuthoritativeGroup: false))
+        #expect(!row(.groupSystem, systemType: "group_renamed").countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(!row(.groupSystem).countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(!row(.agentActivity).countsAsReadActivity(inAuthoritativeGroup: true))
     }
 
     @MainActor

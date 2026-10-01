@@ -393,6 +393,26 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(chat.updatedAt == Date(timeIntervalSince1970: TimeInterval(lastMessageAt)))
     }
 
+    /// Membership rows count as unread activity only in a chat MarmotKit classifies as `.group`.
+    /// An unnamed chat the other person left is reclassified `.group` while the app still
+    /// remembers that peer and calls it direct, so the read marker must follow MarmotKit's kind,
+    /// not `isDirect`, or the `member_left` row stays unread for good.
+    @MainActor
+    @Test func authoritativeGroupFollowsMarmotKitsKindNotTheRememberedPeer() {
+        let peer = ChatPeerProfile(accountIdHex: String(repeating: "b", count: 64), displayName: "Bob", pictureURL: nil)
+        var row = chatListRow(groupIdHex: "left-chat", title: "", preview: "Bob left", sender: "", timelineAt: 1)
+
+        row.conversationKind = .group
+        let departed = ChatItem(row: row, activeAccountIdHex: "self", directPeer: peer)
+        #expect(departed.isDirect)
+        #expect(departed.isAuthoritativeGroup)
+
+        row.conversationKind = .direct
+        #expect(!ChatItem(row: row, activeAccountIdHex: "self", directPeer: peer).isAuthoritativeGroup)
+        row.conversationKind = .unknown
+        #expect(!ChatItem(row: row, activeAccountIdHex: "self").isAuthoritativeGroup)
+    }
+
     @MainActor
     @Test func pendingInviteChatRowKeepsConversationSubtitle() async throws {
         let row = ChatListRowFfi(
