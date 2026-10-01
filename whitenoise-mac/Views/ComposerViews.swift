@@ -20,6 +20,30 @@ struct ComposerEmojiInsertion: Equatable {
     let emoji: String
 }
 
+/// Lets a transcript control (the Reply action) hand keyboard focus to the composer. One per
+/// conversation, held in `ConversationView` state and passed down through the environment:
+/// rows only call `request()` and never read `requestID`, so a request re-renders the composer
+/// alone, not the transcript.
+@Observable
+final class ComposerFocusRequester {
+    private(set) var requestID: UUID?
+
+    func request() {
+        requestID = UUID()
+    }
+}
+
+private struct ComposerFocusRequesterKey: EnvironmentKey {
+    static let defaultValue = ComposerFocusRequester()
+}
+
+extension EnvironmentValues {
+    var composerFocusRequester: ComposerFocusRequester {
+        get { self[ComposerFocusRequesterKey.self] }
+        set { self[ComposerFocusRequesterKey.self] = newValue }
+    }
+}
+
 /// An open "@query" left of the caret, published by the text view so the shell can show the
 /// mention picker. `tokenRange` is the "@…caret" span to replace when a candidate is chosen.
 struct ComposerMentionContext: Equatable {
@@ -64,6 +88,7 @@ struct ComposerMessageInputView: View {
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
+    var focusRequestID: UUID?
 
     @State private var measuredHeight = ComposerMessageInputMetrics.minHeight
 
@@ -80,7 +105,8 @@ struct ComposerMessageInputView: View {
                 mentionContextScope: mentionContextScope,
                 onMentionContextChange: onMentionContextChange,
                 onPasteMedia: onPasteMedia,
-                onSend: onSend
+                onSend: onSend,
+                focusRequestID: focusRequestID
             )
             .frame(height: measuredHeight)
 
@@ -215,6 +241,8 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
+    /// A new value moves keyboard focus into the text view, caret at the end of the draft.
+    var focusRequestID: UUID?
 
     /// The rung the composer is set at.
     static let typingStyle = WNTextStyle.medium14
@@ -303,6 +331,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             in: textView
         )
         context.coordinator.scheduleEmojiInsertion(emojiInsertion, into: textView)
+        context.coordinator.scheduleFocus(focusRequestID, in: textView)
         DispatchQueue.main.async {
             context.coordinator.updateMeasuredHeight(for: textView)
         }
@@ -329,6 +358,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         var onMentionInsertionConsumed: (UUID) -> Void
         var onMentionContextChange: (ComposerMentionContext?) -> Void
         private var lastEmojiInsertionID: UUID?
+        private var lastFocusRequestID: UUID?
         private var lastMentionInsertionID: UUID?
         private var lastMentionContext: ComposerMentionContext?
         private var mentionSynchronizationGeneration: UInt64 = 0
@@ -365,6 +395,18 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
                 updateMeasuredHeight(for: textView)
                 textView.window?.makeFirstResponder(textView)
                 onEmojiInsertionConsumed(insertion.id)
+            }
+        }
+
+        func scheduleFocus(_ requestID: UUID?, in textView: NSTextView) {
+            guard let requestID, requestID != lastFocusRequestID else { return }
+            lastFocusRequestID = requestID
+            // Deferred past the update pass: the text view may not be in a window yet when the
+            // composer is rebuilt by the same change that asked for focus.
+            DispatchQueue.main.async {
+                guard let window = textView.window, window.makeFirstResponder(textView) else { return }
+                let end = (textView.string as NSString).length
+                textView.setSelectedRange(NSRange(location: end, length: 0))
             }
         }
 

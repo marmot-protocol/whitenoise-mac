@@ -1325,6 +1325,65 @@ struct PureValueTests {
         #expect(consumedInsertions == [insertion.id])
     }
 
+    @MainActor
+    @Test func composerFocusRequestMakesTextViewFirstResponderWithCaretAtEnd() async {
+        var boundText = "draft"
+        var measuredHeight: CGFloat = 0
+        var boundSelections: [ComposerMentionSelection] = []
+        let coordinator = ComposerMessageTextViewRepresentable.Coordinator(
+            text: Binding(get: { boundText }, set: { boundText = $0 }),
+            measuredHeight: Binding(get: { measuredHeight }, set: { measuredHeight = $0 }),
+            mentionSelections: Binding(get: { boundSelections }, set: { boundSelections = $0 }),
+            mentionContextScope: nil,
+            onPasteMedia: { _ in },
+            onSend: {}
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let other = NSTextField()
+        let textView = NSTextView()
+        textView.string = boundText
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        let container = NSView()
+        container.addSubview(other)
+        container.addSubview(textView)
+        window.contentView = container
+        defer { window.orderOut(nil) }
+        window.makeFirstResponder(other)
+
+        func drainMainQueue() async {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+
+        // No request yet: focus stays where it is.
+        coordinator.scheduleFocus(nil, in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder !== textView)
+
+        let requestID = UUID()
+        coordinator.scheduleFocus(requestID, in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder === textView)
+        #expect(textView.selectedRange() == NSRange(location: 5, length: 0))
+
+        // The same request is applied once; a later view update must not steal focus back.
+        window.makeFirstResponder(other)
+        coordinator.scheduleFocus(requestID, in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder !== textView)
+
+        // A fresh request (Reply clicked again) focuses again.
+        coordinator.scheduleFocus(UUID(), in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder === textView)
+    }
+
     @Test func composerReturnKeyPolicySendsPlainReturnOnly() async throws {
         #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: NSEvent.ModifierFlags()) == .send)
         #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: .shift) == .insertLineBreak)
