@@ -597,6 +597,65 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func reselectingTheOpenGroupFromTheSidebarClosesASenderProfile() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(groupChat)
+        let message = MessageItem(
+            id: "m1",
+            groupIdHex: "group",
+            senderAccountIdHex: aliceIdHex,
+            senderName: "Alice",
+            body: "Hello",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineAt: 1_700_000_000,
+            isOutgoing: false
+        )
+        await state.showContactDetails(for: message)
+        #expect(state.contactDetailsTarget?.accountIdHex == aliceIdHex)
+
+        // The selection does not change, so the shell's `onChange(of: chat.id)` teardown never
+        // fires; clicking the group's own row must still return to its transcript.
+        state.selectChat(groupChat)
+        #expect(state.selection == .chat("group"))
+        #expect(state.contactDetailsTarget == nil)
+        #expect(!state.isGroupDetailsPresented)
+    }
+
+    @MainActor
+    @Test func reselectingTheOpenGroupFromTheSidebarClosesAMemberProfileAndChatInfo() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(groupChat)
+        await state.showGroupDetails(for: groupChat)
+        let alice = try #require(state.groupDetailsSnapshot?.members.first { $0.id == aliceIdHex })
+        await state.showContactDetails(for: alice)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.contactDetailsTarget != nil)
+
+        state.selectChat(groupChat)
+        #expect(state.selection == .chat("group"))
+        #expect(state.contactDetailsTarget == nil)
+        #expect(!state.isGroupDetailsPresented)
+    }
+
+    @MainActor
     @Test func followToggleTracksTheReturnedListRatherThanTheRequestedMutation() async throws {
         let account = desktopAccount()
         let aliceHex = String(repeating: "a", count: 64)

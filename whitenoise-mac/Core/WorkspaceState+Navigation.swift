@@ -39,6 +39,14 @@ extension WorkspaceState {
         }
         cancelTimelineLoad()
         clearEnteredLoginIdentity()
+        // Selecting a chat lands on its transcript. The shell only drops the profile and
+        // chat-info panes when `chat.id` changes, so re-selecting the open chat from the sidebar
+        // would otherwise leave a sender's profile covering the conversation the user asked for.
+        if isGroupDetailsPresented {
+            closeGroupDetails()
+        } else {
+            closeContactDetails()
+        }
         selection = .chat(chat.id)
         closeNewChatComposer()
         pruneMessageCache(keeping: chat.id)
