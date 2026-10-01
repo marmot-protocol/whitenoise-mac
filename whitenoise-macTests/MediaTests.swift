@@ -5275,8 +5275,9 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @Test func videoPlayerReclaimsScratchFileWhenTileLeavesViewport() throws {
-        // MessageVideoAttachmentPlayer lives inside the deliberately eager transcript VStack,
-        // where scrolling a row away does not trigger onDisappear. Its scroll-visibility hook
+        // MessageVideoAttachmentPlayer can stay hosted while its row scrolls away, which does not
+        // trigger onDisappear. Its visibility hook (the table cell's, or SwiftUI's scroll
+        // visibility outside the transcript)
         // must cancel any in-flight materialization and run the same teardown that removes the
         // decrypted playback scratch file.
         let playerSource = try SourceContract.declaration("MessageVideoAttachmentPlayer")
@@ -5285,7 +5286,7 @@ struct MediaTests: WorkspaceTestSupport {
 
         #expect(
             normalizedSource.contains(
-                ".onScrollVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}tearDownPlayback()}"
+                ".onTranscriptVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}tearDownPlayback()}"
             )
         )
         #expect(
@@ -5297,8 +5298,9 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @Test func audioPlayerStopsWhenTileLeavesViewport() throws {
-        // MessageAudioAttachmentPlayer lives inside the deliberately eager transcript VStack,
-        // where scrolling a row away does not trigger onDisappear. Its scroll-visibility hook
+        // MessageAudioAttachmentPlayer can stay hosted while its row scrolls away, which does not
+        // trigger onDisappear. Its visibility hook (the table cell's, or SwiftUI's scroll
+        // visibility outside the transcript)
         // must stop playback and cancel the progress monitor through the same stopPlayback path.
         let playerSource = try SourceContract.declaration("MessageAudioAttachmentPlayer")
 
@@ -5306,7 +5308,7 @@ struct MediaTests: WorkspaceTestSupport {
 
         #expect(
             normalizedSource.contains(
-                ".onScrollVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}stopPlayback()}"
+                ".onTranscriptVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}stopPlayback()}"
             )
         )
         #expect(

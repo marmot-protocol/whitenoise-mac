@@ -992,10 +992,9 @@ struct ProjectionMigrationTests {
         second.stop()
     }
 
-    /// `.automatic` anchors on the first unread row and detaches the window from the tail, and
-    /// the transcript pins to the bottom of whatever window it gets — so a long unread chat
-    /// opened far above its newest message. Selecting a chat must open at the live edge.
-    @Test func selectedConversationOpensAtTheLatestMessage() async {
+    /// Selecting a chat opens it in `.automatic`, so MarmotKit can anchor it on the first unread
+    /// row; the transcript positions that open under the "New messages" divider.
+    @Test func selectedConversationOpensAutomatically() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(sequence: 1, title: "Group")
         let scope = AccountScope(account: AccountItem.samples[0], runtime: runtime)
@@ -1004,8 +1003,182 @@ struct ProjectionMigrationTests {
         let didInstall = await waitFor { conversation.snapshot != nil }
 
         #expect(didInstall)
-        #expect(runtime.openedConversationWindowModes["group"] == [.latest])
+        #expect(runtime.openedConversationWindowModes["group"] == [.automatic])
         conversation.stop()
+    }
+
+    /// The divider comes from the open's first snapshot and stays put: later replacements carry
+    /// an advanced read state, and moving the divider with it would slide it under the reader.
+    @Test func unreadDividerIsCapturedFromTheFirstUnreadOpenAndThenFrozen() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 3,
+            firstUnreadMessageIdHex: "first-unread"
+        )
+        runtime.conversationWindowUpdates["group"] = [Self.conversationSnapshot(sequence: 2, title: "Group")]
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        var observed: [UInt64] = []
+        await model.setSnapshotObserver { observed.append($0.revision.sequence) }
+
+        model.start()
+        let didReceiveUpdate = await waitFor { model.snapshot?.revision.sequence == 2 }
+
+        #expect(didReceiveUpdate)
+        #expect(model.unreadDivider == ConversationUnreadDivider(messageIdHex: "first-unread", unreadCount: 3))
+        #expect(model.hasPresentedWindow)
+        #expect(observed == [1, 2])
+        model.stop()
+    }
+
+    /// A background replacement can supersede the revision a page quotes while the visible-anchor
+    /// command is in flight. A stale reply is retried once from the current snapshot rather than
+    /// left on `error`, which no view reads, with the reader stuck at the edge.
+    @Test func pageRetriesOnceFromTheCurrentRevisionAfterAStaleReply() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            hasMoreAfter: true
+        )
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+        window.stalePagesRemaining = 1
+
+        await model.page(.newer, visibleAnchorMessageIdHex: "on-screen")
+
+        #expect(window.commands == ["anchor:on-screen", "page:newer", "anchor:on-screen", "page:newer"])
+        #expect(model.error == nil)
+        model.stop()
+    }
+
+    /// A return to the latest that loses a race with a background replacement is retried once,
+    /// as a page is; otherwise the window stays detached and later arrivals never show.
+    @Test func returnToLatestRetriesOnceAfterAStaleReply() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 2,
+            firstUnreadMessageIdHex: "first-unread"
+        )
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+        window.staleReturnsRemaining = 1
+        window.latestSnapshot = Self.conversationSnapshot(sequence: 2, title: "Group", anchorKind: .latest)
+
+        await model.returnToLatest()
+
+        #expect(window.commands == ["latest", "latest"])
+        #expect(model.isFollowingTail)
+        #expect(model.error == nil)
+        #expect(!model.isPaging)
+        model.stop()
+    }
+
+    /// A page whose revision went stale because the reader returned to the latest meanwhile must
+    /// not retry: paging the re-attached window would detach it from the tail again.
+    @Test func aStalePageDoesNotRetryOverAReturnToLatest() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 2,
+            firstUnreadMessageIdHex: "first-unread",
+            hasMoreAfter: true
+        )
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+        window.latestSnapshot = Self.conversationSnapshot(sequence: 2, title: "Group", anchorKind: .latest)
+        window.stalePagesRemaining = 1
+        window.beforeStalePage = { await model.returnToLatest() }
+
+        await model.page(.newer)
+
+        #expect(window.commands == ["page:newer", "latest"])
+        #expect(model.isFollowingTail)
+        #expect(model.error == nil)
+        model.stop()
+    }
+
+    /// An unread open retains its anchor; only a latest-anchored window follows the tail.
+    @Test func onlyALatestAnchoredWindowFollowsTheTail() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["unread"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Unread",
+            unreadCount: 2,
+            firstUnreadMessageIdHex: "first-unread"
+        )
+        runtime.conversationWindowInitialSnapshots["latest"] = Self.conversationSnapshot(sequence: 1, title: "Latest")
+        let unread = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "unread", runtime: runtime)
+        let latest = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "latest", runtime: runtime)
+
+        unread.start()
+        latest.start()
+        let didInstall = await waitFor { unread.snapshot != nil && latest.snapshot != nil }
+
+        #expect(didInstall)
+        #expect(!unread.isFollowingTail)
+        #expect(latest.isFollowingTail)
+        unread.stop()
+        latest.stop()
+    }
+
+    @Test func conversationOpenedAtTheLatestRowHasNoUnreadDivider() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 3,
+            firstUnreadMessageIdHex: "first-unread",
+            anchorKind: .latest
+        )
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+
+        model.start()
+        let didInstall = await waitFor { model.snapshot != nil }
+
+        #expect(didInstall)
+        #expect(model.unreadDivider == nil)
+        model.stop()
+    }
+
+    /// MarmotKit keeps a capped window around the reported visible row and stops advancing a page
+    /// without one, so a page reports the reader's visible message first when the transcript
+    /// supplies it.
+    @Test func pageReportsTheVisibleAnchorBeforePaging() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            hasMoreAfter: true
+        )
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+
+        await model.page(.newer, visibleAnchorMessageIdHex: "on-screen")
+        await model.page(.newer)
+
+        #expect(window.commands == ["anchor:on-screen", "page:newer", "page:newer"])
+        model.stop()
     }
 
     @Test func cancelledAccountScopeRejectsLateConversationAndAttachmentSnapshots() async throws {
@@ -1532,7 +1705,10 @@ struct ProjectionMigrationTests {
     static func conversationSnapshot(
         sequence: UInt64,
         title: String,
-        unreadCount: UInt64 = 0
+        unreadCount: UInt64 = 0,
+        firstUnreadMessageIdHex: String? = nil,
+        anchorKind: ConversationAnchorKindFfi? = nil,
+        hasMoreAfter: Bool = false
     ) -> ConversationWindowSnapshotFfi {
         let presentation = ConversationPresentationFfi(
             title: .literal(text: title),
@@ -1575,16 +1751,19 @@ struct ProjectionMigrationTests {
                 manuallyMarkedUnread: false,
                 unreadCount: unreadCount,
                 unreadMentionCount: 0,
-                firstUnreadMessageIdHex: nil
+                firstUnreadMessageIdHex: firstUnreadMessageIdHex
             ),
             draft: SelectedMessageDraftFfi(
                 revision: MessageDraftRevisionFfi(noPointer: .init()),
                 draft: nil
             ),
             pendingConfirmation: false,
-            anchor: ConversationAnchorOutcomeFfi(kind: .latest, index: nil),
+            anchor: ConversationAnchorOutcomeFfi(
+                kind: anchorKind ?? (firstUnreadMessageIdHex == nil ? .latest : .firstUnread),
+                index: nil
+            ),
             hasMoreBefore: false,
-            hasMoreAfter: false
+            hasMoreAfter: hasMoreAfter
         )
     }
 

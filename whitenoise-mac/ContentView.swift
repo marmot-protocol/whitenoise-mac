@@ -105,7 +105,7 @@ struct ContentView: View {
                 // while it was in the background so the selected chat clears its unread
                 // state now that the user may be looking at it again.
                 Task {
-                    await workspace.handleConversationVisibilityChange()
+                    await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
                     workspace.recordForegroundLocalReady(since: foregroundStartedAt)
                     await workspace.refreshAccountProfiles()
                 }
@@ -122,7 +122,9 @@ struct ContentView: View {
                     for: NSWindow.didBecomeKeyNotification
                 )
             ) { _ in
-                Task { await workspace.handleConversationVisibilityChange() }
+                Task {
+                    await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
+                }
             }
             .sheet(isPresented: $workspace.isGlobalMessageSearchPresented) {
                 GlobalMessageSearchView()
@@ -144,8 +146,16 @@ struct ContentView: View {
                     for: NSWindow.didDeminiaturizeNotification
                 )
             ) { _ in
-                Task { await workspace.handleConversationVisibilityChange() }
+                Task {
+                    await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
+                }
             }
+    }
+
+    /// The open transcript's on-screen messages, so regaining focus marks only what the user can
+    /// see. Nil without a projected conversation, which keeps the legacy path marking the latest.
+    private var visibleConversationMessageIds: Set<String>? {
+        session.accountScope?.selectedConversationModel?.readableMessageIds
     }
 
     private func applyAppearance(_ preference: AppearancePreference) {

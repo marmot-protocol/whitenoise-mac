@@ -794,7 +794,7 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
                 content
                     // A tiny non-zero threshold means eager, non-lazy transcript rows do not
                     // auto-download until at least part of the tile intersects the ScrollView.
-                    .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+                    .onTranscriptVisibilityChange(threshold: 0.01) { isVisible in
                         isVisibleInScrollView = isVisible
                         if isVisible {
                             startAutomaticDownloadIfNeeded()
@@ -1538,7 +1538,7 @@ struct MessageAudioAttachmentPlayer: View {
         // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
         // does not trigger onDisappear. Stop playback here as well so the AVAudioPlayer and
         // progress monitor do not keep running offscreen.
-        .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+        .onTranscriptVisibilityChange(threshold: 0.01) { isVisible in
             guard !isVisible else { return }
             stopPlayback()
         }
@@ -1732,7 +1732,7 @@ struct MessageVideoAttachmentPlayer: View {
         // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
         // does not trigger onDisappear. Tear down here as well to release the player and delete
         // its decrypted playback scratch file as soon as the tile is no longer visible.
-        .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+        .onTranscriptVisibilityChange(threshold: 0.01) { isVisible in
             guard !isVisible else { return }
             tearDownPlayback()
         }

@@ -768,6 +768,9 @@ final class WorkspaceState {
     /// A→B→A re-entry or after a newer notification load/toggle for the same account.
     var notificationSettingsGeneration: UInt64 = 0
     var timelineTask: Task<Void, Never>?
+    /// The group whose live timeline owner is running. Set with `timelineTask` by the legacy
+    /// listener, or alone (no `timelineTask`) by the conversation-projection host, which owns the
+    /// selected chat's window from then on: legacy loads and search paging stand down for it.
     var timelineTaskGroupId: String?
     /// Single-owner coalescing for initial timeline loads (issue #332). `loadMessages` can be
     /// reached from overlapping unstructured navigation tasks; concurrent requests for the same

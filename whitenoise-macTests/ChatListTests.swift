@@ -1711,6 +1711,33 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(runtime.lastTimelineSubscription?.paginateBackwardsCount ?? 0 > 12)
     }
 
+    /// A chat the conversation projection owns has no legacy subscription to page back through.
+    /// Opening a search result in it must still navigate, leaving the transcript to reach the
+    /// target with a MarmotKit jump, rather than report the message unavailable.
+    @MainActor
+    @Test func globalMessageSearchNavigatesInsideAProjectionOwnedChat() async throws {
+        let state = WorkspaceState.preview()
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        state.client = runtime
+        let targetChat = try #require(state.activeChats.last)
+        state.selectChat(targetChat)
+        state.timelineTaskGroupId = targetChat.id
+        let result = GlobalMessageSearchResult(
+            messageId: String(repeating: "f", count: 64),
+            groupId: targetChat.id,
+            chatTitle: targetChat.title,
+            senderName: "Desktop Account",
+            timelineAt: 1,
+            snippet: GlobalMessageSearchSnippet(leading: "", match: "message", trailing: "")
+        )
+
+        await state.openGlobalMessageSearchResult(result)
+
+        #expect(state.lastError == nil)
+        #expect(state.pendingMessageNavigation?.messageId == result.messageId)
+        #expect(runtime.lastTimelineSubscription == nil)
+    }
+
     @MainActor
     @Test func globalMessageSearchInvalidatesResultsWhenAVisibleChatIsDeleted() throws {
         let state = WorkspaceState.preview()

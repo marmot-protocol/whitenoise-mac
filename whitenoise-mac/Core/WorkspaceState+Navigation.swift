@@ -31,7 +31,12 @@ extension WorkspaceState {
 
     func selectChat(_ chat: ChatItem) {
         leaveActiveConversation()
-        stopTimelineListener()
+        // Re-selecting the chat the conversation projection already owns keeps its claim: the
+        // host only claims when the selection changes, and without the claim the load below
+        // would replace the projection's window with the latest page and mark it read.
+        if !(timelineTaskGroupId == chat.id && timelineTask == nil) {
+            stopTimelineListener()
+        }
         cancelTimelineLoad()
         clearEnteredLoginIdentity()
         selection = .chat(chat.id)

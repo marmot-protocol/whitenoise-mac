@@ -2631,6 +2631,139 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.markedReadMessageIds.last == "member-added")
     }
 
+    /// Any part of a row on screen makes it visible, so the bottom-most visible message may be only
+    /// partly read (a tall message, or the next one peeking in). It counts once the reader reaches
+    /// the foot; until then the rows above it do.
+    @Test func readableMessagesLeaveOutTheRowStillComingIntoView() {
+        let window = ["a", "b", "c", "d"]
+
+        #expect(
+            timelineReadableMessageIds(visibleMessageIds: ["b", "c"], messageIDs: window, isAtBottom: false)
+                == ["b"])
+        #expect(
+            timelineReadableMessageIds(visibleMessageIds: ["c", "d"], messageIDs: window, isAtBottom: true)
+                == ["c", "d"])
+        // A single message taller than the viewport is read once its end is reached.
+        #expect(timelineReadableMessageIds(visibleMessageIds: ["d"], messageIDs: window, isAtBottom: false).isEmpty)
+        #expect(timelineReadableMessageIds(visibleMessageIds: ["d"], messageIDs: window, isAtBottom: true) == ["d"])
+    }
+
+    /// At the foot: load newer while the window ends before the newest message; re-attach a
+    /// window that ends at it but retains an anchor, so arrivals keep coming in.
+    @Test func reachingTheFootReattachesARetainedWindow() {
+        #expect(timelineFootAction(isAtBottom: false, hasMoreAfter: true, isFollowingTail: false) == .none)
+        #expect(timelineFootAction(isAtBottom: true, hasMoreAfter: true, isFollowingTail: false) == .loadNewer)
+        #expect(timelineFootAction(isAtBottom: true, hasMoreAfter: false, isFollowingTail: false) == .returnToLatest)
+        #expect(timelineFootAction(isAtBottom: true, hasMoreAfter: false, isFollowingTail: true) == .none)
+    }
+
+    /// Editing or retrying a message refreshed the latest page into the transcript and marked it
+    /// read. In a projection-owned chat the edit arrives with the conversation snapshot instead.
+    @MainActor
+    @Test func postSendRefreshStandsDownForAProjectionOwnedChat() async throws {
+        let (state, runtime, account) = try await Self.loadedGroupForReadMarking()
+        let alice = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "chat", groupIdHex: "group", sender: alice, plaintext: "Welcome", kind: 9,
+                    recordedAt: 1_700_000_000),
+                appMessage(
+                    id: "unread", groupIdHex: "group", sender: alice, plaintext: "Unread", kind: 9,
+                    recordedAt: 1_700_000_005),
+            ], groupIdHex: "group")
+        let markedBefore = runtime.markedReadMessageIds
+        state.cancelTimelineLoad()
+        state.stopTimelineListener()
+        state.timelineTaskGroupId = "group"
+
+        await state.refreshSelectedTimelineAfterSend(groupIdHex: "group", account: account, client: runtime)
+
+        #expect(runtime.markedReadMessageIds == markedBefore)
+        #expect(!state.selectedTimelineContainsMessage("unread"))
+    }
+
+    /// Clicking the chat that is already open must keep the projection's claim: the host only
+    /// claims on a selection change, so losing it here let a legacy load mark the window read.
+    @MainActor
+    @Test func reselectingAProjectionOwnedChatKeepsItsClaim() async throws {
+        let (state, _, _) = try await Self.loadedGroupForReadMarking()
+        let chat = try #require(state.selectedChat)
+        state.cancelTimelineLoad()
+        state.stopTimelineListener()
+        state.timelineTaskGroupId = chat.id
+
+        state.selectChat(chat)
+
+        #expect(state.timelineTaskGroupId == chat.id)
+        #expect(state.timelineTask == nil)
+    }
+
+    /// The conversation projection marks read from what is on screen, not from what is loaded: a
+    /// window opened at the first unread row holds every unread message below the divider, and
+    /// loading them must not clear them. Only the visible messages are candidates.
+    @MainActor
+    @Test func readMarkerReachesOnlyTheVisibleMessages() async throws {
+        let (state, runtime, account) = try await Self.loadedGroupForReadMarking()
+        let alice = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let markedBefore = runtime.markedReadMessageIds
+
+        await state.applyTimelineWindow(
+            TimelinePageFfi(
+                messages: Self.chatThenMembershipThenRename(sender: alice),
+                hasMoreBefore: false,
+                hasMoreAfter: true
+            ),
+            groupIdHex: "group",
+            account: account,
+            client: runtime,
+            owner: nil,
+            marksLatestRowRead: false
+        )
+        #expect(runtime.markedReadMessageIds == markedBefore)
+
+        await state.handleConversationVisibilityChange(visibleMessageIds: [])
+        #expect(runtime.markedReadMessageIds == markedBefore)
+
+        await state.markLatestVisibleMessageRead(
+            groupIdHex: "group",
+            account: account,
+            client: runtime,
+            within: ["chat", "member-added", "renamed"]
+        )
+        #expect(runtime.markedReadMessageIds.last == "member-added")
+    }
+
+    /// Once the conversation projection claims the selected chat, a legacy load from any entry
+    /// point (sidebar selection, search, notifications) must stand down: it would replace the
+    /// unread-anchored window with the latest page and mark that read before the divider showed.
+    @MainActor
+    @Test func legacyLoadStandsDownForAProjectionOwnedChat() async throws {
+        let (state, runtime, _) = try await Self.loadedGroupForReadMarking()
+        let alice = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "chat", groupIdHex: "group", sender: alice, plaintext: "Welcome", kind: 9,
+                    recordedAt: 1_700_000_000),
+                appMessage(
+                    id: "unread", groupIdHex: "group", sender: alice, plaintext: "Unread", kind: 9,
+                    recordedAt: 1_700_000_005),
+            ], groupIdHex: "group")
+        let markedBefore = runtime.markedReadMessageIds
+        // What the projection host does on selection.
+        state.cancelTimelineLoad()
+        state.stopTimelineListener()
+        state.timelineTaskGroupId = "group"
+
+        await state.loadMessages(groupIdHex: "group")
+
+        #expect(runtime.markedReadMessageIds == markedBefore)
+        #expect(!state.selectedTimelineContainsMessage("unread"))
+        #expect(state.timelineTask == nil)
+        #expect(state.timelineTaskGroupId == "group")
+    }
+
     /// Mirrors MarmotKit's activity rule: chat and polls always, membership and admin changes only
     /// in a chat MarmotKit classifies as a group, nothing else.
     @Test func readActivityMatchesMarmotKitUnreadRows() {
@@ -4150,126 +4283,34 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-error-000")
     }
 
-    @Test func newerTimelinePagingRestoresAnchorInsteadOfScrollingToBottom() {
-        let historicalPaging = TimelinePagingState(
-            hasMoreBefore: true,
-            hasMoreAfter: true,
-            isLoadingBefore: false,
-            isLoadingAfter: false
-        )
-        let liveEdgePaging = TimelinePagingState(
-            hasMoreBefore: true,
-            hasMoreAfter: false,
-            isLoadingBefore: false,
-            isLoadingAfter: false
-        )
+    /// History loads from which messages are on screen: older when a visible message is near the
+    /// window's first row, newer near its last, older first when both are due, and the top
+    /// visible message is always the anchor reported to MarmotKit. Nothing loads mid-window.
+    @Test func pageRequestFollowsTheVisibleMessages() {
+        let window = (0..<100).map { "m\($0)" }
+        func request(_ visible: [Int], before: Bool = true, after: Bool = true) -> TimelinePageRequest? {
+            timelinePageRequest(
+                visibleMessageIds: Set(visible.map { "m\($0)" }),
+                messageIDs: window,
+                hasMoreBefore: before,
+                hasMoreAfter: after
+            )
+        }
 
+        #expect(request([40, 41, 42]) == nil)
+        #expect(request([5, 6, 7]) == TimelinePageRequest(direction: .older, visibleAnchorMessageId: "m5"))
+        #expect(request([90, 91, 92]) == TimelinePageRequest(direction: .newer, visibleAnchorMessageId: "m90"))
+        #expect(request([90, 91, 92], after: false) == nil)
+        #expect(request([5, 6, 7], before: false) == nil)
+        // A short window can be near both edges at once; older goes first.
         #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-150", "message-249", "message-349"],
-                newMessageIsOutgoing: false,
-                paging: historicalPaging,
-                pendingPrependAnchorId: nil,
-                pendingAppendAnchorId: "message-249",
-                newMessageId: "message-349",
-                isPinnedToBottom: false
-            ) == .restorePendingAppendAnchor("message-249"))
-        #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-350", "message-449"],
-                newMessageIsOutgoing: false,
-                paging: historicalPaging,
-                pendingPrependAnchorId: nil,
-                pendingAppendAnchorId: "message-249",
-                newMessageId: "message-449",
-                isPinnedToBottom: false
-            ) == .clearPendingAppendAnchor)
-        #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-350", "message-449"],
-                newMessageIsOutgoing: false,
-                paging: historicalPaging,
-                pendingPrependAnchorId: nil,
-                pendingAppendAnchorId: nil,
-                newMessageId: "message-449",
-                isPinnedToBottom: true
-            ) == .none)
-        #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-350", "message-449"],
-                newMessageIsOutgoing: false,
-                paging: liveEdgePaging,
-                pendingPrependAnchorId: nil,
-                pendingAppendAnchorId: nil,
-                newMessageId: "message-449",
-                isPinnedToBottom: true
-            ) == .scrollToBottom)
-    }
-
-    @Test func newestMessageAutoScrollUsesBottomProximityNotOlderHistoryAvailability() {
-        let longLiveEdgePaging = TimelinePagingState(
-            hasMoreBefore: true,
-            hasMoreAfter: false,
-            isLoadingBefore: false,
-            isLoadingAfter: false
-        )
-        let detachedHistoryPaging = TimelinePagingState(
-            hasMoreBefore: true,
-            hasMoreAfter: true,
-            isLoadingBefore: false,
-            isLoadingAfter: false
-        )
-
-        #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
-                newMessageIsOutgoing: false,
-                paging: longLiveEdgePaging,
-                pendingPrependAnchorId: nil,
-                pendingAppendAnchorId: nil,
-                newMessageId: "message-101",
-                isPinnedToBottom: true
-            ) == .scrollToBottom)
-        #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
-                newMessageIsOutgoing: false,
-                paging: longLiveEdgePaging,
-                pendingPrependAnchorId: nil,
-                pendingAppendAnchorId: nil,
-                newMessageId: "message-101",
-                isPinnedToBottom: false
-            ) == .none)
-        #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
-                newMessageIsOutgoing: true,
-                paging: longLiveEdgePaging,
-                pendingPrependAnchorId: nil,
-                pendingAppendAnchorId: nil,
-                newMessageId: "message-101",
-                isPinnedToBottom: false
-            ) == .scrollToBottom)
-        #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
-                newMessageIsOutgoing: false,
-                paging: detachedHistoryPaging,
-                pendingPrependAnchorId: nil,
-                pendingAppendAnchorId: nil,
-                newMessageId: "message-101",
-                isPinnedToBottom: true
-            ) == .none)
-        #expect(
-            timelineNewestMessageScrollAction(
-                messageIDs: ["message-001", "message-101"],
-                newMessageIsOutgoing: false,
-                paging: longLiveEdgePaging,
-                pendingPrependAnchorId: "message-000",
-                pendingAppendAnchorId: nil,
-                newMessageId: "message-101",
-                isPinnedToBottom: true
-            ) == .none)
+            timelinePageRequest(
+                visibleMessageIds: ["a", "b", "c"],
+                messageIDs: ["a", "b", "c"],
+                hasMoreBefore: true,
+                hasMoreAfter: true
+            ) == TimelinePageRequest(direction: .older, visibleAnchorMessageId: "a"))
+        #expect(request([]) == nil)
     }
 
     @MainActor
