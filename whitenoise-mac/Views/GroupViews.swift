@@ -2,11 +2,11 @@
 //  GroupViews.swift
 //  whitenoise-mac
 //
-//  Group management UI: member rows, diagnostics rows, the contact details pane, and the
-//  group-image picker/results. The group details pane itself lives in `GroupDetails/`.
+//  Group management UI: member rows, diagnostics rows, the follow control, and the
+//  group-image picker/results. Group info lives in `GroupDetails/`, a contact's profile in
+//  `ContactDetails/`.
 //
 
-import AppKit
 import MarmotKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -164,146 +164,6 @@ struct GroupMemberRow: View {
                     format: L10n.string("This removes %@ from the group."),
                     PeerDisplayText.templateFragment(member.displayName)))
         }
-    }
-}
-
-struct ContactDetailsView: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let contact: NewChatRecipient
-    let blockedUsersModel: BlockedUsersViewModel
-
-    private var isLocalProfile: Bool {
-        workspace.accounts.contains {
-            $0.accountIdHex.lowercased() == contact.accountIdHex.lowercased()
-        }
-    }
-
-    private var isBlocked: Bool {
-        blockedUsersModel.isBlocked(accountID: contact.accountIdHex)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                // Leading back control, matching GroupDetailsSheet: both panes slide in
-                // over the transcript and return to it.
-                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back", appearance: .outline) {
-                    workspace.closeContactDetails()
-                }
-
-                ProfileImageAvatarView(
-                    seed: contact.accountIdHex,
-                    initials: contact.title,
-                    sanitizedPictureURL: contact.sanitizedPictureURL,
-                    size: 48,
-                    isSelected: false
-                )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(contact.title)
-                        .wnFont(.semiBold16)
-                        .lineLimit(1)
-                    Text(isLocalProfile ? L10n.string("You") : L10n.string("Contact"))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
-                }
-
-                Spacer()
-
-                if workspace.isLoadingContactDetails {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-            .padding(20)
-
-            GlassSeparator(axis: .horizontal)
-
-            // Follow and Message lead the profile, above every detail row, so neither can be
-            // missed. `isSelf` only covers the active account; the follow control hides itself
-            // for any other identity signed in on this device.
-            if !isLocalProfile {
-                if isBlocked {
-                    BlockedContactNotice()
-                } else {
-                    ContactProfileActionsRow(contact: contact)
-                }
-
-                GlassSeparator(axis: .horizontal)
-            }
-
-            Form {
-                Section(L10n.string("Contact")) {
-                    ContactNicknameRow(
-                        accountIdHex: contact.accountIdHex,
-                        publishedName: contact.publishedDisplayName
-                    )
-
-                    LabeledContent(L10n.string("Public key")) {
-                        Text(contact.npub.isEmpty ? contact.accountIdHex : contact.npub)
-                            .font(.callout.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
-
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(
-                            contact.npub.isEmpty ? contact.accountIdHex : contact.npub,
-                            forType: .string
-                        )
-                    } label: {
-                        Label(L10n.string("Copy Public Key"), systemImage: "doc.on.doc")
-                    }
-                    .buttonStyle(.wnSecondary)
-
-                    SettingsErrorView(error: workspace.lastError)
-                }
-
-                GroupsInCommonSection()
-
-                if !isLocalProfile {
-                    ContactBlockingSection(
-                        model: blockedUsersModel,
-                        accountID: contact.accountIdHex
-                    )
-                }
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-        }
-    }
-}
-
-/// Follow and Message, side by side directly under the profile header.
-///
-/// Both sibling clients lead a profile with these two: iOS puts them in equal-width buttons
-/// above the detail rows, and the Flutter app stacks Follow first in its action column. This
-/// app used to keep Follow inside a form row beside "Copy Public Key", where a small bordered
-/// button next to a clipboard action read as another utility rather than as the way to follow
-/// someone — the feature was there and still could not be found.
-private struct ContactProfileActionsRow: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let contact: NewChatRecipient
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ContactFollowControl(accountIdHex: contact.accountIdHex)
-
-            Button {
-                Task { await workspace.messageContact(contact) }
-            } label: {
-                Label(L10n.string("Message"), systemImage: "message")
-                    .frame(maxWidth: .infinity)
-            }
-            .wnPrimaryButtonStyle()
-            .disabled(workspace.isCreatingChat)
-        }
-        .controlSize(.large)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .accessibilityIdentifier("contact.details.actions")
     }
 }
 

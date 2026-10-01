@@ -146,10 +146,19 @@ extension WorkspaceState {
         npub: String = "",
         displayName: String?,
         pictureURL: String?,
+        imagePayload: DownloadedMediaPayload? = nil,
         excludingGroupIdHex: String? = nil
     ) async {
         let accountIdHex = accountIdHex.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !accountIdHex.isEmpty, let client, let activeAccount else { return }
+        // A member row or an invite carries no avatar bytes of its own; borrow the ones on screen.
+        let imagePayload =
+            imagePayload
+            ?? ContactAvatarPayload.find(
+                accountIdHex: accountIdHex,
+                messages: selectedChat.flatMap { messageTimelineStores[$0.id]?.messages } ?? [],
+                chats: activeChats
+            )
 
         contactDetailsLoadGeneration &+= 1
         let generation = contactDetailsLoadGeneration
@@ -161,7 +170,8 @@ extension WorkspaceState {
             npub: npub,
             displayName: nickname ?? displayName,
             publishedDisplayName: Self.publishedContactName(displayName, overriddenBy: nickname),
-            pictureURL: pictureURL
+            pictureURL: pictureURL,
+            imagePayload: imagePayload
         )
         contactDetailsTarget = fallback
         isLoadingContactDetails = true
@@ -177,6 +187,11 @@ extension WorkspaceState {
             activeAccount: activeAccount,
             client: client
         )
+        // A message sender arrives as hex alone; the profile shows their npub.
+        var canonicalNpub = npub.nilIfBlank
+        if canonicalNpub == nil {
+            canonicalNpub = try? await FFIExecutor.run { client.npub(accountIdHex: accountIdHex) }
+        }
         guard
             contactDetailsLoadGeneration == generation,
             activeAccountId == activeAccount.id,
@@ -193,10 +208,12 @@ extension WorkspaceState {
             sourceQuery: accountIdHex,
             memberRef: npub.isEmpty ? accountIdHex : npub,
             accountIdHex: accountIdHex,
-            npub: npub,
+            npub: canonicalNpub ?? "",
             displayName: nickname ?? published,
             publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
-            pictureURL: resolved?.profilePicture?.nilIfBlank ?? pictureURL
+            pictureURL: resolved?.profilePicture?.nilIfBlank ?? pictureURL,
+            imagePayload: imagePayload,
+            about: resolved?.profileAbout
         )
         await followStatus
         await commonGroups
@@ -229,6 +246,7 @@ extension WorkspaceState {
             accountIdHex: message.senderAccountIdHex,
             displayName: message.publishedSenderName ?? message.senderName,
             pictureURL: message.senderPictureURL,
+            imagePayload: message.senderImagePayload,
             excludingGroupIdHex: message.groupIdHex
         )
     }

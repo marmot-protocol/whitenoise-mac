@@ -1054,6 +1054,9 @@ final class WorkspaceState {
         var profileName: String?
         var profilePicture: String?
         var directoryDisplayName: String?
+        /// The kind:0 `about`. Raw and peer-controlled; `NewChatRecipient` sanitizes it. Not part
+        /// of `isComplete`, which asks whether the peer can be *named*.
+        var profileAbout: String?
 
         /// A lookup is "complete" once it yields a usable display name or picture. An
         /// incomplete lookup means the relay has not propagated the profile yet (or the

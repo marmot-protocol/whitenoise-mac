@@ -8,21 +8,42 @@
 
 import SwiftUI
 
-/// The centred identity block at the top of group info.
+/// The centred identity block at the top of group info, and of a contact's profile.
 ///
 /// It draws no avatar of its own: the caller hands one in, so this view depends on nothing but
 /// the values it is given and the avatar keeps whatever image policy its own view enforces.
 /// An empty description is offered to admins as "Add Description" — the empty state of the
 /// field is where the edit belongs, as on iOS — and to everyone else draws nothing at all.
-struct GroupDetailsHero<Avatar: View>: View {
+struct GroupDetailsHero<Avatar: View, TitleAccessory: View>: View {
     let title: String
-    let subtitle: String
+    /// One line of context under the name; `nil` draws none.
+    let subtitle: String?
     let description: String
     /// Set when the reader may edit the group's name and description.
     var onEditProfile: (() -> Void)?
     /// Set when the reader may change the group image; the avatar becomes its button.
     var onEditImage: (() -> Void)?
-    @ViewBuilder let avatar: Avatar
+    /// Controls drawn after the name, on its first line — a contact's nickname actions.
+    let titleAccessory: TitleAccessory
+    let avatar: Avatar
+
+    init(
+        title: String,
+        subtitle: String?,
+        description: String,
+        onEditProfile: (() -> Void)? = nil,
+        onEditImage: (() -> Void)? = nil,
+        @ViewBuilder titleAccessory: () -> TitleAccessory,
+        @ViewBuilder avatar: () -> Avatar
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.description = description
+        self.onEditProfile = onEditProfile
+        self.onEditImage = onEditImage
+        self.titleAccessory = titleAccessory()
+        self.avatar = avatar()
+    }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -38,15 +59,22 @@ struct GroupDetailsHero<Avatar: View>: View {
             }
 
             VStack(spacing: 4) {
-                Text(title)
-                    .wnFont(.semiBold20)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title)
+                        .wnFont(.semiBold20)
+                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
 
-                Text(subtitle)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    titleAccessory
+                }
+
+                if let subtitle {
+                    Text(subtitle)
+                        .wnFont(.medium12)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .multilineTextAlignment(.center)
+                }
             }
 
             if !description.isEmpty {
@@ -66,6 +94,27 @@ struct GroupDetailsHero<Avatar: View>: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+    }
+}
+
+extension GroupDetailsHero where TitleAccessory == EmptyView {
+    init(
+        title: String,
+        subtitle: String?,
+        description: String,
+        onEditProfile: (() -> Void)? = nil,
+        onEditImage: (() -> Void)? = nil,
+        @ViewBuilder avatar: () -> Avatar
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            description: description,
+            onEditProfile: onEditProfile,
+            onEditImage: onEditImage,
+            titleAccessory: { EmptyView() },
+            avatar: avatar
+        )
     }
 }
 

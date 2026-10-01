@@ -2,8 +2,8 @@
 //  ContactNicknameViews.swift
 //  whitenoise-mac
 //
-//  Set / Edit / Remove a private nickname for one contact. Shared by the contact-details pane
-//  and the direct-message details pane so the gesture behaves identically wherever it appears.
+//  Set / Edit / Remove a private nickname for one contact: a form row for the direct-message
+//  details pane, header controls for a contact's profile, and the one prompt both open.
 //
 
 import SwiftUI
@@ -72,20 +72,88 @@ struct ContactNicknameRow: View {
                     .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentTertiary)
             }
-            .alert(
-                nickname == nil ? L10n.string("Set Nickname") : L10n.string("Edit Nickname"),
-                isPresented: $isEditingNickname
-            ) {
-                TextField(L10n.string("Nickname"), text: $nicknameDraft)
-                Button(L10n.string("Save")) {
-                    // An emptied field is the remove gesture, so Save and Remove converge on one
-                    // code path in `setContactNickname`.
-                    workspace.setContactNickname(nicknameDraft, forContactAccountIdHex: accountIdHex)
+            .contactNicknameEditor(
+                isPresented: $isEditingNickname, draft: $nicknameDraft, accountIdHex: accountIdHex)
+        }
+    }
+}
+
+/// Set / Edit / Remove beside a contact's name, for the profile header: a pencil, and — while a
+/// nickname is in force — a way back to the name they published.
+///
+/// Icon-only because they sit beside a 20pt title and must not read as part of it; each still
+/// carries its title for VoiceOver and as a tooltip.
+struct ContactNicknameHeaderActions: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    let accountIdHex: String
+
+    @State private var isEditingNickname = false
+    @State private var nicknameDraft = ""
+
+    private var nickname: String? {
+        workspace.contactNickname(forContactAccountIdHex: accountIdHex)
+    }
+
+    var body: some View {
+        if workspace.canSetContactNickname(forContactAccountIdHex: accountIdHex) {
+            let editTitle = L10n.string(nickname == nil ? "Set Nickname" : "Edit Nickname")
+            HStack(spacing: 6) {
+                Button(editTitle, systemImage: "pencil") {
+                    nicknameDraft = nickname ?? ""
+                    isEditingNickname = true
                 }
-                Button(L10n.string("Cancel"), role: .cancel) {}
-            } message: {
-                Text(L10n.string("Only you see this on this device. Clearing it restores their profile name."))
+                .help(editTitle)
+
+                if nickname != nil {
+                    Button(L10n.string("Remove Nickname"), systemImage: "xmark.circle") {
+                        workspace.setContactNickname(nil, forContactAccountIdHex: accountIdHex)
+                    }
+                    .help(L10n.string("Remove Nickname"))
+                }
             }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .wnFont(.semiBold14)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .contactNicknameEditor(
+                isPresented: $isEditingNickname, draft: $nicknameDraft, accountIdHex: accountIdHex)
+        }
+    }
+}
+
+extension View {
+    /// The Set / Edit Nickname prompt. The caller seeds `draft` before presenting it.
+    func contactNicknameEditor(
+        isPresented: Binding<Bool>,
+        draft: Binding<String>,
+        accountIdHex: String
+    ) -> some View {
+        modifier(ContactNicknameEditor(isPresented: isPresented, draft: draft, accountIdHex: accountIdHex))
+    }
+}
+
+private struct ContactNicknameEditor: ViewModifier {
+    @Environment(WorkspaceState.self) private var workspace
+    @Binding var isPresented: Bool
+    @Binding var draft: String
+    let accountIdHex: String
+
+    func body(content: Content) -> some View {
+        let hasNickname = workspace.contactNickname(forContactAccountIdHex: accountIdHex) != nil
+        content.alert(
+            L10n.string(hasNickname ? "Edit Nickname" : "Set Nickname"),
+            isPresented: $isPresented
+        ) {
+            TextField(L10n.string("Nickname"), text: $draft)
+            Button(L10n.string("Save")) {
+                // An emptied field is the remove gesture, so Save and Remove converge on one
+                // code path in `setContactNickname`.
+                workspace.setContactNickname(draft, forContactAccountIdHex: accountIdHex)
+            }
+            Button(L10n.string("Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string("Only you see this on this device. Clearing it restores their profile name."))
         }
     }
 }
