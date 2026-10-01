@@ -264,6 +264,7 @@ private struct ConversationView: View {
     /// register local `isSelectable` state so hover only updates the previous and active row
     /// (whitenoise-mac#397).
     @State private var hoverSelectionCoordinator = ConversationHoverSelectionCoordinator()
+    @State private var composerFocusRequester = ComposerFocusRequester()
     /// True while the ScrollView is in any non-idle phase. Drives `.allowsHitTesting` on the
     /// transcript so per-frame hover/hit-test/tracking work is skipped during a fling and
     /// restored the moment scrolling settles.
@@ -347,6 +348,7 @@ private struct ConversationView: View {
                                     }
                                 }
                                 .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
+                                .environment(\.composerFocusRequester, composerFocusRequester)
 
                                 if paging.hasMoreAfter {
                                     TimelinePageLoadingRow(isLoading: paging.isLoadingAfter)
@@ -817,7 +819,9 @@ private struct ConversationView: View {
                     },
                     onSend: {
                         Task { await workspace.sendDraft() }
-                    }
+                    },
+                    focusRequestID: composerFocusRequester.requestID,
+                    onFocusRequestConsumed: composerFocusRequester.consume
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)
