@@ -67,10 +67,12 @@ final class ConversationViewModel {
     /// True once a snapshot has been handed to the snapshot observer, i.e. the transcript renders
     /// this window's rows rather than whatever it showed before.
     private(set) var hasPresentedWindow = false
-    /// The messages the transcript currently reports on screen. Read when the app regains focus,
-    /// so read marking reaches only rows the user can see. Ignored by observation: the transcript
-    /// writes it as it scrolls and no view renders from it.
+    /// The messages the transcript currently reports on screen, for paging. Ignored by
+    /// observation: the transcript writes it as it scrolls and no view renders from it.
     @ObservationIgnored private(set) var visibleMessageIds: Set<String> = []
+    /// The visible messages the reader has actually reached (`timelineReadableMessageIds`), empty
+    /// until the open has landed. Read marking, including when the app regains focus, uses these.
+    @ObservationIgnored private(set) var readableMessageIds: Set<String> = []
     /// In-flight votes keyed by poll message id, drawn over MDK's tally until a snapshot projects
     /// the same selection or the vote fails.
     private(set) var pendingPollSelections: [String: [String]] = [:]
@@ -141,6 +143,10 @@ final class ConversationViewModel {
 
     func setVisibleMessageIds(_ ids: Set<String>) {
         visibleMessageIds = ids
+    }
+
+    func setReadableMessageIds(_ ids: Set<String>) {
+        readableMessageIds = ids
     }
 
     /// Pages the window. `visibleAnchorMessageIdHex`, a message the reader can see, is reported

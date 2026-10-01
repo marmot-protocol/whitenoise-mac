@@ -2595,6 +2595,85 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.markedReadMessageIds.last == "member-added")
     }
 
+    /// Any part of a row on screen makes it visible, so the bottom-most visible message may be only
+    /// partly read (a tall message, or the next one peeking in). It counts once the reader reaches
+    /// the foot; until then the rows above it do.
+    @Test func readableMessagesLeaveOutTheRowStillComingIntoView() {
+        let window = ["a", "b", "c", "d"]
+
+        #expect(
+            timelineReadableMessageIds(visibleMessageIds: ["b", "c"], messageIDs: window, isAtBottom: false)
+                == ["b"])
+        #expect(
+            timelineReadableMessageIds(visibleMessageIds: ["c", "d"], messageIDs: window, isAtBottom: true)
+                == ["c", "d"])
+        // A single message taller than the viewport is read once its end is reached.
+        #expect(timelineReadableMessageIds(visibleMessageIds: ["d"], messageIDs: window, isAtBottom: false).isEmpty)
+        #expect(timelineReadableMessageIds(visibleMessageIds: ["d"], messageIDs: window, isAtBottom: true) == ["d"])
+    }
+
+    /// A divider or navigation open pins the top until it lands, or rows resolving their heights
+    /// would pull it to the tail; an open at the newest message pins the bottom throughout.
+    @Test func followingTheLiveEdgeWaitsForADividerOpenToLand() {
+        #expect(
+            !timelineFollowsLiveEdge(
+                isPinnedToBottom: true, hasMoreAfter: false, isOpening: true, isOpeningAtBottom: false))
+        #expect(
+            timelineFollowsLiveEdge(
+                isPinnedToBottom: false, hasMoreAfter: true, isOpening: true, isOpeningAtBottom: true))
+        #expect(
+            timelineFollowsLiveEdge(
+                isPinnedToBottom: true, hasMoreAfter: false, isOpening: false, isOpeningAtBottom: false))
+        #expect(
+            !timelineFollowsLiveEdge(
+                isPinnedToBottom: true, hasMoreAfter: true, isOpening: false, isOpeningAtBottom: false))
+        #expect(
+            !timelineFollowsLiveEdge(
+                isPinnedToBottom: false, hasMoreAfter: false, isOpening: false, isOpeningAtBottom: false))
+    }
+
+    /// Editing or retrying a message refreshed the latest page into the transcript and marked it
+    /// read. In a projection-owned chat the edit arrives with the conversation snapshot instead.
+    @MainActor
+    @Test func postSendRefreshStandsDownForAProjectionOwnedChat() async throws {
+        let (state, runtime, account) = try await Self.loadedGroupForReadMarking()
+        let alice = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "chat", groupIdHex: "group", sender: alice, plaintext: "Welcome", kind: 9,
+                    recordedAt: 1_700_000_000),
+                appMessage(
+                    id: "unread", groupIdHex: "group", sender: alice, plaintext: "Unread", kind: 9,
+                    recordedAt: 1_700_000_005),
+            ], groupIdHex: "group")
+        let markedBefore = runtime.markedReadMessageIds
+        state.cancelTimelineLoad()
+        state.stopTimelineListener()
+        state.timelineTaskGroupId = "group"
+
+        await state.refreshSelectedTimelineAfterSend(groupIdHex: "group", account: account, client: runtime)
+
+        #expect(runtime.markedReadMessageIds == markedBefore)
+        #expect(!state.selectedTimelineContainsMessage("unread"))
+    }
+
+    /// Clicking the chat that is already open must keep the projection's claim: the host only
+    /// claims on a selection change, so losing it here let a legacy load mark the window read.
+    @MainActor
+    @Test func reselectingAProjectionOwnedChatKeepsItsClaim() async throws {
+        let (state, _, _) = try await Self.loadedGroupForReadMarking()
+        let chat = try #require(state.selectedChat)
+        state.cancelTimelineLoad()
+        state.stopTimelineListener()
+        state.timelineTaskGroupId = chat.id
+
+        state.selectChat(chat)
+
+        #expect(state.timelineTaskGroupId == chat.id)
+        #expect(state.timelineTask == nil)
+    }
+
     /// The conversation projection marks read from what is on screen, not from what is loaded: a
     /// window opened at the first unread row holds every unread message below the divider, and
     /// loading them must not clear them. Only the visible messages are candidates.

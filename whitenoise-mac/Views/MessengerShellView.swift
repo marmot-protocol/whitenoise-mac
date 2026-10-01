@@ -218,6 +218,35 @@ func timelinePageRequest(
     return nil
 }
 
+/// The visible messages the reader has reached, for read marking. The bottom-most visible message
+/// is only partly on screen unless the transcript is at its foot — a tall message being read, or
+/// the next one peeking in — so it counts once the reader reaches the bottom or a later message
+/// comes into view.
+func timelineReadableMessageIds(
+    visibleMessageIds: Set<String>,
+    messageIDs: [String],
+    isAtBottom: Bool
+) -> Set<String> {
+    guard !isAtBottom, let lowest = messageIDs.last(where: visibleMessageIds.contains) else {
+        return visibleMessageIds
+    }
+    return visibleMessageIds.subtracting([lowest])
+}
+
+/// Whether content changes pin the bottom. While an open is still landing, only an open at the
+/// newest message (its target is the bottom spacer) does: a divider or navigation open pins the
+/// top, or rows resolving their heights would pull it to the tail before it lands. After that, the
+/// reader follows the live edge when at the foot of a window that ends at the newest message.
+func timelineFollowsLiveEdge(
+    isPinnedToBottom: Bool,
+    hasMoreAfter: Bool,
+    isOpening: Bool,
+    isOpeningAtBottom: Bool
+) -> Bool {
+    if isOpening { return isOpeningAtBottom }
+    return isPinnedToBottom && !hasMoreAfter
+}
+
 nonisolated enum TimelineNewestMessageScrollAction: Equatable {
     case none
     case scrollToBottom
@@ -312,10 +341,15 @@ private struct ConversationView: View {
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
         let pendingOutgoingRows = workspace.selectedPendingOutgoingMessageRows
         let unreadDividerMessageId = model.unreadDivider?.messageIdHex
-        // Following the live edge: at the foot of a window that ends at the newest message.
-        // Content changes then pin the bottom, so arrivals and a streaming reply stay in view;
-        // otherwise they pin the top, and the identity position keeps the reader's rows still.
-        let isFollowingLiveEdge = isPinnedToBottom && !paging.hasMoreAfter
+        // Following the live edge, content changes pin the bottom, so arrivals and a streaming
+        // reply stay in view; otherwise they pin the top, and the identity position keeps the
+        // reader's rows still.
+        let isFollowingLiveEdge = timelineFollowsLiveEdge(
+            isPinnedToBottom: isPinnedToBottom,
+            hasMoreAfter: paging.hasMoreAfter,
+            isOpening: openingTargetId != nil,
+            isOpeningAtBottom: openingTargetId == bottomAnchorId
+        )
 
         ZStack {
             VStack(spacing: 0) {
@@ -443,8 +477,11 @@ private struct ConversationView: View {
                     .onScrollPhaseChange { _, phase in
                         isActivelyScrolling = phase != .idle
                         // The user took over before the opening target was reported: their
-                        // position is the one that counts from here.
-                        if phase == .interacting { openingTargetId = nil }
+                        // position, as last reported, is the one that counts from here.
+                        if phase == .interacting, openingTargetId != nil {
+                            openingTargetId = nil
+                            readingPositionChanged()
+                        }
                         if phase == .idle { markVisibleMessagesRead() }
                     }
                     .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -453,8 +490,12 @@ private struct ConversationView: View {
                         // Fires only when the reader crosses the foot, and only writes
                         // `isPinnedToBottom`, which no row's layout depends on.
                         isPinnedToBottom = atBottom
+                        updateReadableMessages()
                     }
-                    .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.5) { ids in
+                    // Any part of a row on screen counts as visible, so a message taller than
+                    // the viewport registers while it is being read; `timelineReadableMessageIds`
+                    // decides which visible rows have been reached.
+                    .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.001) { ids in
                         transcriptVisibilityChanged(Set(ids))
                     }
                     .onChange(
@@ -923,7 +964,7 @@ private struct ConversationView: View {
     }
 
     /// Puts a newly presented window where this open should start, once per model: at the unread
-    /// divider (with the last read message above it for context), at a pending navigation target
+    /// divider, at a pending navigation target
     /// (which `revealMessage` scrolls to), or at the newest message.
     private func applyOpeningPosition(_ key: TranscriptOpeningKey, using proxy: ScrollViewProxy) {
         guard key.hasPresentedWindow, openedModel != key.model else { return }
@@ -933,28 +974,47 @@ private struct ConversationView: View {
         } else if let divider = model.unreadDivider,
             workspace.selectedTimelineContainsMessage(divider.messageIdHex)
         {
+            // Land on the divider itself, the row the opening waits to see reported.
             openingTargetId = unreadDividerAnchorId
-            let messageIDs = workspace.selectedMessageIDs
-            let dividerIndex = messageIDs.firstIndex(of: divider.messageIdHex)
-            scrollPositionID =
-                dividerIndex.flatMap { $0 > messageIDs.startIndex ? messageIDs[$0 - 1] : nil }
-                ?? unreadDividerAnchorId
+            scrollPositionID = unreadDividerAnchorId
         } else {
             openingTargetId = bottomAnchorId
             scrollToBottom(with: proxy)
         }
     }
 
-    /// The transcript's on-screen rows changed. Once the opening target has been reported, these
-    /// are the messages the user can actually see: they drive history paging and read marking.
+    /// The transcript's on-screen rows changed. They are always recorded, so a user who takes
+    /// over before the opening target is reported continues from what was last on screen; they
+    /// drive paging and read marking once the open has landed.
     private func transcriptVisibilityChanged(_ ids: Set<String>) {
+        model.setVisibleMessageIds(ids.filter(workspace.selectedTimelineContainsMessage))
         if let openingTargetId {
             guard ids.contains(openingTargetId) else { return }
             self.openingTargetId = nil
         }
-        model.setVisibleMessageIds(ids.filter(workspace.selectedTimelineContainsMessage))
+        readingPositionChanged()
+    }
+
+    /// The reader's position counts from here: page toward the edge they are near and mark what
+    /// they have reached.
+    private func readingPositionChanged() {
+        updateReadableMessages()
         requestPageIfNeeded()
         if !isActivelyScrolling { markVisibleMessagesRead() }
+    }
+
+    private func updateReadableMessages() {
+        guard openingTargetId == nil else {
+            model.setReadableMessageIds([])
+            return
+        }
+        model.setReadableMessageIds(
+            timelineReadableMessageIds(
+                visibleMessageIds: model.visibleMessageIds,
+                messageIDs: workspace.selectedMessageIDs,
+                isAtBottom: isPinnedToBottom
+            )
+        )
     }
 
     /// Loads history toward the edge the visible messages are near (`timelinePageRequest`). The
@@ -986,9 +1046,9 @@ private struct ConversationView: View {
         }
     }
 
-    /// Marks the newest visible activity row read, while the conversation is actually on screen.
+    /// Marks the newest reached activity row read, while the conversation is actually on screen.
     private func markVisibleMessagesRead() {
-        let visible = model.visibleMessageIds
+        let visible = model.readableMessageIds
         guard openingTargetId == nil, !visible.isEmpty, workspace.selectedConversationIsVisible(),
             let client = workspace.client, let account = workspace.activeAccount
         else { return }

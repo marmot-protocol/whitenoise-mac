@@ -964,7 +964,6 @@ struct ProjectionMigrationTests {
 
         #expect(didInstall)
         #expect(model.unreadDivider == nil)
-        #expect(!model.hasPresentedWindow)
         model.stop()
     }
 

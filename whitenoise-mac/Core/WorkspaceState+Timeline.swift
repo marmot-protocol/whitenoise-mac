@@ -1534,6 +1534,9 @@ extension WorkspaceState {
         client: any MarmotRuntime
     ) async {
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        // A projection-owned chat gets the edit or retry from its own snapshot. This refresh
+        // would replace the reader's window with the latest page and mark it read.
+        guard !(timelineTaskGroupId == groupIdHex && timelineTask == nil) else { return }
         timelinePostSendRefreshGeneration &+= 1
         let refreshGeneration = timelinePostSendRefreshGeneration
         let subscription = activeTimelineGroupId == groupIdHex ? activeTimelineSubscription : nil

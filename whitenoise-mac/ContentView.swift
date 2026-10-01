@@ -155,7 +155,7 @@ struct ContentView: View {
     /// The open transcript's on-screen messages, so regaining focus marks only what the user can
     /// see. Nil without a projected conversation, which keeps the legacy path marking the latest.
     private var visibleConversationMessageIds: Set<String>? {
-        session.accountScope?.selectedConversationModel?.visibleMessageIds
+        session.accountScope?.selectedConversationModel?.readableMessageIds
     }
 
     private func applyAppearance(_ preference: AppearancePreference) {
