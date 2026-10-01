@@ -1325,6 +1325,95 @@ struct PureValueTests {
         #expect(consumedInsertions == [insertion.id])
     }
 
+    @MainActor
+    @Test func composerFocusRequestIsAppliedOnceAndRetiredOnlyAfterFocusSucceeds() async {
+        var boundText = "draft"
+        var measuredHeight: CGFloat = 0
+        var boundSelections: [ComposerMentionSelection] = []
+        let requester = ComposerFocusRequester()
+        func makeCoordinator() -> ComposerMessageTextViewRepresentable.Coordinator {
+            let coordinator = ComposerMessageTextViewRepresentable.Coordinator(
+                text: Binding(get: { boundText }, set: { boundText = $0 }),
+                measuredHeight: Binding(get: { measuredHeight }, set: { measuredHeight = $0 }),
+                mentionSelections: Binding(get: { boundSelections }, set: { boundSelections = $0 }),
+                mentionContextScope: nil,
+                onPasteMedia: { _ in },
+                onSend: {}
+            )
+            coordinator.onFocusRequestConsumed = requester.consume
+            return coordinator
+        }
+        func drainMainQueue() async {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let other = NSTextField()
+        let textView = NSTextView()
+        textView.string = boundText
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        let container = NSView()
+        container.addSubview(other)
+        window.contentView = container
+        window.makeFirstResponder(other)
+        let coordinator = makeCoordinator()
+
+        // No request: focus stays where it is.
+        coordinator.scheduleFocus(requester.requestID, in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder !== textView)
+
+        // The text view is not in a window yet, so the attempt fails and the request stays
+        // pending; the next update retries it once the view is attached.
+        requester.request()
+        coordinator.scheduleFocus(requester.requestID, in: textView)
+        await drainMainQueue()
+        #expect(requester.requestID != nil)
+        container.addSubview(textView)
+        coordinator.scheduleFocus(requester.requestID, in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder === textView)
+        #expect(textView.selectedRange() == NSRange(location: 5, length: 0))
+        #expect(requester.requestID == nil)
+
+        // A composer rebuilt later in the same chat (selection mode, a voice recording) gets a
+        // fresh coordinator; the applied request is retired, so it must not take focus again.
+        window.makeFirstResponder(other)
+        makeCoordinator().scheduleFocus(requester.requestID, in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder !== textView)
+
+        // A fresh request (Reply clicked again) focuses again.
+        requester.request()
+        coordinator.scheduleFocus(requester.requestID, in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder === textView)
+        #expect(requester.requestID == nil)
+    }
+
+    @MainActor
+    @Test func composerFocusRequesterConsumeRetiresOnlyTheCurrentRequest() {
+        let requester = ComposerFocusRequester()
+        requester.request()
+        let stale = requester.requestID!
+        requester.request()
+        let current = requester.requestID
+
+        requester.consume(stale)
+        #expect(requester.requestID == current)
+
+        requester.consume(current!)
+        #expect(requester.requestID == nil)
+    }
+
     @Test func composerReturnKeyPolicySendsPlainReturnOnly() async throws {
         #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: NSEvent.ModifierFlags()) == .send)
         #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: .shift) == .insertLineBreak)

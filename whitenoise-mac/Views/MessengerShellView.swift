@@ -331,6 +331,7 @@ private struct TranscriptRowCell: View {
     let timestampReferenceDate: Date
     let openURL: OpenURLAction
     let hoverSelectionCoordinator: ConversationHoverSelectionCoordinator
+    let composerFocusRequester: ComposerFocusRequester
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
     let onNavigateToMessage: (String) -> Void
 
@@ -387,6 +388,7 @@ private struct TranscriptRowCell: View {
         .environment(\.timestampReferenceDate, timestampReferenceDate)
         .environment(\.openURL, openURL)
         .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
+        .environment(\.composerFocusRequester, composerFocusRequester)
     }
 }
 
@@ -429,6 +431,7 @@ private struct ConversationView: View {
     /// register local `isSelectable` state so hover only updates the previous and active row
     /// (whitenoise-mac#397).
     @State private var hoverSelectionCoordinator = ConversationHoverSelectionCoordinator()
+    @State private var composerFocusRequester = ComposerFocusRequester()
     /// True during a live scroll (the user dragging or flinging). Read marking waits for it to end.
     @State private var isActivelyScrolling = false
     let chat: ChatItem
@@ -512,7 +515,8 @@ private struct ConversationView: View {
                                     locale: locale,
                                     timestampReferenceDate: timestampReferenceDate,
                                     openURL: openURL,
-                                    hoverSelectionCoordinator: hoverSelectionCoordinator
+                                    hoverSelectionCoordinator: hoverSelectionCoordinator,
+                                    composerFocusRequester: composerFocusRequester
                                 ) { gallery in
                                     imageGallery = gallery
                                 } onNavigateToMessage: { targetMessageId in
@@ -874,7 +878,9 @@ private struct ConversationView: View {
                     },
                     onSend: {
                         Task { await workspace.sendDraft() }
-                    }
+                    },
+                    focusRequestID: composerFocusRequester.requestID,
+                    onFocusRequestConsumed: composerFocusRequester.consume
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)

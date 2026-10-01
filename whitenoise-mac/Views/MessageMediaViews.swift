@@ -2171,6 +2171,7 @@ struct MessageDebugMetadataView: View {
 
 struct MessageInlineActions: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.composerFocusRequester) private var composerFocusRequester
     @State private var isEmojiPickerPresented = false
     @State private var isOverflowPresented = false
     @Binding var isPresentationActive: Bool
@@ -2198,6 +2199,7 @@ struct MessageInlineActions: View {
             if message.canReply {
                 Button {
                     workspace.startReply(to: message)
+                    composerFocusRequester.request()
                 } label: {
                     MessageInlineActionIcon(systemName: "arrowshape.turn.up.left", label: L10n.string("Reply"))
                 }
@@ -2367,6 +2369,7 @@ struct MessageRowAction: Identifiable {
         workspace: WorkspaceState,
         now: Date = .now,
         report: (() -> Void)? = nil,
+        focusComposer: @escaping () -> Void = {},
         dismiss: @escaping () -> Void = {}
     ) -> [MessageRowAction] {
         var actions: [MessageRowAction] = []
@@ -2410,6 +2413,7 @@ struct MessageRowAction: Identifiable {
                 MessageRowAction(kind: .edit, title: L10n.string("Edit"), systemImage: "pencil", role: nil) {
                     workspace.startEditingMessage(message)
                     dismiss()
+                    focusComposer()
                 })
         }
         if message.canCopyText {
@@ -2496,6 +2500,7 @@ struct MessageRowAction: Identifiable {
 
 struct MessageOverflowPopover: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.composerFocusRequester) private var composerFocusRequester
     let message: MessageItem
     let onReport: () -> Void
     let dismiss: () -> Void
@@ -2506,6 +2511,7 @@ struct MessageOverflowPopover: View {
                 for: message,
                 workspace: workspace,
                 report: onReport,
+                focusComposer: composerFocusRequester.request,
                 dismiss: dismiss
             )
         )
@@ -2563,6 +2569,7 @@ struct MessageOverflowMenu: View {
 /// them through it would show each of them twice, inches apart.
 struct MessageContextMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.composerFocusRequester) private var composerFocusRequester
     let message: MessageItem
     let onReport: () -> Void
 
@@ -2598,7 +2605,14 @@ struct MessageContextMenuItems: View {
                 Divider()
             }
 
-            ForEach(MessageRowAction.all(for: message, workspace: workspace, report: onReport)) { action in
+            ForEach(
+                MessageRowAction.all(
+                    for: message,
+                    workspace: workspace,
+                    report: onReport,
+                    focusComposer: composerFocusRequester.request
+                )
+            ) { action in
                 Button(role: action.role, action: action.run) {
                     Label(action.title, systemImage: action.systemImage)
                 }
