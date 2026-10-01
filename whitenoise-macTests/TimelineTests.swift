@@ -5106,6 +5106,13 @@ struct TimelineTests: WorkspaceTestSupport {
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
         await state.settlePeerProfileRefreshQueueForTesting()
+        // The roster enrichment inside `loadMessages` requests alice before anything has cached
+        // her, and the queue drains on its own task. Whether that drain still sees her as
+        // unnamed depends on whether it runs before the timeline projection resolves her: if it
+        // does, it arms a debounced re-projection for alice that the unrelated-peer pass below
+        // would otherwise pick up and replay. Run whatever is pending now so the baseline is
+        // sampled with the re-projection slot empty either way.
+        await state.runPeerProfileReprojectionForTesting()
 
         // `snapshot()` is the first thing the transcript replay does, so counting it is a
         // direct witness for whether the window was replayed at all.
