@@ -63,7 +63,7 @@ struct ComposerMessageInputView: View {
     let mentionContextScope: WorkspaceState.ComposerDraftKey?
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     /// Accepts the picker's top candidate for the open "@query". Returns whether one was taken,
-    /// so Tab keeps its ordinary meaning when there is nothing to complete.
+    /// so Tab and Return keep their ordinary meaning when there is nothing to complete.
     let onMentionAccept: () -> Bool
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
@@ -106,7 +106,8 @@ private enum ComposerMessageInputMetrics {
 }
 
 /// Autocomplete list of mentionable group members, shown above the composer while an "@query"
-/// is open. Click a row, or press Tab to take the top one; the caret stays in the text field.
+/// is open. Click a row, or press Tab or Return to take the top one; the caret stays in the text
+/// field.
 struct ComposerMentionPicker: View {
     let candidates: [ComposerMentionCandidate]
     let onSelect: (ComposerMentionCandidate) -> Void
@@ -218,7 +219,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     let mentionContextScope: WorkspaceState.ComposerDraftKey?
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     /// Accepts the picker's top candidate for the open "@query". Returns whether one was taken,
-    /// so Tab keeps its ordinary meaning when there is nothing to complete.
+    /// so Tab and Return keep their ordinary meaning when there is nothing to complete.
     let onMentionAccept: () -> Bool
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
@@ -321,8 +322,9 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         textView.mediaPasteHandler = { [weak coordinator] in
             coordinator?.handleMediaPaste() ?? false
         }
-        textView.returnKeySendHandler = { [weak coordinator] in
-            coordinator?.onSend()
+        textView.returnKeySendHandler = { [weak coordinator, weak textView] in
+            guard let coordinator, let textView else { return }
+            coordinator.handleReturnKeySend(in: textView)
         }
     }
 
@@ -460,6 +462,17 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         /// keeps Tab while text is marked.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard commandSelector == #selector(NSResponder.insertTab(_:)) else { return false }
+            return acceptOpenMention(in: textView)
+        }
+
+        /// The send shortcut. While an "@query" is open and has a candidate, Return completes the
+        /// mention instead — a lone "@" must not go out as the message. Otherwise it sends.
+        func handleReturnKeySend(in textView: NSTextView) {
+            guard !acceptOpenMention(in: textView) else { return }
+            onSend()
+        }
+
+        private func acceptOpenMention(in textView: NSTextView) -> Bool {
             publishMentionContext(for: textView)
             guard lastMentionContext != nil else { return false }
             return onMentionAccept()

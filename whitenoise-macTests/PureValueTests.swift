@@ -471,6 +471,7 @@ struct PureValueTests {
     private func tabTestCoordinator(
         text: String,
         acceptResult: Bool,
+        sendCalls: @escaping () -> Void = {},
         acceptCalls: @escaping () -> Void
     ) -> (ComposerMessageTextViewRepresentable.Coordinator, NSTextView) {
         var measuredHeight: CGFloat = 20
@@ -482,7 +483,7 @@ struct PureValueTests {
             mentionSelections: Binding(get: { boundSelections }, set: { boundSelections = $0 }),
             mentionContextScope: WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "chat"),
             onPasteMedia: { _ in },
-            onSend: {},
+            onSend: sendCalls,
             onMentionAccept: {
                 acceptCalls()
                 return acceptResult
@@ -528,7 +529,60 @@ struct PureValueTests {
     }
 
     @MainActor
-    @Test func onlyTabAcceptsTheMention() {
+    @Test func returnAcceptsTheMentionInsteadOfSendingALoneAt() {
+        var accepts = 0
+        var sends = 0
+        let (coordinator, textView) = tabTestCoordinator(
+            text: "@",
+            acceptResult: true,
+            sendCalls: { sends += 1 },
+            acceptCalls: { accepts += 1 }
+        )
+
+        coordinator.handleReturnKeySend(in: textView)
+
+        #expect(accepts == 1)
+        #expect(sends == 0)
+    }
+
+    @MainActor
+    @Test func returnSendsWithoutAnOpenAtQuery() {
+        var accepts = 0
+        var sends = 0
+        let (coordinator, textView) = tabTestCoordinator(
+            text: "hello",
+            acceptResult: true,
+            sendCalls: { sends += 1 },
+            acceptCalls: { accepts += 1 }
+        )
+
+        coordinator.handleReturnKeySend(in: textView)
+
+        #expect(accepts == 0)
+        #expect(sends == 1)
+    }
+
+    @MainActor
+    @Test func returnSendsWhenNoCandidateMatchesTheQuery() {
+        var accepts = 0
+        var sends = 0
+        let (coordinator, textView) = tabTestCoordinator(
+            text: "@zzz",
+            acceptResult: false,
+            sendCalls: { sends += 1 },
+            acceptCalls: { accepts += 1 }
+        )
+
+        coordinator.handleReturnKeySend(in: textView)
+
+        #expect(accepts == 1)
+        #expect(sends == 1)
+    }
+
+    /// Return reaches the coordinator through the text view's send shortcut, not as a command, so
+    /// the command path must leave `insertNewline:` alone.
+    @MainActor
+    @Test func onlyTabAcceptsTheMentionAsACommand() {
         var accepts = 0
         let (coordinator, textView) = tabTestCoordinator(text: "@Al", acceptResult: true) { accepts += 1 }
 

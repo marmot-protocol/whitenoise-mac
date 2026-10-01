@@ -695,7 +695,7 @@ private struct ConversationView: View {
     }
 
     /// Replaces the open "@query" with `candidate`, whether it was clicked in the picker or taken
-    /// with Tab. Returns false when there is no draft to insert into.
+    /// with Tab or Return. Returns false when there is no draft to insert into.
     @discardableResult
     private func insertMention(_ candidate: ComposerMentionCandidate, for context: ComposerMentionContext) -> Bool {
         guard let draftKey = workspace.selectedComposerDraftKey else { return false }
