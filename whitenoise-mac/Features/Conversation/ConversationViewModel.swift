@@ -184,12 +184,16 @@ final class ConversationViewModel {
         while true {
             do {
                 if let visibleAnchorMessageIdHex, let revision = snapshot?.revision {
+                    // A viewport move over the same rows: install it for its revision, but do not
+                    // re-present 200 unchanged rows — the page reply right after carries the rows.
                     await install(
                         try await subscription.setVisibleAnchor(
                             revision: revision,
                             messageIdHex: visibleAnchorMessageIdHex,
                             timeoutMs: 0
-                        ))
+                        ),
+                        presents: false
+                    )
                 }
                 guard let revision = snapshot?.revision else { return }
                 await install(
@@ -447,10 +451,13 @@ final class ConversationViewModel {
         }
     }
 
-    private func install(_ replacement: ConversationWindowSnapshotFfi) async {
+    private func install(_ replacement: ConversationWindowSnapshotFfi, presents: Bool = true) async {
+        // MarmotKit delivers a command's result both as its reply and as a stream echo, in either
+        // order; ignore an equal or older sequence within the generation, so each window is
+        // mapped and presented once rather than twice.
         if let current = snapshot {
             guard current.revision.generation == replacement.revision.generation,
-                replacement.revision.sequence >= current.revision.sequence
+                replacement.revision.sequence > current.revision.sequence
             else { return }
         }
         snapshot = replacement
@@ -466,7 +473,7 @@ final class ConversationViewModel {
         clearProjectedPollSelections(in: replacement)
         error = nil
         isLoading = false
-        if let snapshotObserver {
+        if presents, let snapshotObserver {
             await snapshotObserver(replacement)
             hasPresentedWindow = true
         }

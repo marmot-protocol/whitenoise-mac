@@ -322,6 +322,44 @@ func timelineFootAction(isAtBottom: Bool, hasMoreAfter: Bool, isFollowingTail: B
     return isFollowingTail ? .none : .returnToLatest
 }
 
+/// One transcript element as a single view: the unread divider and day header it may carry, then
+/// the message. A lazy stack places a list of these far more cheaply than a `ForEach` whose
+/// elements expand to a varying number of sibling views.
+private struct TranscriptItemRow: View {
+    let item: TimelineMessageDisplayItem
+    let showsUnreadDivider: Bool
+    let safetyModel: GroupSafetyViewModel
+    let conversationModel: ConversationViewModel
+    let canVoteInPolls: Bool
+    let showsDebugMetadata: Bool
+    let timestampReferenceDate: Date
+    let timestampLocale: Locale
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+    let onNavigateToMessage: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if showsUnreadDivider {
+                UnreadMessagesDivider()
+            }
+            if let dayLabel = item.dayLabel {
+                TimelineDayHeaderView(title: dayLabel)
+            }
+            ConversationMessageRow(
+                message: item.message,
+                safetyModel: safetyModel,
+                conversationModel: conversationModel,
+                canVoteInPolls: canVoteInPolls,
+                showsDebugMetadata: showsDebugMetadata,
+                timestampReferenceDate: timestampReferenceDate,
+                timestampLocale: timestampLocale,
+                onOpenImageGallery: onOpenImageGallery,
+                onNavigateToMessage: onNavigateToMessage
+            )
+        }
+    }
+}
+
 private struct TranscriptOpeningKey: Equatable {
     let model: ObjectIdentifier
     let hasPresentedWindow: Bool
@@ -432,18 +470,15 @@ private struct ConversationView: View {
                                     TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
                                 }
 
+                                // Exactly one view per element. A lazy stack walks this list on
+                                // every placement pass; elements that expand to a variable number
+                                // of views (an optional divider, an optional day header, the row)
+                                // make each walk flatten nested dynamic view lists, which is where
+                                // the scroll-up hang spent its time.
                                 ForEach(displayItems) { item in
-                                    if item.message.id == unreadDividerMessageId {
-                                        UnreadMessagesDivider()
-                                            .id(unreadDividerAnchorId)
-                                    }
-
-                                    if let dayLabel = item.dayLabel {
-                                        TimelineDayHeaderView(title: dayLabel)
-                                    }
-
-                                    ConversationMessageRow(
-                                        message: item.message,
+                                    TranscriptItemRow(
+                                        item: item,
+                                        showsUnreadDivider: item.message.id == unreadDividerMessageId,
                                         safetyModel: safetyModel,
                                         conversationModel: model,
                                         canVoteInPolls: canUseComposer,
@@ -1015,10 +1050,6 @@ private struct ConversationView: View {
         scrollToBottom(with: proxy)
     }
 
-    private var unreadDividerAnchorId: String {
-        "conversation-unread-divider-\(chat.id)"
-    }
-
     /// Puts a newly presented window where this open should start, once per model: at the unread
     /// divider, at a pending navigation target
     /// (which `revealMessage` scrolls to), or at the newest message.
@@ -1030,9 +1061,9 @@ private struct ConversationView: View {
         } else if let divider = model.unreadDivider,
             workspace.selectedTimelineContainsMessage(divider.messageIdHex)
         {
-            // Land on the divider itself, the row the opening waits to see reported.
-            openingPhase = .targeting(unreadDividerAnchorId)
-            scrollPositionID = unreadDividerAnchorId
+            // Land on the first unread message's row, which draws the divider at its top.
+            openingPhase = .targeting(divider.messageIdHex)
+            scrollPositionID = divider.messageIdHex
         } else {
             openingPhase = .targeting(bottomAnchorId)
             scrollToBottom(with: proxy)
