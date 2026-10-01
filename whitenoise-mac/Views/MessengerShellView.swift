@@ -820,7 +820,8 @@ private struct ConversationView: View {
                     onSend: {
                         Task { await workspace.sendDraft() }
                     },
-                    focusRequestID: composerFocusRequester.requestID
+                    focusRequestID: composerFocusRequester.requestID,
+                    onFocusRequestConsumed: composerFocusRequester.consume
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)

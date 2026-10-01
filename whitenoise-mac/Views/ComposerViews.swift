@@ -20,16 +20,27 @@ struct ComposerEmojiInsertion: Equatable {
     let emoji: String
 }
 
-/// Lets a transcript control (the Reply action) hand keyboard focus to the composer. One per
+/// Lets a transcript control (Reply, Edit) hand keyboard focus to the composer. One per
 /// conversation, held in `ConversationView` state and passed down through the environment:
 /// rows only call `request()` and never read `requestID`, so a request re-renders the composer
 /// alone, not the transcript.
+///
+/// A request stays pending until the text view actually takes focus and consumes it. Retiring it
+/// here rather than in the text view's coordinator is what stops a composer rebuilt later in the
+/// same chat (after selection mode, a voice recording, …) from mistaking an old request for a
+/// new one.
 @Observable
 final class ComposerFocusRequester {
     private(set) var requestID: UUID?
 
     func request() {
         requestID = UUID()
+    }
+
+    /// Retires `id` if it is still the pending request; a newer request is left alone.
+    func consume(_ id: UUID) {
+        guard requestID == id else { return }
+        requestID = nil
     }
 }
 
@@ -89,6 +100,7 @@ struct ComposerMessageInputView: View {
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
     var focusRequestID: UUID?
+    var onFocusRequestConsumed: (UUID) -> Void = { _ in }
 
     @State private var measuredHeight = ComposerMessageInputMetrics.minHeight
 
@@ -106,7 +118,8 @@ struct ComposerMessageInputView: View {
                 onMentionContextChange: onMentionContextChange,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend,
-                focusRequestID: focusRequestID
+                focusRequestID: focusRequestID,
+                onFocusRequestConsumed: onFocusRequestConsumed
             )
             .frame(height: measuredHeight)
 
@@ -241,8 +254,10 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
-    /// A new value moves keyboard focus into the text view, caret at the end of the draft.
+    /// A pending request moves keyboard focus into the text view, caret at the end of the draft,
+    /// then is reported through `onFocusRequestConsumed` so the owner can retire it.
     var focusRequestID: UUID?
+    var onFocusRequestConsumed: (UUID) -> Void = { _ in }
 
     /// The rung the composer is set at.
     static let typingStyle = WNTextStyle.medium14
@@ -315,6 +330,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         context.coordinator.onPasteMedia = onPasteMedia
         context.coordinator.onSend = onSend
         context.coordinator.onEmojiInsertionConsumed = onEmojiInsertionConsumed
+        context.coordinator.onFocusRequestConsumed = onFocusRequestConsumed
         context.coordinator.onMentionInsertionConsumed = onMentionInsertionConsumed
         context.coordinator.mentionSelections = $mentionSelections
         context.coordinator.onMentionContextChange = onMentionContextChange
@@ -358,7 +374,10 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         var onMentionInsertionConsumed: (UUID) -> Void
         var onMentionContextChange: (ComposerMentionContext?) -> Void
         private var lastEmojiInsertionID: UUID?
-        private var lastFocusRequestID: UUID?
+        /// Dedupes the focus attempt already queued for this update pass; cleared when it runs,
+        /// so a request that could not be applied is retried on the next update.
+        private var inFlightFocusRequestID: UUID?
+        var onFocusRequestConsumed: (UUID) -> Void = { _ in }
         private var lastMentionInsertionID: UUID?
         private var lastMentionContext: ComposerMentionContext?
         private var mentionSynchronizationGeneration: UInt64 = 0
@@ -399,14 +418,17 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         }
 
         func scheduleFocus(_ requestID: UUID?, in textView: NSTextView) {
-            guard let requestID, requestID != lastFocusRequestID else { return }
-            lastFocusRequestID = requestID
+            guard let requestID, requestID != inFlightFocusRequestID else { return }
+            inFlightFocusRequestID = requestID
             // Deferred past the update pass: the text view may not be in a window yet when the
-            // composer is rebuilt by the same change that asked for focus.
-            DispatchQueue.main.async {
+            // composer is rebuilt by the same change that asked for focus, and consuming the
+            // request writes observable state that must not change during a view update.
+            DispatchQueue.main.async { [self] in
+                inFlightFocusRequestID = nil
                 guard let window = textView.window, window.makeFirstResponder(textView) else { return }
                 let end = (textView.string as NSString).length
                 textView.setSelectedRange(NSRange(location: end, length: 0))
+                onFocusRequestConsumed(requestID)
             }
         }
 
