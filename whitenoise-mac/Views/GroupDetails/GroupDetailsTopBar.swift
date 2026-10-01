@@ -8,7 +8,8 @@
 
 import SwiftUI
 
-/// Group info's title bar, in the shape of the iOS navigation bar it replaces.
+/// Group info's title bar — and a contact profile's — in the shape of the iOS navigation bar it
+/// replaces.
 ///
 /// Both corner controls are `GlassCircleCloseButton` in its outline form — the app's one back
 /// control, and the same disc for Edit — so the corners weigh the same. When there is no Edit,
@@ -17,6 +18,9 @@ import SwiftUI
 struct GroupDetailsTopBar: View {
     let title: String
     var isLoading = false
+    /// Where the chevron returns to. A contact's profile can open over group info as well as
+    /// over the chat, so it says "Back" rather than naming either.
+    var backHelp = "Back to chat"
     let onBack: () -> Void
     /// `nil` when the reader may not edit the group.
     let onEdit: (() -> Void)?
@@ -27,7 +31,7 @@ struct GroupDetailsTopBar: View {
             // the transcript, so the chevron is a back control and reads as one only on the side
             // you came from.
             GlassCircleCloseButton(
-                symbol: "chevron.backward", help: "Back to chat", appearance: .outline, action: onBack)
+                symbol: "chevron.backward", help: backHelp, appearance: .outline, action: onBack)
 
             Spacer(minLength: 0)
 

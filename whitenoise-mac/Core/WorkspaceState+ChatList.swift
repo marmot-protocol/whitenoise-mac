@@ -1031,7 +1031,8 @@ extension WorkspaceState {
                 profileDisplayName: profile?.displayName,
                 profileName: profile?.name,
                 profilePicture: profile?.picture,
-                directoryDisplayName: client.displayName(accountIdHex: accountIdHex)
+                directoryDisplayName: client.displayName(accountIdHex: accountIdHex),
+                profileAbout: profile?.about
             )
         }
         if activeAccountId == activeAccount.id, let resolved {
@@ -1097,7 +1098,8 @@ extension WorkspaceState {
                             profileDisplayName: profile?.displayName,
                             profileName: profile?.name,
                             profilePicture: profile?.picture,
-                            directoryDisplayName: client.displayName(accountIdHex: senderId)
+                            directoryDisplayName: client.displayName(accountIdHex: senderId),
+                            profileAbout: profile?.about
                         )
                     }
                     return output

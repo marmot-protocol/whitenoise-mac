@@ -34,6 +34,7 @@ enum SourceContract {
     /// the unit keeps reading the whole of it.
     enum ViewUnit: CaseIterable {
         case composer
+        case contactDetails
         case destructiveButtonStyle
         case encryptedPrivateKeyExportSheet
         case group
@@ -58,6 +59,12 @@ enum SourceContract {
         var paths: [String] {
             switch self {
             case .composer: ["ComposerViews.swift"]
+            case .contactDetails:
+                [
+                    "ContactDetails/ContactDetailsView.swift",
+                    "ContactDetails/ContactIdentitySection.swift",
+                    "ContactDetails/ContactProfileActionsRow.swift",
+                ]
             case .destructiveButtonStyle: ["WNDestructiveButtonStyle.swift"]
             case .encryptedPrivateKeyExportSheet: ["Settings/EncryptedPrivateKeyExportSheet.swift"]
             case .group:

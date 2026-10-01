@@ -409,20 +409,17 @@ struct GroupsTests: WorkspaceTestSupport {
         // chevron is a *back* control and belongs on the leading edge — where the
         // compose pane and the settings header already put theirs — not trailing next
         // to the add-members button, which reads as an unrelated right-hand action.
-        // Group info draws its header in `GroupDetailsTopBar`, whose avatar moved down into the
-        // centred hero, so only the contact pane still has an avatar beside its back button.
-        for (declaration, hasHeaderAvatar) in [("GroupDetailsTopBar", false), ("ContactDetailsView", true)] {
-            // Scoped to `body` so helper views declared above it can't stand in for the header's.
-            let header = try SourceContract.viewBody(declaration)
+        // Both panes draw their header in `GroupDetailsTopBar`, with the avatar down in the
+        // centred hero.
+        let header = try SourceContract.viewBody("GroupDetailsTopBar")
+        let backIndex = try #require(header.range(of: #"symbol: "chevron.backward""#)?.lowerBound)
+        let spacerIndex = try #require(header.range(of: "Spacer(")?.lowerBound)
+        #expect(backIndex < spacerIndex, "the back button must sit before the spacer")
 
-            let backIndex = try #require(header.range(of: #"symbol: "chevron.backward""#)?.lowerBound)
-            let spacerIndex = try #require(header.range(of: "Spacer(")?.lowerBound)
-            #expect(backIndex < spacerIndex, "\(declaration) back button must sit before the spacer")
-            if hasHeaderAvatar {
-                let avatarIndex = try #require(header.range(of: "ProfileImageAvatarView(")?.lowerBound)
-                #expect(backIndex < avatarIndex, "\(declaration) back button must precede the avatar")
-            }
-        }
+        let contactBody = try SourceContract.viewBody("ContactDetailsView")
+        let topBarIndex = try #require(contactBody.range(of: "GroupDetailsTopBar(")?.lowerBound)
+        let formIndex = try #require(contactBody.range(of: "Form {")?.lowerBound)
+        #expect(topBarIndex < formIndex)
     }
 
     @MainActor
@@ -656,6 +653,113 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func messageSenderContactDetailsKeepTheRetainedAvatarBioAndNpubThroughANickname() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installProfile(
+            accountIdHex: aliceIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: "  Designer.\nLikes \u{202E}small cameras.  ",
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let avatar = DownloadedMediaPayload(id: "avatar:alice#1", data: Data([0x89, 0x50]))
+        let message = MessageItem(
+            id: "m1",
+            groupIdHex: "group",
+            senderAccountIdHex: aliceIdHex,
+            senderName: "Alice",
+            senderImagePayload: avatar,
+            body: "Hello",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineAt: 1_700_000_000,
+            isOutgoing: false
+        )
+        await state.showContactDetails(for: message)
+
+        let target = try #require(state.contactDetailsTarget)
+        // The bytes the transcript drew beside the message, not just the URL the remote-image
+        // preference blanks.
+        #expect(target.imagePayload == avatar)
+        #expect(target.npub == runtime.npub(accountIdHex: aliceIdHex))
+        // Line breaks survive; the bidi override does not.
+        #expect(target.about == "Designer.\nLikes small cameras.")
+
+        // Setting a nickname from the header relabels the open profile and keeps the rest of it.
+        state.setContactNickname("Ali", forContactAccountIdHex: aliceIdHex)
+        let nicknamed = try #require(state.contactDetailsTarget)
+        #expect(nicknamed.title == "Ali")
+        #expect(nicknamed.publishedDisplayName == "Alice")
+        #expect(nicknamed.imagePayload == avatar)
+        #expect(nicknamed.about == target.about)
+        #expect(nicknamed.npub == target.npub)
+
+        state.setContactNickname(nil, forContactAccountIdHex: aliceIdHex)
+        let restored = try #require(state.contactDetailsTarget)
+        #expect(restored.title == "Alice")
+        #expect(restored.publishedDisplayName == nil)
+        #expect(restored.imagePayload == avatar)
+    }
+
+    @Test func contactAvatarPayloadPrefersTheNewestTranscriptBytesThenTheDirectChat() {
+        let aliceIdHex = "alice"
+        func message(_ id: String, sender: String, payload: DownloadedMediaPayload?) -> MessageItem {
+            MessageItem(
+                id: id,
+                groupIdHex: "group",
+                senderAccountIdHex: sender,
+                senderName: sender,
+                senderImagePayload: payload,
+                body: "Hi",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                timelineAt: 1_700_000_000,
+                isOutgoing: false
+            )
+        }
+        func chat(_ id: String, peer: String, isDirect: Bool, payload: DownloadedMediaPayload?) -> ChatItem {
+            ChatItem(
+                id: id,
+                title: peer,
+                subtitle: "",
+                preview: "",
+                updatedAt: nil,
+                avatarSeed: peer,
+                pictureURL: nil,
+                groupImagePayload: payload,
+                unreadCount: 0,
+                isDirect: isDirect
+            )
+        }
+        let older = DownloadedMediaPayload(id: "older", data: Data([1]))
+        let newer = DownloadedMediaPayload(id: "newer", data: Data([2]))
+        let direct = DownloadedMediaPayload(id: "direct", data: Data([3]))
+        let group = DownloadedMediaPayload(id: "group", data: Data([4]))
+        let chats = [
+            chat("group", peer: aliceIdHex, isDirect: false, payload: group),
+            chat("dm", peer: aliceIdHex, isDirect: true, payload: direct),
+        ]
+
+        let transcript = [
+            message("1", sender: aliceIdHex, payload: older),
+            message("2", sender: aliceIdHex, payload: newer),
+            message("3", sender: aliceIdHex, payload: nil),
+            message("4", sender: "bob", payload: DownloadedMediaPayload(id: "bob", data: Data([5]))),
+        ]
+        #expect(ContactAvatarPayload.find(accountIdHex: aliceIdHex, messages: transcript, chats: chats) == newer)
+        // Nothing in the transcript: the direct chat's avatar, never a group's.
+        #expect(ContactAvatarPayload.find(accountIdHex: aliceIdHex, messages: [], chats: chats) == direct)
+        #expect(ContactAvatarPayload.find(accountIdHex: aliceIdHex, messages: [], chats: [chats[0]]) == nil)
+    }
+
+    @MainActor
     @Test func followToggleTracksTheReturnedListRatherThanTheRequestedMutation() async throws {
         let account = desktopAccount()
         let aliceHex = String(repeating: "a", count: 64)
@@ -859,13 +963,22 @@ struct GroupsTests: WorkspaceTestSupport {
         // row above the form, and chat info carries the same control for a direct chat.
         let source = try SourceContract.source(of: .group)
 
-        // The profile's action row is above the form, and carries Follow before Message.
-        let detailsBody = try SourceContract.declaration("ContactDetailsView")
+        // The action row sits in the identity header, which opens the form ahead of every
+        // detail row, and carries Follow before Message.
+        let identityBody = try SourceContract.viewBody("ContactIdentitySection")
+        let copyCardIndex = try #require(identityBody.range(of: "WNCopyCard(")?.lowerBound)
         let actionsRowIndex = try #require(
-            detailsBody.range(of: "ContactProfileActionsRow(contact: contact)")?.lowerBound
+            identityBody.range(of: "ContactProfileActionsRow(contact: contact)")?.lowerBound
         )
-        let formIndex = try #require(detailsBody.range(of: "\n            Form {")?.lowerBound)
-        #expect(actionsRowIndex < formIndex)
+        #expect(copyCardIndex < actionsRowIndex)
+
+        // The nickname is managed beside the name, not from a row lower in the form.
+        #expect(identityBody.contains("ContactNicknameHeaderActions(accountIdHex: contact.accountIdHex)"))
+        let detailsBody = try SourceContract.viewBody("ContactDetailsView")
+        #expect(!detailsBody.contains("ContactNicknameRow("))
+        let identityIndex = try #require(detailsBody.range(of: "ContactIdentitySection(")?.lowerBound)
+        let groupsIndex = try #require(detailsBody.range(of: "GroupsInCommonSection()")?.lowerBound)
+        #expect(identityIndex < groupsIndex)
 
         let rowBody = try SourceContract.declaration("ContactProfileActionsRow")
         let followIndex = try #require(

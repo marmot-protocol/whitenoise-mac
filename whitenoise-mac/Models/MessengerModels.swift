@@ -3523,6 +3523,12 @@ struct NewChatRecipient: Equatable {
     let pictureURL: String?
     /// Pre-sanitized once from the peer-controlled raw URL so recipient rows only read it.
     let sanitizedPictureURL: URL?
+    /// MDK's retained copy of the peer's avatar, drawn ahead of `sanitizedPictureURL`. The core
+    /// fetched it, so it draws whatever the "Load Remote Profile Images" preference says.
+    let imagePayload: DownloadedMediaPayload?
+    /// The published bio. Line breaks are kept — it is prose, not a label — but bidi controls are
+    /// stripped so a peer cannot reorder the text around it.
+    let about: String?
 
     init(
         sourceQuery: String,
@@ -3531,7 +3537,9 @@ struct NewChatRecipient: Equatable {
         npub: String,
         displayName: String?,
         publishedDisplayName: String? = nil,
-        pictureURL: String?
+        pictureURL: String?,
+        imagePayload: DownloadedMediaPayload? = nil,
+        about: String? = nil
     ) {
         self.sourceQuery = sourceQuery
         self.memberRef = memberRef
@@ -3541,6 +3549,26 @@ struct NewChatRecipient: Equatable {
         self.publishedDisplayName = PeerDisplayText.sanitize(publishedDisplayName)
         self.pictureURL = pictureURL
         self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
+        self.imagePayload = imagePayload
+        self.about = about.flatMap {
+            PeerDisplayText.strippingBidiControls($0).trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+        }
+    }
+
+    /// The same person under a new label, every other field kept. Rebuilding through `init` at
+    /// the call site silently drops whatever was added to the type after that site was written.
+    func relabeled(displayName: String?, publishedDisplayName: String?) -> NewChatRecipient {
+        NewChatRecipient(
+            sourceQuery: sourceQuery,
+            memberRef: memberRef,
+            accountIdHex: accountIdHex,
+            npub: npub,
+            displayName: displayName,
+            publishedDisplayName: publishedDisplayName,
+            pictureURL: pictureURL,
+            imagePayload: imagePayload,
+            about: about
+        )
     }
 
     var title: String {

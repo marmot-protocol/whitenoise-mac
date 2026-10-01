@@ -315,14 +315,9 @@ extension WorkspaceState {
             ContactNicknames.normalizedHex(existing.accountIdHex) == accountIdHex
         else { return }
         let published = existing.publishedDisplayName ?? existing.displayName
-        contactDetailsTarget = NewChatRecipient(
-            sourceQuery: existing.sourceQuery,
-            memberRef: existing.memberRef,
-            accountIdHex: existing.accountIdHex,
-            npub: existing.npub,
+        contactDetailsTarget = existing.relabeled(
             displayName: nickname ?? published,
-            publishedDisplayName: nickname == nil ? nil : published,
-            pictureURL: existing.pictureURL
+            publishedDisplayName: nickname == nil ? nil : published
         )
     }
 }
