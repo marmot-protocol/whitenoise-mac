@@ -559,7 +559,11 @@ extension WorkspaceState {
         }
         await loadMessages(groupIdHex: chat.id)
 
-        while activeAccountId == account.id,
+        // A projection-owned chat has no legacy subscription to page back through; the
+        // transcript reaches the target with a MarmotKit jump when it reveals the navigation.
+        let projectionOwnsTimeline = timelineTaskGroupId == chat.id && timelineTask == nil
+        while !projectionOwnsTimeline,
+            activeAccountId == account.id,
             selectedChat?.id == chat.id,
             !selectedTimelineContainsMessage(result.messageId),
             selectedTimelinePaging.hasMoreBefore
@@ -570,7 +574,7 @@ extension WorkspaceState {
         }
 
         guard activeAccountId == account.id, selectedChat?.id == chat.id else { return }
-        guard selectedTimelineContainsMessage(result.messageId) else {
+        guard projectionOwnsTimeline || selectedTimelineContainsMessage(result.messageId) else {
             lastError = L10n.string("The selected message is no longer available.")
             return
         }

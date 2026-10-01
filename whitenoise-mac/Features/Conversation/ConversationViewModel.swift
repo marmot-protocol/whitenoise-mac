@@ -81,8 +81,8 @@ final class ConversationViewModel {
     @ObservationIgnored private(set) var isAtWindowBottom = false
     /// Mirrors MarmotKit's row budget for this window: the open's `initialRows`, grown by every
     /// successful page and capped at `maxWindowRows`. Jumps, `returnToLatest` and live updates
-    /// keep it. Once a newer page would push it past the cap, MarmotKit makes room by dropping
-    /// rows at the head of the window, above the reader — see `newerPageTrimsWindowHead`.
+    /// keep it. Once a page would push it past the cap, MarmotKit makes room by dropping rows at
+    /// the far end of the window, on the other side of the reader — see `nextPageTrimsWindow`.
     @ObservationIgnored private(set) var windowRowBudget = ConversationViewModel.initialRows
 
     @ObservationIgnored private let runtime: any MarmotRuntime
@@ -113,10 +113,11 @@ final class ConversationViewModel {
     /// MarmotKit's retained-window cap (`CONVERSATION_WINDOW_MAX_ROWS`).
     nonisolated static let maxWindowRows: UInt32 = 200
 
-    /// Whether the next newer page replaces rows above the reader as well as appending below.
-    /// Such a page cannot keep the reader's place by holding the top edge still, and MarmotKit
-    /// only advances it past the cap from a reported visible anchor.
-    var newerPageTrimsWindowHead: Bool {
+    /// Whether the next page in either direction also drops rows from the window's far end: a
+    /// newer page loses rows above the reader, an older page rows below. Such a page cannot keep
+    /// the reader's place by holding one edge still, and MarmotKit only advances it past the cap
+    /// from a reported visible anchor.
+    var nextPageTrimsWindow: Bool {
         windowRowBudget + Self.pageRows > Self.maxWindowRows
     }
 
@@ -171,9 +172,9 @@ final class ConversationViewModel {
     }
 
     /// Pages the window. `visibleAnchorMessageIdHex` is reported first with `set_visible_anchor`,
-    /// which MarmotKit requires before paging beyond its retained cap: without it a newer page at
-    /// the cap keeps the opening anchor, runs out of rows to drop above it, and returns the same
-    /// window while `hasMoreAfter` stays true.
+    /// which MarmotKit requires before paging beyond its retained cap: without it a page at the
+    /// cap keeps the opening anchor, runs out of rows to drop on the far side of it, and returns
+    /// the same window while the has-more flag stays true.
     func page(
         _ direction: ConversationPageDirectionFfi,
         count: UInt32 = ConversationViewModel.pageRows,

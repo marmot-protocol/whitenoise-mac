@@ -2622,6 +2622,46 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.markedReadMessageIds.last == "member-added")
     }
 
+    /// Once the conversation projection claims the selected chat, a legacy load from any entry
+    /// point (sidebar selection, search, notifications) must stand down: it would replace the
+    /// unread-anchored window with the latest page and mark that read before the divider showed.
+    @MainActor
+    @Test func legacyLoadStandsDownForAProjectionOwnedChat() async throws {
+        let (state, runtime, _) = try await Self.loadedGroupForReadMarking()
+        let alice = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "chat",
+                    groupIdHex: "group",
+                    sender: alice,
+                    plaintext: "Welcome",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                ),
+                appMessage(
+                    id: "unread",
+                    groupIdHex: "group",
+                    sender: alice,
+                    plaintext: "Unread",
+                    kind: 9,
+                    recordedAt: 1_700_000_005
+                ),
+            ], groupIdHex: "group")
+        let markedBefore = runtime.markedReadMessageIds
+        // What the projection host does on selection.
+        state.cancelTimelineLoad()
+        state.stopTimelineListener()
+        state.timelineTaskGroupId = "group"
+
+        await state.loadMessages(groupIdHex: "group")
+
+        #expect(runtime.markedReadMessageIds == markedBefore)
+        #expect(!state.selectedTimelineContainsMessage("unread"))
+        #expect(state.timelineTask == nil)
+        #expect(state.timelineTaskGroupId == "group")
+    }
+
     /// The reading position is read when the replacement commits, not when it starts: a reader
     /// who scrolls up while the window is mapped off the main actor keeps new arrivals unread.
     @MainActor
@@ -2693,59 +2733,83 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(anchor(pinned: false, hasMoreAfter: true, loadingOlder: true) == .bottom)
     }
 
-    /// Below MarmotKit's cap a newer page is a pure append and prefetches from the band. At the cap
-    /// it also drops rows above the reader, so holding the top edge would carry them forward past
-    /// those rows (and the read marker after them): it waits for the foot and restores there.
-    @Test func newerPagePlanPrefetchesAppendsButLoadsCappedPagesOnlyAtTheFoot() {
-        let inBand = TimelineScrollMetrics(atBottom: false, nearTop: false, nearBottom: true)
-        let atFoot = TimelineScrollMetrics(atBottom: true, nearTop: false, nearBottom: true)
-        let farAbove = TimelineScrollMetrics(atBottom: false, nearTop: false, nearBottom: false)
+    /// Below MarmotKit's cap a page is a pure prepend or append and prefetches from the band. At
+    /// the cap it also drops rows on the reader's far side, so holding one edge still would carry
+    /// them past those rows (and the read marker after them): it waits for the edge and restores
+    /// there. An older page from the unread divider is the common pure case: it must prefetch and
+    /// leave the divider where it is, not restore the window's old first row to the top.
+    @Test func pagePlanPrefetchesPurePagesButLoadsCappedPagesOnlyAtTheirEdge() {
+        let atDivider = TimelineScrollMetrics(atTop: false, atBottom: false, nearTop: true, nearBottom: true)
+        let atFoot = TimelineScrollMetrics(atTop: false, atBottom: true, nearTop: false, nearBottom: true)
+        let atHead = TimelineScrollMetrics(atTop: true, atBottom: false, nearTop: true, nearBottom: false)
+        let midWindow = TimelineScrollMetrics(atTop: false, atBottom: false, nearTop: false, nearBottom: false)
 
-        #expect(timelineNewerPagePlan(metrics: inBand, trimsWindowHead: false) == .prefetch)
-        #expect(timelineNewerPagePlan(metrics: farAbove, trimsWindowHead: false) == .wait)
-        #expect(timelineNewerPagePlan(metrics: inBand, trimsWindowHead: true) == .wait)
-        #expect(timelineNewerPagePlan(metrics: atFoot, trimsWindowHead: true) == .loadAtFoot)
-        #expect(timelineNewerPagePlan(metrics: nil, trimsWindowHead: false) == .wait)
+        #expect(timelinePagePlan(.older, metrics: atDivider, trimsWindow: false) == .prefetch)
+        #expect(timelinePagePlan(.newer, metrics: atDivider, trimsWindow: false) == .prefetch)
+        #expect(timelinePagePlan(.older, metrics: midWindow, trimsWindow: false) == .wait)
+        #expect(timelinePagePlan(.newer, metrics: midWindow, trimsWindow: false) == .wait)
 
+        #expect(timelinePagePlan(.older, metrics: atDivider, trimsWindow: true) == .wait)
+        #expect(timelinePagePlan(.newer, metrics: atDivider, trimsWindow: true) == .wait)
+        #expect(timelinePagePlan(.older, metrics: atHead, trimsWindow: true) == .loadAtEdge)
+        #expect(timelinePagePlan(.newer, metrics: atFoot, trimsWindow: true) == .loadAtEdge)
+        #expect(timelinePagePlan(.older, metrics: nil, trimsWindow: false) == .wait)
+
+        let detached = TimelinePagingState(
+            hasMoreBefore: true,
+            hasMoreAfter: true,
+            isLoadingBefore: false,
+            isLoadingAfter: false
+        )
         #expect(
             timelineNewestMessageScrollAction(
                 newMessageIsOutgoing: false,
-                paging: TimelinePagingState(
-                    hasMoreBefore: true,
-                    hasMoreAfter: true,
-                    isLoadingBefore: false,
-                    isLoadingAfter: false
-                ),
+                paging: detached,
                 pendingPrependAnchorId: nil,
                 pendingAppendAnchorId: "old-last",
                 newMessageId: "new-last",
                 isPinnedToBottom: true,
                 restoresPendingAppendAnchor: true
             ) == .restorePendingAppendAnchor("old-last"))
+        #expect(
+            timelineNewestMessageScrollAction(
+                newMessageIsOutgoing: false,
+                paging: detached,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: "old-last",
+                newMessageId: "new-last",
+                isPinnedToBottom: true
+            ) == .newerPageLanding)
     }
 
-    /// The divider settle asks for an older and a newer page together. MarmotKit pages one at a
-    /// time, so the newer request used to be swallowed with nothing to retry it; it now waits for
-    /// the older page to settle and then runs.
-    @Test func newerPageRequestedDuringAnOlderPageRunsOnceItSettles() {
+    /// MarmotKit pages one request at a time. A request made while a page is in flight, in either
+    /// direction, is remembered until that page completes and then handed back, older first. The
+    /// divider settle asks for both directions at once, and a newer request used to be swallowed.
+    @Test func pageRequestsMadeWhileAPageIsInFlightAreRetainedUntilItCompletes() {
         var queue = TimelinePageRequestQueue()
 
-        let startsWhenIdle = queue.requestNewer(olderPageInFlight: false)
-        let dueAfterIdleStart = queue.olderPageSettled()
-        #expect(startsWhenIdle)
-        #expect(!dueAfterIdleStart)
+        let olderClaims = queue.claim(.older)
+        let newerWhileOlder = queue.claim(.newer)
+        let olderAgainWhileOlder = queue.claim(.older)
+        #expect(olderClaims)
+        #expect(!newerWhileOlder)
+        #expect(!olderAgainWhileOlder)
+        #expect(queue.inFlight == .older)
 
-        let startsDuringOlder = queue.requestNewer(olderPageInFlight: true)
-        let dueOnceOlderSettles = queue.olderPageSettled()
-        let dueAgain = queue.olderPageSettled()
-        #expect(!startsDuringOlder)
-        #expect(dueOnceOlderSettles)
-        #expect(!dueAgain)
+        let dueAfterOlder = queue.complete()
+        #expect(dueAfterOlder == [.older, .newer])
+        #expect(queue.inFlight == nil)
 
-        _ = queue.requestNewer(olderPageInFlight: true)
+        let newerClaims = queue.claim(.newer)
+        let dueAfterNewer = queue.complete()
+        #expect(newerClaims)
+        #expect(dueAfterNewer.isEmpty)
+
+        _ = queue.claim(.older)
+        _ = queue.claim(.newer)
         queue.reset()
-        let dueAfterChatSwitch = queue.olderPageSettled()
-        #expect(!dueAfterChatSwitch)
+        let dueAfterChatSwitch = queue.complete()
+        #expect(dueAfterChatSwitch.isEmpty)
     }
 
     /// No scroll sample, or a search jump that arrived while the divider scroll was in flight:
@@ -4299,7 +4363,7 @@ struct TimelineTests: WorkspaceTestSupport {
                 pendingAppendAnchorId: "message-249",
                 newMessageId: "message-349",
                 isPinnedToBottom: false
-            ) == .clearPendingAppendAnchor)
+            ) == .newerPageLanding)
         #expect(
             timelineNewestMessageScrollAction(
                 newMessageIsOutgoing: false,
@@ -4308,7 +4372,7 @@ struct TimelineTests: WorkspaceTestSupport {
                 pendingAppendAnchorId: "message-249",
                 newMessageId: "message-449",
                 isPinnedToBottom: false
-            ) == .clearPendingAppendAnchor)
+            ) == .newerPageLanding)
         #expect(
             timelineNewestMessageScrollAction(
                 newMessageIsOutgoing: false,

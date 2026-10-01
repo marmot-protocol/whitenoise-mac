@@ -30,6 +30,16 @@ extension WorkspaceState {
         if let draftAccountId {
             await restoreComposerDraftIfNeeded(accountId: draftAccountId, groupIdHex: groupIdHex)
         }
+        // The conversation projection owns this chat (`timelineTaskGroupId` without a legacy
+        // listener task). A legacy load would replace its window with the latest page and mark
+        // that read, defeating the unread divider; the projection's own snapshot clears the
+        // initial-load spinner, so it is left running here.
+        if timelineTaskGroupId == groupIdHex, timelineTask == nil {
+            if let draftAccountId, activeAccountId == draftAccountId {
+                hydrateRestoredReplyContext(accountId: draftAccountId, groupIdHex: groupIdHex)
+            }
+            return
+        }
         if timelineTaskGroupId == groupIdHex, ensureMessageTimelineStore(for: groupIdHex).isLoaded {
             if let draftAccountId, activeAccountId == draftAccountId {
                 hydrateRestoredReplyContext(accountId: draftAccountId, groupIdHex: groupIdHex)
@@ -91,6 +101,10 @@ extension WorkspaceState {
             return
         }
         guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex) else {
+            return
+        }
+        // The projection host may have claimed the chat while this load waited to start.
+        if timelineTaskGroupId == groupIdHex, timelineTask == nil {
             return
         }
         if timelineTaskGroupId == groupIdHex, ensureMessageTimelineStore(for: groupIdHex).isLoaded {

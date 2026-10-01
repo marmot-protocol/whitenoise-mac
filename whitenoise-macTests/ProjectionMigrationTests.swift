@@ -1012,14 +1012,14 @@ struct ProjectionMigrationTests {
         let window = try #require(runtime.openedConversationWindows["group"])
 
         #expect(model.windowRowBudget == 50)
-        #expect(!model.newerPageTrimsWindowHead)
+        #expect(!model.nextPageTrimsWindow)
         await model.page(.newer)
         await model.page(.newer)
         #expect(model.windowRowBudget == 150)
-        #expect(!model.newerPageTrimsWindowHead)
+        #expect(!model.nextPageTrimsWindow)
         await model.page(.newer)
         #expect(model.windowRowBudget == 200)
-        #expect(model.newerPageTrimsWindowHead)
+        #expect(model.nextPageTrimsWindow)
 
         await model.page(.newer, visibleAnchorMessageIdHex: "old-last")
         #expect(window.commands == ["page:newer", "page:newer", "page:newer", "anchor:old-last", "page:newer"])
