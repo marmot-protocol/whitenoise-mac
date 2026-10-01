@@ -786,6 +786,16 @@ nonisolated struct MessageReaction: Identifiable, Hashable {
     }
 }
 
+/// One message's reactions as a conversation window prepares them: the per-emoji tallies plus the
+/// exact aggregates for kinds the window left out.
+nonisolated struct PreparedMessageReactions: Hashable {
+    let reactions: [MessageReaction]
+    /// Exact reaction total across every kind, including omitted ones.
+    let totalCount: Int
+    /// Emoji kinds past the window's cap, absent from `reactions`.
+    let omittedKinds: Int
+}
+
 nonisolated struct MessageReplyContext: Hashable {
     let targetMessageId: String
     /// `var` so a private-nickname write can relabel a quote already on screen without
@@ -2468,6 +2478,10 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let editCount: UInt64
     let isOutgoing: Bool
     let reactions: [MessageReaction]
+    /// Exact reaction total, which exceeds the sum of `reactions` when kinds were omitted.
+    let reactionTotalCount: Int
+    /// Emoji kinds the conversation window omitted from `reactions`.
+    let omittedReactionKinds: Int
     var replyContext: MessageReplyContext?
     let mediaAttachments: [MessageMediaAttachment]
     let visualMediaAttachments: [MessageMediaAttachment]
@@ -2674,6 +2688,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         editCount: UInt64 = 0,
         isOutgoing: Bool,
         reactions: [MessageReaction] = [],
+        reactionTotalCount: Int? = nil,
+        omittedReactionKinds: Int = 0,
         replyContext: MessageReplyContext? = nil,
         mediaAttachments: [MessageMediaAttachment] = [],
         presentation: MessagePresentation = .chat,
@@ -2735,6 +2751,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.editCount = editCount
         self.isOutgoing = isOutgoing
         self.reactions = reactions
+        self.reactionTotalCount = reactionTotalCount ?? reactions.reduce(0) { $0 + $1.count }
+        self.omittedReactionKinds = omittedReactionKinds
         self.replyContext = replyContext
         self.mediaAttachments = mediaAttachments
         self.visualMediaAttachments = partitionedAttachments.visual
@@ -2806,6 +2824,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             isEdited: true,
             isOutgoing: isOutgoing,
             reactions: reactions,
+            reactionTotalCount: reactionTotalCount,
+            omittedReactionKinds: omittedReactionKinds,
             replyContext: replyContext,
             mediaAttachments: mediaAttachments,
             presentation: presentation,

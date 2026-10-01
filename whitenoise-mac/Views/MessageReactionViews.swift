@@ -14,11 +14,13 @@ import SwiftUI
 ///
 struct MessageReactionChips: View {
     let reactions: [MessageReaction]
+    /// Emoji kinds the conversation window left out, counted into the overflow pill.
+    var omittedKinds: Int = 0
     /// emoji to focus the viewer on, or nil for the "All" tab.
     let onOpenViewer: (String?) -> Void
 
     var body: some View {
-        let row = MessageReactionChipRow.value(reactions: reactions)
+        let row = MessageReactionChipRow.value(reactions: reactions, omittedKinds: omittedKinds)
         HStack(spacing: Self.pillSpacing) {
             ForEach(row.visible) { reaction in
                 MessageReactionChipPill(isSelected: reaction.isOwn) {
@@ -119,16 +121,20 @@ nonisolated struct MessageReactionChipRow: Equatable {
     /// How many distinct emojis get a pill before the rest collapse into `+N`.
     static let maxVisibleGroups = 4
 
+    /// `omittedKinds` are emoji groups the core never sent (past the conversation window's cap);
+    /// they have no pill of their own, so they always land in the overflow count.
     static func value(
         reactions: [MessageReaction],
+        omittedKinds: Int = 0,
         maxVisibleGroups: Int = Self.maxVisibleGroups
     ) -> Self {
+        let omitted = max(0, omittedKinds)
         guard reactions.count > maxVisibleGroups else {
-            return Self(visible: reactions, hiddenGroupCount: 0)
+            return Self(visible: reactions, hiddenGroupCount: omitted)
         }
         return Self(
             visible: Array(reactions.prefix(maxVisibleGroups)),
-            hiddenGroupCount: reactions.count - maxVisibleGroups
+            hiddenGroupCount: reactions.count - maxVisibleGroups + omitted
         )
     }
 
@@ -201,7 +207,13 @@ struct MessageReactionDetailsView: View {
     }
 
     private var totalCount: Int {
-        message.reactions.reduce(0) { $0 + $1.count }
+        message.reactionTotalCount
+    }
+
+    /// `unreactFromMessage` retracts every reaction the viewer holds on the message, so a row
+    /// must not promise a single emoji when there are several.
+    private var removesSeveralReactions: Bool {
+        message.reactions.filter(\.isOwn).count > 1
     }
 
     private var filters: some View {
@@ -318,9 +330,12 @@ struct MessageReactionDetailsView: View {
                     .wnFont(.medium12)
                     .lineLimit(1)
                 if canRemove {
-                    Text(L10n.string("Tap to remove"))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                    Text(
+                        removesSeveralReactions
+                            ? L10n.string("Tap to remove all your reactions") : L10n.string("Tap to remove")
+                    )
+                    .wnFont(.medium10)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
             Spacer(minLength: 8)

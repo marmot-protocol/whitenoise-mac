@@ -308,7 +308,7 @@ extension WorkspaceState {
         owner: TimelineWindowOwner?,
         preparedSenderProfiles: [String: ChatPeerProfile]? = nil,
         preparedMentionNames: MarkdownMentionNames? = nil,
-        preparedReactions: [String: [MessageReaction]]? = nil,
+        preparedReactions: [String: PreparedMessageReactions]? = nil,
         projectedClientTokens: Set<String>? = nil
     ) async {
         guard
@@ -334,6 +334,13 @@ extension WorkspaceState {
             }
         }
         let mentionNames = preparedMentionNames ?? cachedMentionNames(groupIdHex: groupIdHex)
+        // A prepared window skips `messageSenderProfiles`, which is what requests reactor
+        // profiles on the legacy path, and `reactionReactorDisplay` reads only the profile cache.
+        // Queue the previewed reactors here so the viewer can name someone who never sent a
+        // message; ids already resolved are dropped inside the request.
+        if let preparedReactions {
+            requestPeerProfileRefresh(preparedReactions.values.lazy.flatMap(\.reactions).flatMap(\.senders))
+        }
         guard
             canApplyTimelineWindow(
                 groupIdHex: groupIdHex,

@@ -1028,7 +1028,7 @@ final class WorkspaceState {
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile],
         mentionNames: MarkdownMentionNames,
-        preparedReactions: [String: [MessageReaction]]? = nil
+        preparedReactions: [String: PreparedMessageReactions]? = nil
     ) async -> [MessageItem] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[MessageItem], Never>) in
             FFIExecutor.queue.async {

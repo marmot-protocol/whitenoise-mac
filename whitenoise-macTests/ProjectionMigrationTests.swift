@@ -246,6 +246,25 @@ struct ProjectionMigrationTests {
             ),
             Self.conversationMessage(
                 timelineMessage(
+                    id: "crowded",
+                    direction: "inbound",
+                    groupIdHex: "group",
+                    sender: "sender",
+                    plaintext: "Ten kinds",
+                    recordedAt: 3
+                ),
+                reactions: ConversationReactionsFfi(
+                    totalCount: 10,
+                    totalKinds: 10,
+                    items: (0..<8).map { index in
+                        ConversationReactionFfi(
+                            emoji: "e\(index)", count: 1, reactors: ["r\(index)"], viewerReacted: false)
+                    },
+                    omittedKinds: 2
+                )
+            ),
+            Self.conversationMessage(
+                timelineMessage(
                     id: "quiet",
                     direction: "inbound",
                     groupIdHex: "group",
@@ -272,7 +291,13 @@ struct ProjectionMigrationTests {
                 MessageReaction(emoji: "👍", count: 5, isOwn: true, senders: [viewer, "alice", "bob"]),
                 MessageReaction(emoji: "🎉", count: 1, isOwn: false, senders: ["carol"]),
             ])
+        #expect(messages.first { $0.id == "reacted" }?.reactionTotalCount == 6)
         #expect(messages.first { $0.id == "quiet" }?.reactions == [])
+        // Kinds past the window's cap keep their exact aggregates for the overflow pill and "All".
+        let crowded = messages.first { $0.id == "crowded" }
+        #expect(crowded?.reactions.count == 8)
+        #expect(crowded?.omittedReactionKinds == 2)
+        #expect(crowded?.reactionTotalCount == 10)
     }
 
     @Test func mediaOutcomesPreserveAcceptedAndRejectedAttachmentOrder() {

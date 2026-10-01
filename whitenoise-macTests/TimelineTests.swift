@@ -197,6 +197,20 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(MessageReactionChipRow.value(reactions: []).visible.isEmpty)
     }
 
+    /// A conversation window sends at most eight emoji kinds and reports the rest as
+    /// `omittedKinds`. Those have no pill, so they belong in the overflow count.
+    @Test func reactionChipsCountWindowOmittedKindsIntoTheOverflowPill() {
+        let tally = (0..<8).map { index in
+            MessageReaction(emoji: "e\(index)", count: 1, isOwn: false, senders: ["a"])
+        }
+
+        #expect(MessageReactionChipRow.value(reactions: tally, omittedKinds: 2).hiddenGroupCount == 6)
+        // Under the pill cap, omitted kinds still surface as an overflow pill.
+        let short = MessageReactionChipRow.value(reactions: Array(tally.prefix(2)), omittedKinds: 3)
+        #expect(short.visible.count == 2)
+        #expect(short.hiddenGroupCount == 3)
+    }
+
     @Test func reactionChipCountClampsSoOnePillCannotWidenTheRowWithoutBound() {
         #expect(MessageReactionChipRow.countLabel(for: 2) == "2")
         #expect(MessageReactionChipRow.countLabel(for: 99) == "99")
@@ -210,7 +224,7 @@ struct TimelineTests: WorkspaceTestSupport {
         // leaves the pill riding the media card's bottom edge instead.
         let bubbleSource = try SourceContract.declaration("MessageBubble")
 
-        let chips = try #require(bubbleSource.range(of: "MessageReactionChips(reactions: message.reactions)"))
+        let chips = try #require(bubbleSource.range(of: "MessageReactionChips("))
         let standaloneMetadata = try #require(bubbleSource.range(of: "if !message.hasBubbleContent {"))
         #expect(chips.lowerBound < standaloneMetadata.lowerBound)
 
@@ -5029,6 +5043,86 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(reactor.accountIdHex == reactorId)
     }
 
+    /// The conversation window skips `messageSenderProfiles`, the legacy path's reactor request,
+    /// so its prepared reactors must be queued from the window apply itself.
+    @MainActor
+    @Test func preparedWindowReactorProfilesAreRequestedFromTheWindowApply() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let reactorId = "carol1234567890carol1234567890carol1234567890carol1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.accountIdsMissingProfiles.insert(reactorId)
+        let chat = appMessage(
+            id: "message-000",
+            groupIdHex: "direct-group",
+            sender: aliceId,
+            plaintext: "Hello",
+            kind: 9,
+            recordedAt: 1_700_000_000
+        )
+        runtime.installMessages([chat], groupIdHex: "direct-group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.settlePeerProfileRefreshQueueForTesting()
+        #expect(!runtime.refreshedProfileIds.contains(reactorId))
+        let accountItem = try #require(state.activeAccount)
+
+        await state.applyTimelineWindow(
+            TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: "message-000",
+                        groupIdHex: "direct-group",
+                        sender: aliceId,
+                        plaintext: "Hello",
+                        recordedAt: 1_700_000_000
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            ),
+            groupIdHex: "direct-group",
+            account: accountItem,
+            client: runtime,
+            owner: nil,
+            preparedSenderProfiles: [:],
+            preparedReactions: [
+                "message-000": PreparedMessageReactions(
+                    reactions: [MessageReaction(emoji: "👍", count: 1, isOwn: false, senders: [reactorId])],
+                    totalCount: 1,
+                    omittedKinds: 0
+                )
+            ]
+        )
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        #expect(runtime.refreshedProfileIds.contains(reactorId))
+        #expect(state.messagesByChat["direct-group"]?.first?.reactions.first?.senders == [reactorId])
+    }
+
     @MainActor
     @Test func peerProfileResolutionsWithinTheDebounceWindowCostOneReprojection() async throws {
         // A roster resolving one member at a time must repaint once, not once per member.
@@ -9085,6 +9179,53 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.unreactFromMessageCallCount == 1)
         #expect(runtime.deletedMessage == nil)
         #expect(runtime.reactedMessage == nil)
+    }
+
+    /// `unreactFromMessage` retracts every reaction the viewer holds on the target, so holding two
+    /// emojis still costs exactly one message-wide call — the viewer's copy says so.
+    @MainActor
+    @Test func removingOneOfSeveralOwnReactionsRetractsThemInOneCall() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let thumbs = MessageReaction(emoji: "👍", count: 1, isOwn: true)
+        let party = MessageReaction(emoji: "🎉", count: 1, isOwn: true)
+        let message = MessageItem(
+            id: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            reactions: [thumbs, party]
+        )
+
+        await state.bootstrap()
+        await state.removeReaction(thumbs, from: message)
+
+        #expect(runtime.unreactFromMessageCallCount == 1)
+        #expect(runtime.unreactedMessage == UnreactedMessage(groupIdHex: "direct-group", targetMessageId: "parent"))
+        #expect(runtime.deletedMessage == nil)
     }
 
     @MainActor

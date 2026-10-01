@@ -105,14 +105,16 @@ extension ConversationWindowSnapshotFfi {
 
     /// Each row's prepared reactions keyed by message id. The window's `timeline.reactions` is
     /// always empty, so this is the only reaction source for a conversation snapshot.
-    func preparedReactions(activeAccountIdHex: String) -> [String: [MessageReaction]] {
+    func preparedReactions(activeAccountIdHex: String) -> [String: PreparedMessageReactions] {
         Dictionary(
             messages.map { message in
-                (
+                let reactions = message.references.reactions
+                return (
                     message.timeline.messageIdHex,
-                    MessageReaction.prepared(
-                        message.references.reactions,
-                        activeAccountIdHex: activeAccountIdHex
+                    PreparedMessageReactions(
+                        reactions: MessageReaction.prepared(reactions, activeAccountIdHex: activeAccountIdHex),
+                        totalCount: Int(clamping: reactions.totalCount),
+                        omittedKinds: Int(clamping: reactions.omittedKinds)
                     )
                 )
             },
@@ -519,6 +521,8 @@ nonisolated extension MessageItem {
         editedPlaintext: String? = nil,
         isEdited: Bool = false,
         reactions: [MessageReaction],
+        reactionTotalCount: Int? = nil,
+        omittedReactionKinds: Int = 0,
         replyContext: MessageReplyContext?
     ) {
         let senderProfile = senderProfiles[record.sender]
@@ -597,6 +601,8 @@ nonisolated extension MessageItem {
             editCount: record.edit?.editCount ?? (isEdited ? 1 : 0),
             isOutgoing: isOutgoing,
             reactions: presentation.isChatBubble ? reactions : [],
+            reactionTotalCount: presentation.isChatBubble ? reactionTotalCount : 0,
+            omittedReactionKinds: presentation.isChatBubble ? omittedReactionKinds : 0,
             replyContext: presentation.isChatBubble ? replyContext : nil,
             mediaAttachments: presentation.isChatBubble ? mediaAttachments : [],
             presentation: presentation,
@@ -615,23 +621,28 @@ nonisolated extension MessageItem {
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile] = [:],
         mentionNames: MarkdownMentionNames = [:],
-        preparedReactions: [String: [MessageReaction]]? = nil
+        preparedReactions: [String: PreparedMessageReactions]? = nil
     ) -> [MessageItem] {
         // MarmotKit returns an authoritative timeline window. Keep that order
         // intact: `timelineAt` is second-granular, and re-sorting in the client
         // can reshuffle records that the runtime/database already tie-broke.
         return page.messages.compactMap { record in
             guard record.kind != MarmotTimelineKind.messageEdit else { return nil }
+            let prepared = preparedReactions.map {
+                $0[record.messageIdHex] ?? PreparedMessageReactions(reactions: [], totalCount: 0, omittedKinds: 0)
+            }
             return MessageItem(
                 record: record,
                 activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles,
                 mentionNames: mentionNames,
-                reactions: preparedReactions.map { $0[record.messageIdHex] ?? [] }
+                reactions: prepared?.reactions
                     ?? MessageReaction.summarize(
                         record.reactions,
                         activeAccountIdHex: activeAccountIdHex
                     ),
+                reactionTotalCount: prepared?.totalCount,
+                omittedReactionKinds: prepared?.omittedKinds ?? 0,
                 replyContext: MessageItem.replyContext(
                     for: record.replyPreview,
                     senderProfiles: senderProfiles
