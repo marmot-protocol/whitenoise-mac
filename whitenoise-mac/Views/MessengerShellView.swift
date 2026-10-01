@@ -226,30 +226,6 @@ func timelineReadableMessageIds(
     return visibleMessageIds.subtracting([lowest])
 }
 
-nonisolated enum TimelineNewestMessageScrollAction: Equatable {
-    case none
-    case scrollToBottom
-}
-
-func timelineNewestMessageScrollAction(
-    newMessageIsOutgoing: Bool,
-    paging: TimelinePagingState,
-    newMessageId: String?,
-    isPinnedToBottom: Bool
-) -> TimelineNewestMessageScrollAction {
-    guard newMessageId != nil else { return .none }
-
-    // `hasMoreBefore` only means older history is loadable. It must not suppress
-    // live-edge appends. `hasMoreAfter` means the rendered window is detached from
-    // the live edge, so incoming updates should not yank the user out of history.
-    if paging.hasMoreAfter && !newMessageIsOutgoing {
-        return .none
-    }
-
-    guard isPinnedToBottom || newMessageIsOutgoing else { return .none }
-    return .scrollToBottom
-}
-
 /// What reaching the foot of the window should do. A window that ends before the newest message
 /// loads the next page; one that ends at it but retains an anchor (an unread open, a jump, a page
 /// that reported a visible anchor) is re-attached to the tail, or later arrivals would only flip
@@ -573,25 +549,11 @@ private struct ConversationView: View {
                     composerMentionContext = nil
                     composerMentionInsertion = nil
                 }
-                .onChange(of: messageIDs.last) { _, newMessageId in
-                    // Arrivals while following are pinned by the table itself; this catches the
-                    // reader's own message landing while they were scrolled away.
-                    switch timelineNewestMessageScrollAction(
-                        newMessageIsOutgoing: displayItems.last?.message.isOutgoing == true,
-                        paging: paging,
-                        newMessageId: newMessageId,
-                        isPinnedToBottom: isPinnedToBottom && hasLanded
-                    ) {
-                    case .scrollToBottom:
-                        scrollRequest = TranscriptScrollRequest(target: .bottom)
-                    case .none:
-                        return
-                    }
-                }
                 // Pressing Send scrolls to the live edge, off the send itself rather than off
-                // the message it produces: a media send appends its pending bubble below the
-                // window without moving `messageIDs.last`. A window detached from the live edge
-                // is re-attached first, the same path the jump-to-latest button takes.
+                // the message it produces. Arrivals while following are pinned by the table, and
+                // a new last row is not a send: a newer history page can end in an old message of
+                // the reader's own. A window detached from the live edge is re-attached first,
+                // the same path the jump-to-latest button takes.
                 .onChange(of: workspace.outgoingSendScrollGeneration) { _, _ in
                     guard workspace.selectedChat?.id == chat.id else { return }
                     Task { await jumpToNewest() }

@@ -95,6 +95,22 @@ struct TranscriptTableViewTests {
 
     /// Hosted media decides when to download from its cell's visibility, which SwiftUI cannot
     /// supply inside an AppKit scroll view; the table must report it for every hosted cell.
+    /// A width change must not replace a visible row's live height with the sizing host's, which
+    /// lacks the cell's own state (a decoded GIF would snap back to its placeholder).
+    @Test func aVisibleRowKeepsItsLiveHeightAcrossAWidthChange() {
+        let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<80))
+        harness.request(.top(id: "row-20", inset: 0))
+        let measured = harness.height(of: "row-22")
+        harness.model.liveOnlyGrowth = ["row-22"]
+        harness.settle(until: { harness.height(of: "row-22") != measured })
+        let live = harness.height(of: "row-22")
+
+        harness.resize(width: 440)
+
+        #expect(live.map { $0 - (measured ?? 0) } == 50)
+        #expect(harness.height(of: "row-22") == live)
+    }
+
     @Test func cellsReportWhetherTheyAreOnScreen() {
         let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<120))
         harness.request(.bottom)
@@ -136,6 +152,7 @@ final class TranscriptTableHarnessModel {
     var request: TranscriptScrollRequest?
     /// Extra height a row's content grows by from inside, without its row value changing.
     var innerGrowth: [String: CGFloat] = [:]
+    var liveOnlyGrowth: Set<String> = []
     let followsBottom: Bool
 
     init(rows: [TableTestRow], followsBottom: Bool) {
@@ -168,6 +185,7 @@ struct TranscriptTableHarnessView: View {
 /// Reads the inner growth in its own body, as a GIF's state lives inside its view, so the hosted
 /// row observes it and resizes without its row value changing.
 struct HarnessRowContent: View {
+    @Environment(\.transcriptCellVisibility) private var cellVisibility
     let model: TranscriptTableHarnessModel
     let row: TableTestRow
 
@@ -178,6 +196,9 @@ struct HarnessRowContent: View {
             }
             Color.clear.frame(height: model.innerGrowth[row.id] ?? 0)
         }
+        // Height only a live cell has, as a GIF's decoded aspect lives in the hosted view's state
+        // and never reaches the off-screen sizing host.
+        .padding(.bottom, cellVisibility != nil && model.liveOnlyGrowth.contains(row.id) ? 50 : 0)
     }
 }
 
@@ -248,6 +269,12 @@ final class TranscriptTableHarness {
             host.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
+    }
+
+    func resize(width: CGFloat) {
+        window.setContentSize(NSSize(width: width, height: host.frame.height))
+        host.frame = NSRect(x: 0, y: 0, width: width, height: host.frame.height)
+        settle()
     }
 
     /// Settles until `condition` holds, for at most about two seconds.

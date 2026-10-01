@@ -4277,50 +4277,6 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(request([]) == nil)
     }
 
-    @Test func newestMessageAutoScrollUsesBottomProximityNotOlderHistoryAvailability() {
-        let longLiveEdgePaging = TimelinePagingState(
-            hasMoreBefore: true,
-            hasMoreAfter: false,
-            isLoadingBefore: false,
-            isLoadingAfter: false
-        )
-        let detachedHistoryPaging = TimelinePagingState(
-            hasMoreBefore: true,
-            hasMoreAfter: true,
-            isLoadingBefore: false,
-            isLoadingAfter: false
-        )
-
-        #expect(
-            timelineNewestMessageScrollAction(
-                newMessageIsOutgoing: false,
-                paging: longLiveEdgePaging,
-                newMessageId: "message-101",
-                isPinnedToBottom: true
-            ) == .scrollToBottom)
-        #expect(
-            timelineNewestMessageScrollAction(
-                newMessageIsOutgoing: false,
-                paging: longLiveEdgePaging,
-                newMessageId: "message-101",
-                isPinnedToBottom: false
-            ) == .none)
-        #expect(
-            timelineNewestMessageScrollAction(
-                newMessageIsOutgoing: true,
-                paging: longLiveEdgePaging,
-                newMessageId: "message-101",
-                isPinnedToBottom: false
-            ) == .scrollToBottom)
-        #expect(
-            timelineNewestMessageScrollAction(
-                newMessageIsOutgoing: false,
-                paging: detachedHistoryPaging,
-                newMessageId: "message-101",
-                isPinnedToBottom: true
-            ) == .none)
-    }
-
     @MainActor
     @Test func latestSubscriptionPageDoesNotReplaceHistoricalTimelineWindow() async throws {
         let account = AccountSummaryFfi(

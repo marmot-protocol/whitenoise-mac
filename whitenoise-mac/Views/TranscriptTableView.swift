@@ -167,6 +167,8 @@ final class TranscriptNSTableView: NSTableView {
 final class TranscriptHostingCell: NSTableCellView {
     let host = NSHostingView(rootView: AnyView(EmptyView()))
     let visibility = TranscriptCellVisibility()
+    /// The row this cell currently hosts.
+    var rowId: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -205,6 +207,9 @@ where Row.ID == String {
     /// chat should be; data rows start at 1.
     private static var fillerRow: Int { 0 }
     private var heights: [String: CachedHeight] = [:]
+    /// Rows that currently have a cell in the table, kept from the table's add/remove callbacks:
+    /// AppKit forbids asking the table for a row's view from inside `heightOfRow`.
+    private var liveCellIds: Set<String> = []
     private let sizingHost = NSHostingView(rootView: AnyView(EmptyView()))
     private var appliedRequestId: UUID?
     private var followsBottom = false
@@ -357,6 +362,11 @@ where Row.ID == String {
     private func configure(_ cell: TranscriptHostingCell, row: Row) {
         guard let configuration else { return }
         let id = row.id
+        if let previous = cell.rowId, previous != id, cell.superview != nil {
+            liveCellIds.remove(previous)
+            liveCellIds.insert(id)
+        }
+        cell.rowId = id
         cell.host.rootView = AnyView(
             configuration.cell(row)
                 .fixedSize(horizontal: false, vertical: true)
@@ -375,8 +385,15 @@ where Row.ID == String {
     /// row on the next turn, under the same anchor or foot pin as any other change.
     private func cellReported(height: CGFloat, for id: String) {
         let height = max(1, ceil(height))
-        guard let cached = heights[id], abs(cached.height - height) > 0.5, cached.width == columnWidth else { return }
-        heights[id] = CachedHeight(row: cached.row, width: cached.width, height: height)
+        guard let cached = heights[id] else { return }
+        let width = columnWidth
+        guard abs(cached.height - height) > 0.5 else {
+            if cached.width != width {
+                heights[id] = CachedHeight(row: cached.row, width: width, height: cached.height)
+            }
+            return
+        }
+        heights[id] = CachedHeight(row: cached.row, width: width, height: height)
         // Next run-loop turn: outside the geometry callback that reported it, so the table does not
         // re-tile in the middle of SwiftUI's update.
         // Deliberately not `DispatchQueue.main.async`: a run-loop block also runs inside a nested
@@ -405,13 +422,15 @@ where Row.ID == String {
         tableView?.tableColumns.first?.width ?? scrollView?.contentView.bounds.width ?? 0
     }
 
-    /// The row's height at the current column width, measured once and cached. While the window
-    /// is being resized only rows on screen are re-measured; others keep their last height until
-    /// the resize ends.
+    /// The row's height at the current column width, measured once and cached. After a width
+    /// change, a row with a live cell keeps its height until that cell reports its natural height
+    /// at the new width (`cellReported`): the cell knows state the off-screen sizing host does not,
+    /// such as a GIF's decoded aspect ratio, which a fresh measurement would reset. During a live
+    /// resize, off-screen rows keep their last height until the resize ends.
     private func height(of row: Row) -> CGFloat {
         let width = columnWidth
         if let cached = heights[row.id], cached.row == row {
-            if cached.width == width { return cached.height }
+            if cached.width == width || liveCellIds.contains(row.id) { return cached.height }
             if tableView?.inLiveResize == true, !isVisible(row.id) { return cached.height }
         }
         let measured = measure(row, width: width)
@@ -558,9 +577,15 @@ where Row.ID == String {
         }
     }
 
+    func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
+        guard let cell = rowView.view(atColumn: 0) as? TranscriptHostingCell, let id = cell.rowId else { return }
+        liveCellIds.insert(id)
+    }
+
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
-        guard let cell = rowView.view(atColumn: 0) as? TranscriptHostingCell, cell.visibility.isVisible else { return }
-        cell.visibility.isVisible = false
+        guard let cell = rowView.view(atColumn: 0) as? TranscriptHostingCell else { return }
+        if let id = cell.rowId { liveCellIds.remove(id) }
+        if cell.visibility.isVisible { cell.visibility.isVisible = false }
     }
 }
 
