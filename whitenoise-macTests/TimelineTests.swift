@@ -2612,6 +2612,45 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(timelineReadableMessageIds(visibleMessageIds: ["d"], messageIDs: window, isAtBottom: true) == ["d"])
     }
 
+    /// The opening fence starts closed: the first layout of a presented window is the tail of an
+    /// unread window, and nothing it reports may mark or page until the open has a target and
+    /// sees it, or the user scrolls. A navigation to a row already on screen gets no new report,
+    /// so it lands on what was last reported, as does one whose target never entered the window.
+    @Test func openingPhaseLandsOnlyOnItsTarget() {
+        var phase = TranscriptOpeningPhase.pending
+        phase.observe(visibleTargets: ["tail-row", "bottom"])
+        #expect(phase == .pending)
+
+        phase = .targeting("divider")
+        phase.observe(visibleTargets: ["tail-row"])
+        #expect(phase == .targeting("divider"))
+        phase.observe(visibleTargets: ["divider", "first-unread"])
+        #expect(phase.hasLanded)
+
+        phase = .targeting("result")
+        phase.navigationFinished(target: "result", isInWindow: true, visibleTargets: ["result"])
+        #expect(phase.hasLanded)
+
+        phase = .targeting("result")
+        phase.navigationFinished(target: "result", isInWindow: true, visibleTargets: ["other"])
+        #expect(phase == .targeting("result"))
+        phase.navigationFinished(target: "result", isInWindow: false, visibleTargets: [])
+        #expect(phase.hasLanded)
+
+        phase = .pending
+        phase.userTookOver()
+        #expect(phase.hasLanded)
+    }
+
+    /// At the foot: load newer while the window ends before the newest message; re-attach a
+    /// window that ends at it but retains an anchor, so arrivals keep coming in.
+    @Test func reachingTheFootReattachesARetainedWindow() {
+        #expect(timelineFootAction(isAtBottom: false, hasMoreAfter: true, isFollowingTail: false) == .none)
+        #expect(timelineFootAction(isAtBottom: true, hasMoreAfter: true, isFollowingTail: false) == .loadNewer)
+        #expect(timelineFootAction(isAtBottom: true, hasMoreAfter: false, isFollowingTail: false) == .returnToLatest)
+        #expect(timelineFootAction(isAtBottom: true, hasMoreAfter: false, isFollowingTail: true) == .none)
+    }
+
     /// A divider or navigation open pins the top until it lands, or rows resolving their heights
     /// would pull it to the tail; an open at the newest message pins the bottom throughout.
     @Test func followingTheLiveEdgeWaitsForADividerOpenToLand() {

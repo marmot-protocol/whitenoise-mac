@@ -70,6 +70,9 @@ final class ConversationViewModel {
     /// The messages the transcript currently reports on screen, for paging. Ignored by
     /// observation: the transcript writes it as it scrolls and no view renders from it.
     @ObservationIgnored private(set) var visibleMessageIds: Set<String> = []
+    /// Every scroll target the transcript last reported on screen, including the divider and the
+    /// bottom spacer, so an open or a navigation can tell whether its target is already showing.
+    @ObservationIgnored private(set) var visibleTargetIds: Set<String> = []
     /// The visible messages the reader has actually reached (`timelineReadableMessageIds`), empty
     /// until the open has landed. Read marking, including when the app regains focus, uses these.
     @ObservationIgnored private(set) var readableMessageIds: Set<String> = []
@@ -141,8 +144,17 @@ final class ConversationViewModel {
         }
     }
 
-    func setVisibleMessageIds(_ ids: Set<String>) {
-        visibleMessageIds = ids
+    func setVisibleIds(targets: Set<String>, messages: Set<String>) {
+        visibleTargetIds = targets
+        visibleMessageIds = messages
+    }
+
+    /// Whether MarmotKit's window follows the tail. An unread open, a jump and any page that
+    /// reported a visible anchor retain their anchor instead, and a retained window can stop
+    /// taking arrivals even when its newest row is the conversation's newest message; the
+    /// transcript re-attaches it with `returnToLatest` once the reader reaches that foot.
+    var isFollowingTail: Bool {
+        snapshot?.anchor.kind == .latest
     }
 
     func setReadableMessageIds(_ ids: Set<String>) {
@@ -159,34 +171,47 @@ final class ConversationViewModel {
         count: UInt32 = 50,
         visibleAnchorMessageIdHex: String? = nil
     ) async {
-        guard !isPaging, let subscription, var revision = snapshot?.revision else { return }
+        guard !isPaging, let subscription, snapshot != nil else { return }
         if direction == .older, snapshot?.hasMoreBefore != true { return }
         if direction == .newer, snapshot?.hasMoreAfter != true { return }
         isPaging = true
         defer { isPaging = false }
-        do {
-            if let visibleAnchorMessageIdHex {
-                let anchored = try await subscription.setVisibleAnchor(
-                    revision: revision,
-                    messageIdHex: visibleAnchorMessageIdHex,
-                    timeoutMs: 0
-                )
-                await install(anchored)
-                revision = anchored.revision
+        // Commands run while the subscription's receive loop keeps installing replacements, so
+        // each step quotes the newest installed revision rather than the reply it awaited: a
+        // background update that landed in between supersedes that reply. One stale reply is
+        // retried from the current snapshot.
+        var remainingStaleRetries = 1
+        while true {
+            do {
+                if let visibleAnchorMessageIdHex, let revision = snapshot?.revision {
+                    await install(
+                        try await subscription.setVisibleAnchor(
+                            revision: revision,
+                            messageIdHex: visibleAnchorMessageIdHex,
+                            timeoutMs: 0
+                        ))
+                }
+                guard let revision = snapshot?.revision else { return }
+                await install(
+                    try await subscription.page(
+                        revision: revision,
+                        direction: direction,
+                        count: count,
+                        timeoutMs: 0
+                    ))
+                return
+            } catch is CancellationError {
+                return
+            } catch MarmotKitError.ConversationWindowStale {
+                guard remainingStaleRetries > 0 else {
+                    self.error = .staleWindow
+                    return
+                }
+                remainingStaleRetries -= 1
+            } catch {
+                self.error = .unavailable(error.localizedDescription)
+                return
             }
-            let replacement = try await subscription.page(
-                revision: revision,
-                direction: direction,
-                count: count,
-                timeoutMs: 0
-            )
-            await install(replacement)
-        } catch is CancellationError {
-            return
-        } catch MarmotKitError.ConversationWindowStale {
-            self.error = .staleWindow
-        } catch {
-            self.error = .unavailable(error.localizedDescription)
         }
     }
 

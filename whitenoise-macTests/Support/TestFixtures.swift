@@ -440,6 +440,8 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
     /// Window commands in call order (`anchor:<id>`, `page:older`, `page:newer`), so a test can
     /// assert that a visible anchor was reported before a page.
     private(set) var commands: [String] = []
+    /// Fails this many `page` calls with `ConversationWindowStale` before answering.
+    var stalePagesRemaining = 0
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         current = nil
@@ -494,6 +496,10 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
         timeoutMs: UInt32
     ) async throws -> ConversationWindowSnapshotFfi {
         commands.append(direction == .newer ? "page:newer" : "page:older")
+        if stalePagesRemaining > 0 {
+            stalePagesRemaining -= 1
+            throw MarmotKitError.ConversationWindowStale
+        }
         guard let current else { throw FakeMarmotRuntimeError.unused }
         return current
     }

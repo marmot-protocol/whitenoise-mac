@@ -271,6 +271,57 @@ func timelineNewestMessageScrollAction(
     return .scrollToBottom
 }
 
+/// Where an open is in landing on its starting row. Paging and read marking act only once it has
+/// landed. It starts `pending`: the first layout of a presented window is wherever the initial
+/// offset put it (the tail of an unread window), not where the open is going, so nothing it
+/// reports may count until the open has chosen a target and seen it on screen.
+nonisolated enum TranscriptOpeningPhase: Equatable {
+    case pending
+    case targeting(String)
+    case landed
+
+    var hasLanded: Bool { self == .landed }
+
+    var target: String? {
+        if case .targeting(let id) = self { return id }
+        return nil
+    }
+
+    /// A visibility report lands the open once it shows the target.
+    mutating func observe(visibleTargets: Set<String>) {
+        if let target, visibleTargets.contains(target) { self = .landed }
+    }
+
+    /// The user scrolled: their position counts from now, whatever the open was doing.
+    mutating func userTookOver() {
+        self = .landed
+    }
+
+    /// A navigation finished. It lands when its target is already on screen, where no new
+    /// visibility report will arrive, or when the jump could not bring it into the window, where
+    /// none ever will.
+    mutating func navigationFinished(target: String, isInWindow: Bool, visibleTargets: Set<String>) {
+        guard self == .targeting(target) else { return }
+        if !isInWindow || visibleTargets.contains(target) { self = .landed }
+    }
+}
+
+/// What reaching the foot of the window should do. A window that ends before the newest message
+/// loads the next page; one that ends at it but retains an anchor (an unread open, a jump, a page
+/// that reported a visible anchor) is re-attached to the tail, or later arrivals would only flip
+/// `hasMoreAfter` and the reader would sit at a foot that never grows.
+nonisolated enum TimelineFootAction: Equatable {
+    case none
+    case loadNewer
+    case returnToLatest
+}
+
+func timelineFootAction(isAtBottom: Bool, hasMoreAfter: Bool, isFollowingTail: Bool) -> TimelineFootAction {
+    guard isAtBottom else { return .none }
+    if hasMoreAfter { return .loadNewer }
+    return isFollowingTail ? .none : .returnToLatest
+}
+
 private struct TranscriptOpeningKey: Equatable {
     let model: ObjectIdentifier
     let hasPresentedWindow: Bool
@@ -288,15 +339,14 @@ private struct ConversationView: View {
     /// Whether the transcript is scrolled to the foot of its content. Derived from scroll
     /// geometry — never from a view's `.onAppear`/`.onDisappear`, which would write state
     /// during layout and feed back into it.
-    @State private var isPinnedToBottom = true
+    @State private var isPinnedToBottom = false
     /// The scroll position by identity: the row at the top of the viewport. SwiftUI updates it as
     /// the reader scrolls and keeps that row in place when rows are added, removed or resized
     /// around it, which is what keeps the reader's place across history pages and image loads.
     @State private var scrollPositionID: String?
-    /// The scroll target this open is landing on (the unread divider, the bottom spacer, or a
-    /// navigation target) until the transcript reports it visible or the user scrolls. Until then
-    /// the viewport is wherever the first layout put it, so neither paging nor read marking acts.
-    @State private var openingTargetId: String?
+    /// The open landing on its starting row (the unread divider, the bottom spacer, or a
+    /// navigation target). Until it lands, neither paging nor read marking acts.
+    @State private var openingPhase = TranscriptOpeningPhase.pending
     /// The model whose opening position has been applied; a new open gets its own.
     @State private var openedModel: ObjectIdentifier?
     @State private var isFileImporterPresented = false
@@ -347,8 +397,8 @@ private struct ConversationView: View {
         let isFollowingLiveEdge = timelineFollowsLiveEdge(
             isPinnedToBottom: isPinnedToBottom,
             hasMoreAfter: paging.hasMoreAfter,
-            isOpening: openingTargetId != nil,
-            isOpeningAtBottom: openingTargetId == bottomAnchorId
+            isOpening: !openingPhase.hasLanded,
+            isOpeningAtBottom: openingPhase.target == bottomAnchorId
         )
 
         ZStack {
@@ -478,8 +528,8 @@ private struct ConversationView: View {
                         isActivelyScrolling = phase != .idle
                         // The user took over before the opening target was reported: their
                         // position, as last reported, is the one that counts from here.
-                        if phase == .interacting, openingTargetId != nil {
-                            openingTargetId = nil
+                        if phase == .interacting, !openingPhase.hasLanded {
+                            openingPhase.userTookOver()
                             readingPositionChanged()
                         }
                         if phase == .idle { markVisibleMessagesRead() }
@@ -491,6 +541,12 @@ private struct ConversationView: View {
                         // `isPinnedToBottom`, which no row's layout depends on.
                         isPinnedToBottom = atBottom
                         updateReadableMessages()
+                        handleFoot()
+                    }
+                    // An arrival into a window the reader is at the foot of can change only
+                    // `hasMoreAfter`, with no row or visibility change to react to.
+                    .onChange(of: paging.hasMoreAfter) { _, _ in
+                        handleFoot()
                     }
                     // Any part of a row on screen counts as visible, so a message taller than
                     // the viewport registers while it is being read; `timelineReadableMessageIds`
@@ -508,9 +564,9 @@ private struct ConversationView: View {
                         applyOpeningPosition(key, using: proxy)
                     }
                     .onChange(of: chat.id) { _, _ in
-                        isPinnedToBottom = true
+                        isPinnedToBottom = false
                         scrollPositionID = nil
-                        openingTargetId = nil
+                        openingPhase = .pending
                         openedModel = nil
                         // The fresh ScrollView starts idle without emitting a phase transition, so
                         // clear the gate here or the new transcript stays non-interactive until a scroll.
@@ -524,7 +580,7 @@ private struct ConversationView: View {
                             newMessageIsOutgoing: displayItems.last?.message.isOutgoing == true,
                             paging: paging,
                             newMessageId: newMessageId,
-                            isPinnedToBottom: isPinnedToBottom && openingTargetId == nil
+                            isPinnedToBottom: isPinnedToBottom && openingPhase.hasLanded
                         ) {
                         case .scrollToBottom:
                             scrollToBottom(with: proxy)
@@ -568,19 +624,19 @@ private struct ConversationView: View {
                             let target = workspace.pendingMessageNavigation,
                             target.groupId == chat.id
                         else { return }
-                        openingTargetId = target.messageId
+                        openingPhase = .targeting(target.messageId)
                         await revealMessage(target.messageId, using: proxy)
-                        // A target the jump could not bring into the window will never be
-                        // reported visible; stop waiting for it.
-                        if openingTargetId == target.messageId,
-                            !workspace.selectedTimelineContainsMessage(target.messageId)
-                        {
-                            openingTargetId = nil
-                        }
+                        let wasLanding = !openingPhase.hasLanded
+                        openingPhase.navigationFinished(
+                            target: target.messageId,
+                            isInWindow: workspace.selectedTimelineContainsMessage(target.messageId),
+                            visibleTargets: model.visibleTargetIds
+                        )
+                        if wasLanding, openingPhase.hasLanded { readingPositionChanged() }
                         workspace.completePendingMessageNavigation(target)
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        if !isPinnedToBottom {
+                        if openingPhase.hasLanded && !isPinnedToBottom {
                             Button {
                                 Task { await jumpToNewest(using: proxy) }
                             } label: {
@@ -970,16 +1026,20 @@ private struct ConversationView: View {
         guard key.hasPresentedWindow, openedModel != key.model else { return }
         openedModel = key.model
         if let navigation = workspace.pendingMessageNavigation, navigation.groupId == chat.id {
-            openingTargetId = navigation.messageId
+            openingPhase = .targeting(navigation.messageId)
         } else if let divider = model.unreadDivider,
             workspace.selectedTimelineContainsMessage(divider.messageIdHex)
         {
             // Land on the divider itself, the row the opening waits to see reported.
-            openingTargetId = unreadDividerAnchorId
+            openingPhase = .targeting(unreadDividerAnchorId)
             scrollPositionID = unreadDividerAnchorId
         } else {
-            openingTargetId = bottomAnchorId
+            openingPhase = .targeting(bottomAnchorId)
             scrollToBottom(with: proxy)
+            // Already at the foot, the scroll changes nothing on screen and no new report
+            // arrives, so check what the transcript last reported.
+            openingPhase.observe(visibleTargets: model.visibleTargetIds)
+            if openingPhase.hasLanded { readingPositionChanged() }
         }
     }
 
@@ -987,10 +1047,10 @@ private struct ConversationView: View {
     /// over before the opening target is reported continues from what was last on screen; they
     /// drive paging and read marking once the open has landed.
     private func transcriptVisibilityChanged(_ ids: Set<String>) {
-        model.setVisibleMessageIds(ids.filter(workspace.selectedTimelineContainsMessage))
-        if let openingTargetId {
-            guard ids.contains(openingTargetId) else { return }
-            self.openingTargetId = nil
+        model.setVisibleIds(targets: ids, messages: ids.filter(workspace.selectedTimelineContainsMessage))
+        if !openingPhase.hasLanded {
+            openingPhase.observe(visibleTargets: ids)
+            guard openingPhase.hasLanded else { return }
         }
         readingPositionChanged()
     }
@@ -1004,7 +1064,7 @@ private struct ConversationView: View {
     }
 
     private func updateReadableMessages() {
-        guard openingTargetId == nil else {
+        guard openingPhase.hasLanded else {
             model.setReadableMessageIds([])
             return
         }
@@ -1022,7 +1082,7 @@ private struct ConversationView: View {
     /// A page that lands without moving the visible rows reports no visibility change, so the next
     /// page is checked here whenever the window actually grew.
     private func requestPageIfNeeded() {
-        guard openingTargetId == nil, !model.isPaging else { return }
+        guard openingPhase.hasLanded, !model.isPaging else { return }
         let paging = workspace.selectedTimelinePaging
         let messageIDs = workspace.selectedMessageIDs
         guard
@@ -1046,10 +1106,28 @@ private struct ConversationView: View {
         }
     }
 
+    /// At the foot of the window: load the next page, or re-attach a retained window to the tail
+    /// (`timelineFootAction`). The identity position keeps the reader's rows still either way.
+    private func handleFoot() {
+        guard openingPhase.hasLanded, !model.isPaging else { return }
+        switch timelineFootAction(
+            isAtBottom: isPinnedToBottom,
+            hasMoreAfter: workspace.selectedTimelinePaging.hasMoreAfter,
+            isFollowingTail: model.isFollowingTail
+        ) {
+        case .none:
+            return
+        case .loadNewer:
+            requestPageIfNeeded()
+        case .returnToLatest:
+            Task { await model.returnToLatest() }
+        }
+    }
+
     /// Marks the newest reached activity row read, while the conversation is actually on screen.
     private func markVisibleMessagesRead() {
         let visible = model.readableMessageIds
-        guard openingTargetId == nil, !visible.isEmpty, workspace.selectedConversationIsVisible(),
+        guard openingPhase.hasLanded, !visible.isEmpty, workspace.selectedConversationIsVisible(),
             let client = workspace.client, let account = workspace.activeAccount
         else { return }
         let groupIdHex = chat.id
