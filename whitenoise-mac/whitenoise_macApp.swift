@@ -179,6 +179,7 @@ struct whitenoise_macApp: App {
                     avatarBytesByReference: avatarAssets?.bytesByReference ?? [:]
                 ),
                 preparedMentionNames: mentionNames,
+                preparedReactions: snapshot.preparedReactions(activeAccountIdHex: account.accountIdHex),
                 projectedClientTokens: Set(timelineRecords.compactMap(\.clientToken)),
                 // The transcript marks read from the messages it reports on screen.
                 marksLatestRowRead: false

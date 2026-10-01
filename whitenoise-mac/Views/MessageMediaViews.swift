@@ -297,7 +297,10 @@ struct MessageBubble: View {
             }
 
             if message.supportsChatActions && !message.reactions.isEmpty {
-                MessageReactionChips(reactions: message.reactions) { emoji in
+                MessageReactionChips(
+                    reactions: message.reactions,
+                    omittedKinds: message.omittedReactionKinds
+                ) { emoji in
                     reactionViewerEmoji = emoji
                     isReactionViewerPresented = true
                 }
