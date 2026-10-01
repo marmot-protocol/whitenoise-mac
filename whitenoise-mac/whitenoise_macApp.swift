@@ -131,6 +131,9 @@ struct whitenoise_macApp: App {
         let model = scope.selectConversation(groupIdHex: chat.id)
         workspace.cancelTimelineLoad()
         workspace.stopTimelineListener()
+        // Claim the chat's window for the projection, so legacy loads from any entry point
+        // (sidebar selection, search, notifications) stand down instead of replacing it.
+        workspace.timelineTaskGroupId = chat.id
         let account = scope.account
         let runtime = scope.runtime
         let avatarAssets = scope.avatarAssets
@@ -141,6 +144,13 @@ struct whitenoise_macApp: App {
                 workspace.activeAccountId == account.id,
                 workspace.selectedChat?.id == model.groupIdHex
             else { return }
+            // A legacy load that started before the claim above, or a listener it started, would
+            // replace this window with the latest page and mark it read. Re-assert ownership.
+            if workspace.timelineLoadTask != nil || workspace.timelineTask != nil {
+                workspace.cancelTimelineLoad()
+                workspace.stopTimelineListener()
+            }
+            workspace.timelineTaskGroupId = model.groupIdHex
             let identityAssets = snapshot.identities.compactMap(\.avatarAsset)
             await avatarAssets?.load(assets: identityAssets)
             let timelineRecords = BlockedConversationPresentation.timelineRecords(
@@ -169,7 +179,9 @@ struct whitenoise_macApp: App {
                     avatarBytesByReference: avatarAssets?.bytesByReference ?? [:]
                 ),
                 preparedMentionNames: mentionNames,
-                projectedClientTokens: Set(timelineRecords.compactMap(\.clientToken))
+                projectedClientTokens: Set(timelineRecords.compactMap(\.clientToken)),
+                // The transcript marks read from the messages it reports on screen.
+                marksLatestRowRead: false
             )
         }
         await model.setSnapshotObserver(installSnapshot)

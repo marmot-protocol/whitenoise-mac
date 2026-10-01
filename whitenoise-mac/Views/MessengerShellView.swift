@@ -181,52 +181,55 @@ private struct DetailPaneView: View {
     }
 }
 
-/// Coarse, `Equatable` scroll-position state derived from `ScrollGeometry`. Returning
-/// threshold booleans (rather than raw offsets) means `onScrollGeometryChange` only invokes
-/// its action when the transcript actually crosses an edge — not on every scrolled pixel —
-/// keeping pagination/pin updates off the per-frame path.
-private struct TimelineScrollMetrics: Equatable {
-    let atBottom: Bool
-    let nearTop: Bool
-    let nearBottom: Bool
+/// Whether the transcript's viewport reaches the foot of its content. One boolean, so
+/// `onScrollGeometryChange` only invokes its action when the reader crosses that edge — not on
+/// every scrolled pixel.
+private func timelineIsAtBottom(_ geometry: ScrollGeometry, bottomPadding: CGFloat) -> Bool {
+    max(0, geometry.contentSize.height - geometry.visibleRect.maxY) <= bottomPadding + 48
+}
 
-    init(geometry: ScrollGeometry, bottomPadding: CGFloat) {
-        let fromTop = max(0, geometry.visibleRect.minY)
-        let fromBottom = max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
-        // Prefetch roughly one viewport ahead of either edge so paging completes before the
-        // user reaches the spinner.
-        let prefetch = max(geometry.containerSize.height, 600)
-        atBottom = fromBottom <= bottomPadding + 48
-        nearTop = fromTop <= prefetch
-        nearBottom = fromBottom <= prefetch
+/// A history page the transcript should load for the messages on screen.
+nonisolated struct TimelinePageRequest: Equatable {
+    let direction: ConversationPageDirectionFfi
+    /// The top visible message, reported to MarmotKit with `set_visible_anchor` before paging.
+    let visibleAnchorMessageId: String
+}
+
+/// Older history when a visible message is within `edgeRows` of the window's first row, newer
+/// when one is within `edgeRows` of its last; older wins when both are due, and the next
+/// visibility report asks for the other. Decided from which messages are on screen, not from
+/// pixel distances, so it reads the same however tall the rows are.
+func timelinePageRequest(
+    visibleMessageIds: Set<String>,
+    messageIDs: [String],
+    hasMoreBefore: Bool,
+    hasMoreAfter: Bool,
+    edgeRows: Int = 15
+) -> TimelinePageRequest? {
+    let visibleIndices = messageIDs.indices.filter { visibleMessageIds.contains(messageIDs[$0]) }
+    guard let first = visibleIndices.first, let last = visibleIndices.last else { return nil }
+    let anchor = messageIDs[first]
+    if hasMoreBefore, first < edgeRows {
+        return TimelinePageRequest(direction: .older, visibleAnchorMessageId: anchor)
     }
+    if hasMoreAfter, last >= messageIDs.count - edgeRows {
+        return TimelinePageRequest(direction: .newer, visibleAnchorMessageId: anchor)
+    }
+    return nil
 }
 
 nonisolated enum TimelineNewestMessageScrollAction: Equatable {
     case none
-    case clearPendingAppendAnchor
-    case restorePendingAppendAnchor(String)
     case scrollToBottom
 }
 
 func timelineNewestMessageScrollAction(
-    messageIDs: [String],
     newMessageIsOutgoing: Bool,
     paging: TimelinePagingState,
-    pendingPrependAnchorId: String?,
-    pendingAppendAnchorId: String?,
     newMessageId: String?,
     isPinnedToBottom: Bool
 ) -> TimelineNewestMessageScrollAction {
-    if let pendingAppendAnchorId {
-        return messageIDs.contains(pendingAppendAnchorId)
-            ? .restorePendingAppendAnchor(pendingAppendAnchorId)
-            : .clearPendingAppendAnchor
-    }
-
-    guard newMessageId != nil,
-        pendingPrependAnchorId == nil
-    else { return .none }
+    guard newMessageId != nil else { return .none }
 
     // `hasMoreBefore` only means older history is loadable. It must not suppress
     // live-edge appends. `hasMoreAfter` means the rendered window is detached from
@@ -239,19 +242,34 @@ func timelineNewestMessageScrollAction(
     return .scrollToBottom
 }
 
+private struct TranscriptOpeningKey: Equatable {
+    let model: ObjectIdentifier
+    let hasPresentedWindow: Bool
+}
+
+private struct PendingNavigationKey: Equatable {
+    let requestId: UUID?
+    let hasPresentedWindow: Bool
+}
+
 private struct ConversationView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     @Environment(\.timestampReferenceDate) private var timestampReferenceDate
-    /// The top message captured before an older-history prepend, so its on-screen position
-    /// can be restored afterward; also gates re-triggering `loadOlder` until the prepend lands.
-    @State private var pendingPrependAnchorId: String?
-    /// The bottom message captured before a newer-history append, mirroring the above.
-    @State private var pendingAppendAnchorId: String?
-    /// Whether the transcript is scrolled to (or near) the live edge. Derived from scroll
+    /// Whether the transcript is scrolled to the foot of its content. Derived from scroll
     /// geometry — never from a view's `.onAppear`/`.onDisappear`, which would write state
     /// during layout and feed back into it.
     @State private var isPinnedToBottom = true
+    /// The scroll position by identity: the row at the top of the viewport. SwiftUI updates it as
+    /// the reader scrolls and keeps that row in place when rows are added, removed or resized
+    /// around it, which is what keeps the reader's place across history pages and image loads.
+    @State private var scrollPositionID: String?
+    /// The scroll target this open is landing on (the unread divider, the bottom spacer, or a
+    /// navigation target) until the transcript reports it visible or the user scrolls. Until then
+    /// the viewport is wherever the first layout put it, so neither paging nor read marking acts.
+    @State private var openingTargetId: String?
+    /// The model whose opening position has been applied; a new open gets its own.
+    @State private var openedModel: ObjectIdentifier?
     @State private var isFileImporterPresented = false
     @State private var isPollComposerPresented = false
     @State private var isFileDropTargeted = false
@@ -293,6 +311,11 @@ private struct ConversationView: View {
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
         let pendingOutgoingRows = workspace.selectedPendingOutgoingMessageRows
+        let unreadDividerMessageId = model.unreadDivider?.messageIdHex
+        // Following the live edge: at the foot of a window that ends at the newest message.
+        // Content changes then pin the bottom, so arrivals and a streaming reply stay in view;
+        // otherwise they pin the top, and the identity position keeps the reader's rows still.
+        let isFollowingLiveEdge = isPinnedToBottom && !paging.hasMoreAfter
 
         ZStack {
             VStack(spacing: 0) {
@@ -303,15 +326,15 @@ private struct ConversationView: View {
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        // A NON-lazy `VStack`: the timeline window is capped (`timelineWindowLimit`
-                        // = 200), so eagerly realizing every row measures each exactly once and lets
-                        // scrolling be pure translation. `LazyVStack` instead re-estimated row sizes
-                        // continuously to resolve `.defaultScrollAnchor(.bottom)` — ~80 `sizeThatFits`
-                        // calls per row — which pinned the main thread for seconds while scrolling a
-                        // small group (the #205 scroll-layout storm). Measure-once removes that whole
-                        // class of hang; if a large window's eager build ever costs too much, the fix
-                        // is cheaper rows, not a return to lazy estimation.
-                        VStack(spacing: 12) {
+                        // A `LazyVStack` with an identity scroll position. Only a lazy stack lets
+                        // SwiftUI keep the row the reader is on in place when the window changes
+                        // around it (an older page, a capped page, images resolving above); an
+                        // eager `VStack` holds the offset instead and the reader's rows jump. The
+                        // eager stack was adopted in #205, when a lazy one re-estimated row sizes
+                        // continuously to resolve a bottom anchor on every size change and pinned
+                        // the main thread. The bottom anchor now applies only while following the
+                        // live edge; if that storm returns, measure here first.
+                        LazyVStack(spacing: 12) {
                             if messageIDs.isEmpty && pendingOutgoingRows.isEmpty {
                                 if isLoadingInitialPage {
                                     TimelineInitialLoadingView()
@@ -326,6 +349,11 @@ private struct ConversationView: View {
                                 }
 
                                 ForEach(displayItems) { item in
+                                    if item.message.id == unreadDividerMessageId {
+                                        UnreadMessagesDivider()
+                                            .id(unreadDividerAnchorId)
+                                    }
+
                                     if let dayLabel = item.dayLabel {
                                         TimelineDayHeaderView(title: dayLabel)
                                     }
@@ -345,6 +373,7 @@ private struct ConversationView: View {
                                             await revealMessage(targetMessageId, using: proxy)
                                         }
                                     }
+                                    .id(item.message.id)
                                 }
                                 .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
 
@@ -386,6 +415,7 @@ private struct ConversationView: View {
                                 .frame(height: bottomTranscriptPadding)
                                 .id(bottomAnchorId)
                         }
+                        .scrollTargetLayout()
                         .padding(.horizontal, 28)
                         .padding(.top, 18)
                         .padding(.bottom, 8)
@@ -406,24 +436,41 @@ private struct ConversationView: View {
                     }
                     .accessibilityIdentifier("conversation.transcript")
                     .id(chat.id)
-                    .defaultScrollAnchor(.bottom)
+                    .scrollPosition(id: $scrollPositionID, anchor: .top)
+                    .defaultScrollAnchor(.bottom, for: .initialOffset)
+                    .defaultScrollAnchor(.bottom, for: .alignment)
+                    .defaultScrollAnchor(isFollowingLiveEdge ? .bottom : .top, for: .sizeChanges)
                     .onScrollPhaseChange { _, phase in
                         isActivelyScrolling = phase != .idle
+                        // The user took over before the opening target was reported: their
+                        // position is the one that counts from here.
+                        if phase == .interacting { openingTargetId = nil }
+                        if phase == .idle { markVisibleMessagesRead() }
                     }
-                    .onScrollGeometryChange(for: TimelineScrollMetrics.self) { geometry in
-                        TimelineScrollMetrics(geometry: geometry, bottomPadding: bottomTranscriptPadding)
-                    } action: { _, metrics in
-                        // Threshold-crossing state only (booleans), so this runs when the user
-                        // crosses an edge — not on every scrolled pixel — and only ever writes
-                        // `isPinnedToBottom`, which no view's layout depends on.
-                        isPinnedToBottom = metrics.atBottom
-                        if metrics.nearTop { loadOlderIfNeeded() }
-                        if metrics.nearBottom { loadNewerIfNeeded() }
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        timelineIsAtBottom(geometry, bottomPadding: bottomTranscriptPadding)
+                    } action: { _, atBottom in
+                        // Fires only when the reader crosses the foot, and only writes
+                        // `isPinnedToBottom`, which no row's layout depends on.
+                        isPinnedToBottom = atBottom
+                    }
+                    .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.5) { ids in
+                        transcriptVisibilityChanged(Set(ids))
+                    }
+                    .onChange(
+                        of: TranscriptOpeningKey(
+                            model: ObjectIdentifier(model),
+                            hasPresentedWindow: model.hasPresentedWindow
+                        ),
+                        initial: true
+                    ) { _, key in
+                        applyOpeningPosition(key, using: proxy)
                     }
                     .onChange(of: chat.id) { _, _ in
-                        pendingPrependAnchorId = nil
-                        pendingAppendAnchorId = nil
                         isPinnedToBottom = true
+                        scrollPositionID = nil
+                        openingTargetId = nil
+                        openedModel = nil
                         // The fresh ScrollView starts idle without emitting a phase transition, so
                         // clear the gate here or the new transcript stays non-interactive until a scroll.
                         isActivelyScrolling = false
@@ -433,32 +480,11 @@ private struct ConversationView: View {
                     }
                     .onChange(of: messageIDs.last) { _, newMessageId in
                         switch timelineNewestMessageScrollAction(
-                            messageIDs: messageIDs,
                             newMessageIsOutgoing: displayItems.last?.message.isOutgoing == true,
                             paging: paging,
-                            pendingPrependAnchorId: pendingPrependAnchorId,
-                            pendingAppendAnchorId: pendingAppendAnchorId,
                             newMessageId: newMessageId,
-                            isPinnedToBottom: isPinnedToBottom
+                            isPinnedToBottom: isPinnedToBottom && openingTargetId == nil
                         ) {
-                        case .restorePendingAppendAnchor(let anchorId):
-                            DispatchQueue.main.async {
-                                // Re-validate against live state: the user may have switched
-                                // chats or a newer paging request may have landed since this
-                                // scroll restoration was scheduled.
-                                guard workspace.selectedChat?.id == chat.id,
-                                    pendingAppendAnchorId == anchorId,
-                                    workspace.selectedTimelineContainsMessage(anchorId)
-                                else { return }
-                                TimelineSignpost.scroll.interval("restoreAppendAnchor") {
-                                    proxy.scrollTo(anchorId, anchor: .bottom)
-                                }
-                                pendingAppendAnchorId = nil
-                            }
-                            return
-                        case .clearPendingAppendAnchor:
-                            pendingAppendAnchorId = nil
-                            return
                         case .scrollToBottom:
                             scrollToBottom(with: proxy)
                         case .none:
@@ -488,41 +514,28 @@ private struct ConversationView: View {
                             scrollToBottom(with: proxy)
                         }
                     }
-                    .onChange(of: messageIDs.first) { _, _ in
-                        guard let anchorId = pendingPrependAnchorId else { return }
-                        guard workspace.selectedChat?.id == chat.id,
-                            workspace.selectedTimelineContainsMessage(anchorId)
-                        else {
-                            // Anchor evicted or chat changed — release the gate, or every
-                            // later older-history load stays silently blocked.
-                            pendingPrependAnchorId = nil
-                            return
-                        }
-                        DispatchQueue.main.async {
-                            // Re-validate against live state: the user may have switched
-                            // chats (which clears pendingPrependAnchorId) or another prepend
-                            // may have landed between scheduling and execution of this block.
-                            // Without re-checking, proxy.scrollTo would run against the new
-                            // conversation using a stale anchor, and the unconditional clear
-                            // would drop restoration for a subsequent legitimate prepend.
-                            guard pendingPrependAnchorId == anchorId else { return }
-                            guard workspace.selectedChat?.id == chat.id,
-                                workspace.selectedTimelineContainsMessage(anchorId)
-                            else {
-                                pendingPrependAnchorId = nil
-                                return
-                            }
-                            TimelineSignpost.scroll.interval("restorePrependAnchor") {
-                                proxy.scrollTo(anchorId, anchor: .top)
-                            }
-                            pendingPrependAnchorId = nil
-                        }
-                    }
-                    .task(id: workspace.pendingMessageNavigation?.requestId) {
-                        guard let target = workspace.pendingMessageNavigation,
+                    // Keyed on the window being presented too: a search can open a chat whose
+                    // projection has not delivered its first window, and the jump to the target
+                    // needs that window's revision. The task reruns once it is on screen.
+                    .task(
+                        id: PendingNavigationKey(
+                            requestId: workspace.pendingMessageNavigation?.requestId,
+                            hasPresentedWindow: model.hasPresentedWindow
+                        )
+                    ) {
+                        guard model.hasPresentedWindow,
+                            let target = workspace.pendingMessageNavigation,
                             target.groupId == chat.id
                         else { return }
+                        openingTargetId = target.messageId
                         await revealMessage(target.messageId, using: proxy)
+                        // A target the jump could not bring into the window will never be
+                        // reported visible; stop waiting for it.
+                        if openingTargetId == target.messageId,
+                            !workspace.selectedTimelineContainsMessage(target.messageId)
+                        {
+                            openingTargetId = nil
+                        }
                         workspace.completePendingMessageNavigation(target)
                     }
                     .overlay(alignment: .bottomTrailing) {
@@ -905,47 +918,88 @@ private struct ConversationView: View {
         scrollToBottom(with: proxy)
     }
 
-    /// Prefetch older history when the user scrolls near the top. `pendingPrependAnchorId`
-    /// (set here, cleared once the prepend lands and its position is restored) gates
-    /// re-triggering, and `loadOlderMessages` itself is a no-op when there is nothing more to
-    /// load or a load is already in flight — so this stays idempotent under repeated geometry
-    /// callbacks. Reads live workspace state rather than captured values, since the geometry
-    /// action fires asynchronously after body evaluation.
-    private func loadOlderIfNeeded() {
-        let paging = workspace.selectedTimelinePaging
-        guard paging.hasMoreBefore, !model.isPaging,
-            pendingPrependAnchorId == nil,
-            let anchorId = workspace.selectedMessageIDs.first
-        else { return }
-        pendingPrependAnchorId = anchorId
-        // Marks the instant the user crossed the top threshold and older-history paging
-        // began — the head of the scroll-back cycle that ends at `restorePrependAnchor`.
-        TimelineSignpost.scroll.emitEvent("loadOlderTriggered")
-        Task {
-            await model.page(.older)
-            // Fallback clear when no restoration occurs (e.g. already at the oldest message,
-            // so `messageIDs.first` never changes and the `.first` onChange won't fire).
-            if pendingPrependAnchorId == anchorId, workspace.selectedMessageIDs.first == anchorId {
-                pendingPrependAnchorId = nil
-            }
+    private var unreadDividerAnchorId: String {
+        "conversation-unread-divider-\(chat.id)"
+    }
+
+    /// Puts a newly presented window where this open should start, once per model: at the unread
+    /// divider (with the last read message above it for context), at a pending navigation target
+    /// (which `revealMessage` scrolls to), or at the newest message.
+    private func applyOpeningPosition(_ key: TranscriptOpeningKey, using proxy: ScrollViewProxy) {
+        guard key.hasPresentedWindow, openedModel != key.model else { return }
+        openedModel = key.model
+        if let navigation = workspace.pendingMessageNavigation, navigation.groupId == chat.id {
+            openingTargetId = navigation.messageId
+        } else if let divider = model.unreadDivider,
+            workspace.selectedTimelineContainsMessage(divider.messageIdHex)
+        {
+            openingTargetId = unreadDividerAnchorId
+            let messageIDs = workspace.selectedMessageIDs
+            let dividerIndex = messageIDs.firstIndex(of: divider.messageIdHex)
+            scrollPositionID =
+                dividerIndex.flatMap { $0 > messageIDs.startIndex ? messageIDs[$0 - 1] : nil }
+                ?? unreadDividerAnchorId
+        } else {
+            openingTargetId = bottomAnchorId
+            scrollToBottom(with: proxy)
         }
     }
 
-    /// Symmetric to `loadOlderIfNeeded` for newer history when the rendered window is detached
-    /// from the live edge (`hasMoreAfter`) and the user scrolls near the bottom.
-    private func loadNewerIfNeeded() {
+    /// The transcript's on-screen rows changed. Once the opening target has been reported, these
+    /// are the messages the user can actually see: they drive history paging and read marking.
+    private func transcriptVisibilityChanged(_ ids: Set<String>) {
+        if let openingTargetId {
+            guard ids.contains(openingTargetId) else { return }
+            self.openingTargetId = nil
+        }
+        model.setVisibleMessageIds(ids.filter(workspace.selectedTimelineContainsMessage))
+        requestPageIfNeeded()
+        if !isActivelyScrolling { markVisibleMessagesRead() }
+    }
+
+    /// Loads history toward the edge the visible messages are near (`timelinePageRequest`). The
+    /// reader's place is kept by the identity scroll position, so nothing is restored afterwards.
+    /// A page that lands without moving the visible rows reports no visibility change, so the next
+    /// page is checked here whenever the window actually grew.
+    private func requestPageIfNeeded() {
+        guard openingTargetId == nil, !model.isPaging else { return }
         let paging = workspace.selectedTimelinePaging
-        guard paging.hasMoreAfter, !model.isPaging,
-            pendingAppendAnchorId == nil,
-            let anchorId = workspace.selectedMessageIDs.last
+        let messageIDs = workspace.selectedMessageIDs
+        guard
+            let request = timelinePageRequest(
+                visibleMessageIds: model.visibleMessageIds,
+                messageIDs: messageIDs,
+                hasMoreBefore: paging.hasMoreBefore,
+                hasMoreAfter: paging.hasMoreAfter
+            )
         else { return }
-        pendingAppendAnchorId = anchorId
-        TimelineSignpost.scroll.emitEvent("loadNewerTriggered")
+        TimelineSignpost.scroll.emitEvent(request.direction == .older ? "loadOlderTriggered" : "loadNewerTriggered")
+        let groupIdHex = model.groupIdHex
+        let edgesBefore = [messageIDs.first, messageIDs.last]
         Task {
-            await model.page(.newer)
-            if pendingAppendAnchorId == anchorId, workspace.selectedMessageIDs.last == anchorId {
-                pendingAppendAnchorId = nil
-            }
+            await model.page(request.direction, visibleAnchorMessageIdHex: request.visibleAnchorMessageId)
+            let messageIDs = workspace.selectedMessageIDs
+            guard workspace.selectedChat?.id == groupIdHex,
+                [messageIDs.first, messageIDs.last] != edgesBefore
+            else { return }
+            requestPageIfNeeded()
+        }
+    }
+
+    /// Marks the newest visible activity row read, while the conversation is actually on screen.
+    private func markVisibleMessagesRead() {
+        let visible = model.visibleMessageIds
+        guard openingTargetId == nil, !visible.isEmpty, workspace.selectedConversationIsVisible(),
+            let client = workspace.client, let account = workspace.activeAccount
+        else { return }
+        let groupIdHex = chat.id
+        Task {
+            await workspace.markLatestVisibleMessageRead(
+                groupIdHex: groupIdHex,
+                account: account,
+                client: client,
+                within: visible
+            )
         }
     }
 
@@ -958,8 +1012,9 @@ private struct ConversationView: View {
             // re-sizes the Markdown bubbles on every display frame, pinning the main thread
             // at 100% for the whole stream (confirmed via Instruments: continuous
             // AnimatableAttributeHelper / ScrollViewAdjustedState.adjustOffsetIfNeeded /
-            // motionVectors). A plain jump positions in one pass; subsequent growth is
-            // handled instantly by `.defaultScrollAnchor(.bottom)`. See whitenoise-mac#205.
+            // motionVectors). A plain jump positions in one pass; once the reader is at the
+            // foot, subsequent growth is handled instantly by the `.bottom` size-change anchor
+            // that following the live edge applies. See whitenoise-mac#205.
             TimelineSignpost.scroll.interval("scrollToBottom") {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }

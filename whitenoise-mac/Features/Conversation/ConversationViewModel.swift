@@ -13,6 +13,14 @@ private struct PollVoteAttempt {
     let selection: [String]
 }
 
+/// Where the "New messages" divider sits: the first row MarmotKit reported unread when the
+/// conversation opened. Captured once per open and never moved, so marking rows read while the
+/// user reads does not slide the divider down under them.
+struct ConversationUnreadDivider: Equatable {
+    let messageIdHex: String
+    let unreadCount: UInt64
+}
+
 struct PendingDurableSend: Identifiable, Equatable {
     let id: String
     let text: String
@@ -54,6 +62,15 @@ final class ConversationViewModel {
     private(set) var isLoading = false
     private(set) var isPaging = false
     private(set) var error: ConversationFeatureError?
+    /// Set from the first snapshot of an open that MarmotKit anchored on the first unread row.
+    private(set) var unreadDivider: ConversationUnreadDivider?
+    /// True once a snapshot has been handed to the snapshot observer, i.e. the transcript renders
+    /// this window's rows rather than whatever it showed before.
+    private(set) var hasPresentedWindow = false
+    /// The messages the transcript currently reports on screen. Read when the app regains focus,
+    /// so read marking reaches only rows the user can see. Ignored by observation: the transcript
+    /// writes it as it scrolls and no view renders from it.
+    @ObservationIgnored private(set) var visibleMessageIds: Set<String> = []
     /// In-flight votes keyed by poll message id, drawn over MDK's tally until a snapshot projects
     /// the same selection or the vote fails.
     private(set) var pendingPollSelections: [String: [String]] = [:]
@@ -71,6 +88,7 @@ final class ConversationViewModel {
     /// both paging and expiry work without a separate staleness generation.
     @ObservationIgnored private var retentionExpiryTask: Task<Void, Never>?
     @ObservationIgnored private var snapshotObserver: (@MainActor (ConversationWindowSnapshotFfi) async -> Void)?
+    @ObservationIgnored private var capturesUnreadDivider = false
 
     init(
         account: AccountItem,
@@ -84,9 +102,11 @@ final class ConversationViewModel {
         self.productAnalytics = productAnalytics
     }
 
-    func start(mode: ConversationOpenModeFfi = .latest, messageIdHex: String? = nil) {
+    func start(mode: ConversationOpenModeFfi = .automatic, messageIdHex: String? = nil) {
         stop()
         isLoading = snapshot == nil
+        unreadDivider = nil
+        capturesUnreadDivider = true
         let timing = productAnalytics?.beginTiming()
         subscriptionTask = Task { [weak self] in
             await self?.runSubscription(
@@ -115,16 +135,39 @@ final class ConversationViewModel {
         snapshotObserver = observer
         if let snapshot, let observer {
             await observer(snapshot)
+            hasPresentedWindow = true
         }
     }
 
-    func page(_ direction: ConversationPageDirectionFfi, count: UInt32 = 50) async {
-        guard !isPaging, let subscription, let revision = snapshot?.revision else { return }
+    func setVisibleMessageIds(_ ids: Set<String>) {
+        visibleMessageIds = ids
+    }
+
+    /// Pages the window. `visibleAnchorMessageIdHex`, a message the reader can see, is reported
+    /// first with `set_visible_anchor`: MarmotKit keeps the window around that row when a page
+    /// passes its 200-row cap, and without it a capped page keeps the opening anchor and stops
+    /// advancing while the has-more flag stays true. The transcript keeps the reader's place
+    /// itself, by message identity, so nothing here depends on how the window grew.
+    func page(
+        _ direction: ConversationPageDirectionFfi,
+        count: UInt32 = 50,
+        visibleAnchorMessageIdHex: String? = nil
+    ) async {
+        guard !isPaging, let subscription, var revision = snapshot?.revision else { return }
         if direction == .older, snapshot?.hasMoreBefore != true { return }
         if direction == .newer, snapshot?.hasMoreAfter != true { return }
         isPaging = true
         defer { isPaging = false }
         do {
+            if let visibleAnchorMessageIdHex {
+                let anchored = try await subscription.setVisibleAnchor(
+                    revision: revision,
+                    messageIdHex: visibleAnchorMessageIdHex,
+                    timeoutMs: 0
+                )
+                await install(anchored)
+                revision = anchored.revision
+            }
             let replacement = try await subscription.page(
                 revision: revision,
                 direction: direction,
@@ -380,6 +423,10 @@ final class ConversationViewModel {
             else { return }
         }
         snapshot = replacement
+        if capturesUnreadDivider {
+            capturesUnreadDivider = false
+            unreadDivider = Self.unreadDivider(in: replacement)
+        }
         scheduleRetentionExpiry(for: replacement)
         let projectedTokens = Set(replacement.messages.compactMap(\.timeline.clientToken))
         for token in projectedTokens {
@@ -388,7 +435,18 @@ final class ConversationViewModel {
         clearProjectedPollSelections(in: replacement)
         error = nil
         isLoading = false
-        await snapshotObserver?(replacement)
+        if let snapshotObserver {
+            await snapshotObserver(replacement)
+            hasPresentedWindow = true
+        }
+    }
+
+    private static func unreadDivider(in snapshot: ConversationWindowSnapshotFfi) -> ConversationUnreadDivider? {
+        guard snapshot.anchor.kind == .firstUnread,
+            snapshot.readState.unreadCount > 0,
+            let messageIdHex = snapshot.readState.firstUnreadMessageIdHex
+        else { return nil }
+        return ConversationUnreadDivider(messageIdHex: messageIdHex, unreadCount: snapshot.readState.unreadCount)
     }
 
     /// Forgets one failed vote. Only the newest vote owns the overlay, so an older failure leaves

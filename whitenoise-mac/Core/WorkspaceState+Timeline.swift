@@ -30,6 +30,16 @@ extension WorkspaceState {
         if let draftAccountId {
             await restoreComposerDraftIfNeeded(accountId: draftAccountId, groupIdHex: groupIdHex)
         }
+        // The conversation projection owns this chat (`timelineTaskGroupId` without a legacy
+        // listener task). A legacy load would replace its window with the latest page and mark
+        // that read, clearing the unread run before the divider could show; the projection's own
+        // snapshot clears the initial-load spinner, so it is left running here.
+        if timelineTaskGroupId == groupIdHex, timelineTask == nil {
+            if let draftAccountId, activeAccountId == draftAccountId {
+                hydrateRestoredReplyContext(accountId: draftAccountId, groupIdHex: groupIdHex)
+            }
+            return
+        }
         if timelineTaskGroupId == groupIdHex, ensureMessageTimelineStore(for: groupIdHex).isLoaded {
             if let draftAccountId, activeAccountId == draftAccountId {
                 hydrateRestoredReplyContext(accountId: draftAccountId, groupIdHex: groupIdHex)
@@ -91,6 +101,10 @@ extension WorkspaceState {
             return
         }
         guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex) else {
+            return
+        }
+        // The projection host may have claimed the chat while this load waited to start.
+        if timelineTaskGroupId == groupIdHex, timelineTask == nil {
             return
         }
         if timelineTaskGroupId == groupIdHex, ensureMessageTimelineStore(for: groupIdHex).isLoaded {
@@ -300,6 +314,10 @@ extension WorkspaceState {
     /// Render an authoritative timeline window from the subscription (initial snapshot,
     /// pagination result, or live update). The window is already ordered/deduped/capped by
     /// the runtime, so we map + resolve senders and replace the transcript wholesale.
+    ///
+    /// `marksLatestRowRead` is false for the conversation projection: its transcript marks read
+    /// from the messages actually on screen, and a window opened at the first unread row must not
+    /// mark the rows below the divider just because they were loaded.
     func applyTimelineWindow(
         _ page: TimelinePageFfi,
         groupIdHex: String,
@@ -308,7 +326,8 @@ extension WorkspaceState {
         owner: TimelineWindowOwner?,
         preparedSenderProfiles: [String: ChatPeerProfile]? = nil,
         preparedMentionNames: MarkdownMentionNames? = nil,
-        projectedClientTokens: Set<String>? = nil
+        projectedClientTokens: Set<String>? = nil,
+        marksLatestRowRead: Bool = true
     ) async {
         guard
             canApplyTimelineWindow(
@@ -450,6 +469,7 @@ extension WorkspaceState {
                 pendingOutgoingMediaMessagesByConversation[draftKey] = remaining.isEmpty ? nil : remaining
             }
         }
+        guard marksLatestRowRead else { return }
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
 
@@ -1612,10 +1632,15 @@ extension WorkspaceState {
         }
     }
 
+    /// Advances the read marker to the newest row MarmotKit counts as unread activity. With
+    /// `visibleMessageIds`, only rows the transcript reports on screen are candidates, so rows
+    /// loaded below the viewport (under an unread divider, or past a reader scrolled up) stay
+    /// unread until the user reaches them.
     func markLatestVisibleMessageRead(
         groupIdHex: String,
         account: AccountItem,
-        client: any MarmotRuntime
+        client: any MarmotRuntime,
+        within visibleMessageIds: Set<String>? = nil
     ) async {
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
         // A selected chat is necessary but not sufficient: only advance the read marker
@@ -1632,6 +1657,7 @@ extension WorkspaceState {
         guard
             let latest = ensureMessageTimelineStore(for: groupIdHex).messages.last(where: { message in
                 message.countsAsReadActivity(inAuthoritativeGroup: isAuthoritativeGroup) && !message.isDeleted
+                    && visibleMessageIds.map { $0.contains(message.id) } ?? true
             })
         else {
             return
@@ -1688,14 +1714,16 @@ extension WorkspaceState {
     /// is inactive or its conversation window has no visible key window, so messages that
     /// arrive while the user is away stay unread. When the conversation becomes visible
     /// again it is safe to advance the marker to the latest visible message. Call this from
-    /// app/window activation hooks (see ContentView).
-    func handleConversationVisibilityChange() async {
+    /// app/window activation hooks (see ContentView). A projected conversation passes the
+    /// messages its transcript reports on screen, so focus marks only what the user can see.
+    func handleConversationVisibilityChange(visibleMessageIds: Set<String>? = nil) async {
         guard selectedConversationIsVisible() else { return }
         guard let client, let activeAccount, let selectedChat else { return }
         await markLatestVisibleMessageRead(
             groupIdHex: selectedChat.id,
             account: activeAccount,
-            client: client
+            client: client,
+            within: visibleMessageIds
         )
     }
 }
