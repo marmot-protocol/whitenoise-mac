@@ -181,13 +181,6 @@ private struct DetailPaneView: View {
     }
 }
 
-/// Whether the transcript's viewport reaches the foot of its content. One boolean, so
-/// `onScrollGeometryChange` only invokes its action when the reader crosses that edge — not on
-/// every scrolled pixel.
-private func timelineIsAtBottom(_ geometry: ScrollGeometry, bottomPadding: CGFloat) -> Bool {
-    max(0, geometry.contentSize.height - geometry.visibleRect.maxY) <= bottomPadding + 48
-}
-
 /// A history page the transcript should load for the messages on screen.
 nonisolated struct TimelinePageRequest: Equatable {
     let direction: ConversationPageDirectionFfi
@@ -233,20 +226,6 @@ func timelineReadableMessageIds(
     return visibleMessageIds.subtracting([lowest])
 }
 
-/// Whether content changes pin the bottom. While an open is still landing, only an open at the
-/// newest message (its target is the bottom spacer) does: a divider or navigation open pins the
-/// top, or rows resolving their heights would pull it to the tail before it lands. After that, the
-/// reader follows the live edge when at the foot of a window that ends at the newest message.
-func timelineFollowsLiveEdge(
-    isPinnedToBottom: Bool,
-    hasMoreAfter: Bool,
-    isOpening: Bool,
-    isOpeningAtBottom: Bool
-) -> Bool {
-    if isOpening { return isOpeningAtBottom }
-    return isPinnedToBottom && !hasMoreAfter
-}
-
 nonisolated enum TimelineNewestMessageScrollAction: Equatable {
     case none
     case scrollToBottom
@@ -271,41 +250,6 @@ func timelineNewestMessageScrollAction(
     return .scrollToBottom
 }
 
-/// Where an open is in landing on its starting row. Paging and read marking act only once it has
-/// landed. It starts `pending`: the first layout of a presented window is wherever the initial
-/// offset put it (the tail of an unread window), not where the open is going, so nothing it
-/// reports may count until the open has chosen a target and seen it on screen.
-nonisolated enum TranscriptOpeningPhase: Equatable {
-    case pending
-    case targeting(String)
-    case landed
-
-    var hasLanded: Bool { self == .landed }
-
-    var target: String? {
-        if case .targeting(let id) = self { return id }
-        return nil
-    }
-
-    /// A visibility report lands the open once it shows the target.
-    mutating func observe(visibleTargets: Set<String>) {
-        if let target, visibleTargets.contains(target) { self = .landed }
-    }
-
-    /// The user scrolled: their position counts from now, whatever the open was doing.
-    mutating func userTookOver() {
-        self = .landed
-    }
-
-    /// A navigation finished. It lands when its target is already on screen, where no new
-    /// visibility report will arrive, or when the jump could not bring it into the window, where
-    /// none ever will.
-    mutating func navigationFinished(target: String, isInWindow: Bool, visibleTargets: Set<String>) {
-        guard self == .targeting(target) else { return }
-        if !isInWindow || visibleTargets.contains(target) { self = .landed }
-    }
-}
-
 /// What reaching the foot of the window should do. A window that ends before the newest message
 /// loads the next page; one that ends at it but retains an anchor (an unread open, a jump, a page
 /// that reported a visible anchor) is re-attached to the tail, or later arrivals would only flip
@@ -322,41 +266,142 @@ func timelineFootAction(isAtBottom: Bool, hasMoreAfter: Bool, isFollowingTail: B
     return isFollowingTail ? .none : .returnToLatest
 }
 
-/// One transcript element as a single view: the unread divider and day header it may carry, then
-/// the message. A lazy stack places a list of these far more cheaply than a `ForEach` whose
-/// elements expand to a varying number of sibling views.
-private struct TranscriptItemRow: View {
-    let item: TimelineMessageDisplayItem
-    let showsUnreadDivider: Bool
-    let safetyModel: GroupSafetyViewModel
-    let conversationModel: ConversationViewModel
+/// What a transcript row's height depends on beyond its own message: anything here changing
+/// re-measures the row. Kept in the row value so the table's height cache sees it.
+nonisolated struct TranscriptRowContext: Equatable {
     let canVoteInPolls: Bool
     let showsDebugMetadata: Bool
+    let isSelectionMode: Bool
+    let localeIdentifier: String
+    let referenceDay: Int
+}
+
+/// One row of the transcript table.
+nonisolated enum TranscriptRow: Identifiable, Equatable {
+    case loadingOlder(isLoading: Bool)
+    case message(TimelineMessageDisplayItem, showsUnreadDivider: Bool, context: TranscriptRowContext)
+    case loadingNewer(isLoading: Bool)
+    case pending(PendingOutgoingMessageRow)
+    case footer
+
+    var id: String {
+        switch self {
+        case .loadingOlder: "transcript-loading-older"
+        case .message(let item, _, _): item.message.id
+        case .loadingNewer: "transcript-loading-newer"
+        case .pending(let row): "transcript-pending-\(row.id.uuidString)"
+        case .footer: "transcript-footer"
+        }
+    }
+
+    static func == (lhs: TranscriptRow, rhs: TranscriptRow) -> Bool {
+        switch (lhs, rhs) {
+        case (.loadingOlder(let a), .loadingOlder(let b)), (.loadingNewer(let a), .loadingNewer(let b)):
+            return a == b
+        case (.message(let a, let dividerA, let contextA), .message(let b, let dividerB, let contextB)):
+            return a.message == b.message && a.dayLabel == b.dayLabel && dividerA == dividerB
+                && contextA == contextB
+        case (.pending(let a), .pending(let b)):
+            return a == b
+        case (.footer, .footer):
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The transcript's rows: the window's messages between its loading indicators, then the
+    /// messages still being sent, then the foot.
+    static func rows(
+        displayItems: [TimelineMessageDisplayItem],
+        paging: TimelinePagingState,
+        pendingOutgoingRows: [PendingOutgoingMessageRow],
+        unreadDividerMessageId: String?,
+        context: TranscriptRowContext
+    ) -> [TranscriptRow] {
+        var rows: [TranscriptRow] = []
+        rows.reserveCapacity(displayItems.count + pendingOutgoingRows.count + 3)
+        if paging.hasMoreBefore { rows.append(.loadingOlder(isLoading: paging.isLoadingBefore)) }
+        for item in displayItems {
+            rows.append(
+                .message(item, showsUnreadDivider: item.message.id == unreadDividerMessageId, context: context))
+        }
+        if paging.hasMoreAfter { rows.append(.loadingNewer(isLoading: paging.isLoadingAfter)) }
+        rows += pendingOutgoingRows.map(TranscriptRow.pending)
+        rows.append(.footer)
+        return rows
+    }
+}
+
+/// One transcript row's SwiftUI content, hosted in a table cell. A cell's `NSHostingView` does not
+/// inherit the conversation's environment, so everything the rows read is passed in and applied
+/// here — including the transcript's `.textSelection(.disabled)`, which bubbles re-enable on hover.
+private struct TranscriptRowCell: View {
+    let row: TranscriptRow
+    let workspace: WorkspaceState
+    let session: SessionState
+    let safetyModel: GroupSafetyViewModel
+    let conversationModel: ConversationViewModel
+    let locale: Locale
     let timestampReferenceDate: Date
-    let timestampLocale: Locale
+    let openURL: OpenURLAction
+    let hoverSelectionCoordinator: ConversationHoverSelectionCoordinator
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
     let onNavigateToMessage: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 12) {
-            if showsUnreadDivider {
-                UnreadMessagesDivider()
+        Group {
+            switch row {
+            case .loadingOlder(let isLoading), .loadingNewer(let isLoading):
+                TimelinePageLoadingRow(isLoading: isLoading)
+            case .message(let item, let showsUnreadDivider, let context):
+                VStack(spacing: 12) {
+                    if showsUnreadDivider {
+                        UnreadMessagesDivider()
+                    }
+                    if let dayLabel = item.dayLabel {
+                        TimelineDayHeaderView(title: dayLabel)
+                    }
+                    ConversationMessageRow(
+                        message: item.message,
+                        safetyModel: safetyModel,
+                        conversationModel: conversationModel,
+                        canVoteInPolls: context.canVoteInPolls,
+                        showsDebugMetadata: context.showsDebugMetadata,
+                        timestampReferenceDate: timestampReferenceDate,
+                        timestampLocale: locale,
+                        onOpenImageGallery: onOpenImageGallery,
+                        onNavigateToMessage: onNavigateToMessage
+                    )
+                }
+            case .pending(.text(let message)):
+                PendingOutgoingTextBubble(
+                    message: message,
+                    timestampReferenceDate: timestampReferenceDate,
+                    timestampLocale: locale
+                )
+            case .pending(.media(let message)):
+                PendingOutgoingMessageBubble(
+                    message: message,
+                    timestampReferenceDate: timestampReferenceDate,
+                    timestampLocale: locale
+                )
+            case .footer:
+                Color.clear.frame(height: 28)
             }
-            if let dayLabel = item.dayLabel {
-                TimelineDayHeaderView(title: dayLabel)
-            }
-            ConversationMessageRow(
-                message: item.message,
-                safetyModel: safetyModel,
-                conversationModel: conversationModel,
-                canVoteInPolls: canVoteInPolls,
-                showsDebugMetadata: showsDebugMetadata,
-                timestampReferenceDate: timestampReferenceDate,
-                timestampLocale: timestampLocale,
-                onOpenImageGallery: onOpenImageGallery,
-                onNavigateToMessage: onNavigateToMessage
-            )
         }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .textSelection(.disabled)
+        .tint(WNColor.fillPrimary)
+        .foregroundStyle(WNColor.backgroundContentPrimary)
+        .environment(workspace)
+        .environment(session)
+        .environment(\.locale, locale)
+        .environment(\.timestampReferenceDate, timestampReferenceDate)
+        .environment(\.openURL, openURL)
+        .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
     }
 }
 
@@ -374,17 +419,17 @@ private struct ConversationView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     @Environment(\.timestampReferenceDate) private var timestampReferenceDate
-    /// Whether the transcript is scrolled to the foot of its content. Derived from scroll
-    /// geometry — never from a view's `.onAppear`/`.onDisappear`, which would write state
-    /// during layout and feed back into it.
+    @Environment(\.openURL) private var openURL
+    @Environment(SessionState.self) private var session
+    /// Whether the transcript is scrolled to the foot of its content, as the table reports it.
     @State private var isPinnedToBottom = false
-    /// The scroll position by identity: the row at the top of the viewport. SwiftUI updates it as
-    /// the reader scrolls and keeps that row in place when rows are added, removed or resized
-    /// around it, which is what keeps the reader's place across history pages and image loads.
-    @State private var scrollPositionID: String?
-    /// The open landing on its starting row (the unread divider, the bottom spacer, or a
-    /// navigation target). Until it lands, neither paging nor read marking acts.
-    @State private var openingPhase = TranscriptOpeningPhase.pending
+    /// The pending scroll command for the transcript table, applied once per request id.
+    @State private var scrollRequest: TranscriptScrollRequest?
+    /// The open's starting scroll (the unread divider, the newest message, or a search target).
+    /// The open has landed once the table confirms it applied this request; until then neither
+    /// paging nor read marking acts on what is on screen.
+    @State private var openingRequestId: UUID?
+    @State private var hasLanded = false
     /// The model whose opening position has been applied; a new open gets its own.
     @State private var openedModel: ObjectIdentifier?
     @State private var isFileImporterPresented = false
@@ -399,9 +444,7 @@ private struct ConversationView: View {
     /// register local `isSelectable` state so hover only updates the previous and active row
     /// (whitenoise-mac#397).
     @State private var hoverSelectionCoordinator = ConversationHoverSelectionCoordinator()
-    /// True while the ScrollView is in any non-idle phase. Drives `.allowsHitTesting` on the
-    /// transcript so per-frame hover/hit-test/tracking work is skipped during a fling and
-    /// restored the moment scrolling settles.
+    /// True during a live scroll (the user dragging or flinging). Read marking waits for it to end.
     @State private var isActivelyScrolling = false
     let chat: ChatItem
     let model: ConversationViewModel
@@ -409,7 +452,6 @@ private struct ConversationView: View {
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
     let blockedUsersModel: BlockedUsersViewModel
-    private let bottomTranscriptPadding: CGFloat = 34
 
     private var isBlockedDirectPeer: Bool {
         chat.directPeerAccountIdHex.map {
@@ -428,15 +470,18 @@ private struct ConversationView: View {
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
         let pendingOutgoingRows = workspace.selectedPendingOutgoingMessageRows
-        let unreadDividerMessageId = model.unreadDivider?.messageIdHex
-        // Following the live edge, content changes pin the bottom, so arrivals and a streaming
-        // reply stay in view; otherwise they pin the top, and the identity position keeps the
-        // reader's rows still.
-        let isFollowingLiveEdge = timelineFollowsLiveEdge(
-            isPinnedToBottom: isPinnedToBottom,
-            hasMoreAfter: paging.hasMoreAfter,
-            isOpening: !openingPhase.hasLanded,
-            isOpeningAtBottom: openingPhase.target == bottomAnchorId
+        let transcriptRows = TranscriptRow.rows(
+            displayItems: displayItems,
+            paging: paging,
+            pendingOutgoingRows: pendingOutgoingRows,
+            unreadDividerMessageId: model.unreadDivider?.messageIdHex,
+            context: TranscriptRowContext(
+                canVoteInPolls: canUseComposer,
+                showsDebugMetadata: workspace.streamingDebugEnabled,
+                isSelectionMode: workspace.isTimelineSelectionMode,
+                localeIdentifier: locale.identifier,
+                referenceDay: Calendar.current.ordinality(of: .day, in: .era, for: timestampReferenceDate) ?? 0
+            )
         )
 
         ZStack {
@@ -446,249 +491,144 @@ private struct ConversationView: View {
                     .messageEditHistory(model: model)
                 GlassSeparator(axis: .horizontal)
 
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        // A `LazyVStack` with an identity scroll position. Only a lazy stack lets
-                        // SwiftUI keep the row the reader is on in place when the window changes
-                        // around it (an older page, a capped page, images resolving above); an
-                        // eager `VStack` holds the offset instead and the reader's rows jump. The
-                        // eager stack was adopted in #205, when a lazy one re-estimated row sizes
-                        // continuously to resolve a bottom anchor on every size change and pinned
-                        // the main thread. The bottom anchor now applies only while following the
-                        // live edge; if that storm returns, measure here first.
-                        LazyVStack(spacing: 12) {
-                            if messageIDs.isEmpty && pendingOutgoingRows.isEmpty {
-                                if isLoadingInitialPage {
-                                    TimelineInitialLoadingView()
-                                } else {
-                                    EmptyConversationView()
-                                }
+                Group {
+                    if messageIDs.isEmpty && pendingOutgoingRows.isEmpty {
+                        VStack {
+                            if isLoadingInitialPage {
+                                TimelineInitialLoadingView()
                             } else {
-                                // Pure visual indicators — no `.onAppear` pagination triggers.
-                                // Loading older/newer history is driven by scroll geometry below.
-                                if paging.hasMoreBefore {
-                                    TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
-                                }
-
-                                // Exactly one view per element. A lazy stack walks this list on
-                                // every placement pass; elements that expand to a variable number
-                                // of views (an optional divider, an optional day header, the row)
-                                // make each walk flatten nested dynamic view lists, which is where
-                                // the scroll-up hang spent its time.
-                                ForEach(displayItems) { item in
-                                    TranscriptItemRow(
-                                        item: item,
-                                        showsUnreadDivider: item.message.id == unreadDividerMessageId,
-                                        safetyModel: safetyModel,
-                                        conversationModel: model,
-                                        canVoteInPolls: canUseComposer,
-                                        showsDebugMetadata: workspace.streamingDebugEnabled,
-                                        timestampReferenceDate: timestampReferenceDate,
-                                        timestampLocale: locale
-                                    ) { gallery in
-                                        imageGallery = gallery
-                                    } onNavigateToMessage: { targetMessageId in
-                                        Task {
-                                            await revealMessage(targetMessageId, using: proxy)
-                                        }
-                                    }
-                                    .id(item.message.id)
-                                }
-                                .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
-
-                                if paging.hasMoreAfter {
-                                    TimelinePageLoadingRow(isLoading: paging.isLoadingAfter)
+                                EmptyConversationView()
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        // An `NSTableView`: rows measured once and cached, only visible rows
+                        // hosted, and the reader's row held in place by explicit offset arithmetic
+                        // whenever the window changes — see `TranscriptTableView`.
+                        TranscriptTableView(
+                            rows: transcriptRows,
+                            scrollRequest: scrollRequest,
+                            // Pin the foot only while the reader follows the live edge.
+                            followsBottom: hasLanded && !paging.hasMoreAfter,
+                            onViewportChanged: viewportChanged,
+                            onLiveScrollChanged: { isScrolling in
+                                isActivelyScrolling = isScrolling
+                                if !isScrolling { markVisibleMessagesRead() }
+                            },
+                            onScrollRequestApplied: scrollRequestApplied,
+                            cell: { row in
+                                TranscriptRowCell(
+                                    row: row,
+                                    workspace: workspace,
+                                    session: session,
+                                    safetyModel: safetyModel,
+                                    conversationModel: model,
+                                    locale: locale,
+                                    timestampReferenceDate: timestampReferenceDate,
+                                    openURL: openURL,
+                                    hoverSelectionCoordinator: hoverSelectionCoordinator
+                                ) { gallery in
+                                    imageGallery = gallery
+                                } onNavigateToMessage: { targetMessageId in
+                                    Task { await revealMessage(targetMessageId) }
                                 }
                             }
-
-                            // Messages the user has already sent that the core has no row for yet
-                            // — media whose blobs are still going up, and text still queued behind
-                            // an earlier send or rolled back by a failed publish. Rendered after
-                            // the real window rather than inside it: these rows exist only on this
-                            // client, and the published message that replaces one arrives through
-                            // the timeline store like any other. One `ForEach` over both kinds so
-                            // they stay in the order they were sent.
-                            ForEach(pendingOutgoingRows) { pending in
-                                switch pending {
-                                case .text(let message):
-                                    PendingOutgoingTextBubble(
-                                        message: message,
-                                        timestampReferenceDate: timestampReferenceDate,
-                                        timestampLocale: locale
-                                    )
-                                case .media(let message):
-                                    PendingOutgoingMessageBubble(
-                                        message: message,
-                                        timestampReferenceDate: timestampReferenceDate,
-                                        timestampLocale: locale
-                                    )
-                                }
-                            }
-
-                            // Scroll-to-bottom target. Pure layout: pin/pagination state is
-                            // derived from scroll geometry (`onScrollGeometryChange`), so no
-                            // `.onAppear`/`.onDisappear` here writes state back into layout — the
-                            // feedback that let the old sentinel/anchor callbacks spin the main
-                            // thread (whitenoise-mac#205).
-                            Color.clear
-                                .frame(height: bottomTranscriptPadding)
-                                .id(bottomAnchorId)
-                        }
-                        .scrollTargetLayout()
-                        .padding(.horizontal, 28)
-                        .padding(.top, 18)
-                        .padding(.bottom, 8)
-                        // The app enables text selection globally (ContentView); the transcript
-                        // is the one place that must not inherit it. Backing every Text in the
-                        // scrolling window with a selection NSView destabilises scroll-anchor
-                        // resolution into a multi-second main-thread layout loop
-                        // (whitenoise-mac#205). Bubbles re-enable selection individually on hover
-                        // via `.textSelectable(isSelectable)`, which — being closer to the leaf —
-                        // overrides this for the single active bubble.
-                        .textSelection(.disabled)
-                        // While actively scrolling, make the transcript content transparent to
-                        // hit-testing so SwiftUI skips per-frame hover/responder/tracking-area work
-                        // for the moving rows (Instruments: HoverEventDispatcher /
-                        // updateTrackingAreasWithInvalidCursorRects / containsGlobalPoints). The
-                        // ScrollView still scrolls; full interactivity returns once it settles.
-                        .allowsHitTesting(!isActivelyScrolling)
-                    }
-                    .accessibilityIdentifier("conversation.transcript")
-                    .id(chat.id)
-                    .scrollPosition(id: $scrollPositionID, anchor: .top)
-                    .defaultScrollAnchor(.bottom, for: .initialOffset)
-                    .defaultScrollAnchor(.bottom, for: .alignment)
-                    .defaultScrollAnchor(isFollowingLiveEdge ? .bottom : .top, for: .sizeChanges)
-                    .onScrollPhaseChange { _, phase in
-                        isActivelyScrolling = phase != .idle
-                        // The user took over before the opening target was reported: their
-                        // position, as last reported, is the one that counts from here.
-                        if phase == .interacting, !openingPhase.hasLanded {
-                            openingPhase.userTookOver()
-                            readingPositionChanged()
-                        }
-                        if phase == .idle { markVisibleMessagesRead() }
-                    }
-                    .onScrollGeometryChange(for: Bool.self) { geometry in
-                        timelineIsAtBottom(geometry, bottomPadding: bottomTranscriptPadding)
-                    } action: { _, atBottom in
-                        // Fires only when the reader crosses the foot, and only writes
-                        // `isPinnedToBottom`, which no row's layout depends on.
-                        isPinnedToBottom = atBottom
-                        updateReadableMessages()
-                        handleFoot()
-                    }
-                    // An arrival into a window the reader is at the foot of can change only
-                    // `hasMoreAfter`, with no row or visibility change to react to.
-                    .onChange(of: paging.hasMoreAfter) { _, _ in
-                        handleFoot()
-                    }
-                    // Any part of a row on screen counts as visible, so a message taller than
-                    // the viewport registers while it is being read; `timelineReadableMessageIds`
-                    // decides which visible rows have been reached.
-                    .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.001) { ids in
-                        transcriptVisibilityChanged(Set(ids))
-                    }
-                    .onChange(
-                        of: TranscriptOpeningKey(
-                            model: ObjectIdentifier(model),
-                            hasPresentedWindow: model.hasPresentedWindow
-                        ),
-                        initial: true
-                    ) { _, key in
-                        applyOpeningPosition(key, using: proxy)
-                    }
-                    .onChange(of: chat.id) { _, _ in
-                        isPinnedToBottom = false
-                        scrollPositionID = nil
-                        openingPhase = .pending
-                        openedModel = nil
-                        // The fresh ScrollView starts idle without emitting a phase transition, so
-                        // clear the gate here or the new transcript stays non-interactive until a scroll.
-                        isActivelyScrolling = false
-                        hoverSelectionCoordinator.reset()
-                        composerMentionContext = nil
-                        composerMentionInsertion = nil
-                    }
-                    .onChange(of: messageIDs.last) { _, newMessageId in
-                        switch timelineNewestMessageScrollAction(
-                            newMessageIsOutgoing: displayItems.last?.message.isOutgoing == true,
-                            paging: paging,
-                            newMessageId: newMessageId,
-                            isPinnedToBottom: isPinnedToBottom && openingPhase.hasLanded
-                        ) {
-                        case .scrollToBottom:
-                            scrollToBottom(with: proxy)
-                        case .none:
-                            return
-                        }
-                    }
-                    // Pressing Send scrolls to the live edge, off the send itself rather than off
-                    // the message it produces. Neither rule above covers a send made while reading
-                    // history: a media send (a recording included) appends its pending bubble
-                    // *below* the timeline window, so it never moves `messageIDs.last`, and a text
-                    // send that lands while an older-history prepend is in flight is not eligible
-                    // for the newest-message scroll at all. Both left the new message off the
-                    // bottom edge. Unconditional in `isPinnedToBottom`, because sending is an
-                    // explicit local action — the same reason the outgoing branch above ignores it.
-                    .onChange(of: workspace.outgoingSendScrollGeneration) { _, _ in
-                        guard workspace.selectedChat?.id == chat.id else { return }
-                        // A window detached from the live edge (the user jumped to a search result
-                        // or a reply target) has to be re-attached, not merely scrolled: its bottom
-                        // is the foot of a history page, and stopping there would let the
-                        // newer-history paging that the bottom edge triggers walk the user back up
-                        // off the message they just sent. Same path the jump-to-latest button takes.
-                        // Live paging state, not the value captured at body evaluation — an
-                        // `onChange` action runs after it, exactly as the geometry ones do.
-                        if workspace.selectedTimelinePaging.hasMoreAfter {
-                            Task { await jumpToNewest(using: proxy) }
-                        } else {
-                            scrollToBottom(with: proxy)
-                        }
-                    }
-                    // Keyed on the window being presented too: a search can open a chat whose
-                    // projection has not delivered its first window, and the jump to the target
-                    // needs that window's revision. The task reruns once it is on screen.
-                    .task(
-                        id: PendingNavigationKey(
-                            requestId: workspace.pendingMessageNavigation?.requestId,
-                            hasPresentedWindow: model.hasPresentedWindow
                         )
+                    }
+                }
+                .accessibilityIdentifier("conversation.transcript")
+                .id(chat.id)
+                // An arrival into a window the reader is at the foot of can change only
+                // `hasMoreAfter`, with no row or viewport change to react to.
+                .onChange(of: paging.hasMoreAfter) { _, _ in
+                    handleFoot()
+                }
+                .onChange(
+                    of: TranscriptOpeningKey(
+                        model: ObjectIdentifier(model),
+                        hasPresentedWindow: model.hasPresentedWindow
+                    ),
+                    initial: true
+                ) { _, key in
+                    applyOpeningPosition(key)
+                }
+                .onChange(of: chat.id) { _, _ in
+                    isPinnedToBottom = false
+                    scrollRequest = nil
+                    openingRequestId = nil
+                    hasLanded = false
+                    openedModel = nil
+                    isActivelyScrolling = false
+                    hoverSelectionCoordinator.reset()
+                    composerMentionContext = nil
+                    composerMentionInsertion = nil
+                }
+                .onChange(of: messageIDs.last) { _, newMessageId in
+                    // Arrivals while following are pinned by the table itself; this catches the
+                    // reader's own message landing while they were scrolled away.
+                    switch timelineNewestMessageScrollAction(
+                        newMessageIsOutgoing: displayItems.last?.message.isOutgoing == true,
+                        paging: paging,
+                        newMessageId: newMessageId,
+                        isPinnedToBottom: isPinnedToBottom && hasLanded
                     ) {
-                        guard model.hasPresentedWindow,
-                            let target = workspace.pendingMessageNavigation,
-                            target.groupId == chat.id
-                        else { return }
-                        openingPhase = .targeting(target.messageId)
-                        await revealMessage(target.messageId, using: proxy)
-                        let wasLanding = !openingPhase.hasLanded
-                        openingPhase.navigationFinished(
-                            target: target.messageId,
-                            isInWindow: workspace.selectedTimelineContainsMessage(target.messageId),
-                            visibleTargets: model.visibleTargetIds
-                        )
-                        if wasLanding, openingPhase.hasLanded { readingPositionChanged() }
-                        workspace.completePendingMessageNavigation(target)
+                    case .scrollToBottom:
+                        scrollRequest = TranscriptScrollRequest(target: .bottom)
+                    case .none:
+                        return
                     }
-                    .overlay(alignment: .bottomTrailing) {
-                        if openingPhase.hasLanded && !isPinnedToBottom {
-                            Button {
-                                Task { await jumpToNewest(using: proxy) }
-                            } label: {
-                                Image(systemName: "arrow.down")
-                                    .wnFont(.bold14)
-                                    .frame(width: 40, height: 40)
-                                    .background(.regularMaterial, in: Circle())
-                                    .overlay {
-                                        Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1)
-                                    }
-                                    .shadow(color: WNColor.shadow.opacity(0.1), radius: 8, y: 3)
-                            }
-                            .buttonStyle(.plain)
-                            .help(L10n.string("Jump to latest message"))
-                            .padding(18)
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+                // Pressing Send scrolls to the live edge, off the send itself rather than off
+                // the message it produces: a media send appends its pending bubble below the
+                // window without moving `messageIDs.last`. A window detached from the live edge
+                // is re-attached first, the same path the jump-to-latest button takes.
+                .onChange(of: workspace.outgoingSendScrollGeneration) { _, _ in
+                    guard workspace.selectedChat?.id == chat.id else { return }
+                    Task { await jumpToNewest() }
+                }
+                // Keyed on the window being presented too: a search can open a chat whose
+                // projection has not delivered its first window, and the jump to the target
+                // needs that window's revision. The task reruns once it is on screen.
+                .task(
+                    id: PendingNavigationKey(
+                        requestId: workspace.pendingMessageNavigation?.requestId,
+                        hasPresentedWindow: model.hasPresentedWindow
+                    )
+                ) {
+                    guard model.hasPresentedWindow,
+                        let target = workspace.pendingMessageNavigation,
+                        target.groupId == chat.id
+                    else { return }
+                    let requestId = await revealMessage(target.messageId)
+                    if !hasLanded {
+                        if let requestId {
+                            openingRequestId = requestId
+                        } else {
+                            // The jump could not bring the target into the window; the open
+                            // stands where it is.
+                            land()
                         }
+                    }
+                    workspace.completePendingMessageNavigation(target)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if hasLanded && !isPinnedToBottom {
+                        Button {
+                            Task { await jumpToNewest() }
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .wnFont(.bold14)
+                                .frame(width: 40, height: 40)
+                                .background(.regularMaterial, in: Circle())
+                                .overlay {
+                                    Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                                }
+                                .shadow(color: WNColor.shadow.opacity(0.1), radius: 8, y: 3)
+                        }
+                        .buttonStyle(.plain)
+                        .help(L10n.string("Jump to latest message"))
+                        .padding(18)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                 }
 
@@ -1026,64 +966,70 @@ private struct ConversationView: View {
             ? L10n.string("Voice message") : L10n.string("A voice message is sent on its own")
     }
 
-    private var bottomAnchorId: String {
-        "conversation-bottom-\(chat.id)"
-    }
-
-    private func revealMessage(_ messageId: String, using proxy: ScrollViewProxy) async {
+    /// Scrolls to a message, jumping the window to it first when it is not loaded. Returns the
+    /// scroll request, or nil when the message could not be brought into the window.
+    @discardableResult
+    private func revealMessage(_ messageId: String) async -> UUID? {
         if !workspace.selectedTimelineContainsMessage(messageId) {
             await model.jump(to: messageId)
         }
         guard workspace.selectedChat?.id == chat.id,
             workspace.selectedTimelineContainsMessage(messageId)
-        else { return }
-        withAnimation(.smooth(duration: 0.2)) {
-            proxy.scrollTo(messageId, anchor: .center)
-        }
+        else { return nil }
+        let request = TranscriptScrollRequest(target: .center(id: messageId))
+        scrollRequest = request
+        return request.id
     }
 
-    private func jumpToNewest(using proxy: ScrollViewProxy) async {
+    private func jumpToNewest() async {
         if workspace.selectedTimelinePaging.hasMoreAfter {
             await model.returnToLatest()
         }
         guard workspace.selectedChat?.id == chat.id else { return }
-        scrollToBottom(with: proxy)
+        scrollRequest = TranscriptScrollRequest(target: .bottom)
     }
 
-    /// Puts a newly presented window where this open should start, once per model: at the unread
-    /// divider, at a pending navigation target
-    /// (which `revealMessage` scrolls to), or at the newest message.
-    private func applyOpeningPosition(_ key: TranscriptOpeningKey, using proxy: ScrollViewProxy) {
+    /// Starts a newly presented window where this open should begin, once per model: at the
+    /// unread divider (the first unread message's row draws it at its top), at a pending
+    /// navigation target (the navigation task scrolls there), or at the newest message.
+    private func applyOpeningPosition(_ key: TranscriptOpeningKey) {
         guard key.hasPresentedWindow, openedModel != key.model else { return }
         openedModel = key.model
+        hasLanded = false
         if let navigation = workspace.pendingMessageNavigation, navigation.groupId == chat.id {
-            openingPhase = .targeting(navigation.messageId)
-        } else if let divider = model.unreadDivider,
-            workspace.selectedTimelineContainsMessage(divider.messageIdHex)
-        {
-            // Land on the first unread message's row, which draws the divider at its top.
-            openingPhase = .targeting(divider.messageIdHex)
-            scrollPositionID = divider.messageIdHex
-        } else {
-            openingPhase = .targeting(bottomAnchorId)
-            scrollToBottom(with: proxy)
-            // Already at the foot, the scroll changes nothing on screen and no new report
-            // arrives, so check what the transcript last reported.
-            openingPhase.observe(visibleTargets: model.visibleTargetIds)
-            if openingPhase.hasLanded { readingPositionChanged() }
+            return
         }
+        let target: TranscriptScrollTarget
+        if let divider = model.unreadDivider, workspace.selectedTimelineContainsMessage(divider.messageIdHex) {
+            target = .top(id: divider.messageIdHex, inset: 8)
+        } else {
+            target = .bottom
+        }
+        let request = TranscriptScrollRequest(target: target)
+        openingRequestId = request.id
+        scrollRequest = request
     }
 
-    /// The transcript's on-screen rows changed. They are always recorded, so a user who takes
-    /// over before the opening target is reported continues from what was last on screen; they
-    /// drive paging and read marking once the open has landed.
-    private func transcriptVisibilityChanged(_ ids: Set<String>) {
-        model.setVisibleIds(targets: ids, messages: ids.filter(workspace.selectedTimelineContainsMessage))
-        if !openingPhase.hasLanded {
-            openingPhase.observe(visibleTargets: ids)
-            guard openingPhase.hasLanded else { return }
-        }
+    private func scrollRequestApplied(_ id: UUID) {
+        guard id == openingRequestId else { return }
+        land()
+    }
+
+    /// The open is where it should start: from here what is on screen counts.
+    private func land() {
+        openingRequestId = nil
+        hasLanded = true
         readingPositionChanged()
+    }
+
+    /// The table's visible rows or foot changed.
+    private func viewportChanged(_ viewport: TranscriptViewport) {
+        isPinnedToBottom = viewport.isAtBottom
+        let ids = Set(viewport.visibleRowIds)
+        model.setVisibleIds(targets: ids, messages: ids.filter(workspace.selectedTimelineContainsMessage))
+        guard hasLanded else { return }
+        readingPositionChanged()
+        handleFoot()
     }
 
     /// The reader's position counts from here: page toward the edge they are near and mark what
@@ -1095,7 +1041,7 @@ private struct ConversationView: View {
     }
 
     private func updateReadableMessages() {
-        guard openingPhase.hasLanded else {
+        guard hasLanded else {
             model.setReadableMessageIds([])
             return
         }
@@ -1109,11 +1055,11 @@ private struct ConversationView: View {
     }
 
     /// Loads history toward the edge the visible messages are near (`timelinePageRequest`). The
-    /// reader's place is kept by the identity scroll position, so nothing is restored afterwards.
-    /// A page that lands without moving the visible rows reports no visibility change, so the next
+    /// table keeps the reader's row in place as the page lands, so nothing is restored afterwards.
+    /// A page that lands without moving the visible rows reports no viewport change, so the next
     /// page is checked here whenever the window actually grew.
     private func requestPageIfNeeded() {
-        guard openingPhase.hasLanded, !model.isPaging else { return }
+        guard hasLanded, !model.isPaging else { return }
         let paging = workspace.selectedTimelinePaging
         let messageIDs = workspace.selectedMessageIDs
         guard
@@ -1138,9 +1084,9 @@ private struct ConversationView: View {
     }
 
     /// At the foot of the window: load the next page, or re-attach a retained window to the tail
-    /// (`timelineFootAction`). The identity position keeps the reader's rows still either way.
+    /// (`timelineFootAction`).
     private func handleFoot() {
-        guard openingPhase.hasLanded, !model.isPaging else { return }
+        guard hasLanded, !model.isPaging else { return }
         switch timelineFootAction(
             isAtBottom: isPinnedToBottom,
             hasMoreAfter: workspace.selectedTimelinePaging.hasMoreAfter,
@@ -1158,7 +1104,7 @@ private struct ConversationView: View {
     /// Marks the newest reached activity row read, while the conversation is actually on screen.
     private func markVisibleMessagesRead() {
         let visible = model.readableMessageIds
-        guard openingPhase.hasLanded, !visible.isEmpty, workspace.selectedConversationIsVisible(),
+        guard hasLanded, !visible.isEmpty, workspace.selectedConversationIsVisible(),
             let client = workspace.client, let account = workspace.activeAccount
         else { return }
         let groupIdHex = chat.id
@@ -1169,24 +1115,6 @@ private struct ConversationView: View {
                 client: client,
                 within: visible
             )
-        }
-    }
-
-    private func scrollToBottom(with proxy: ScrollViewProxy) {
-        DispatchQueue.main.async {
-            // Intentionally NOT animated. An animated `scrollTo` to the bottom anchor chases
-            // a moving target while content keeps growing underneath it — a reply's
-            // delivery-state burst, or an agent streaming its response — so SwiftUI
-            // re-resolves the scroll position (`Array.motionVectors`, O(visible rows)) and
-            // re-sizes the Markdown bubbles on every display frame, pinning the main thread
-            // at 100% for the whole stream (confirmed via Instruments: continuous
-            // AnimatableAttributeHelper / ScrollViewAdjustedState.adjustOffsetIfNeeded /
-            // motionVectors). A plain jump positions in one pass; once the reader is at the
-            // foot, subsequent growth is handled instantly by the `.bottom` size-change anchor
-            // that following the live edge applies. See whitenoise-mac#205.
-            TimelineSignpost.scroll.interval("scrollToBottom") {
-                proxy.scrollTo(bottomAnchorId, anchor: .bottom)
-            }
         }
     }
 }
