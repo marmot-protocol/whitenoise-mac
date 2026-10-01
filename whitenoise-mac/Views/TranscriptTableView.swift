@@ -422,16 +422,26 @@ where Row.ID == String {
         tableView?.tableColumns.first?.width ?? scrollView?.contentView.bounds.width ?? 0
     }
 
-    /// The row's height at the current column width, measured once and cached. After a width
-    /// change, a row with a live cell keeps its height until that cell reports its natural height
-    /// at the new width (`cellReported`): the cell knows state the off-screen sizing host does not,
-    /// such as a GIF's decoded aspect ratio, which a fresh measurement would reset. During a live
-    /// resize, off-screen rows keep their last height until the resize ends.
+    /// The row's height at the current column width, measured once and cached. A row with a live
+    /// cell keeps its height after a width change or a change to its value, until that cell reports
+    /// its natural height (`cellReported`): the cell knows state the off-screen sizing host does
+    /// not, such as a GIF's decoded aspect ratio, which a fresh measurement would reset. A value
+    /// change that does resize the row (an edit, a reaction) changes the live cell's natural
+    /// height, which it reports. During a live resize, off-screen rows keep their last height
+    /// until the resize ends.
     private func height(of row: Row) -> CGFloat {
         let width = columnWidth
-        if let cached = heights[row.id], cached.row == row {
-            if cached.width == width || liveCellIds.contains(row.id) { return cached.height }
-            if tableView?.inLiveResize == true, !isVisible(row.id) { return cached.height }
+        if let cached = heights[row.id] {
+            if liveCellIds.contains(row.id) {
+                if cached.row != row {
+                    heights[row.id] = CachedHeight(row: row, width: cached.width, height: cached.height)
+                }
+                return cached.height
+            }
+            if cached.row == row {
+                if cached.width == width { return cached.height }
+                if tableView?.inLiveResize == true, !isVisible(row.id) { return cached.height }
+            }
         }
         let measured = measure(row, width: width)
         heights[row.id] = CachedHeight(row: row, width: width, height: measured)

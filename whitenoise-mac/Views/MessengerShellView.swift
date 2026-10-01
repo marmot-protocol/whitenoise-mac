@@ -393,6 +393,7 @@ private struct TranscriptRowCell: View {
 }
 
 private struct TranscriptOpeningKey: Equatable {
+    let chatId: String
     let model: ObjectIdentifier
     let hasPresentedWindow: Bool
 }
@@ -533,31 +534,27 @@ private struct ConversationView: View {
                 .onChange(of: paging.hasMoreAfter) { _, _ in
                     handleFoot()
                 }
+                // Switching chats resets the per-chat state in the same handler that opens the
+                // new window: a cached model can arrive already presented, in the same update as
+                // the new chat id, and SwiftUI does not order two `onChange` handlers, so a
+                // separate reset could run after the opening and leave the chat unlanded.
                 .onChange(
                     of: TranscriptOpeningKey(
+                        chatId: chat.id,
                         model: ObjectIdentifier(model),
                         hasPresentedWindow: model.hasPresentedWindow
                     ),
                     initial: true
-                ) { _, key in
+                ) { previous, key in
+                    if previous.chatId != key.chatId { resetForNewChat() }
                     applyOpeningPosition(key)
-                }
-                .onChange(of: chat.id) { _, _ in
-                    isPinnedToBottom = false
-                    scrollRequest = nil
-                    openingRequestId = nil
-                    hasLanded = false
-                    openedModel = nil
-                    isActivelyScrolling = false
-                    hoverSelectionCoordinator.reset()
-                    composerMentionContext = nil
-                    composerMentionInsertion = nil
                 }
                 // Pressing Send scrolls to the live edge, off the send itself rather than off
                 // the message it produces. Arrivals while following are pinned by the table, and
                 // a new last row is not a send: a newer history page can end in an old message of
                 // the reader's own. A window detached from the live edge is re-attached first,
-                // the same path the jump-to-latest button takes.
+                // the same path the jump-to-latest button takes. GIF and poll sends bypass
+                // `sendDraft()` and call `jumpToNewest()` themselves.
                 .onChange(of: workspace.outgoingSendScrollGeneration) { _, _ in
                     guard workspace.selectedChat?.id == chat.id else { return }
                     Task { await jumpToNewest() }
@@ -726,6 +723,8 @@ private struct ConversationView: View {
                 onSend: { submission in
                     try await model.createPoll(submission)
                     isPollComposerPresented = false
+                    // Not a `sendDraft()`, so the send signal never moves; scroll to it here.
+                    Task { await jumpToNewest() }
                 },
                 onCancel: { isPollComposerPresented = false }
             )
@@ -842,8 +841,10 @@ private struct ConversationView: View {
                         giphyAPIKey: canUseComposer ? GiphyBuildConfig.current().apiKey : nil,
                         isDisabled: workspace.isSending,
                         onAttachFiles: { isFileImporterPresented = true },
-                        sendGIF: { [model] media in
+                        // Not a `sendDraft()`, so the send signal never moves; scroll to it here.
+                        sendGIF: { media in
                             try await model.sendText(media.wireText)
+                            Task { await jumpToNewest() }
                         },
                         // MDK accepts polls only in group conversations, never direct messages.
                         onCreatePoll: chat.isDirect ? nil : { isPollComposerPresented = true }
@@ -965,6 +966,18 @@ private struct ConversationView: View {
         }
         guard workspace.selectedChat?.id == chat.id else { return }
         scrollRequest = TranscriptScrollRequest(target: .bottom)
+    }
+
+    private func resetForNewChat() {
+        isPinnedToBottom = false
+        scrollRequest = nil
+        openingRequestId = nil
+        hasLanded = false
+        openedModel = nil
+        isActivelyScrolling = false
+        hoverSelectionCoordinator.reset()
+        composerMentionContext = nil
+        composerMentionInsertion = nil
     }
 
     /// Starts a newly presented window where this open should begin, once per model: at the

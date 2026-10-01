@@ -111,6 +111,37 @@ struct TranscriptTableViewTests {
         #expect(harness.height(of: "row-22") == live)
     }
 
+    /// A row value change that does not resize the content (a delivery tick, a reaction count on
+    /// another row's message, selection mode) must not swap a live cell's height for the sizing
+    /// host's: the cell's natural height is unchanged, so it would never report the correction.
+    @Test func aVisibleRowKeepsItsLiveHeightAcrossAValueChange() {
+        let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<80))
+        harness.request(.top(id: "row-20", inset: 0))
+        let measured = harness.height(of: "row-22")
+        harness.model.liveOnlyGrowth = ["row-22"]
+        harness.settle(until: { harness.height(of: "row-22") != measured })
+        let live = harness.height(of: "row-22")
+
+        harness.set(rows: TableTestRow.range(0..<80).map { $0.index == 22 ? $0.touched() : $0 })
+
+        #expect(live.map { $0 - (measured ?? 0) } == 50)
+        #expect(harness.height(of: "row-22") == live)
+    }
+
+    /// A value change that does resize a live row reaches the table through the cell's report.
+    @Test func aVisibleRowValueChangeThatResizesItIsAdopted() {
+        let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<80))
+        harness.request(.top(id: "row-20", inset: 0))
+        let before = harness.offset(of: "row-20")
+        let heightBefore = harness.height(of: "row-22")
+
+        harness.set(rows: TableTestRow.range(0..<80).map { $0.index == 22 ? $0.growing(by: 3) : $0 })
+        harness.settle(until: { harness.height(of: "row-22") != heightBefore })
+
+        #expect(harness.height(of: "row-22").map { $0 > (heightBefore ?? 0) } == true)
+        #expect(harness.offset(of: "row-20") == before)
+    }
+
     @Test func cellsReportWhetherTheyAreOnScreen() {
         let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<120))
         harness.request(.bottom)
@@ -132,12 +163,18 @@ struct TableTestRow: Identifiable, Equatable {
     let index: Int
     let lines: Int
     var isChrome = false
+    /// Changes the row's value without changing what it draws.
+    var revision = 0
     var id: String { isChrome ? "loading-older" : "row-\(index)" }
 
     static let loadingOlder = TableTestRow(index: -1, lines: 1, isChrome: true)
 
     func growing(by extraLines: Int) -> TableTestRow {
-        TableTestRow(index: index, lines: lines + extraLines, isChrome: isChrome)
+        TableTestRow(index: index, lines: lines + extraLines, isChrome: isChrome, revision: revision)
+    }
+
+    func touched() -> TableTestRow {
+        TableTestRow(index: index, lines: lines, isChrome: isChrome, revision: revision + 1)
     }
 
     static func range(_ range: Range<Int>) -> [TableTestRow] {
