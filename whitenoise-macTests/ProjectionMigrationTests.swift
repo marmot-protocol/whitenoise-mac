@@ -216,6 +216,65 @@ struct ProjectionMigrationTests {
         #expect(names == [peerNpub: "Mum"])
     }
 
+    /// MarmotKit 0.11.0 blanks `timeline.reactions` in a conversation window and ships reactions
+    /// only in `references.reactions`. Mapping the timeline alone dropped every reaction.
+    @Test func preparedConversationReactionsDriveMessageReactions() {
+        let viewer = AccountItem.samples[0].accountIdHex
+        var snapshot = Self.conversationSnapshot(sequence: 1, title: "Conversation")
+        snapshot.messages = [
+            Self.conversationMessage(
+                timelineMessage(
+                    id: "reacted",
+                    direction: "inbound",
+                    groupIdHex: "group",
+                    sender: "sender",
+                    plaintext: "Ship it",
+                    recordedAt: 1
+                ),
+                reactions: ConversationReactionsFfi(
+                    totalCount: 6,
+                    totalKinds: 2,
+                    items: [
+                        // The viewer reacted but fell outside the bounded reactor preview.
+                        ConversationReactionFfi(
+                            emoji: "👍", count: 5, reactors: ["alice", "bob"], viewerReacted: true),
+                        ConversationReactionFfi(
+                            emoji: "🎉", count: 1, reactors: ["carol"], viewerReacted: false),
+                    ],
+                    omittedKinds: 0
+                )
+            ),
+            Self.conversationMessage(
+                timelineMessage(
+                    id: "quiet",
+                    direction: "inbound",
+                    groupIdHex: "group",
+                    sender: "sender",
+                    plaintext: "No reactions",
+                    recordedAt: 2
+                )
+            ),
+        ]
+        let page = TimelinePageFfi(
+            messages: snapshot.messages.map(\.timeline),
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(
+            from: page,
+            activeAccountIdHex: viewer,
+            preparedReactions: snapshot.preparedReactions(activeAccountIdHex: viewer)
+        )
+
+        #expect(
+            messages.first { $0.id == "reacted" }?.reactions == [
+                MessageReaction(emoji: "👍", count: 5, isOwn: true, senders: [viewer, "alice", "bob"]),
+                MessageReaction(emoji: "🎉", count: 1, isOwn: false, senders: ["carol"]),
+            ])
+        #expect(messages.first { $0.id == "quiet" }?.reactions == [])
+    }
+
     @Test func mediaOutcomesPreserveAcceptedAndRejectedAttachmentOrder() {
         let reference = MediaAttachmentReferenceFfi(
             locators: [],
@@ -1508,7 +1567,13 @@ struct ProjectionMigrationTests {
         _ record: TimelineMessageRecordFfi,
         replyAuthor: String? = nil,
         mentions: [String] = [],
-        replyMentions: [String] = []
+        replyMentions: [String] = [],
+        reactions: ConversationReactionsFfi = ConversationReactionsFfi(
+            totalCount: 0,
+            totalKinds: 0,
+            items: [],
+            omittedKinds: 0
+        )
     ) -> ConversationMessageFfi {
         ConversationMessageFfi(
             timeline: record,
@@ -1521,12 +1586,7 @@ struct ProjectionMigrationTests {
                 replyMentions: replyMentions,
                 replyMentionsTruncated: false,
                 system: nil,
-                reactions: ConversationReactionsFfi(
-                    totalCount: 0,
-                    totalKinds: 0,
-                    items: [],
-                    omittedKinds: 0
-                )
+                reactions: reactions
             )
         )
     }

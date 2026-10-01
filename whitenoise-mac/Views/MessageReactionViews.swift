@@ -107,10 +107,9 @@ private struct MessageReactionChipPill<Label: View>: View {
 /// How a reaction tally is split into the pills a chips row actually draws.
 ///
 /// Pure, so the cap and the count clamp are testable without rendering: the row itself only maps
-/// this onto pills. The tally arrives from the core already grouped by emoji
-/// (`TimelineReactionSummaryFfi.byEmoji`, a `BTreeMap` keyed on the emoji), so this neither groups
-/// nor sorts — it keeps the core's deterministic order so a pill does not move under the pointer
-/// when someone else reacts.
+/// this onto pills. The tally arrives from the core already grouped by emoji (the conversation
+/// window's `references.reactions`), so this neither groups nor sorts — it keeps the core's
+/// deterministic order so a pill does not move under the pointer when someone else reacts.
 nonisolated struct MessageReactionChipRow: Equatable {
     /// Emoji groups drawn as their own pill, in the core's order.
     let visible: [MessageReaction]

@@ -758,17 +758,18 @@ enum GroupDetailsHeaderAvatar {
 
 nonisolated struct MessageReaction: Identifiable, Hashable {
     let emoji: String
+    /// Exact number of distinct reactors, which can exceed `senders.count`: the prepared
+    /// conversation window carries only a bounded reactor preview per emoji.
     let count: Int
     let isOwn: Bool
-    let ownReactionMessageId: String?
-    /// Account-id-hex of everyone who reacted with this emoji, so the reaction viewer can list them.
+    /// Account-id-hex of the reactors the viewer can list. A bounded preview from the conversation
+    /// window, so it is not a complete roster when `count` is larger.
     let senders: [String]
 
-    init(emoji: String, count: Int, isOwn: Bool, ownReactionMessageId: String? = nil, senders: [String] = []) {
+    init(emoji: String, count: Int, isOwn: Bool, senders: [String] = []) {
         self.emoji = emoji
         self.count = count
         self.isOwn = isOwn
-        self.ownReactionMessageId = ownReactionMessageId
         self.senders = senders
     }
 
@@ -778,8 +779,10 @@ nonisolated struct MessageReaction: Identifiable, Hashable {
         count > 1 ? "\(emoji) \(count)" : emoji
     }
 
+    /// Removal goes through `unreactFromMessage`, which needs only the target message, so any
+    /// reaction the viewing account holds is removable.
     var canRemoveOwnReaction: Bool {
-        ownReactionMessageId != nil
+        isOwn
     }
 }
 

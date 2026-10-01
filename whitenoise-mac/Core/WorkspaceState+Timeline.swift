@@ -308,6 +308,7 @@ extension WorkspaceState {
         owner: TimelineWindowOwner?,
         preparedSenderProfiles: [String: ChatPeerProfile]? = nil,
         preparedMentionNames: MarkdownMentionNames? = nil,
+        preparedReactions: [String: [MessageReaction]]? = nil,
         projectedClientTokens: Set<String>? = nil
     ) async {
         guard
@@ -366,7 +367,8 @@ extension WorkspaceState {
                 page: page,
                 activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles,
-                mentionNames: mentionNames
+                mentionNames: mentionNames,
+                preparedReactions: preparedReactions
             )
         }
         guard
@@ -988,23 +990,20 @@ extension WorkspaceState {
 
     func removeReaction(_ reaction: MessageReaction, from message: MessageItem) async {
         guard message.supportsChatActions else { return }
-        guard reaction.canRemoveOwnReaction, let reactionMessageId = reaction.ownReactionMessageId else { return }
-        guard let client, let activeAccount, let activeAccountId, let selectedChat else { return }
-        // Reentrancy guard: the removal deletes the reaction event, so key on its id
-        // (shared namespace with `deleteMessage`) to drop a repeated in-flight removal.
-        let inFlightKey = deleteInFlightKey(
-            accountId: activeAccountId,
-            groupIdHex: selectedChat.id,
-            messageId: reactionMessageId
-        )
-        guard !inFlightDeleteMessageIds.contains(inFlightKey) else { return }
-        inFlightDeleteMessageIds.insert(inFlightKey)
-        defer { inFlightDeleteMessageIds.remove(inFlightKey) }
+        guard reaction.canRemoveOwnReaction else { return }
+        guard let client, let activeAccount, let selectedChat else { return }
+        // Reentrancy guard: MarmotKit's unreact retracts every reaction this account holds on the
+        // target, so one in-flight removal per message covers every emoji on it. The prepared
+        // conversation window carries no reaction event ids to delete individually.
+        let reactionKey = "\(selectedChat.id)\u{1F}\(message.id)\u{1F}unreact"
+        guard !inFlightReactionKeys.contains(reactionKey) else { return }
+        inFlightReactionKeys.insert(reactionKey)
+        defer { inFlightReactionKeys.remove(reactionKey) }
         do {
-            _ = try await client.deleteMessage(
+            _ = try await client.unreactFromMessage(
                 accountRef: activeAccount.accountRef,
                 groupIdHex: selectedChat.id,
-                targetMessageId: reactionMessageId
+                targetMessageId: message.id
             )
         } catch {
             lastError = error.localizedDescription

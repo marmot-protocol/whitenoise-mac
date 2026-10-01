@@ -1027,7 +1027,8 @@ final class WorkspaceState {
         page: TimelinePageFfi,
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile],
-        mentionNames: MarkdownMentionNames
+        mentionNames: MarkdownMentionNames,
+        preparedReactions: [String: [MessageReaction]]? = nil
     ) async -> [MessageItem] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[MessageItem], Never>) in
             FFIExecutor.queue.async {
@@ -1036,7 +1037,8 @@ final class WorkspaceState {
                         from: page,
                         activeAccountIdHex: activeAccountIdHex,
                         senderProfiles: senderProfiles,
-                        mentionNames: mentionNames
+                        mentionNames: mentionNames,
+                        preparedReactions: preparedReactions
                     )
                 )
             }

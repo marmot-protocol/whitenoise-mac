@@ -281,6 +281,8 @@ nonisolated protocol MarmotRuntime: Sendable {
     func retryGroupConvergence(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
         -> SendSummaryFfi
+    func unreactFromMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws
+        -> SendSummaryFfi
     func createPoll(
         accountRef: String,
         groupIdHex: String,
@@ -1287,6 +1289,16 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             groupIdHex: groupIdHex,
             targetMessageId: targetMessageId,
             emoji: emoji
+        )
+    }
+
+    func unreactFromMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws
+        -> SendSummaryFfi
+    {
+        try await marmot.unreactFromMessage(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            targetMessageId: targetMessageId
         )
     }
 

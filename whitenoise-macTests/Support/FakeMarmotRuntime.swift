@@ -243,6 +243,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var forgetsMissingKeyPackagesAfterAttempts: Int?
     private(set) var repliedMessage: SentReply?
     private(set) var reactedMessage: SentReaction?
+    private(set) var unreactedMessage: UnreactedMessage?
     // `castPollVote` is `nonisolated async`, so overlapping votes record from the cooperative pool
     // concurrently; like the upload recorders, poll state lives behind `recordedStateLock`.
     var createdPolls: [CreatedPoll] {
@@ -334,6 +335,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private(set) var replyToMessageCallCount = 0
     var replyToMessageError: Error?
     private(set) var reactToMessageCallCount = 0
+    private(set) var unreactFromMessageCallCount = 0
     private(set) var deleteMessageCallCount = 0
     private(set) var editMessageCallCount = 0
     var uploadMediaCallCount: Int {
@@ -3157,6 +3159,15 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         return SendSummaryFfi(published: 1, messageIds: ["reaction"])
     }
 
+    func unreactFromMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws
+        -> SendSummaryFfi
+    {
+        unreactFromMessageCallCount += 1
+        unreactedMessage = UnreactedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
+        await messageActionGate.passIfArmed()
+        return SendSummaryFfi(published: 1, messageIds: ["unreact"])
+    }
+
     func createPoll(
         accountRef: String,
         groupIdHex: String,
@@ -3592,6 +3603,11 @@ struct SentReaction: Equatable {
     let groupIdHex: String
     let targetMessageId: String
     let emoji: String
+}
+
+struct UnreactedMessage: Equatable {
+    let groupIdHex: String
+    let targetMessageId: String
 }
 
 struct DeletedMessage: Equatable {

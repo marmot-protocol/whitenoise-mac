@@ -1715,7 +1715,6 @@ struct TimelineTests: WorkspaceTestSupport {
                     emoji: "👍",
                     count: 1,
                     isOwn: true,
-                    ownReactionMessageId: "reaction",
                     senders: ["abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"]
                 )
             ])
@@ -9035,7 +9034,7 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func messageActionsRemoveOwnReactionByDeletingReactionEvent() async throws {
+    @Test func messageActionsRemoveOwnReactionByUnreactingTargetMessage() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -9063,8 +9062,7 @@ struct TimelineTests: WorkspaceTestSupport {
         let ownReaction = MessageReaction(
             emoji: "👍",
             count: 1,
-            isOwn: true,
-            ownReactionMessageId: "reaction-event"
+            isOwn: true
         )
         let message = MessageItem(
             id: "parent",
@@ -9079,29 +9077,62 @@ struct TimelineTests: WorkspaceTestSupport {
         await state.removeReaction(ownReaction, from: message)
 
         #expect(
-            runtime.deletedMessage
-                == DeletedMessage(
+            runtime.unreactedMessage
+                == UnreactedMessage(
                     groupIdHex: "direct-group",
-                    targetMessageId: "reaction-event"
+                    targetMessageId: "parent"
                 ))
+        #expect(runtime.unreactFromMessageCallCount == 1)
+        #expect(runtime.deletedMessage == nil)
         #expect(runtime.reactedMessage == nil)
     }
 
-    @Test func reactionRemovalCapabilityFollowsReactionEventId() throws {
-        let ownSummaryWithoutEventId = MessageReaction(
-            emoji: "👍",
-            count: 1,
-            isOwn: true
+    @MainActor
+    @Test func removingSomeoneElsesReactionSendsNothing() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
         )
-        let userReactionWithEventId = MessageReaction(
-            emoji: "👍",
-            count: 1,
-            isOwn: false,
-            ownReactionMessageId: "reaction-event"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let peerReaction = MessageReaction(emoji: "👍", count: 1, isOwn: false)
+        let message = MessageItem(
+            id: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            reactions: [peerReaction]
         )
 
-        #expect(!ownSummaryWithoutEventId.canRemoveOwnReaction)
-        #expect(userReactionWithEventId.canRemoveOwnReaction)
+        await state.bootstrap()
+        await state.removeReaction(peerReaction, from: message)
+
+        #expect(runtime.unreactFromMessageCallCount == 0)
+        #expect(runtime.deletedMessage == nil)
+    }
+
+    @Test func reactionRemovalCapabilityFollowsOwnership() throws {
+        #expect(MessageReaction(emoji: "👍", count: 1, isOwn: true).canRemoveOwnReaction)
+        #expect(!MessageReaction(emoji: "👍", count: 3, isOwn: false).canRemoveOwnReaction)
     }
 
     @MainActor
