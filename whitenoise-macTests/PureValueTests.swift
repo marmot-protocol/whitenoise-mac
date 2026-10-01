@@ -472,6 +472,7 @@ struct PureValueTests {
         text: String,
         acceptResult: Bool,
         sendCalls: @escaping () -> Void = {},
+        commandCalls: @escaping (ComposerMentionCommand) -> Void = { _ in },
         acceptCalls: @escaping () -> Void
     ) -> (ComposerMessageTextViewRepresentable.Coordinator, NSTextView) {
         var measuredHeight: CGFloat = 20
@@ -484,7 +485,8 @@ struct PureValueTests {
             mentionContextScope: WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "chat"),
             onPasteMedia: { _ in },
             onSend: sendCalls,
-            onMentionAccept: {
+            onMentionCommand: { command in
+                commandCalls(command)
                 acceptCalls()
                 return acceptResult
             }
@@ -504,6 +506,33 @@ struct PureValueTests {
 
         #expect(handled)
         #expect(accepts == 1)
+    }
+
+    @MainActor
+    @Test func arrowsMoveTheMentionHighlightOnlyWhileAnAtQueryIsOpen() {
+        var commands: [ComposerMentionCommand] = []
+        let (coordinator, textView) = tabTestCoordinator(
+            text: "hi @Al", acceptResult: true, commandCalls: { commands.append($0) }, acceptCalls: {}
+        )
+
+        #expect(coordinator.textView(textView, doCommandBy: #selector(NSResponder.moveDown(_:))))
+        #expect(coordinator.textView(textView, doCommandBy: #selector(NSResponder.moveUp(_:))))
+        #expect(commands == [.moveDown, .moveUp])
+
+        // Without an "@query" the arrows move the caret as usual.
+        let (plain, plainView) = tabTestCoordinator(
+            text: "hello", acceptResult: true, commandCalls: { commands.append($0) }, acceptCalls: {}
+        )
+        #expect(!plain.textView(plainView, doCommandBy: #selector(NSResponder.moveDown(_:))))
+        #expect(commands == [.moveDown, .moveUp])
+    }
+
+    @Test func mentionHighlightStopsAtEitherEndOfThePicker() {
+        #expect(ComposerMentionCommand.moveDown.movingHighlight(0, among: 3) == 1)
+        #expect(ComposerMentionCommand.moveDown.movingHighlight(2, among: 3) == 2)
+        #expect(ComposerMentionCommand.moveUp.movingHighlight(2, among: 3) == 1)
+        #expect(ComposerMentionCommand.moveUp.movingHighlight(0, among: 3) == 0)
+        #expect(ComposerMentionCommand.accept.movingHighlight(1, among: 3) == 1)
     }
 
     @MainActor
@@ -4095,23 +4124,21 @@ struct PureValueTests {
         #expect(links(in: mention).map(\.absoluteString) == ["nostr:\(npub)"])
         #expect(underlineStyles(in: mention) == [nil])
 
-        // A mention is bold, in `MentionTextPalette.foreground`, and carries no background chip.
-        // Asserted against the palette rather than "it differs from the body" so a mention that
-        // quietly stopped being marked at all fails here.
+        // A mention is bold, carries no background chip, and no color of its own: it draws in the
+        // bubble's content color through the tint, as on iOS.
         #expect(mention.runs.allSatisfy { $0.backgroundColor == nil })
         #expect(
             mention.runs.first?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
-        #expect(mention.runs.first?.foregroundColor == MentionTextPalette.foreground)
+        #expect(mention.runs.first?.foregroundColor == nil)
 
         // An `nprofile` is TLV-encoded rather than a bare key, so it identifies no one this side
-        // of a lookup — which no longer matters, because the color marks a tag rather than the
-        // person tagged. It takes the same blue as any other mention.
+        // of a lookup; it is styled exactly like any other mention.
         let nprofile = "nprofile1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
         let nprofileMention = MarkdownDisplayInlineBuilder.attributedString(
             from: [.nostrMention(entity: MarkdownNostrEntityFfi(hrp: .nprofile, bech32: nprofile))],
             remainingDepth: 32
         )
-        #expect(nprofileMention.runs.first?.foregroundColor == MentionTextPalette.foreground)
+        #expect(nprofileMention.runs.first?.foregroundColor == nil)
         #expect(
             nprofileMention.runs.first?.inlinePresentationIntent?.contains(.stronglyEmphasized)
                 == true)
@@ -4124,6 +4151,8 @@ struct PureValueTests {
         #expect(links(in: noteReference).map(\.absoluteString) == ["nostr:\(note)"])
         #expect(noteReference.runs.allSatisfy { $0.backgroundColor == nil })
         #expect(underlineStyles(in: noteReference) == [.single])
+        // A link, unlike a mention, keeps the app's blue whichever bubble it lands in.
+        #expect(noteReference.runs.first?.foregroundColor == WNColor.intentionInfoContent)
 
         let mentionInsideLink = MarkdownDisplayInlineBuilder.attributedString(
             from: [

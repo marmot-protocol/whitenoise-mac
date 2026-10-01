@@ -562,11 +562,9 @@ struct MessageBubble: View {
                 )
                 .wnFont(.medium16)
                 .foregroundStyle(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
-                // Links take `intentionInfoContent` — the palette's one blue outside the accent
-                // sets, and the same token the other clients use for a link inside a bubble. Its
-                // `600`/`500` step clears both bubble fills, so it needs no per-direction variant.
-                // Mentions carry the mentioned person's accent and override this per run.
-                .tint(WNColor.intentionInfoContent)
+                // A mention is a link run without a color, so the tint is what it draws in: the
+                // bubble's own content, as on iOS. Real links color themselves blue per run.
+                .tint(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
                 .multilineTextAlignment(.leading)
             }
 

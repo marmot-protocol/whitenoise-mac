@@ -515,7 +515,7 @@ struct TimelineTests: WorkspaceTestSupport {
 
         for isOutgoing in [true, false] {
             let run = mentionRun(isOutgoing: isOutgoing)
-            #expect(run?.foregroundColor == MentionTextPalette.foreground)
+            #expect(run?.foregroundColor == nil)
             #expect(run?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
             // No background chip in either direction; the chip is what used to have to know the
             // fill, and reintroducing one is the regression this guards.
@@ -4891,12 +4891,12 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(state.messageTimelineStores["group"]?.displayItemsBuildCount == buildsBefore + 1)
 
         // The mention keeps everything the projection gave it besides the label: it is still a
-        // tappable `nostr:` reference to the same person, still emphasized, still colored.
+        // tappable `nostr:` reference to the same person, still emphasized, still uncolored.
         let relabeled = try #require((state.messagesByChat["group"] ?? []).first?.contentMarkdown?.inlineParagraph)
         let mentionRun = relabeled.runs.first { $0.link != nil }
         #expect(mentionRun?.link == MarkdownLinkPolicy.nostrURL(for: "npub1alyce"))
         #expect(mentionRun?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
-        #expect(mentionRun?.foregroundColor == MentionTextPalette.foreground)
+        #expect(mentionRun?.foregroundColor == nil)
 
         // Renaming somebody this conversation neither mentions nor lists must not touch a row.
         let buildsAfterRename = state.messageTimelineStores["group"]?.displayItemsBuildCount ?? 0

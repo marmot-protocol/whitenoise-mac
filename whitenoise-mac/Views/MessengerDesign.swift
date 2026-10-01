@@ -290,43 +290,6 @@ nonisolated enum AttachmentRowPalette {
     }
 }
 
-/// How an `@mention` is set off from the text around it: **bold, in the app's one blue**, with no
-/// background chip and no decoration.
-///
-/// The color is `intentionInfoContent`, the same `blue600`/`blue500` pair a link and a search-hit
-/// highlight take, so every run of text in the app that points somewhere carries one signal. It
-/// replaced the mentioned person's own accent — the `500` step of their avatar ramp — which drew a
-/// tag in amber or orange often enough to read as a warning rather than as a name.
-///
-/// One color for every mention also settles the case a per-person accent could not: an `nprofile`
-/// is TLV-encoded rather than a bare key, so no accent could be derived from it and such a mention
-/// used to stay uncolored. Blue identifies a tag, not a person, so it applies to those too.
-///
-/// The token is dynamic rather than one pinned step because both bubble fills cross over with the
-/// appearance, and the pair happens to fall on the right side of each: in Aqua, `blue600` clears
-/// both the near-black sent bubble (3.83) and the light received one (4.74); in Dark Aqua,
-/// `blue500` clears the white sent bubble (3.68) and the dark received one (4.11). A single pinned
-/// step cannot beat that floor — `blue500` everywhere drops to 3.37 on the light received bubble,
-/// `blue600` everywhere to 2.93 on the dark one.
-///
-/// A deliberate divergence from the other clients, which still draw a mention in the mentioned
-/// person's `contentSecondary`. Blue is now the app's only non-neutral signal, and it is confined
-/// to text — links, mentions, search hits. The badges that used to share it (the unread count, the
-/// mention pill, the pending invite) are `fillPrimary` like the prototype's.
-///
-/// `nonisolated` because a message's attributed string is built off-main while mapping a timeline
-/// window (whitenoise-mac#285), so this must be reachable from outside the main actor.
-nonisolated enum MentionTextPalette {
-    /// The color of a rendered mention, whatever it references and whichever bubble it lands in.
-    static let foreground = WNColor.intentionInfoContent
-
-    /// AppKit twin, for the composer's `NSTextView` draft tokens. Reads the dynamic `NSColor`
-    /// rather than converting the SwiftUI one back: `NSColor(someColor)` can bake in whichever
-    /// appearance was current when it ran, which would freeze a draft token's color at the
-    /// appearance the composer first drew under.
-    static let nsForeground = WNNSColor.intentionInfoContent
-}
-
 enum MessagesLayout {
     static let accountRailWidth: CGFloat = 80
     static let accountRailControlSize: CGFloat = 44
