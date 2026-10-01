@@ -590,6 +590,12 @@ where Row.ID == String {
     func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
         guard let cell = rowView.view(atColumn: 0) as? TranscriptHostingCell, let id = cell.rowId else { return }
         liveCellIds.insert(id)
+        // The table can add a row view after the last viewport report (it tiles during layout,
+        // after the bounds change that reported), so the cell learns its visibility here too.
+        if let clip = scrollView?.contentView {
+            let isVisible = NSLocationInRange(row, tableView.rows(in: clip.bounds))
+            if cell.visibility.isVisible != isVisible { cell.visibility.isVisible = isVisible }
+        }
     }
 
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {

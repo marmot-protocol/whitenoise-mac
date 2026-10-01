@@ -437,11 +437,17 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
     private var updates: [ConversationWindowSnapshotFfi]
     private let updateDelayNanoseconds: UInt64
     private(set) var cancelled = false
-    /// Window commands in call order (`anchor:<id>`, `page:older`, `page:newer`), so a test can
-    /// assert that a visible anchor was reported before a page.
+    /// Window commands in call order (`anchor:<id>`, `page:older`, `page:newer`, `latest`), so a
+    /// test can assert that a visible anchor was reported before a page.
     private(set) var commands: [String] = []
     /// Fails this many `page` calls with `ConversationWindowStale` before answering.
     var stalePagesRemaining = 0
+    /// Fails this many `returnToLatest` calls with `ConversationWindowStale` before answering.
+    var staleReturnsRemaining = 0
+    /// What `returnToLatest` answers with, and makes current; the current snapshot when nil.
+    var latestSnapshot: ConversationWindowSnapshotFfi?
+    /// Runs before a stale `page` reply is thrown, for a command racing that page.
+    var beforeStalePage: (@MainActor () async -> Void)?
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         current = nil
@@ -498,6 +504,7 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
         commands.append(direction == .newer ? "page:newer" : "page:older")
         if stalePagesRemaining > 0 {
             stalePagesRemaining -= 1
+            if let beforeStalePage { await beforeStalePage() }
             throw MarmotKitError.ConversationWindowStale
         }
         guard let current else { throw FakeMarmotRuntimeError.unused }
@@ -508,6 +515,12 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
         revision: ConversationWindowRevisionFfi,
         timeoutMs: UInt32
     ) async throws -> ConversationWindowSnapshotFfi {
+        commands.append("latest")
+        if staleReturnsRemaining > 0 {
+            staleReturnsRemaining -= 1
+            throw MarmotKitError.ConversationWindowStale
+        }
+        if let latestSnapshot { current = latestSnapshot }
         guard let current else { throw FakeMarmotRuntimeError.unused }
         return current
     }

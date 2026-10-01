@@ -960,8 +960,11 @@ private struct ConversationView: View {
         return request.id
     }
 
+    /// Re-attaches any window that does not follow the tail, not only one with newer history: an
+    /// unread open can hold the newest row yet stop taking arrivals, so a GIF or poll sent from
+    /// it (which inserts no pending row) would otherwise land below the old foot.
     private func jumpToNewest() async {
-        if workspace.selectedTimelinePaging.hasMoreAfter {
+        if !model.isFollowingTail {
             await model.returnToLatest()
         }
         guard workspace.selectedChat?.id == chat.id else { return }
@@ -1017,17 +1020,19 @@ private struct ConversationView: View {
     private func viewportChanged(_ viewport: TranscriptViewport) {
         isPinnedToBottom = viewport.isAtBottom
         let ids = Set(viewport.visibleRowIds)
-        model.setVisibleIds(targets: ids, messages: ids.filter(workspace.selectedTimelineContainsMessage))
+        model.setVisibleMessageIds(ids.filter(workspace.selectedTimelineContainsMessage))
         guard hasLanded else { return }
-        readingPositionChanged()
-        handleFoot()
+        // A foot that re-attaches the window must not also start an older page in the same turn:
+        // both would quote one revision, and the loser's retry could page the re-attached tail.
+        let returnsToLatest = handleFoot()
+        readingPositionChanged(pages: !returnsToLatest)
     }
 
     /// The reader's position counts from here: page toward the edge they are near and mark what
     /// they have reached.
-    private func readingPositionChanged() {
+    private func readingPositionChanged(pages: Bool = true) {
         updateReadableMessages()
-        requestPageIfNeeded()
+        if pages { requestPageIfNeeded() }
         if !isActivelyScrolling { markVisibleMessagesRead() }
     }
 
@@ -1075,20 +1080,23 @@ private struct ConversationView: View {
     }
 
     /// At the foot of the window: load the next page, or re-attach a retained window to the tail
-    /// (`timelineFootAction`).
-    private func handleFoot() {
-        guard hasLanded, !model.isPaging else { return }
+    /// (`timelineFootAction`). Returns whether it re-attached.
+    @discardableResult
+    private func handleFoot() -> Bool {
+        guard hasLanded, !model.isPaging else { return false }
         switch timelineFootAction(
             isAtBottom: isPinnedToBottom,
             hasMoreAfter: workspace.selectedTimelinePaging.hasMoreAfter,
             isFollowingTail: model.isFollowingTail
         ) {
         case .none:
-            return
+            return false
         case .loadNewer:
             requestPageIfNeeded()
+            return false
         case .returnToLatest:
             Task { await model.returnToLatest() }
+            return true
         }
     }
 

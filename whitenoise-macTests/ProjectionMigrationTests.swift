@@ -1057,6 +1057,63 @@ struct ProjectionMigrationTests {
         model.stop()
     }
 
+    /// A return to the latest that loses a race with a background replacement is retried once,
+    /// as a page is; otherwise the window stays detached and later arrivals never show.
+    @Test func returnToLatestRetriesOnceAfterAStaleReply() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 2,
+            firstUnreadMessageIdHex: "first-unread"
+        )
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+        window.staleReturnsRemaining = 1
+        window.latestSnapshot = Self.conversationSnapshot(sequence: 2, title: "Group", anchorKind: .latest)
+
+        await model.returnToLatest()
+
+        #expect(window.commands == ["latest", "latest"])
+        #expect(model.isFollowingTail)
+        #expect(model.error == nil)
+        #expect(!model.isPaging)
+        model.stop()
+    }
+
+    /// A page whose revision went stale because the reader returned to the latest meanwhile must
+    /// not retry: paging the re-attached window would detach it from the tail again.
+    @Test func aStalePageDoesNotRetryOverAReturnToLatest() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 2,
+            firstUnreadMessageIdHex: "first-unread",
+            hasMoreAfter: true
+        )
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+        window.latestSnapshot = Self.conversationSnapshot(sequence: 2, title: "Group", anchorKind: .latest)
+        window.stalePagesRemaining = 1
+        window.beforeStalePage = { await model.returnToLatest() }
+
+        await model.page(.newer)
+
+        #expect(window.commands == ["page:newer", "latest"])
+        #expect(model.isFollowingTail)
+        #expect(model.error == nil)
+        model.stop()
+    }
+
     /// An unread open retains its anchor; only a latest-anchored window follows the tail.
     @Test func onlyALatestAnchoredWindowFollowsTheTail() async {
         let runtime = FakeMarmotRuntime(accounts: [])
