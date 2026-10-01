@@ -671,6 +671,7 @@ extension WorkspaceState {
                 ? current.isDirect
                 : enrichedItem.isDirect,
             hasAuthoritativeConversationKind: current.hasAuthoritativeConversationKind,
+            isAuthoritativeGroup: current.isAuthoritativeGroup,
             muted: current.muted,
             mutedUntilMs: current.mutedUntilMs,
             leaveRequestPending: current.leaveRequestPending,

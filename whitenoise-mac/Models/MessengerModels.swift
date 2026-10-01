@@ -168,6 +168,11 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     private(set) var isBlockedDirectPeer: Bool
     /// True when MDK supplied `.direct`/`.group`; false permits legacy roster enrichment.
     let hasAuthoritativeConversationKind: Bool
+    /// MarmotKit's own `.group` classification: the chat has a name or a member count other than
+    /// two. Only then does MarmotKit count membership and admin changes as unread activity. Not
+    /// `!isDirect`, which also treats a chat with a remembered peer as direct after MarmotKit has
+    /// already reclassified it (an unnamed chat the other person left).
+    let isAuthoritativeGroup: Bool
     let muted: Bool
     /// Absolute Unix epoch milliseconds for a finite mute; nil means indefinite while muted.
     let mutedUntilMs: Int64?
@@ -373,6 +378,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         isDirect: Bool = false,
         isBlockedDirectPeer: Bool = false,
         hasAuthoritativeConversationKind: Bool = false,
+        isAuthoritativeGroup: Bool = false,
         muted: Bool = false,
         mutedUntilMs: Int64? = nil,
         leaveRequestPending: Bool = false,
@@ -401,6 +407,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.isDirect = isDirect
         self.isBlockedDirectPeer = isBlockedDirectPeer
         self.hasAuthoritativeConversationKind = hasAuthoritativeConversationKind
+        self.isAuthoritativeGroup = isAuthoritativeGroup
         self.muted = muted
         self.mutedUntilMs = mutedUntilMs
         self.leaveRequestPending = leaveRequestPending
@@ -2466,6 +2473,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let presentation: MessagePresentation
     /// MDK's tally for a `.poll` row; nil for every other presentation and for a malformed poll.
     let poll: MessagePoll?
+    /// The kind-1210 `system_type` (`member_added`, `admin_removed`, …); nil for every other kind.
+    let groupSystemType: String?
     let timeLabel: String
     let statusLabel: String?
     let metadataLabel: String
@@ -2483,6 +2492,28 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     /// Whether the bubble should render the parsed Markdown AST instead of plain text.
     var rendersMarkdown: Bool { contentMarkdown != nil }
+
+    /// Group-system changes MarmotKit promotes to chat activity. Mirrors MDK's
+    /// `CHAT_LIST_GROUP_ACTIVITY_TYPES`; other system rows (renames, timer changes) are not.
+    nonisolated static let readActivityGroupSystemTypes: Set<String> = [
+        "member_added", "member_removed", "member_left", "admin_added", "admin_removed",
+    ]
+
+    /// Whether MarmotKit counts this row toward a chat's unread state, and so accepts it as a
+    /// read-marker target. Chat messages and polls always count; membership and admin changes
+    /// count only in a chat MarmotKit classifies as a group (`ChatItem.isAuthoritativeGroup`). A
+    /// read marker parked on the newest chat message leaves any member change after it unread,
+    /// which is why the marker must consider these rows too.
+    nonisolated func countsAsReadActivity(inAuthoritativeGroup isAuthoritativeGroup: Bool) -> Bool {
+        switch presentation {
+        case .chat, .poll:
+            return true
+        case .groupSystem:
+            return isAuthoritativeGroup && groupSystemType.map(Self.readActivityGroupSystemTypes.contains) == true
+        case .agentStreamStart, .agentActivity, .agentOperation, .unsupported:
+            return false
+        }
+    }
     nonisolated func applyingSenderNickname(_ nickname: String?) -> MessageItem? {
         let published = publishedSenderName ?? senderName
         var copy = self
@@ -2643,7 +2674,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         replyContext: MessageReplyContext? = nil,
         mediaAttachments: [MessageMediaAttachment] = [],
         presentation: MessagePresentation = .chat,
-        poll: MessagePoll? = nil
+        poll: MessagePoll? = nil,
+        groupSystemType: String? = nil
     ) {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         let partitionedAttachments = Self.partitionMediaAttachments(mediaAttachments)
@@ -2707,6 +2739,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.hasBubbleContent = replyContext != nil || !trimmedBody.isEmpty
         self.presentation = presentation
         self.poll = presentation == .poll ? poll : nil
+        self.groupSystemType = groupSystemType
         let timeLabel = DisplayText.messageTimestamp(for: sentAt)
         self.timeLabel = timeLabel
         let statusLabel: String?
@@ -3052,6 +3085,7 @@ extension MessageItem {
             && lhs.mediaAttachments == rhs.mediaAttachments
             && lhs.presentation == rhs.presentation
             && lhs.poll == rhs.poll
+            && lhs.groupSystemType == rhs.groupSystemType
             && lhs.timeLabel == rhs.timeLabel
             && lhs.statusLabel == rhs.statusLabel
             && lhs.metadataLabel == rhs.metadataLabel

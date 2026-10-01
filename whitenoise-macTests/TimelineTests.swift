@@ -2571,6 +2571,118 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.markedReadMessageIds.isEmpty)
     }
 
+    /// MarmotKit counts membership changes as unread activity. A marker parked on the newest chat
+    /// message left a group whose latest rows were member changes unread no matter how often it
+    /// was opened; the marker must land on the newest row MarmotKit counts, and skip rows it
+    /// does not (a rename is not activity, so marking it would not advance the marker at all).
+    @MainActor
+    @Test func readMarkerAdvancesPastTrailingMembershipChanges() async throws {
+        let (state, runtime, account) = try await Self.loadedGroupForReadMarking()
+        let alice = "alice1234567890alice1234567890alice1234567890alice1234567890"
+
+        await state.applyTimelineWindow(
+            TimelinePageFfi(
+                messages: Self.chatThenMembershipThenRename(sender: alice),
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            ),
+            groupIdHex: "group",
+            account: account,
+            client: runtime,
+            owner: nil
+        )
+
+        #expect(runtime.markedReadMessageIds.last == "member-added")
+    }
+
+    /// Mirrors MarmotKit's activity rule: chat and polls always, membership and admin changes only
+    /// in a chat MarmotKit classifies as a group, nothing else.
+    @Test func readActivityMatchesMarmotKitUnreadRows() {
+        func row(_ presentation: MessagePresentation, systemType: String? = nil) -> MessageItem {
+            MessageItem(
+                id: "row",
+                senderName: "Alice",
+                body: "",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false,
+                presentation: presentation,
+                groupSystemType: systemType
+            )
+        }
+
+        #expect(row(.chat).countsAsReadActivity(inAuthoritativeGroup: false))
+        #expect(row(.poll).countsAsReadActivity(inAuthoritativeGroup: false))
+        #expect(row(.groupSystem, systemType: "member_left").countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(row(.groupSystem, systemType: "admin_removed").countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(!row(.groupSystem, systemType: "member_added").countsAsReadActivity(inAuthoritativeGroup: false))
+        #expect(!row(.groupSystem, systemType: "group_renamed").countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(!row(.groupSystem).countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(!row(.agentActivity).countsAsReadActivity(inAuthoritativeGroup: true))
+    }
+
+    @MainActor
+    private static func loadedGroupForReadMarking() async throws -> (WorkspaceState, FakeMarmotRuntime, AccountItem) {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "chat",
+                    groupIdHex: "group",
+                    sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    plaintext: "Welcome",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "group")
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "group")
+        return (state, runtime, try #require(state.activeAccount))
+    }
+
+    private static func chatThenMembershipThenRename(sender: String) -> [TimelineMessageRecordFfi] {
+        [
+            timelineMessage(
+                id: "chat",
+                groupIdHex: "group",
+                sender: sender,
+                plaintext: "Welcome",
+                recordedAt: 1_700_000_000
+            ),
+            timelineMessage(
+                id: "member-added",
+                groupIdHex: "group",
+                sender: sender,
+                plaintext: "",
+                kind: 1210,
+                recordedAt: 1_700_000_001,
+                groupSystem: groupSystemEvent(systemType: "member_added", text: "Member added")
+            ),
+            timelineMessage(
+                id: "renamed",
+                groupIdHex: "group",
+                sender: sender,
+                plaintext: "",
+                kind: 1210,
+                recordedAt: 1_700_000_002,
+                groupSystem: groupSystemEvent(systemType: "group_renamed", text: "Group renamed")
+            ),
+        ]
+    }
+
     @MainActor
     @Test func regainingFocusFlushesDeferredReadMarking() async throws {
         let account = AccountSummaryFfi(

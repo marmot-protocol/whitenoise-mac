@@ -226,6 +226,7 @@ extension ChatItem {
             unreadMentionCount: Int(clamping: row.unreadMentionCount),
             isDirect: isDirect,
             hasAuthoritativeConversationKind: row.conversationKind != .unknown,
+            isAuthoritativeGroup: row.conversationKind == .group,
             muted: row.muted,
             mutedUntilMs: row.mutedUntilMs,
             leaveRequestPending: row.leaveRequestPending,
@@ -582,7 +583,10 @@ nonisolated extension MessageItem {
             replyContext: presentation.isChatBubble ? replyContext : nil,
             mediaAttachments: presentation.isChatBubble ? mediaAttachments : [],
             presentation: presentation,
-            poll: poll
+            poll: poll,
+            groupSystemType: presentation == .groupSystem
+                ? record.groupSystem?.systemType ?? MessageItem.tagValue("system", in: record.tags)
+                : nil
         )
     }
 

@@ -82,6 +82,7 @@ nonisolated enum ChatListOrdering {
             unreadMentionCount: chat.unreadMentionCount,
             isDirect: chat.hasAuthoritativeConversationKind ? chat.isDirect : current.isDirect,
             hasAuthoritativeConversationKind: chat.hasAuthoritativeConversationKind,
+            isAuthoritativeGroup: chat.isAuthoritativeGroup,
             muted: chat.muted,
             mutedUntilMs: chat.mutedUntilMs,
             leaveRequestPending: chat.leaveRequestPending,
