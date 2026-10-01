@@ -17,6 +17,45 @@ nonisolated struct TranscriptScrollRequest: Equatable {
     let target: TranscriptScrollTarget
 }
 
+/// Whether a transcript cell is on screen. A cell's `NSHostingView` sits in an AppKit scroll view,
+/// so SwiftUI's `onScrollVisibilityChange` never fires inside it; the table reports each cell's
+/// visibility through this object instead. Read through `onTranscriptVisibilityChange`.
+@MainActor
+@Observable
+final class TranscriptCellVisibility {
+    var isVisible = false
+}
+
+extension EnvironmentValues {
+    /// The hosting table cell's visibility, when the view is inside one.
+    @Entry var transcriptCellVisibility: TranscriptCellVisibility? = nil
+}
+
+/// `onScrollVisibilityChange` for views that may be hosted in a transcript table cell: inside a
+/// cell it follows the table's report of that cell, elsewhere SwiftUI's scroll visibility. The
+/// table's off-screen sizing host has neither, so measuring a row never starts its downloads.
+struct TranscriptVisibilityChangeModifier: ViewModifier {
+    @Environment(\.transcriptCellVisibility) private var cellVisibility
+    let threshold: Double
+    let action: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        if let cellVisibility {
+            content.onChange(of: cellVisibility.isVisible, initial: true) { _, isVisible in
+                action(isVisible)
+            }
+        } else {
+            content.onScrollVisibilityChange(threshold: threshold, action)
+        }
+    }
+}
+
+extension View {
+    func onTranscriptVisibilityChange(threshold: Double = 0.01, _ action: @escaping (Bool) -> Void) -> some View {
+        modifier(TranscriptVisibilityChangeModifier(threshold: threshold, action: action))
+    }
+}
+
 /// What the transcript reports after it scrolls or its rows change: the rows on screen, in order,
 /// and whether the viewport reaches the foot of the content.
 nonisolated struct TranscriptViewport: Equatable {
@@ -53,6 +92,10 @@ where Row.ID == String {
     let onViewportChanged: (TranscriptViewport) -> Void
     let onLiveScrollChanged: (Bool) -> Void
     let onScrollRequestApplied: (UUID) -> Void
+    /// Whether a row may anchor the reader's position. Chrome that does not travel with the
+    /// messages (loading indicators, the foot) must not: an older page lands below a loading row,
+    /// so holding that row still would move every message under it.
+    var anchorsPosition: (Row) -> Bool = { _ in true }
     @ViewBuilder let cell: (Row) -> Cell
 
     func makeCoordinator() -> TranscriptTableCoordinator<Row, Cell> {
@@ -123,6 +166,7 @@ final class TranscriptNSTableView: NSTableView {
 /// A reusable cell hosting one SwiftUI row.
 final class TranscriptHostingCell: NSTableCellView {
     let host = NSHostingView(rootView: AnyView(EmptyView()))
+    let visibility = TranscriptCellVisibility()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -305,9 +349,54 @@ where Row.ID == String {
         return rowView
     }
 
+    /// Hosts the row in a reused cell. The content takes the row's identity, so a cell recycled for
+    /// another message starts fresh (its `@State`, `onAppear`/`onDisappear`) rather than carrying
+    /// the previous message's. It is laid out at its natural height and reports that height:
+    /// anything that resizes a row from inside, such as a GIF adopting its decoded aspect ratio,
+    /// reaches the height cache that way, since the row's value does not change.
     private func configure(_ cell: TranscriptHostingCell, row: Row) {
         guard let configuration else { return }
-        cell.host.rootView = AnyView(configuration.cell(row))
+        let id = row.id
+        cell.host.rootView = AnyView(
+            configuration.cell(row)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { [weak self] height in
+                    self?.cellReported(height: height, for: id)
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+                .id(id)
+                .environment(\.transcriptCellVisibility, cell.visibility)
+        )
+    }
+
+    /// A visible cell's natural height differs from the cached one: adopt it and re-height the
+    /// row on the next turn, under the same anchor or foot pin as any other change.
+    private func cellReported(height: CGFloat, for id: String) {
+        let height = max(1, ceil(height))
+        guard let cached = heights[id], abs(cached.height - height) > 0.5, cached.width == columnWidth else { return }
+        heights[id] = CachedHeight(row: cached.row, width: cached.width, height: height)
+        // Next run-loop turn: outside the geometry callback that reported it, so the table does not
+        // re-tile in the middle of SwiftUI's update.
+        // Deliberately not `DispatchQueue.main.async`: a run-loop block also runs inside a nested
+        // run loop, which a main-queue block does not while another main-queue job is running.
+        RunLoop.main.perform { [weak self] in
+            MainActor.assumeIsolated { self?.reheightRow(id: id) }
+        }
+    }
+
+    private func reheightRow(id: String) {
+        guard let tableView, let index = rows.firstIndex(where: { $0.id == id }) else { return }
+        let pinnedToBottom = isAtBottom && followsBottom
+        let anchor = pinnedToBottom ? nil : currentAnchor()
+        tableView.noteHeightOfRows(withIndexesChanged: IndexSet([Self.fillerRow, index + 1]))
+        tableView.layoutSubtreeIfNeeded()
+        if pinnedToBottom {
+            scrollToBottom()
+        } else if let anchor {
+            restore(anchor)
+        }
     }
 
     // MARK: Heights
@@ -333,7 +422,7 @@ where Row.ID == String {
     private func measure(_ row: Row, width: CGFloat) -> CGFloat {
         guard let configuration, width > 0 else { return 1 }
         // Fixing the content's width makes `fittingSize` report its height at that width.
-        sizingHost.rootView = AnyView(configuration.cell(row).frame(width: width))
+        sizingHost.rootView = AnyView(configuration.cell(row).frame(width: width).id(row.id))
         return max(1, ceil(sizingHost.fittingSize.height))
     }
 
@@ -380,13 +469,17 @@ where Row.ID == String {
         let visible = scrollView.contentView.bounds
         let range = tableView.rows(in: visible)
         guard range.length > 0 else { return nil }
+        let anchorsPosition = configuration?.anchorsPosition ?? { _ in true }
+        var fallback: Anchor?
         for tableRow in range.location..<(range.location + range.length) where tableRow != Self.fillerRow {
             let rect = tableView.rect(ofRow: tableRow)
-            if rect.maxY > visible.minY {
-                return Anchor(id: rows[tableRow - 1].id, offset: rect.minY - visible.minY)
-            }
+            guard rect.maxY > visible.minY, tableRow - 1 < rows.count else { continue }
+            let row = rows[tableRow - 1]
+            let anchor = Anchor(id: row.id, offset: rect.minY - visible.minY)
+            if anchorsPosition(row) { return anchor }
+            if fallback == nil { fallback = anchor }
         }
-        return nil
+        return fallback
     }
 
     private func restore(_ anchor: Anchor) {
@@ -434,6 +527,7 @@ where Row.ID == String {
             }
         }
         isAtBottom = tableView.bounds.height - visible.maxY <= 2
+        updateCellVisibility(visibleRange: range)
         let viewport = TranscriptViewport(visibleRowIds: ids, isAtBottom: isAtBottom)
         guard viewport != lastViewport else { return }
         lastViewport = viewport
@@ -452,6 +546,21 @@ where Row.ID == String {
 
     func tableViewColumnDidResize(_ notification: Notification) {
         containerResized()
+    }
+
+    /// Marks each hosted cell visible or not, writing only on change so a cell's media views are
+    /// told once when it enters or leaves the viewport.
+    private func updateCellVisibility(visibleRange: NSRange) {
+        tableView?.enumerateAvailableRowViews { rowView, tableRow in
+            guard let cell = rowView.view(atColumn: 0) as? TranscriptHostingCell else { return }
+            let isVisible = NSLocationInRange(tableRow, visibleRange)
+            if cell.visibility.isVisible != isVisible { cell.visibility.isVisible = isVisible }
+        }
+    }
+
+    func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
+        guard let cell = rowView.view(atColumn: 0) as? TranscriptHostingCell, cell.visibility.isVisible else { return }
+        cell.visibility.isVisible = false
     }
 }
 

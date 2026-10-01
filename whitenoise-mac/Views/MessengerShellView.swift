@@ -284,6 +284,15 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
     case pending(PendingOutgoingMessageRow)
     case footer
 
+    /// Loading indicators and the foot do not travel with the messages, so they never anchor the
+    /// reader's position (`TranscriptTableView.anchorsPosition`).
+    var anchorsPosition: Bool {
+        switch self {
+        case .message, .pending: true
+        case .loadingOlder, .loadingNewer, .footer: false
+        }
+    }
+
     var id: String {
         switch self {
         case .loadingOlder: "transcript-loading-older"
@@ -516,6 +525,7 @@ private struct ConversationView: View {
                                 if !isScrolling { markVisibleMessagesRead() }
                             },
                             onScrollRequestApplied: scrollRequestApplied,
+                            anchorsPosition: \.anchorsPosition,
                             cell: { row in
                                 TranscriptRowCell(
                                     row: row,

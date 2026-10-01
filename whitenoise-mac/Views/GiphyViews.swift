@@ -164,7 +164,7 @@ struct RemoteGiphyMediaView: View {
                 .lineLimit(1)
                 .frame(width: Self.width, alignment: .leading)
         }
-        .onScrollVisibilityChange(threshold: 0.01) { visible in
+        .onTranscriptVisibilityChange(threshold: 0.01) { visible in
             isVisible = visible
             if !visible, case .playing = state { state = .idle }
         }

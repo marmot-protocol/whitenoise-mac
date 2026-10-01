@@ -62,6 +62,48 @@ struct TranscriptTableViewTests {
         #expect(harness.offset(of: "row-20") == before)
     }
 
+    /// An older page lands below the loading row at the top. Holding that row still would move
+    /// every message under it by a page; the reader's message must stay put instead.
+    @Test func anOlderPageBelowTheLoadingRowLeavesTheReadersMessageInPlace() {
+        let harness = TranscriptTableHarness(rows: [.loadingOlder] + TableTestRow.range(100..<160))
+        harness.request(.top(id: "loading-older", inset: 0))
+        let before = harness.offset(of: "row-101")
+
+        harness.set(rows: [.loadingOlder] + TableTestRow.range(50..<160))
+
+        #expect(before != nil)
+        #expect(harness.offset(of: "row-101") == before)
+    }
+
+    /// A row resized from inside (a GIF adopting its decoded aspect ratio) changes no row value, so
+    /// the cell's own reported height must reach the table, with the reader's row held still.
+    @Test func aRowGrowingFromInsideGetsItsNewHeight() {
+        let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<80))
+        harness.request(.top(id: "row-20", inset: 0))
+        let before = harness.offset(of: "row-20")
+        let heightBefore = harness.height(of: "row-22")
+
+        harness.model.innerGrowth["row-22"] = 120
+        // The cell reports its new height after it re-renders, and the table re-heights the row
+        // on the turn after that.
+        harness.settle(until: { harness.height(of: "row-22") != heightBefore })
+
+        #expect(before != nil)
+        #expect(harness.height(of: "row-22").map { $0 - (heightBefore ?? 0) } == 120)
+        #expect(harness.offset(of: "row-20") == before)
+    }
+
+    /// Hosted media decides when to download from its cell's visibility, which SwiftUI cannot
+    /// supply inside an AppKit scroll view; the table must report it for every hosted cell.
+    @Test func cellsReportWhetherTheyAreOnScreen() {
+        let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<120))
+        harness.request(.bottom)
+        #expect(harness.cellVisibilityMatchesViewport)
+
+        harness.request(.top(id: "row-10", inset: 0))
+        #expect(harness.cellVisibilityMatchesViewport)
+    }
+
     @Test func aShortTranscriptSitsAtTheFoot() {
         let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<2))
 
@@ -73,10 +115,13 @@ struct TranscriptTableViewTests {
 struct TableTestRow: Identifiable, Equatable {
     let index: Int
     let lines: Int
-    var id: String { "row-\(index)" }
+    var isChrome = false
+    var id: String { isChrome ? "loading-older" : "row-\(index)" }
+
+    static let loadingOlder = TableTestRow(index: -1, lines: 1, isChrome: true)
 
     func growing(by extraLines: Int) -> TableTestRow {
-        TableTestRow(index: index, lines: lines + extraLines)
+        TableTestRow(index: index, lines: lines + extraLines, isChrome: isChrome)
     }
 
     static func range(_ range: Range<Int>) -> [TableTestRow] {
@@ -89,6 +134,8 @@ struct TableTestRow: Identifiable, Equatable {
 final class TranscriptTableHarnessModel {
     var rows: [TableTestRow]
     var request: TranscriptScrollRequest?
+    /// Extra height a row's content grows by from inside, without its row value changing.
+    var innerGrowth: [String: CGFloat] = [:]
     let followsBottom: Bool
 
     init(rows: [TableTestRow], followsBottom: Bool) {
@@ -108,16 +155,29 @@ struct TranscriptTableHarnessView: View {
             onViewportChanged: { _ in },
             onLiveScrollChanged: { _ in },
             onScrollRequestApplied: { _ in },
+            anchorsPosition: { !$0.isChrome },
             cell: { row in
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(0..<row.lines, id: \.self) { line in
-                        Text("Row \(row.index), line \(line)")
-                    }
-                }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                HarnessRowContent(model: model, row: row)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         )
+    }
+}
+
+/// Reads the inner growth in its own body, as a GIF's state lives inside its view, so the hosted
+/// row observes it and resizes without its row value changing.
+struct HarnessRowContent: View {
+    let model: TranscriptTableHarnessModel
+    let row: TableTestRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(0..<row.lines, id: \.self) { line in
+                Text("Row \(row.index), line \(line)")
+            }
+            Color.clear.frame(height: model.innerGrowth[row.id] ?? 0)
+        }
     }
 }
 
@@ -147,8 +207,27 @@ final class TranscriptTableHarness {
         settle()
     }
 
-    private var tableView: NSTableView? {
+    var tableView: NSTableView? {
         Self.find(NSTableView.self, in: host)
+    }
+
+    func height(of id: String) -> CGFloat? {
+        guard let tableView, let index = model.rows.firstIndex(where: { $0.id == id }) else { return nil }
+        return tableView.rect(ofRow: index + 1).height
+    }
+
+    /// Whether each hosted cell's visibility matches whether its row is in the viewport.
+    var cellVisibilityMatchesViewport: Bool {
+        guard let tableView, let clip = tableView.enclosingScrollView?.contentView else { return false }
+        let visible = tableView.rows(in: clip.bounds)
+        var matches = true
+        var checked = 0
+        tableView.enumerateAvailableRowViews { rowView, row in
+            guard let cell = rowView.view(atColumn: 0) as? TranscriptHostingCell else { return }
+            checked += 1
+            if cell.visibility.isVisible != NSLocationInRange(row, visible) { matches = false }
+        }
+        return matches && checked > 0
     }
 
     /// The row's top edge relative to the viewport's top edge.
@@ -169,6 +248,15 @@ final class TranscriptTableHarness {
             host.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
+    }
+
+    /// Settles until `condition` holds, for at most about two seconds.
+    func settle(until condition: () -> Bool) {
+        for _ in 0..<100 where !condition() {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        settle()
     }
 
     private static func find<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
