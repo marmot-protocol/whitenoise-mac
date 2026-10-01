@@ -582,7 +582,10 @@ nonisolated extension MessageItem {
             replyContext: presentation.isChatBubble ? replyContext : nil,
             mediaAttachments: presentation.isChatBubble ? mediaAttachments : [],
             presentation: presentation,
-            poll: poll
+            poll: poll,
+            groupSystemType: presentation == .groupSystem
+                ? record.groupSystem?.systemType ?? MessageItem.tagValue("system", in: record.tags)
+                : nil
         )
     }
 
