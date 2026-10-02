@@ -551,6 +551,12 @@ private struct ConversationView: View {
                     if previous.chatId != key.chatId { resetForNewChat() }
                     applyOpeningPosition(key)
                 }
+                // Opening a chat puts the caret in its composer, ready to type. A chat with no
+                // composer (pending invite, membership ended) leaves the request pending until
+                // one appears.
+                .onChange(of: chat.id, initial: true) { _, _ in
+                    composerFocusRequester.request()
+                }
                 // Pressing Send scrolls to the live edge, off the send itself rather than off
                 // the message it produces. Arrivals while following are pinned by the table, and
                 // a new last row is not a send: a newer history page can end in an old message of
