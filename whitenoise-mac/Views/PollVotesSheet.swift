@@ -69,27 +69,39 @@ struct PollVotesSheet: View {
             Divider()
 
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    if model.votes.isEmpty {
-                        if model.showsNoVotes {
-                            Text(L10n.string("No votes yet."))
-                                .wnFont(.medium12)
-                                .foregroundStyle(WNColor.backgroundContentSecondary)
-                        }
-                    } else {
-                        ForEach(model.groups(blockedAccountIDs: blockedAccountIDs)) { group in
-                            PollVoteGroupSection(group: group, voterDisplay: voterDisplay)
-                        }
-                    }
-                    PollVotesPagingFooter(model: model)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
+                PollVotesList(model: model, blockedAccountIDs: blockedAccountIDs, voterDisplay: voterDisplay)
             }
         }
         .frame(width: 380)
         .frame(minHeight: 360, idealHeight: 480)
         .onDisappear { model.cancel() }
+    }
+}
+
+/// The sheet's scrolling content: voters under each option, then paging. Its own view so it can be
+/// drawn outside the `ScrollView`, which an offscreen render leaves blank.
+struct PollVotesList: View {
+    let model: PollVotesViewModel
+    let blockedAccountIDs: Set<String>
+    let voterDisplay: (String) -> WorkspaceState.ReactionReactorDisplay
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 18) {
+            if model.votes.isEmpty {
+                if model.showsNoVotes {
+                    Text(L10n.string("No votes yet."))
+                        .wnFont(.medium12)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                }
+            } else {
+                ForEach(model.groups(blockedAccountIDs: blockedAccountIDs)) { group in
+                    PollVoteGroupSection(group: group, voterDisplay: voterDisplay)
+                }
+            }
+            PollVotesPagingFooter(model: model)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
     }
 }
 
@@ -265,5 +277,35 @@ private struct PollVotesPagingFooter: View {
         },
         onClose: {}
     )
+    .environment(WorkspaceState.preview())
+}
+
+#Preview("Poll votes list") {
+    let voter = String(repeating: "b", count: 64)
+    let poll = MessagePoll(
+        question: "Lunch?",
+        options: [.init(id: "0", label: "Tacos", votes: 1), .init(id: "1", label: "Ramen", votes: 0)],
+        kind: .singleChoice,
+        participants: 1,
+        localSelection: [],
+        endsAt: nil,
+        isOpen: true
+    )
+    let model = PollVotesViewModel(pollEventId: "poll", poll: poll) { _, _ in
+        PollVotePageFfi(
+            votes: [PollVoteFfi(voterAccountIdHex: voter, optionIds: ["0"], votedAt: 1_760_000_000)],
+            hasMoreAfter: false
+        )
+    }
+    model.start()
+    return PollVotesList(
+        model: model,
+        blockedAccountIDs: [],
+        voterDisplay: {
+            WorkspaceState.ReactionReactorDisplay(
+                accountIdHex: $0, name: "Bob", sanitizedPictureURL: nil, isSelf: false)
+        }
+    )
+    .frame(width: 380)
     .environment(WorkspaceState.preview())
 }
