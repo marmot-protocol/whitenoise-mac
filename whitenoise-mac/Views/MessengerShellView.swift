@@ -480,6 +480,11 @@ private struct ConversationView: View {
                 ConversationHeader(chat: chat)
                     .messageDeletionConfirmation()
                     .messageEditHistory(model: model)
+                    .pollVotesSheet(
+                        model: model,
+                        blockedUsersModel: blockedUsersModel,
+                        voterDisplay: { workspace.reactionReactorDisplay(accountIdHex: $0) }
+                    )
                 GlassSeparator(axis: .horizontal)
 
                 Group {

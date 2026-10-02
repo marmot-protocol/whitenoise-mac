@@ -299,6 +299,16 @@ nonisolated protocol MarmotRuntime: Sendable {
     ) async throws -> SendSummaryFfi
     func castPollVote(accountRef: String, groupIdHex: String, pollEventId: String, optionIds: [String]) async throws
         -> SendSummaryFfi
+    /// One page of a poll's voters and their effective selections, ordered by
+    /// `(votedAt, voterAccountIdHex)`. A synchronous local read: call it off the main thread.
+    func pollVotes(
+        accountRef: String,
+        groupIdHex: String,
+        pollEventId: String,
+        afterVotedAt: UInt64?,
+        afterVoterAccountIdHex: String?,
+        limit: UInt32
+    ) throws -> PollVotePageFfi
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi
     func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws
         -> SendSummaryFfi
@@ -1358,6 +1368,24 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             groupIdHex: groupIdHex,
             pollEventId: pollEventId,
             optionIds: optionIds
+        )
+    }
+
+    func pollVotes(
+        accountRef: String,
+        groupIdHex: String,
+        pollEventId: String,
+        afterVotedAt: UInt64?,
+        afterVoterAccountIdHex: String?,
+        limit: UInt32
+    ) throws -> PollVotePageFfi {
+        try marmot.pollVotes(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            pollEventId: pollEventId,
+            afterVotedAt: afterVotedAt,
+            afterVoterAccountIdHex: afterVoterAccountIdHex,
+            limit: limit
         )
     }
 
