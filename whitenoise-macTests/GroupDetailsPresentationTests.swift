@@ -6,6 +6,7 @@
 //  what the reader may edit, and how a custom disappearing timer parses.
 //
 
+import Foundation
 import MarmotKit
 import Testing
 
@@ -66,39 +67,138 @@ struct GroupMemberListTests {
 }
 
 @MainActor
-struct SharedMediaGridPreviewTests {
-    @Test func aShortGridShowsEveryTileWithNoExpander() {
-        let grid = SharedMediaGridPreview(items: Array(1...SharedMediaGridPreview<Int>.previewCount))
+struct SharedMediaStripPreviewTests {
+    @Test func theStripCarriesTheNewestNineInHistoryOrder() {
+        #expect(SharedMediaStripPreview.visible(Array(1...40)) == Array(1...9))
+        #expect(SharedMediaStripPreview.visible([3, 1, 2]) == [3, 1, 2])
+    }
+}
 
-        #expect(grid.visible.count == 9)
-        #expect(!grid.isTruncated)
-        #expect(!grid.canCollapse)
+@MainActor
+struct SharedMediaViewerPresentationTests {
+    private func entry(
+        _ messageIdHex: String,
+        category: AttachmentCategoryFfi = .image,
+        rejected: Bool = false
+    ) -> RetainedAttachmentItem {
+        let outcome: MediaAttachmentOutcomeFfi =
+            rejected
+            ? .rejected(
+                attachmentIndex: 0,
+                rejection: MediaAttachmentRejectionFfi(kind: .unsupportedFormat, detail: "future format"))
+            : .accepted(
+                attachmentIndex: 0,
+                reference: mediaAttachmentReference(mediaType: "image/jpeg", fileName: "\(messageIdHex).jpg"))
+        return RetainedAttachmentItem(
+            entry: AttachmentEntryFfi(
+                messageIdHex: messageIdHex,
+                sourceMessageIdHex: messageIdHex,
+                sender: "alice",
+                timelineAt: 10,
+                receivedAt: 10,
+                sourceEpoch: 0,
+                category: category,
+                attachment: outcome
+            )
+        )
     }
 
-    @Test func aLongGridPreviewsNineUntilExpandedAndCollapsesBack() {
-        var grid = SharedMediaGridPreview(items: Array(1...40))
+    @Test func theViewerPagesEveryLoadedItemNotOnlyTheStrip() throws {
+        let items = (1...20).map { entry("m\($0)") }
 
-        #expect(grid.visible == Array(1...9))
-        #expect(grid.isTruncated)
-        #expect(!grid.canCollapse)
+        let viewer = try #require(SharedMediaViewerPresentation(items: items, initial: items[14]))
 
-        grid.isExpanded = true
-        #expect(grid.visible.count == 40)
-        #expect(!grid.isTruncated)
-        #expect(grid.canCollapse)
+        #expect(viewer.items.count == 20)
+        #expect(viewer.initialIndex == 14)
     }
 
-    @Test func loadMoreWaitsUntilEveryLoadedTileIsShown() {
-        var grid = SharedMediaGridPreview(items: Array(1...12))
+    @Test func itemsTheViewerCannotShowAreSkippedAndTheIndexFollows() throws {
+        let rejected = entry("broken", category: .rejected, rejected: true)
+        let file = entry("doc", category: .file)
+        let photo = entry("photo")
+        let video = entry("clip", category: .video)
 
-        #expect(!grid.showsLoadMore(hasMore: true))
+        let viewer = try #require(
+            SharedMediaViewerPresentation(items: [rejected, file, photo, video], initial: video))
 
-        grid.isExpanded = true
-        #expect(grid.showsLoadMore(hasMore: true))
-        #expect(!grid.showsLoadMore(hasMore: false))
+        #expect(viewer.items.map(\.id) == [photo.id, video.id])
+        #expect(viewer.initialIndex == 1)
+        #expect(SharedMediaViewerPresentation(items: [rejected, photo], initial: rejected) == nil)
+    }
+}
 
-        // A grid too short to truncate pages in older history straight away.
-        #expect(SharedMediaGridPreview(items: [1, 2]).showsLoadMore(hasMore: true))
+@MainActor
+struct SharedMediaMonthGroupingTests {
+    private struct Tile: Identifiable {
+        let id: String
+        let timestamp: UInt64
+    }
+
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    // 2026-09-15, 2026-09-02 and 2026-08-20, all at noon UTC.
+    private let midSeptember: UInt64 = 1_789_473_600
+    private let earlySeptember: UInt64 = 1_788_350_400
+    private let lateAugust: UInt64 = 1_787_227_200
+
+    @Test func consecutiveItemsOfOneMonthShareASection() {
+        let sections = SharedMediaMonthGrouping.sections(
+            [
+                Tile(id: "a", timestamp: midSeptember),
+                Tile(id: "b", timestamp: earlySeptember),
+                Tile(id: "c", timestamp: lateAugust),
+            ],
+            timestamp: \.timestamp,
+            calendar: utc,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(sections.map(\.title) == ["September 2026", "August 2026"])
+        #expect(sections.map { $0.items.map(\.id) } == [["a", "b"], ["c"]])
+    }
+
+    @Test func aMonthThatRecursAfterAnotherStaysInHistoryOrder() {
+        let sections = SharedMediaMonthGrouping.sections(
+            [
+                Tile(id: "a", timestamp: midSeptember),
+                Tile(id: "b", timestamp: lateAugust),
+                Tile(id: "c", timestamp: earlySeptember),
+            ],
+            timestamp: \.timestamp,
+            calendar: utc,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(sections.map { $0.items.map(\.id) } == [["a"], ["b"], ["c"]])
+        #expect(Set(sections.map(\.id)).count == 3)
+    }
+
+    @Test func undatedItemsLandUnderRecent() {
+        let sections = SharedMediaMonthGrouping.sections(
+            [Tile(id: "a", timestamp: 0), Tile(id: "b", timestamp: 0)],
+            timestamp: \.timestamp,
+            calendar: utc,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(sections.count == 1)
+        #expect(sections.first?.title == L10n.string("Recent"))
+        #expect(sections.first?.items.count == 2)
+    }
+
+    @Test func theTitleFollowsTheAppLocale() {
+        let sections = SharedMediaMonthGrouping.sections(
+            [Tile(id: "a", timestamp: midSeptember)],
+            timestamp: \.timestamp,
+            calendar: utc,
+            locale: Locale(identifier: "es")
+        )
+
+        #expect(sections.first?.title.lowercased() == "septiembre de 2026")
     }
 }
 

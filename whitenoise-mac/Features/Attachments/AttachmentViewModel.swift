@@ -13,6 +13,8 @@ nonisolated struct RetainedAttachmentItem: Identifiable, Hashable, Sendable {
     let id: String
     let messageIdHex: String
     let sourceMessageIdHex: String
+    /// When the owning message landed in the timeline, in seconds; zero when the core has none.
+    let timelineAt: UInt64
     let category: AttachmentCategoryFfi
     let attachmentIndex: UInt32
     let reference: MediaAttachmentReferenceFfi?
@@ -21,6 +23,7 @@ nonisolated struct RetainedAttachmentItem: Identifiable, Hashable, Sendable {
     init(entry: AttachmentEntryFfi) {
         messageIdHex = entry.messageIdHex
         sourceMessageIdHex = entry.sourceMessageIdHex
+        timelineAt = entry.timelineAt
         category = entry.category
         switch entry.attachment {
         case .accepted(let attachmentIndex, let reference):

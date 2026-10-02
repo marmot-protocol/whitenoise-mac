@@ -18,8 +18,9 @@ import SwiftUI
 struct GroupDetailsTopBar: View {
     let title: String
     var isLoading = false
-    /// Where the chevron returns to. A contact's profile can open over group info as well as
-    /// over the chat, so it says "Back" rather than naming either.
+    /// Where the chevron returns to, as a catalog key. A contact's profile can open over group
+    /// info as well as over the chat, and the shared-media library is pushed inside group info,
+    /// so both say "Back" rather than naming either.
     var backHelp = "Back to chat"
     let onBack: () -> Void
     /// `nil` when the reader may not edit the group.
