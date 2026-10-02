@@ -274,7 +274,7 @@ struct MessageBubble: View {
                 }
             }
 
-            if !message.visualMediaAttachments.isEmpty {
+            if !message.visualMediaAttachments.isEmpty, !embedsVisualMediaInBubble {
                 MessageVisualMediaGrid(
                     message: message,
                     attachments: message.visualMediaAttachments,
@@ -407,6 +407,17 @@ struct MessageBubble: View {
         showsDebugMetadata || message.hasBubbleContent
     }
 
+    /// A reply carrying images or videos draws them inside its bubble, between the quote and the
+    /// caption, as iOS does. Stacked as separate pieces, the grid floated above a bubble holding
+    /// only the quote, so the quote read as belonging to whatever came before the image.
+    private var embedsVisualMediaInBubble: Bool {
+        MessageReplyMediaBubbleLayout.embedsVisualMedia(
+            hasReply: message.replyContext != nil,
+            hasVisualMedia: !message.visualMediaAttachments.isEmpty,
+            isDeleted: message.isDeleted
+        )
+    }
+
     /// Replies, media captions, deleted messages, and debug rows retain the normal bubble
     /// because they contain additional visual context that needs a shared surface.
     private var stickerEmoji: String? {
@@ -536,7 +547,9 @@ struct MessageBubble: View {
     }
 
     private var standardBubbleContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let embedsMedia = embedsVisualMediaInBubble
+        let insets = MessageReplyMediaBubbleLayout.self
+        return VStack(alignment: .leading, spacing: embedsMedia ? insets.mediaSpacing : 8) {
             if showsDebugMetadata {
                 MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
             }
@@ -545,7 +558,17 @@ struct MessageBubble: View {
                 MessageReplyContextView(
                     context: replyContext,
                     isOutgoing: message.isOutgoing,
+                    width: embedsMedia ? MessageVisualMediaGrid.width : nil,
                     onOpen: { onNavigateToMessage(replyContext.targetMessageId) }
+                )
+            }
+
+            if embedsMedia {
+                MessageVisualMediaGrid(
+                    message: message,
+                    attachments: message.visualMediaAttachments,
+                    isOutgoing: message.isOutgoing,
+                    onOpenImageGallery: onOpenImageGallery
                 )
             }
 
@@ -566,10 +589,18 @@ struct MessageBubble: View {
                 // bubble's own content, as on iOS. Real links color themselves blue per run.
                 .tint(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
                 .multilineTextAlignment(.leading)
+                // Held to the grid's width so a long caption wraps under the media instead of
+                // widening the bubble past it.
+                .frame(
+                    maxWidth: embedsMedia ? MessageVisualMediaGrid.width - 2 * insets.textInset : nil,
+                    alignment: .leading
+                )
+                .padding(.horizontal, embedsMedia ? insets.textInset : 0)
             }
 
             if showsReservedMetadataRow {
                 compactMetadata.hidden()
+                    .padding(.horizontal, embedsMedia ? insets.textInset : 0)
             }
         }
         // One hover-gated selection gate for the whole bubble: `.textSelection` propagates
@@ -582,10 +613,12 @@ struct MessageBubble: View {
         .overlay(alignment: .bottomTrailing) {
             if showsBubbleMetadata {
                 compactMetadata
+                    .padding(.trailing, embedsMedia ? insets.textInset : 0)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, embedsMedia ? insets.outerInset : 12)
+        .padding(.top, embedsMedia ? insets.outerInset : 8)
+        .padding(.bottom, 8)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
         // Attach controls before the positioning frame so short messages use the visible
         // bubble edge instead of the frame's maximum width.
@@ -912,6 +945,20 @@ enum MessageVideoAttachmentPlayerAccessibility {
     }
 }
 
+/// Insets for a reply bubble that embeds a media grid. Mirrors iOS's rich-media bubble: a 6pt
+/// rim around the quote card and the media, with the caption and footer brought back to the
+/// plain bubble's 12pt text inset. The bottom keeps the plain bubble's 8pt.
+nonisolated enum MessageReplyMediaBubbleLayout {
+    static let outerInset: CGFloat = 6
+    static let mediaSpacing: CGFloat = 6
+    /// Added to `outerInset` for the caption and footer: 6 + 6 = the plain bubble's 12pt.
+    static let textInset: CGFloat = 6
+
+    static func embedsVisualMedia(hasReply: Bool, hasVisualMedia: Bool, isDeleted: Bool) -> Bool {
+        hasReply && hasVisualMedia && !isDeleted
+    }
+}
+
 struct MessageVisualMediaGrid: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
@@ -919,7 +966,10 @@ struct MessageVisualMediaGrid: View {
     let isOutgoing: Bool
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
-    private let maxWidth: CGFloat = 360
+    /// The grid's fixed width, which a reply bubble embedding it sizes its quote and caption to.
+    static let width: CGFloat = 360
+
+    private var maxWidth: CGFloat { Self.width }
     private let spacing: CGFloat = 3
     private let cornerRadius: CGFloat = 10
 
@@ -2626,6 +2676,9 @@ struct MessageContextMenuItems: View {
 struct MessageReplyContextView: View {
     let context: MessageReplyContext
     let isOutgoing: Bool
+    /// The card's full outer width, or nil to hug the quote. A reply bubble that embeds media
+    /// passes the grid's width so the card and the media share one edge, as on iOS.
+    let width: CGFloat?
     let onOpen: () -> Void
 
     var body: some View {
@@ -2654,6 +2707,7 @@ struct MessageReplyContextView: View {
         .help(L10n.string("Show replied-to message"))
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .frame(width: width, alignment: .leading)
         // The quote is its own card on `backgroundPrimary`, identically in both directions, as on
         // the other clients — which is what lets its content take `background*` tokens instead of
         // having to be picked per bubble fill. It cannot inherit a translucent material here: it

@@ -5105,6 +5105,23 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(store.shouldStartAutomaticDownload)
     }
 
+    @Test func replyWithVisualMediaDrawsTheMediaInsideTheBubble() {
+        #expect(
+            MessageReplyMediaBubbleLayout.embedsVisualMedia(
+                hasReply: true, hasVisualMedia: true, isDeleted: false))
+        #expect(
+            !MessageReplyMediaBubbleLayout.embedsVisualMedia(
+                hasReply: false, hasVisualMedia: true, isDeleted: false))
+        #expect(
+            !MessageReplyMediaBubbleLayout.embedsVisualMedia(
+                hasReply: true, hasVisualMedia: false, isDeleted: false))
+        #expect(
+            !MessageReplyMediaBubbleLayout.embedsVisualMedia(
+                hasReply: true, hasVisualMedia: true, isDeleted: true))
+        // The rim plus the text inset lands the caption on the plain bubble's 12pt inset.
+        #expect(MessageReplyMediaBubbleLayout.outerInset + MessageReplyMediaBubbleLayout.textInset == 12)
+    }
+
     @MainActor
     @Test func visualMediaTileTapActionRetriesFailedVideoBeforeGallery() {
         #expect(
