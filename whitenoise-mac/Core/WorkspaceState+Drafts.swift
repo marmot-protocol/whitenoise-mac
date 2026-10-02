@@ -18,6 +18,13 @@ private nonisolated struct ComposerDraftPersistenceSnapshot: Sendable {
     }
 }
 
+/// Where a conversation's saved draft stands this session. `inFlight` lets a second caller await
+/// the read already running; `settled` means it has been read, or a local edit made reading it moot.
+enum ComposerDraftRestore: Equatable {
+    case inFlight(Task<Void, Never>)
+    case settled
+}
+
 @MainActor
 extension WorkspaceState {
     private static let composerDraftSaveDebounceNanoseconds: UInt64 = 400_000_000
@@ -27,7 +34,7 @@ extension WorkspaceState {
     /// effective draft is the unsent composer state preserved by `MessageEditContext`, not the
     /// temporary edit text occupying the field.
     func composerDraftDidChange(for key: ComposerDraftKey) {
-        restoredComposerDraftKeys.insert(key)
+        composerDraftRestores[key] = .settled
         guard client != nil, accounts.contains(where: { $0.id == key.accountId }) else { return }
 
         composerDraftMutationGenerations[key, default: 0] &+= 1
@@ -104,20 +111,46 @@ extension WorkspaceState {
 
     /// Load a selected conversation's full draft once per session. The mutation-generation check
     /// makes live typing authoritative if it races the blocking FFI read or member-name hydration.
+    ///
+    /// A caller that arrives while the read is in flight waits for it rather than returning early,
+    /// so the conversation can hold back focusing the composer until the saved draft is in place.
     func restoreComposerDraftIfNeeded(accountId: String, groupIdHex: String) async {
         let key = ComposerDraftKey(accountId: accountId, chatId: groupIdHex)
-        guard !restoredComposerDraftKeys.contains(key),
-            let client,
+        switch composerDraftRestores[key] {
+        case .inFlight(let restore):
+            await restore.value
+            return
+        case .settled:
+            return
+        case nil:
+            break
+        }
+        guard let client,
             let account = accounts.first(where: { $0.id == accountId })
         else { return }
 
         if !composerDraftPersistenceSnapshot(for: key).isEmpty {
-            restoredComposerDraftKeys.insert(key)
+            composerDraftRestores[key] = .settled
             return
         }
 
+        let restore = Task {
+            await readPersistedComposerDraft(for: key, account: account, client: client)
+        }
+        composerDraftRestores[key] = .inFlight(restore)
+        await restore.value
+        if composerDraftRestores[key] == .inFlight(restore) {
+            composerDraftRestores[key] = .settled
+        }
+    }
+
+    private func readPersistedComposerDraft(
+        for key: ComposerDraftKey,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
+        let groupIdHex = key.chatId
         let startingGeneration = composerDraftMutationGenerations[key] ?? 0
-        restoredComposerDraftKeys.insert(key)
         do {
             let selectedDraft = try await FFIExecutor.run {
                 let selected = try client.selectedMessageDraft(
@@ -223,7 +256,7 @@ extension WorkspaceState {
                 beginPendingMediaUpload(attachment, for: key)
             }
         } catch {
-            restoredComposerDraftKeys.remove(key)
+            composerDraftRestores[key] = nil
             setBackgroundStatus(
                 String(format: L10n.string("A saved draft could not be restored: %@"), error.localizedDescription)
             )
@@ -256,7 +289,7 @@ extension WorkspaceState {
         composerDraftMutationGenerations[key, default: 0] &+= 1
         let generation = composerDraftMutationGenerations[key] ?? 0
         dirtyComposerDraftKeys.insert(key)
-        restoredComposerDraftKeys.insert(key)
+        composerDraftRestores[key] = .settled
         do {
             try await FFIExecutor.run {
                 let selected = try client.selectedMessageDraft(
@@ -286,14 +319,14 @@ extension WorkspaceState {
         composerDraftPersistenceTasks[key] = nil
         composerDraftMutationGenerations[key] = nil
         dirtyComposerDraftKeys.remove(key)
-        restoredComposerDraftKeys.remove(key)
+        composerDraftRestores[key] = nil
     }
 
     func discardComposerDraftPersistenceState(forAccountId accountId: String) {
         let keys = Set(composerDraftPersistenceTasks.keys)
             .union(composerDraftMutationGenerations.keys)
             .union(dirtyComposerDraftKeys)
-            .union(restoredComposerDraftKeys)
+            .union(composerDraftRestores.keys)
             .filter { $0.accountId == accountId }
         for key in keys {
             discardComposerDraftPersistenceState(for: key)
@@ -307,7 +340,7 @@ extension WorkspaceState {
         composerDraftPersistenceTasks.removeAll()
         composerDraftMutationGenerations.removeAll()
         dirtyComposerDraftKeys.removeAll()
-        restoredComposerDraftKeys.removeAll()
+        composerDraftRestores.removeAll()
     }
 
     private func persistComposerDraft(for key: ComposerDraftKey, generation: UInt64) async {

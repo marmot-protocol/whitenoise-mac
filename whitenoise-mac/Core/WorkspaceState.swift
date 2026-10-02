@@ -683,7 +683,7 @@ final class WorkspaceState {
     @ObservationIgnored var composerDraftPersistenceTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
     @ObservationIgnored var composerDraftMutationGenerations: [ComposerDraftKey: UInt64] = [:]
     @ObservationIgnored var dirtyComposerDraftKeys: Set<ComposerDraftKey> = []
-    @ObservationIgnored var restoredComposerDraftKeys: Set<ComposerDraftKey> = []
+    @ObservationIgnored var composerDraftRestores: [ComposerDraftKey: ComposerDraftRestore] = [:]
     var voiceRecorder: AVAudioRecorder?
     /// Every level of the recording, not just the visible tail: the waveform stored on the sent
     /// message is derived from the whole take. Observation-ignored because nothing draws it live —
