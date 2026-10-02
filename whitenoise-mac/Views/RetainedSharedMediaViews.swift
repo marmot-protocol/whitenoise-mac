@@ -1,86 +1,94 @@
+import AVFoundation
 import AppKit
 import MarmotKit
 import SwiftUI
 
-private enum RetainedSharedMediaCategory: String, CaseIterable, Identifiable {
-    case media
-    case files
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .media: L10n.string("Media")
-        case .files: L10n.string("Files")
-        }
-    }
-}
-
+/// Group info's shared-media section, after iOS's `GroupSharedMediaSection`: the most recent
+/// photos and videos on one horizontally scrolling row, and a row into the full library — which
+/// is where older media, files, and paging live.
 struct RetainedSharedMediaSection: View {
     let model: AttachmentViewModel
-    @State private var category = RetainedSharedMediaCategory.media
-    @State private var preview: RetainedImagePreview?
-    @State private var isMediaExpanded = false
+    let onOpenLibrary: () -> Void
+    let onOpenMedia: (SharedMediaViewerPresentation) -> Void
+
+    /// iOS's strip tile, so the row holds the same number of tiles at the pane's width.
+    static let stripTileSide: CGFloat = 92
 
     var body: some View {
-        let mediaGrid = SharedMediaGridPreview(
-            items: model.items.filter(\.isVisualMedia),
-            isExpanded: isMediaExpanded
-        )
+        let visualItems = model.items.filter(\.isVisualMedia)
 
         Section(L10n.string("Shared Media")) {
-            Picker(L10n.string("Shared media type"), selection: $category) {
-                ForEach(RetainedSharedMediaCategory.allCases) { category in
-                    Text(category.label).tag(category)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
             if model.isLoading && model.items.isEmpty {
                 RetainedSharedMediaLoadingRow()
             } else if let error = model.error, model.items.isEmpty {
                 RetainedSharedMediaErrorRow(error: error) {
                     Task { await model.refreshHistory() }
                 }
-            } else if category == .media {
-                RetainedMediaGrid(
-                    grid: mediaGrid,
-                    isExpanded: $isMediaExpanded,
-                    model: model,
-                    onPreview: { preview = RetainedImagePreview(payload: $0) }
-                )
             } else {
-                RetainedFileList(
-                    items: model.items.filter { !$0.isVisualMedia },
-                    model: model
-                )
-            }
-
-            if category == .files ? model.hasMore : mediaGrid.showsLoadMore(hasMore: model.hasMore) {
-                Button(L10n.string("Load more")) {
-                    Task { await model.loadMore() }
+                if !visualItems.isEmpty {
+                    RetainedSharedMediaStrip(
+                        items: SharedMediaStripPreview.visible(visualItems),
+                        model: model,
+                        // The viewer pages through everything loaded, not only the strip.
+                        onOpen: { item in
+                            SharedMediaViewerPresentation(items: visualItems, initial: item).map(onOpenMedia)
+                        }
+                    )
                 }
-                .disabled(model.isLoading)
+                DetailsDisclosureRow(
+                    title: L10n.string("View Shared Media"),
+                    systemImage: "photo.on.rectangle.angled",
+                    value: "",
+                    action: onOpenLibrary
+                )
             }
         }
         .task(id: model.groupIdHex) {
-            isMediaExpanded = false
             await model.refreshHistory()
         }
-        .onChange(of: model.transfers) {
+        .retainedAttachmentTransferObservation(model)
+    }
+}
+
+/// One row of square tiles that scrolls sideways instead of wrapping.
+private struct RetainedSharedMediaStrip: View {
+    let items: [RetainedAttachmentItem]
+    let model: AttachmentViewModel
+    let onOpen: (RetainedAttachmentItem) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(items) { item in
+                    RetainedMediaTile(
+                        item: item,
+                        model: model,
+                        sideLength: RetainedSharedMediaSection.stripTileSide,
+                        cornerRadius: 10,
+                        onOpen: onOpen
+                    )
+                }
+            }
+        }
+        .frame(height: RetainedSharedMediaSection.stripTileSide)
+        .padding(.vertical, 2)
+    }
+}
+
+extension View {
+    /// Keeps the retained-asset map in step with the transfer projection while the view is up,
+    /// and stops the transfer subscription when it goes away.
+    func retainedAttachmentTransferObservation(_ model: AttachmentViewModel) -> some View {
+        onChange(of: model.transfers) {
             Task { await model.refreshLocalAssets() }
         }
         .onDisappear {
             model.stopTransferObservation()
         }
-        .sheet(item: $preview) { preview in
-            RetainedImagePreviewView(payload: preview.payload)
-        }
     }
 }
 
-private struct RetainedSharedMediaLoadingRow: View {
+struct RetainedSharedMediaLoadingRow: View {
     var body: some View {
         HStack {
             Spacer()
@@ -91,7 +99,7 @@ private struct RetainedSharedMediaLoadingRow: View {
     }
 }
 
-private struct RetainedSharedMediaErrorRow: View {
+struct RetainedSharedMediaErrorRow: View {
     let error: AttachmentFeatureError
     let retry: () -> Void
 
@@ -116,53 +124,7 @@ private struct RetainedSharedMediaErrorRow: View {
     }
 }
 
-private struct RetainedMediaGrid: View {
-    let grid: SharedMediaGridPreview<RetainedAttachmentItem>
-    @Binding var isExpanded: Bool
-    let model: AttachmentViewModel
-    let onPreview: (DownloadedMediaPayload) -> Void
-    private let columns = Array(repeating: GridItem(.flexible(minimum: 72), spacing: 3), count: 3)
-
-    var body: some View {
-        if grid.items.isEmpty {
-            RetainedSharedMediaEmptyRow(
-                title: L10n.string("No photos or videos"),
-                systemImage: "photo.on.rectangle.angled"
-            )
-        } else {
-            LazyVGrid(columns: columns, spacing: 3) {
-                ForEach(grid.visible) { item in
-                    RetainedMediaTile(item: item, model: model, onPreview: onPreview)
-                }
-            }
-            .padding(.vertical, 2)
-
-            if grid.isTruncated {
-                RetainedMediaGridExpanderRow(title: L10n.string("View more")) { isExpanded = true }
-            } else if grid.canCollapse {
-                RetainedMediaGridExpanderRow(title: L10n.string("View less")) { isExpanded = false }
-            }
-        }
-    }
-}
-
-private struct RetainedMediaGridExpanderRow: View {
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .wnFont(.semiBold12)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct RetainedFileList: View {
+struct RetainedFileList: View {
     let items: [RetainedAttachmentItem]
     let model: AttachmentViewModel
 
@@ -177,7 +139,7 @@ private struct RetainedFileList: View {
     }
 }
 
-private struct RetainedSharedMediaEmptyRow: View {
+struct RetainedSharedMediaEmptyRow: View {
     let title: String
     let systemImage: String
 
@@ -198,50 +160,83 @@ private struct RetainedSharedMediaEmptyRow: View {
     }
 }
 
-private struct RetainedImagePreview: Identifiable {
-    let id = UUID()
-    let payload: DownloadedMediaPayload
-}
-
-private struct RetainedMediaTile: View {
+/// A square shared-media tile, loaded the way a message bubble loads its media: it asks the core
+/// for the attachment as soon as it is on screen — through the automatic-download path, so the
+/// download policy still decides — and draws a downsampled, center-cropped preview once the bytes
+/// are retained. A video shows its first frame under a play badge.
+///
+/// `sideLength` fixes the tile for the group info strip; `nil` lets a grid column decide, and the
+/// tile stays square either way.
+struct RetainedMediaTile: View {
     @Environment(\.displayScale) private var displayScale
     let item: RetainedAttachmentItem
     let model: AttachmentViewModel
-    let onPreview: (DownloadedMediaPayload) -> Void
+    var sideLength: CGFloat?
+    var cornerRadius: CGFloat = 4
+    /// Hands the tile to the full-pane viewer, which downloads it if the tile could not.
+    let onOpen: (RetainedAttachmentItem) -> Void
     @State private var image: Image?
-    @State private var payload: DownloadedMediaPayload?
-    @State private var isWorking = false
     @State private var actionError: String?
+
+    /// Decode budget in points for a grid tile, whose side the column decides: a three-column
+    /// grid on a wide pane draws tiles well past the strip's size.
+    private static let gridPointSize: CGFloat = 320
 
     var body: some View {
         Button {
-            Task { await activate() }
+            if item.reference != nil { onOpen(item) }
         } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(WNColor.fillSecondary)
-                if let image {
-                    image.resizable().scaledToFill()
-                } else {
-                    RetainedMediaTilePlaceholder(
-                        item: item,
-                        isWorking: isWorking || transferStatus?.isWorking == true
-                    )
+            WNColor.backgroundTertiary
+                .aspectRatio(1, contentMode: .fit)
+                .frame(width: sideLength, height: sideLength)
+                .overlay {
+                    if let image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        RetainedMediaTilePlaceholder(
+                            item: item,
+                            isWorking: transferStatus?.isWorking == true
+                        )
+                    }
                 }
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .contentShape(Rectangle())
+                .overlay {
+                    if item.category == .video, image != nil {
+                        RetainedVideoPlayBadge()
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.reference?.fileName ?? L10n.string("Attachment"))
-        .task(id: localAsset?.reference) {
-            await loadImageIfAvailable()
+        .task(id: localAssetState) {
+            switch localAssetState {
+            case .unknown:
+                return
+            case .absent:
+                clearPreview()
+                await requestAutomatically()
+            case .retained:
+                await loadPreviewIfAvailable()
+            }
         }
         .contextMenu {
             RetainedAttachmentControlMenu(model: model, status: transferStatus)
         }
         .retainedAttachmentErrorAlert($actionError)
+    }
+
+    private enum LocalAssetState: Hashable {
+        /// The asset map has not been read for this target yet.
+        case unknown
+        /// The core has no readable bytes for it.
+        case absent
+        case retained(String)
+    }
+
+    private var localAssetState: LocalAssetState {
+        guard let asset = localAsset else { return .unknown }
+        return asset.reference.map(LocalAssetState.retained) ?? .absent
     }
 
     private var localAsset: AttachmentLocalAssetFfi? {
@@ -252,30 +247,25 @@ private struct RetainedMediaTile: View {
         item.target.flatMap { model.transfersByTarget[$0] }
     }
 
-    private func activate() async {
-        guard let reference = item.reference, let target = item.target else { return }
-        if let payload {
-            if item.category == .video {
-                await openVideo(payload: payload, reference: reference)
-            } else {
-                onPreview(payload)
-            }
-            return
-        }
-        isWorking = true
-        defer { isWorking = false }
-        do {
-            _ = try await model.downloadExplicitly(target)
-            await loadImageIfAvailable()
-        } catch {
-            actionError = error.localizedDescription
+    /// Bubbles fetch what scrolls into view without a click; this is the same request, routed
+    /// through the core's policy fence. A refusal leaves the download glyph for an explicit tap.
+    private func requestAutomatically() async {
+        guard let target = item.target, item.rejection == nil else { return }
+        guard let result = try? await model.requestAutomatically(target) else { return }
+        try? Task.checkCancellation()
+        if result.status.state == .ready {
+            await model.refreshLocalAssets()
         }
     }
 
-    private func loadImageIfAvailable() async {
-        guard let asset = localAsset, let retainedReference = asset.reference else {
-            image = nil
-            payload = nil
+    private func clearPreview() {
+        image = nil
+    }
+
+    private func loadPreviewIfAvailable() async {
+        guard let asset = localAsset, let retainedReference = asset.reference, let reference = item.reference
+        else {
+            clearPreview()
             return
         }
         do {
@@ -288,14 +278,20 @@ private struct RetainedMediaTile: View {
                 id: "retained:\(retainedReference)",
                 data: bytes
             )
-            payload = loadedPayload
-            guard item.category == .image else { return }
-            let decoded = await RemoteImageLoader.shared.image(
-                for: loadedPayload,
-                maxPixelSize: 180 * max(1, displayScale) * 1.5
-            )
-            try Task.checkCancellation()
-            image = decoded.map { Image(nsImage: $0.nsImage) }
+            let maxPixelSize = (sideLength ?? Self.gridPointSize) * max(1, displayScale) * 1.5
+            switch item.category {
+            case .image:
+                let decoded = await RemoteImageLoader.shared.image(for: loadedPayload, maxPixelSize: maxPixelSize)
+                try Task.checkCancellation()
+                image = decoded.map { Image(nsImage: $0.nsImage) }
+            case .video:
+                let poster = await videoPoster(
+                    payload: loadedPayload, reference: reference, maxPixelSize: maxPixelSize)
+                try Task.checkCancellation()
+                image = poster.map { Image(nsImage: $0) }
+            default:
+                return
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -303,7 +299,9 @@ private struct RetainedMediaTile: View {
         }
     }
 
-    private func openVideo(payload: DownloadedMediaPayload, reference: MediaAttachmentReferenceFfi) async {
+    private func playbackFileURL(
+        payload: DownloadedMediaPayload, reference: MediaAttachmentReferenceFfi
+    ) async -> URL? {
         let attachment = MessageMediaAttachment(id: item.id, reference: reference)
         let download = MessageMediaDownload(
             payload: payload,
@@ -311,15 +309,38 @@ private struct RetainedMediaTile: View {
             mediaType: attachment.mediaType,
             sizeBytes: UInt64(payload.byteCount)
         )
-        guard let url = await MessageMediaPlaybackFileStore.fileURL(attachment: attachment, download: download) else {
-            actionError = L10n.string("Couldn't open this video.")
-            return
-        }
-        let didOpen = NSWorkspace.shared.open(url)
-        let delay: TimeInterval = didOpen ? 30 : 0
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
-            MediaPlaybackTempStore.remove(at: url)
-        }
+        return await MessageMediaPlaybackFileStore.fileURL(attachment: attachment, download: download)
+    }
+
+    private func videoPoster(
+        payload: DownloadedMediaPayload, reference: MediaAttachmentReferenceFfi, maxPixelSize: CGFloat
+    ) async -> NSImage? {
+        guard let url = await playbackFileURL(payload: payload, reference: reference) else { return nil }
+        defer { MessageMediaPlaybackFileStore.remove(at: url) }
+        return await RetainedVideoPoster.firstFrame(of: url, maxPixelSize: maxPixelSize)
+    }
+
+}
+
+/// The first frame of a video file, bounded to `maxPixelSize` on its long edge.
+nonisolated enum RetainedVideoPoster {
+    static func firstFrame(of url: URL, maxPixelSize: CGFloat) async -> NSImage? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: maxPixelSize, height: maxPixelSize)
+        guard let (frame, _) = try? await generator.image(at: .zero) else { return nil }
+        return NSImage(cgImage: frame, size: NSSize(width: frame.width, height: frame.height))
+    }
+}
+
+/// The play disc a video tile carries over its poster, as iOS draws it.
+private struct RetainedVideoPlayBadge: View {
+    var body: some View {
+        Image(systemName: "play.fill")
+            .wnFont(.semiBold14)
+            .foregroundStyle(WNColor.fillContentQuaternary)
+            .frame(width: 32, height: 32)
+            .background(WNColor.overlayTertiary, in: Circle())
     }
 }
 
@@ -460,31 +481,6 @@ private struct RetainedAttachmentControlMenu: View {
     }
 }
 
-private struct RetainedImagePreviewView: View {
-    let payload: DownloadedMediaPayload
-    @Environment(\.dismiss) private var dismiss
-    @State private var zoom = ImageZoomState()
-
-    var body: some View {
-        ZoomableMediaImage(payload: payload, zoom: $zoom) {
-            ContentUnavailableView(L10n.string("Couldn't open image"), systemImage: "photo")
-        }
-        .frame(minWidth: 480, minHeight: 360)
-        .background(WNColor.shadow.opacity(0.85))
-        .overlay(alignment: .topTrailing) {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .wnFont(.medium18)
-                    .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.9))
-            }
-            .buttonStyle(.plain)
-            .padding(12)
-        }
-    }
-}
-
 private extension AttachmentTransferStatusFfi {
     var isWorking: Bool {
         switch state {
@@ -538,12 +534,18 @@ private extension View {
     }
 }
 
-#Preview {
+#Preview("Empty") {
     Form {
         Section(L10n.string("Shared Media")) {
             RetainedSharedMediaEmptyRow(
                 title: L10n.string("No photos or videos"),
                 systemImage: "photo.on.rectangle.angled"
+            )
+            DetailsDisclosureRow(
+                title: L10n.string("View Shared Media"),
+                systemImage: "photo.on.rectangle.angled",
+                value: "",
+                action: {}
             )
         }
     }
@@ -551,13 +553,10 @@ private extension View {
     .frame(width: 520, height: 320)
 }
 
-#Preview("Grid expander") {
-    Form {
-        Section(L10n.string("Shared Media")) {
-            RetainedMediaGridExpanderRow(title: L10n.string("View more")) {}
-            RetainedMediaGridExpanderRow(title: L10n.string("View less")) {}
-        }
-    }
-    .formStyle(.grouped)
-    .frame(width: 520, height: 200)
+#Preview("Play badge") {
+    WNColor.backgroundTertiary
+        .frame(width: 92, height: 92)
+        .overlay { RetainedVideoPlayBadge() }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding()
 }
