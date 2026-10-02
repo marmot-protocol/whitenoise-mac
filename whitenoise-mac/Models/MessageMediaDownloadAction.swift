@@ -17,7 +17,7 @@ struct MessageMediaDownloadAction {
 
     /// Every attachment on the message — the hover strip and the right-click menu.
     init?(message: MessageItem, workspace: WorkspaceState) {
-        self.init(message: message, attachments: message.mediaAttachments, workspace: workspace)
+        self.init(message: message, attachments: message.contentMediaAttachments, workspace: workspace)
     }
 
     /// A chosen subset: the gallery saves the photo on screen, not the whole message.

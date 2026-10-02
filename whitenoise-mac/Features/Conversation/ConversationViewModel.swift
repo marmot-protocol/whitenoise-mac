@@ -57,6 +57,8 @@ nonisolated enum BlockedConversationPresentation {
 final class ConversationViewModel {
     let account: AccountItem
     let groupIdHex: String
+    /// Images for this conversation's NIP-30 custom emoji, in message text and reactions.
+    let customEmojiImages: CustomEmojiImageStore
     private(set) var snapshot: ConversationWindowSnapshotFfi?
     private(set) var pendingSends: [String: PendingDurableSend] = [:]
     private(set) var isLoading = false
@@ -105,6 +107,12 @@ final class ConversationViewModel {
         self.groupIdHex = groupIdHex
         self.runtime = runtime
         self.productAnalytics = productAnalytics
+        self.customEmojiImages = CustomEmojiImageStore(
+            accountId: account.id,
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex,
+            runtime: runtime
+        )
     }
 
     func start(mode: ConversationOpenModeFfi = .automatic, messageIdHex: String? = nil) {

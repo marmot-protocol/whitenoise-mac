@@ -124,6 +124,7 @@ struct ConversationMessageRow: View {
             MessageBubble(
                 message: message,
                 safetyModel: safetyModel,
+                customEmojiImages: conversationModel.customEmojiImages,
                 showsDebugMetadata: showsDebugMetadata,
                 timestampReferenceDate: timestampReferenceDate,
                 timestampLocale: timestampLocale,
@@ -233,6 +234,7 @@ struct MessageBubble: View {
     @State private var isReportPresented = false
     let message: MessageItem
     let safetyModel: GroupSafetyViewModel
+    let customEmojiImages: CustomEmojiImageStore
     let showsDebugMetadata: Bool
     let timestampReferenceDate: Date
     let timestampLocale: Locale
@@ -299,10 +301,14 @@ struct MessageBubble: View {
             if message.supportsChatActions && !message.reactions.isEmpty {
                 MessageReactionChips(
                     reactions: message.reactions,
-                    omittedKinds: message.omittedReactionKinds
+                    omittedKinds: message.omittedReactionKinds,
+                    emojiImages: reactionEmojiImages
                 ) { emoji in
                     reactionViewerEmoji = emoji
                     isReactionViewerPresented = true
+                }
+                .task(id: message.reactions) {
+                    customEmojiImages.loadReactions(message.reactions)
                 }
                 // Hang the chips on the bubble's bottom edge (a slight upward overlap) instead of
                 // floating as a detached row, matching the sibling clients' bubble-bound reactions.
@@ -311,7 +317,11 @@ struct MessageBubble: View {
                 .padding(.horizontal, 10)
                 .padding(.top, reactionChipPlacement.topPadding(contentSpacing: Self.contentSpacing))
                 .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
-                    MessageReactionDetailsView(message: message, selectedEmoji: $reactionViewerEmoji)
+                    MessageReactionDetailsView(
+                        message: message,
+                        selectedEmoji: $reactionViewerEmoji,
+                        emojiImages: reactionEmojiImages
+                    )
                 }
             }
 
@@ -413,13 +423,34 @@ struct MessageBubble: View {
         guard !showsDebugMetadata,
             !message.isDeleted,
             message.replyContext == nil,
-            message.mediaAttachments.isEmpty
+            message.contentMediaAttachments.isEmpty
         else { return nil }
         return message.singleEmoji
     }
 
+    /// A message that is exactly one custom emoji takes the same bubble-free treatment, unless its
+    /// image failed to load and it falls back to the literal `:shortcode:` in a bubble.
+    private var customStickerEmoji: (shortcode: String, attachment: MessageMediaAttachment)? {
+        guard !showsDebugMetadata,
+            !message.isDeleted,
+            message.replyContext == nil,
+            message.contentMediaAttachments.isEmpty,
+            let shortcode = CustomEmojiText.soleEmoji(
+                in: message.trimmedBody, shortcodes: Set(message.customEmoji.keys)),
+            let attachment = message.customEmoji[shortcode],
+            !customEmojiImages.hasFailed(attachment.reference)
+        else { return nil }
+        return (shortcode, attachment)
+    }
+
     private var usesStickerStyle: Bool {
-        stickerEmoji != nil
+        stickerEmoji != nil || customStickerEmoji != nil
+    }
+
+    private var reactionEmojiImages: [String: NSImage] {
+        message.reactions.reduce(into: [:]) { images, reaction in
+            images[reaction.emoji] = customEmojiImages.reactionImage(for: reaction)
+        }
     }
 
     /// The pill rides the caption bubble when there is one and the media card when there is not.
@@ -427,7 +458,7 @@ struct MessageBubble: View {
     /// their own row instead of overlapping the text above them.
     private var reactionChipPlacement: MessageReactionChipPlacement {
         .value(
-            usesSurface: usesBubbleSurface || !message.mediaAttachments.isEmpty,
+            usesSurface: usesBubbleSurface || !message.contentMediaAttachments.isEmpty,
             usesStickerStyle: usesStickerStyle
         )
     }
@@ -509,18 +540,36 @@ struct MessageBubble: View {
 
     @ViewBuilder
     private var bubbleContent: some View {
-        if let stickerEmoji {
-            stickerContent(stickerEmoji)
-        } else {
-            standardBubbleContent
+        Group {
+            if let stickerEmoji {
+                stickerContent(
+                    Text(verbatim: stickerEmoji)
+                        .wnFont(.medium60)
+                        .lineLimit(1)
+                )
+            } else if let customStickerEmoji {
+                stickerContent(
+                    CustomEmojiSticker(
+                        shortcode: customStickerEmoji.shortcode,
+                        image: customEmojiImages.image(for: customStickerEmoji.attachment.reference)
+                    )
+                )
+            } else {
+                standardBubbleContent
+                    .environment(
+                        \.customEmojiGlyphs, CustomEmojiGlyphs.value(for: message, store: customEmojiImages))
+            }
+        }
+        .task(id: message.customEmoji.values.map(\.id).sorted()) {
+            for attachment in message.customEmoji.values {
+                customEmojiImages.load(attachment.reference)
+            }
         }
     }
 
-    private func stickerContent(_ emoji: String) -> some View {
+    private func stickerContent(_ glyph: some View) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
-            Text(verbatim: emoji)
-                .wnFont(.medium60)
-                .lineLimit(1)
+            glyph
                 .padding(.horizontal, 4)
 
             if showsBubbleMetadata {
@@ -864,7 +913,7 @@ struct MessageImageGalleryPresentation: Identifiable, Equatable {
     let initialIndex: Int
 
     init?(message: MessageItem, initialAttachment: MessageMediaAttachment) {
-        let imageAttachments = message.mediaAttachments.filter { $0.kind == .image }
+        let imageAttachments = message.contentMediaAttachments.filter { $0.kind == .image }
         guard !imageAttachments.isEmpty else { return nil }
         self.id = "\(message.id)-image-gallery"
         self.message = message
