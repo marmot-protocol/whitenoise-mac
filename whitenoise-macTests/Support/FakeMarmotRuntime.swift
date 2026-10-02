@@ -105,6 +105,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     )
     var downloadAttachmentAgainResult: String?
     private(set) var explicitAttachmentDownloadTargets: [AttachmentLocalTargetFfi] = []
+    var explicitAttachmentRequestResult: String?
+    private(set) var explicitAttachmentRequestTargets: [AttachmentLocalTargetFfi] = []
     var attachmentControlResult = true
     var attachmentBytesByReference: [String: Data] = [:]
     var avatarAssets: [AvatarAssetFfi] = []
@@ -1545,6 +1547,13 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
     ) async throws -> AutomaticAttachmentRequestFfi {
         automaticAttachmentResult
+    }
+
+    func requestExplicitAttachment(
+        accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
+    ) async throws -> String? {
+        explicitAttachmentRequestTargets.append(target)
+        return explicitAttachmentRequestResult
     }
 
     func downloadAttachmentAgain(

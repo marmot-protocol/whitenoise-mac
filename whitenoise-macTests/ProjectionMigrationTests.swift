@@ -42,7 +42,7 @@ struct ProjectionMigrationTests {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.attachmentPolicy.automatic = false
         runtime.setupReadiness = .initializing
-        runtime.downloadAttachmentAgainResult = "queued-reference"
+        runtime.explicitAttachmentRequestResult = "queued-reference"
         let target = AttachmentLocalTargetFfi(
             messageIdHex: "message",
             sourceMessageIdHex: "source",
@@ -53,8 +53,74 @@ struct ProjectionMigrationTests {
         let reference = try await model.downloadExplicitly(target)
 
         #expect(reference == "queued-reference")
-        #expect(runtime.explicitAttachmentDownloadTargets == [target])
+        #expect(runtime.explicitAttachmentRequestTargets == [target])
+        #expect(runtime.explicitAttachmentDownloadTargets.isEmpty)
         #expect(runtime.attachmentPermissionUpdates.isEmpty)
+    }
+
+    /// MDK 0.12.0: a tap on live work promotes it with `requestExplicitAttachment`, which keeps its
+    /// retry budget and backoff. Only work the explicit request will not restart is rearmed with
+    /// download-again, so a tap on a failed attachment still downloads it.
+    @Test(arguments: [
+        (AttachmentTransferStateFfi.retryScheduled, false),
+        (.downloading, false),
+        (.paused, false),
+        (.failed, true),
+        (.cancelled, true),
+        (.retryExhausted, true),
+    ])
+    func explicitAttachmentTapRearmsOnlyWorkTheRequestWillNotRestart(
+        state: AttachmentTransferStateFfi, rearms: Bool
+    ) async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let reference = MediaAttachmentReferenceFfi(
+            locators: [],
+            ciphertextSha256: "ciphertext",
+            plaintextSha256: "plaintext",
+            nonceHex: "nonce",
+            fileName: "photo.jpg",
+            mediaType: "image/jpeg",
+            version: .v2,
+            sourceEpoch: 4,
+            dim: nil,
+            thumbhash: nil
+        )
+        runtime.attachmentHistoryPageResult = .page(
+            page: AttachmentPageFfi(
+                entries: [
+                    AttachmentEntryFfi(
+                        messageIdHex: "message",
+                        sourceMessageIdHex: "source",
+                        sender: "alice",
+                        timelineAt: 10,
+                        receivedAt: 10,
+                        sourceEpoch: 4,
+                        category: .image,
+                        attachment: .accepted(attachmentIndex: 0, reference: reference)
+                    )
+                ],
+                version: AttachmentHistoryVersion(noPointer: .init()),
+                nextCursor: nil,
+                hasMore: false
+            )
+        )
+        runtime.attachmentLocalAssetResults = [AttachmentLocalAssetFfi(reference: nil, byteCount: 0)]
+        runtime.attachmentTransferSnapshots = [
+            AttachmentTransferSnapshotFfi(items: [
+                AttachmentTransferStatusFfi(
+                    reference: "transfer", state: state, attempt: 2, received: 0, total: nil, retryAt: nil)
+            ])
+        ]
+        let model = AttachmentViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
+        await model.refreshHistory()
+        let target = try #require(model.items.first?.target)
+        let didReceiveTransfer = await waitFor { model.transfersByTarget[target]?.state == state }
+        try #require(didReceiveTransfer)
+
+        _ = try await model.downloadExplicitly(target)
+
+        #expect(runtime.explicitAttachmentDownloadTargets == (rearms ? [target] : []))
+        #expect(runtime.explicitAttachmentRequestTargets == (rearms ? [] : [target]))
     }
 
     @Test func retainedAttachmentBytesRemainDiscoverableAcrossModelRestart() async throws {

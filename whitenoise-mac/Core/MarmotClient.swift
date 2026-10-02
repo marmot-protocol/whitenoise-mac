@@ -90,6 +90,9 @@ nonisolated protocol MarmotRuntime: Sendable {
     func requestAutomaticAttachment(
         accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
     ) async throws -> AutomaticAttachmentRequestFfi
+    func requestExplicitAttachment(
+        accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
+    ) async throws -> String?
     func downloadAttachmentAgain(
         accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
     ) async throws -> String?
@@ -632,6 +635,12 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
     ) async throws -> AutomaticAttachmentRequestFfi {
         try await marmot.requestAutomaticAttachment(accountRef: accountRef, groupIdHex: groupIdHex, target: target)
+    }
+
+    func requestExplicitAttachment(
+        accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
+    ) async throws -> String? {
+        try await marmot.requestExplicitAttachment(accountRef: accountRef, groupIdHex: groupIdHex, target: target)
     }
 
     func downloadAttachmentAgain(
