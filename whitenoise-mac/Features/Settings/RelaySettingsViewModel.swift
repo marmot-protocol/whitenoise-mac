@@ -133,11 +133,10 @@ final class RelaySettingsViewModel {
 
     func restoreDefaults() async {
         guard isActive else { return }
-        let defaults = MarmotClient.seedRelays
         let lists = Dictionary(
             uniqueKeysWithValues: RelayRole.allCases.compactMap { role in
                 settings.relays(for: role).map(RelayURLValidator.identity)
-                    == defaults.map(RelayURLValidator.identity) ? nil : (role, defaults)
+                    == role.defaultRelays.map(RelayURLValidator.identity) ? nil : (role, role.defaultRelays)
             }
         )
         await publish(lists)

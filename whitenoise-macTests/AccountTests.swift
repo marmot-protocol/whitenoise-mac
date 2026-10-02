@@ -62,7 +62,19 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.activeAccountId == "Desktop Account")
         #expect(runtime.didStart)
         #expect(runtime.startCallCount == 1)
+        #expect(runtime.accountRelayArguments == [Self.newAccountRelayArguments])
     }
+
+    /// A new account's NIP-65 list adds general-purpose relays so other Nostr clients can use it,
+    /// while its kind-10050 inbox list keeps only the White Noise relays.
+    static let newAccountRelayArguments = FakeMarmotRuntime.AccountRelayArguments(
+        defaultRelays: [
+            "wss://relay.eu.whitenoise.chat", "wss://relay.us.whitenoise.chat",
+            "wss://nos.lol", "wss://relay.primal.net", "wss://whitenoise.nostrdev.com",
+        ],
+        bootstrapRelays: MarmotClient.seedRelays,
+        inboxRelays: MarmotClient.seedRelays
+    )
 
     @MainActor
     @Test func loginStartsRuntimeAndEntersMessengerShell() async throws {
@@ -89,6 +101,8 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.activeAccountId == "Desktop Account")
         #expect(runtime.didStart)
         #expect(runtime.startCallCount == 1)
+        // Onboarding recommends these lists when an imported identity is missing one.
+        #expect(runtime.accountRelayArguments == [Self.newAccountRelayArguments])
     }
 
     @MainActor
@@ -374,7 +388,7 @@ struct AccountTests: WorkspaceTestSupport {
     @MainActor
     @Test func completingSignUpFromThePaneOffersTheImprovementsPrompt() async throws {
         let store = FakeImprovementsPromptStore()
-        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+        let (state, runtime) = Self.improvementsPromptWorkspace(store: store)
 
         await state.bootstrap()
         state.showSignUp()
@@ -383,6 +397,7 @@ struct AccountTests: WorkspaceTestSupport {
 
         #expect(state.lastError == nil)
         #expect(state.phase == .ready)
+        #expect(runtime.accountRelayArguments == [Self.newAccountRelayArguments])
         #expect(state.isImprovementsPromptPresented)
         #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
     }

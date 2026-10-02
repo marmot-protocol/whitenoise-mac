@@ -3459,12 +3459,12 @@ struct RelaySettingsSnapshot: Equatable {
     var isComplete: Bool
 
     static let defaults = RelaySettingsSnapshot(
-        nip65: MarmotClient.seedRelays,
-        inbox: MarmotClient.seedRelays,
+        nip65: RelayRole.profile.defaultRelays,
+        inbox: RelayRole.inbox.defaultRelays,
         defaultRelays: MarmotClient.seedRelays,
         bootstrapRelays: MarmotClient.seedRelays,
-        publishedNip65: MarmotClient.seedRelays,
-        publishedInbox: MarmotClient.seedRelays,
+        publishedNip65: RelayRole.profile.defaultRelays,
+        publishedInbox: RelayRole.inbox.defaultRelays,
         missing: [],
         isComplete: true
     )

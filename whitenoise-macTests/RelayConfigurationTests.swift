@@ -193,13 +193,16 @@ import Testing
 
     // MARK: - Defaults
 
-    @Test func onlyTheSeedRelaysInBothListsCountAsTheDefaultConfiguration() {
-        #expect(snapshot(nip65: MarmotClient.seedRelays, inbox: MarmotClient.seedRelays).isDefaultRelayConfiguration)
+    @Test func onlyEachListsNewAccountRelaysCountAsTheDefaultConfiguration() {
+        #expect(snapshot(nip65: MarmotClient.accountRelays, inbox: MarmotClient.seedRelays).isDefaultRelayConfiguration)
         #expect(
-            !snapshot(nip65: MarmotClient.seedRelays, inbox: ["wss://custom.example"])
+            !snapshot(nip65: MarmotClient.seedRelays, inbox: MarmotClient.seedRelays)
                 .isDefaultRelayConfiguration)
         #expect(
-            !snapshot(nip65: MarmotClient.seedRelays.reversed(), inbox: MarmotClient.seedRelays)
+            !snapshot(nip65: MarmotClient.accountRelays, inbox: ["wss://custom.example"])
+                .isDefaultRelayConfiguration)
+        #expect(
+            !snapshot(nip65: MarmotClient.accountRelays.reversed(), inbox: MarmotClient.seedRelays)
                 .isDefaultRelayConfiguration)
     }
 

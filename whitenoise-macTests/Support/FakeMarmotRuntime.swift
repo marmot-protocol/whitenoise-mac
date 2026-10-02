@@ -1061,9 +1061,20 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func createIdentityWithProfile(defaultRelays: [String], bootstrapRelays: [String]) async throws
-        -> IdentityCreationResultFfi
-    {
+    /// The relay arguments of every account-creating call, in order: identity creation, legacy
+    /// login, and onboarding (whose `discoveryRelays` stand in for bootstrap).
+    struct AccountRelayArguments: Equatable {
+        var defaultRelays: [String]
+        var bootstrapRelays: [String]
+        var inboxRelays: [String]
+    }
+    private(set) var accountRelayArguments: [AccountRelayArguments] = []
+
+    func createIdentityWithProfile(
+        defaultRelays: [String], bootstrapRelays: [String], inboxRelays: [String]
+    ) async throws -> IdentityCreationResultFfi {
+        accountRelayArguments.append(
+            .init(defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays, inboxRelays: inboxRelays))
         guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
         await createIdentityGate.passIfArmed()
         addOrReplaceAccount(createdAccount)
@@ -1074,7 +1085,11 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         createIdentityGate.release()
     }
 
-    func login(identity: String, defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi {
+    func login(
+        identity: String, defaultRelays: [String], bootstrapRelays: [String], inboxRelays: [String]
+    ) async throws -> AccountSummaryFfi {
+        accountRelayArguments.append(
+            .init(defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays, inboxRelays: inboxRelays))
         guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
         await loginGate.passIfArmed()
         addOrReplaceAccount(createdAccount)
@@ -1082,6 +1097,10 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     }
 
     func beginOnboarding(nsec: String, options: OnboardingOptionsFfi) async throws -> OnboardingSnapshotFfi {
+        accountRelayArguments.append(
+            .init(
+                defaultRelays: options.defaultRelays, bootstrapRelays: options.discoveryRelays,
+                inboxRelays: options.inboxRelays))
         guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
         begunOnboardingIdentities.append(nsec)
         await loginGate.passIfArmed()

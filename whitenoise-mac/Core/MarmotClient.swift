@@ -15,9 +15,12 @@ nonisolated protocol MarmotRuntime: Sendable {
     func userProfile(accountIdHex: String) throws -> UserProfileMetadataFfi?
     func normalizeMemberRef(memberRef: String) throws -> MemberRefFfi
     func refreshProfile(accountIdHex: String, relays: [String]) async throws
-    func createIdentityWithProfile(defaultRelays: [String], bootstrapRelays: [String]) async throws
-        -> IdentityCreationResultFfi
-    func login(identity: String, defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi
+    func createIdentityWithProfile(
+        defaultRelays: [String], bootstrapRelays: [String], inboxRelays: [String]
+    ) async throws -> IdentityCreationResultFfi
+    func login(
+        identity: String, defaultRelays: [String], bootstrapRelays: [String], inboxRelays: [String]
+    ) async throws -> AccountSummaryFfi
     func beginOnboarding(nsec: String, options: OnboardingOptionsFfi) async throws -> OnboardingSnapshotFfi
     func beginExternalSignerOnboarding(
         publicKey: String,
@@ -330,6 +333,19 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         "wss://relay.us.whitenoise.chat",
     ]
 
+    /// General-purpose relays added to new accounts' NIP-65 (kind 10002) lists. White Noise
+    /// relays accept only the event kinds White Noise needs, so other Nostr clients need these
+    /// to publish and read the account's other events.
+    static let generalPurposeRelays: [String] = [
+        "wss://nos.lol",
+        "wss://relay.primal.net",
+        "wss://whitenoise.nostrdev.com",
+    ]
+
+    /// NIP-65 defaults for new accounts and onboarding relay repairs. The inbox (kind 10050)
+    /// list keeps `seedRelays`, passed separately as `inboxRelays`.
+    static let accountRelays: [String] = seedRelays + generalPurposeRelays
+
     let marmot: Marmot
     let rootPath: String
     var storageRootPath: String { rootPath }
@@ -387,14 +403,19 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try await marmot.refreshProfile(accountIdHex: accountIdHex, relays: relays)
     }
 
-    func createIdentityWithProfile(defaultRelays: [String], bootstrapRelays: [String]) async throws
-        -> IdentityCreationResultFfi
-    {
-        try await marmot.createIdentityWithProfile(defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays)
+    func createIdentityWithProfile(
+        defaultRelays: [String], bootstrapRelays: [String], inboxRelays: [String]
+    ) async throws -> IdentityCreationResultFfi {
+        try await marmot.createIdentityWithProfile(
+            defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays, inboxRelays: inboxRelays)
     }
 
-    func login(identity: String, defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi {
-        try await marmot.login(identity: identity, defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays)
+    func login(
+        identity: String, defaultRelays: [String], bootstrapRelays: [String], inboxRelays: [String]
+    ) async throws -> AccountSummaryFfi {
+        try await marmot.login(
+            identity: identity, defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays,
+            inboxRelays: inboxRelays)
     }
 
     func beginOnboarding(nsec: String, options: OnboardingOptionsFfi) async throws -> OnboardingSnapshotFfi {
