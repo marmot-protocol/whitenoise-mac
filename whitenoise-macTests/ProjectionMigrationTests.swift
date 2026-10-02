@@ -43,6 +43,7 @@ struct ProjectionMigrationTests {
         runtime.attachmentPolicy.automatic = false
         runtime.setupReadiness = .initializing
         runtime.explicitAttachmentRequestResult = "queued-reference"
+        runtime.attachmentTransferSnapshots = [Self.transferSnapshot(.notRequested)]
         let target = AttachmentLocalTargetFfi(
             messageIdHex: "message",
             sourceMessageIdHex: "source",
@@ -56,6 +57,49 @@ struct ProjectionMigrationTests {
         #expect(runtime.explicitAttachmentRequestTargets == [target])
         #expect(runtime.explicitAttachmentDownloadTargets.isEmpty)
         #expect(runtime.attachmentPermissionUpdates.isEmpty)
+    }
+
+    /// Shared Media observes only the first 64 loaded targets, and none before the first
+    /// snapshot, so a missing observed row must not read as live work. The tap asks the core for
+    /// the target's state: a failed attachment past the observed prefix is still rearmed.
+    @Test func explicitAttachmentTapOnAnUnobservedTargetReadsItsStateFirst() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.attachmentTransferSnapshots = [Self.transferSnapshot(.failed)]
+        let target = AttachmentLocalTargetFfi(
+            messageIdHex: "message",
+            sourceMessageIdHex: "source",
+            attachmentIndex: 70
+        )
+        let model = AttachmentViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
+        #expect(model.transfersByTarget[target] == nil)
+
+        _ = try await model.downloadExplicitly(target)
+
+        #expect(runtime.explicitAttachmentDownloadTargets == [target])
+        #expect(runtime.explicitAttachmentRequestTargets.isEmpty)
+    }
+
+    /// When the core reports no row for the target, the tap rearms rather than risk a no-op.
+    @Test func explicitAttachmentTapWithNoKnownStateRearms() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let target = AttachmentLocalTargetFfi(
+            messageIdHex: "message",
+            sourceMessageIdHex: "source",
+            attachmentIndex: 0
+        )
+        let model = AttachmentViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
+
+        _ = try await model.downloadExplicitly(target)
+
+        #expect(runtime.explicitAttachmentDownloadTargets == [target])
+        #expect(runtime.explicitAttachmentRequestTargets.isEmpty)
+    }
+
+    private static func transferSnapshot(_ state: AttachmentTransferStateFfi) -> AttachmentTransferSnapshotFfi {
+        AttachmentTransferSnapshotFfi(items: [
+            AttachmentTransferStatusFfi(
+                reference: "transfer", state: state, attempt: 2, received: 0, total: nil, retryAt: nil)
+        ])
     }
 
     /// MDK 0.12.0: a tap on live work promotes it with `requestExplicitAttachment`, which keeps its
@@ -105,12 +149,7 @@ struct ProjectionMigrationTests {
             )
         )
         runtime.attachmentLocalAssetResults = [AttachmentLocalAssetFfi(reference: nil, byteCount: 0)]
-        runtime.attachmentTransferSnapshots = [
-            AttachmentTransferSnapshotFfi(items: [
-                AttachmentTransferStatusFfi(
-                    reference: "transfer", state: state, attempt: 2, received: 0, total: nil, retryAt: nil)
-            ])
-        ]
+        runtime.attachmentTransferSnapshots = [Self.transferSnapshot(state)]
         let model = AttachmentViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
         await model.refreshHistory()
         let target = try #require(model.items.first?.target)

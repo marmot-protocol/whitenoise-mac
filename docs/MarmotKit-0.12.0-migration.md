@@ -44,7 +44,9 @@ which promotes live or not-yet-requested work without resetting its retry budget
 partial progress. MDK leaves cancelled, removed, failed and exhausted work to a deliberate
 download-again, so `AttachmentViewModel.downloadExplicitly` still calls `downloadAttachmentAgain`
 for those states (and for policy-blocked or no-longer-retained sources); otherwise the tap would do
-nothing. The overflow menu's Retry stays on `controlAttachment(.retry)`.
+nothing. It reads the target's state from the core at tap time rather than from the observed
+transfer rows, which cover only the first 64 loaded targets; an unknown state rearms. The overflow
+menu's Retry stays on `controlAttachment(.retry)`.
 
 ## Changed defaults, accepted as-is
 

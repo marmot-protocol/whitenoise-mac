@@ -122,7 +122,7 @@ final class AttachmentViewModel {
     @discardableResult
     func downloadExplicitly(_ target: AttachmentLocalTargetFfi) async throws -> String? {
         let reference =
-            if transfersByTarget[target]?.state.needsRearmToDownload == true {
+            if await currentTransferState(of: target)?.needsRearmToDownload ?? true {
                 try await runtime.downloadAttachmentAgain(
                     accountRef: accountRef, groupIdHex: groupIdHex, target: target)
             } else {
@@ -131,6 +131,21 @@ final class AttachmentViewModel {
             }
         await refreshLocalAssets()
         return reference
+    }
+
+    /// The target's state read from the core at tap time. The observed `transfersByTarget` cannot
+    /// answer this: it covers only the first 64 loaded targets and is empty until the first
+    /// snapshot arrives, and an absent row says nothing about terminal work. Falls back to the
+    /// observed row when the read fails; `nil` (unknown) is treated as needing a rearm, the
+    /// behavior every tap had before explicit requests existed.
+    private func currentTransferState(of target: AttachmentLocalTargetFfi) async -> AttachmentTransferStateFfi? {
+        if let snapshot = try? await runtime.attachmentTransferSnapshot(
+            accountRef: accountRef, groupIdHex: groupIdHex, targets: [target]),
+            snapshot.items.count == 1
+        {
+            return snapshot.items[0].state
+        }
+        return transfersByTarget[target]?.state
     }
 
     @discardableResult
