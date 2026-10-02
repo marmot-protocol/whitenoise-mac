@@ -387,8 +387,9 @@ extension WorkspaceState {
         do {
             let existingAccountLabels = Set(accounts.map(\.accountRef))
             let creation = try await client.createIdentityWithProfile(
-                defaultRelays: MarmotClient.seedRelays,
-                bootstrapRelays: MarmotClient.seedRelays
+                defaultRelays: MarmotClient.accountRelays,
+                bootstrapRelays: MarmotClient.seedRelays,
+                inboxRelays: MarmotClient.seedRelays
             )
             // MDK coalesces generated-identity calls while an earlier account is still
             // publishing. Never activate an existing identity as though this attempt created it.
@@ -430,8 +431,9 @@ extension WorkspaceState {
 
         do {
             let options = OnboardingOptionsFfi(
-                defaultRelays: MarmotClient.seedRelays,
-                discoveryRelays: MarmotClient.seedRelays
+                defaultRelays: MarmotClient.accountRelays,
+                discoveryRelays: MarmotClient.seedRelays,
+                inboxRelays: MarmotClient.seedRelays
             )
             let snapshot: OnboardingSnapshotFfi
             do {
@@ -441,8 +443,9 @@ extension WorkspaceState {
                 // Preserve their established login path; every new import uses onboarding.
                 let summary = try await client.login(
                     identity: identity,
-                    defaultRelays: MarmotClient.seedRelays,
-                    bootstrapRelays: MarmotClient.seedRelays
+                    defaultRelays: MarmotClient.accountRelays,
+                    bootstrapRelays: MarmotClient.seedRelays,
+                    inboxRelays: MarmotClient.seedRelays
                 )
                 try await bringRuntimeOnline(client)
                 try await refreshAccounts(preferred: summary)

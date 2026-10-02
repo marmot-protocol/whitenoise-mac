@@ -41,6 +41,15 @@ enum RelayRole: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// The relays a fresh account declares in this list. The NIP-65 list adds general-purpose
+    /// relays so other Nostr clients can use the account; the inbox keeps only White Noise's.
+    var defaultRelays: [String] {
+        switch self {
+        case .profile: MarmotClient.accountRelays
+        case .inbox: MarmotClient.seedRelays
+        }
+    }
+
     var label: String {
         switch self {
         case .profile: L10n.string("Profile")
@@ -309,9 +318,9 @@ extension RelaySettingsSnapshot {
     /// Whether both lists are exactly the relays a fresh account starts with, which is what
     /// makes `Restore default relays` pointless and therefore disabled.
     var isDefaultRelayConfiguration: Bool {
-        let seed = MarmotClient.seedRelays.map(RelayURLValidator.identity)
-        return RelayRole.allCases.allSatisfy { role in
-            relays(for: role).map(RelayURLValidator.identity) == seed
+        RelayRole.allCases.allSatisfy { role in
+            relays(for: role).map(RelayURLValidator.identity)
+                == role.defaultRelays.map(RelayURLValidator.identity)
         }
     }
 }

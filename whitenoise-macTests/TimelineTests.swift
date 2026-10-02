@@ -4834,6 +4834,14 @@ struct TimelineTests: WorkspaceTestSupport {
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        // Alice publishes the name the roster carries. Without it the fake answers a peer-profile
+        // read with its default "Desktop Account" profile, and a profile read that lands before
+        // the first assertion would outrank the roster name and relabel the mentions with it.
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice", displayName: "Alice", about: nil, picture: nil, nip05: nil, lud16: nil)
+        )
         let mentionTokens = MarkdownDocumentFfi(
             blocks: [
                 .paragraph(inlines: [

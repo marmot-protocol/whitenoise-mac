@@ -84,8 +84,9 @@ extension WorkspaceState {
             if signUpCreatedAccountRef == nil {
                 let existingAccountLabels = Set(accounts.map(\.accountRef))
                 let creation = try await client.createIdentityWithProfile(
-                    defaultRelays: MarmotClient.seedRelays,
-                    bootstrapRelays: MarmotClient.seedRelays
+                    defaultRelays: MarmotClient.accountRelays,
+                    bootstrapRelays: MarmotClient.seedRelays,
+                    inboxRelays: MarmotClient.seedRelays
                 )
                 // MDK coalesces a retry while secure setup is still publishing. Treat a returned
                 // pre-existing label as recovery, not as a newly-created editable identity.

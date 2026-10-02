@@ -859,9 +859,10 @@ struct SettingsTests: WorkspaceTestSupport {
         ]
 
         #expect(MarmotClient.seedRelays == defaults)
-        #expect(RelaySettingsSnapshot.defaults.nip65 == defaults)
+        // New accounts' NIP-65 list adds general-purpose relays other Nostr clients can use.
+        #expect(RelaySettingsSnapshot.defaults.nip65 == MarmotClient.accountRelays)
         #expect(RelaySettingsSnapshot.defaults.inbox == defaults)
-        #expect(RelaySettingsSnapshot.defaults.defaultRelays == defaults)
+        #expect(RelaySettingsSnapshot.defaults.defaultRelays == MarmotClient.accountRelays)
         #expect(RelaySettingsSnapshot.defaults.bootstrapRelays == defaults)
         #expect(RelayRole.allCases == [.profile, .inbox])
     }
@@ -3436,7 +3437,7 @@ struct SettingsTests: WorkspaceTestSupport {
 
         await model.restoreDefaults()
 
-        #expect(model.settings.nip65 == MarmotClient.seedRelays)
+        #expect(model.settings.nip65 == MarmotClient.accountRelays)
         #expect(model.settings.inbox == MarmotClient.seedRelays)
         #expect(model.settings.isDefaultRelayConfiguration)
     }

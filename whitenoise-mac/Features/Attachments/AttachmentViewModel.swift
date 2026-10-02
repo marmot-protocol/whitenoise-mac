@@ -116,12 +116,36 @@ final class AttachmentViewModel {
     }
 
     /// Explicit user acquisition is intentionally independent of the automatic-download fence.
+    /// A tap promotes live or not-yet-requested work without resetting its retry budget or
+    /// backoff; only a source whose work has ended is rearmed with download-again, because the
+    /// explicit request deliberately leaves that work alone and the tap would otherwise do nothing.
     @discardableResult
     func downloadExplicitly(_ target: AttachmentLocalTargetFfi) async throws -> String? {
-        let reference = try await runtime.downloadAttachmentAgain(
-            accountRef: accountRef, groupIdHex: groupIdHex, target: target)
+        let reference =
+            if await currentTransferState(of: target)?.needsRearmToDownload ?? true {
+                try await runtime.downloadAttachmentAgain(
+                    accountRef: accountRef, groupIdHex: groupIdHex, target: target)
+            } else {
+                try await runtime.requestExplicitAttachment(
+                    accountRef: accountRef, groupIdHex: groupIdHex, target: target)
+            }
         await refreshLocalAssets()
         return reference
+    }
+
+    /// The target's state read from the core at tap time. The observed `transfersByTarget` cannot
+    /// answer this: it covers only the first 64 loaded targets and is empty until the first
+    /// snapshot arrives, and an absent row says nothing about terminal work. Falls back to the
+    /// observed row when the read fails; `nil` (unknown) is treated as needing a rearm, the
+    /// behavior every tap had before explicit requests existed.
+    private func currentTransferState(of target: AttachmentLocalTargetFfi) async -> AttachmentTransferStateFfi? {
+        if let snapshot = try? await runtime.attachmentTransferSnapshot(
+            accountRef: accountRef, groupIdHex: groupIdHex, targets: [target]),
+            snapshot.items.count == 1
+        {
+            return snapshot.items[0].state
+        }
+        return transfersByTarget[target]?.state
     }
 
     @discardableResult
@@ -283,6 +307,22 @@ final class AttachmentViewModel {
                 sourceMessageIdHex: entry.sourceMessageIdHex,
                 attachmentIndex: attachmentIndex
             )
+        }
+    }
+}
+
+extension AttachmentTransferStateFfi {
+    /// Work an explicit request will not restart. MDK's attachment-access contract leaves
+    /// cancelled, removed, failed and exhausted sources to a deliberate download-again, and a
+    /// source whose bytes are gone or were blocked by policy gets no reacquisition without one.
+    var needsRearmToDownload: Bool {
+        switch self {
+        case .failed, .cancelled, .removed, .retryExhausted, .policyBlocked, .previouslyAcquiredUnavailable,
+            .completedUnretained:
+            true
+        case .unavailable, .notRequested, .queued, .downloading, .verifyingCiphertext, .decrypting,
+            .verifyingPlaintext, .ready, .retryScheduled, .paused:
+            false
         }
     }
 }

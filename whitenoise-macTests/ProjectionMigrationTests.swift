@@ -42,7 +42,8 @@ struct ProjectionMigrationTests {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.attachmentPolicy.automatic = false
         runtime.setupReadiness = .initializing
-        runtime.downloadAttachmentAgainResult = "queued-reference"
+        runtime.explicitAttachmentRequestResult = "queued-reference"
+        runtime.attachmentTransferSnapshots = [Self.transferSnapshot(.notRequested)]
         let target = AttachmentLocalTargetFfi(
             messageIdHex: "message",
             sourceMessageIdHex: "source",
@@ -53,8 +54,112 @@ struct ProjectionMigrationTests {
         let reference = try await model.downloadExplicitly(target)
 
         #expect(reference == "queued-reference")
-        #expect(runtime.explicitAttachmentDownloadTargets == [target])
+        #expect(runtime.explicitAttachmentRequestTargets == [target])
+        #expect(runtime.explicitAttachmentDownloadTargets.isEmpty)
         #expect(runtime.attachmentPermissionUpdates.isEmpty)
+    }
+
+    /// Shared Media observes only the first 64 loaded targets, and none before the first
+    /// snapshot, so a missing observed row must not read as live work. The tap asks the core for
+    /// the target's state: a failed attachment past the observed prefix is still rearmed.
+    @Test func explicitAttachmentTapOnAnUnobservedTargetReadsItsStateFirst() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.attachmentTransferSnapshots = [Self.transferSnapshot(.failed)]
+        let target = AttachmentLocalTargetFfi(
+            messageIdHex: "message",
+            sourceMessageIdHex: "source",
+            attachmentIndex: 70
+        )
+        let model = AttachmentViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
+        #expect(model.transfersByTarget[target] == nil)
+
+        _ = try await model.downloadExplicitly(target)
+
+        #expect(runtime.explicitAttachmentDownloadTargets == [target])
+        #expect(runtime.explicitAttachmentRequestTargets.isEmpty)
+    }
+
+    /// When the core reports no row for the target, the tap rearms rather than risk a no-op.
+    @Test func explicitAttachmentTapWithNoKnownStateRearms() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let target = AttachmentLocalTargetFfi(
+            messageIdHex: "message",
+            sourceMessageIdHex: "source",
+            attachmentIndex: 0
+        )
+        let model = AttachmentViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
+
+        _ = try await model.downloadExplicitly(target)
+
+        #expect(runtime.explicitAttachmentDownloadTargets == [target])
+        #expect(runtime.explicitAttachmentRequestTargets.isEmpty)
+    }
+
+    private static func transferSnapshot(_ state: AttachmentTransferStateFfi) -> AttachmentTransferSnapshotFfi {
+        AttachmentTransferSnapshotFfi(items: [
+            AttachmentTransferStatusFfi(
+                reference: "transfer", state: state, attempt: 2, received: 0, total: nil, retryAt: nil)
+        ])
+    }
+
+    /// MDK 0.12.0: a tap on live work promotes it with `requestExplicitAttachment`, which keeps its
+    /// retry budget and backoff. Only work the explicit request will not restart is rearmed with
+    /// download-again, so a tap on a failed attachment still downloads it.
+    @Test(arguments: [
+        (AttachmentTransferStateFfi.retryScheduled, false),
+        (.downloading, false),
+        (.paused, false),
+        (.failed, true),
+        (.cancelled, true),
+        (.retryExhausted, true),
+    ])
+    func explicitAttachmentTapRearmsOnlyWorkTheRequestWillNotRestart(
+        state: AttachmentTransferStateFfi, rearms: Bool
+    ) async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let reference = MediaAttachmentReferenceFfi(
+            locators: [],
+            ciphertextSha256: "ciphertext",
+            plaintextSha256: "plaintext",
+            nonceHex: "nonce",
+            fileName: "photo.jpg",
+            mediaType: "image/jpeg",
+            version: .v2,
+            sourceEpoch: 4,
+            dim: nil,
+            thumbhash: nil
+        )
+        runtime.attachmentHistoryPageResult = .page(
+            page: AttachmentPageFfi(
+                entries: [
+                    AttachmentEntryFfi(
+                        messageIdHex: "message",
+                        sourceMessageIdHex: "source",
+                        sender: "alice",
+                        timelineAt: 10,
+                        receivedAt: 10,
+                        sourceEpoch: 4,
+                        category: .image,
+                        attachment: .accepted(attachmentIndex: 0, reference: reference)
+                    )
+                ],
+                version: AttachmentHistoryVersion(noPointer: .init()),
+                nextCursor: nil,
+                hasMore: false
+            )
+        )
+        runtime.attachmentLocalAssetResults = [AttachmentLocalAssetFfi(reference: nil, byteCount: 0)]
+        runtime.attachmentTransferSnapshots = [Self.transferSnapshot(state)]
+        let model = AttachmentViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
+        await model.refreshHistory()
+        let target = try #require(model.items.first?.target)
+        let didReceiveTransfer = await waitFor { model.transfersByTarget[target]?.state == state }
+        try #require(didReceiveTransfer)
+
+        _ = try await model.downloadExplicitly(target)
+
+        #expect(runtime.explicitAttachmentDownloadTargets == (rearms ? [target] : []))
+        #expect(runtime.explicitAttachmentRequestTargets == (rearms ? [] : [target]))
     }
 
     @Test func retainedAttachmentBytesRemainDiscoverableAcrossModelRestart() async throws {
@@ -237,9 +342,11 @@ struct ProjectionMigrationTests {
                     items: [
                         // The viewer reacted but fell outside the bounded reactor preview.
                         ConversationReactionFfi(
-                            emoji: "👍", count: 5, reactors: ["alice", "bob"], viewerReacted: true),
+                            emoji: "👍", count: 5, reactors: ["alice", "bob"], viewerReacted: true,
+                            reactionMessageIdHex: nil),
                         ConversationReactionFfi(
-                            emoji: "🎉", count: 1, reactors: ["carol"], viewerReacted: false),
+                            emoji: "🎉", count: 1, reactors: ["carol"], viewerReacted: false,
+                            reactionMessageIdHex: nil),
                     ],
                     omittedKinds: 0
                 )
@@ -258,7 +365,8 @@ struct ProjectionMigrationTests {
                     totalKinds: 10,
                     items: (0..<8).map { index in
                         ConversationReactionFfi(
-                            emoji: "e\(index)", count: 1, reactors: ["r\(index)"], viewerReacted: false)
+                            emoji: "e\(index)", count: 1, reactors: ["r\(index)"], viewerReacted: false,
+                            reactionMessageIdHex: nil)
                     },
                     omittedKinds: 2
                 )
@@ -1832,13 +1940,13 @@ struct ProjectionMigrationTests {
 
 struct MarmotKitReleaseProvenanceTests {
     @Test func generatedReleaseProvenancePinsTheAuditedBuild() throws {
-        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.11.0")
-        #expect(MarmotKitVersion.mdkSHA == "946e0547485c9a2c393c2048ec3a968fd50fb441")
+        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.12.0")
+        #expect(MarmotKitVersion.mdkSHA == "122bd90ffac60bb6311346e228d0f609a18521ee")
         #expect(MarmotKitVersion.uniffiVersion == "0.29.4")
         #expect(MarmotKitVersion.features == "otlp-export,product-analytics-export")
-        #expect(MarmotKitVersion.swiftPMChecksum == "bad0475a6793cfe5787326a87456d00b80dc02d39a095da4ccc28459c310becb")
+        #expect(MarmotKitVersion.swiftPMChecksum == "344251a65ec7afcdcce8b7bb0cbf26bfcf398983a99a11bfc93181a0069621a5")
         #expect(
-            MarmotKitVersion.vendoredSwiftSHA256 == "07bd2ce60659467ecbbd9b598d71ae83cc7502fa23f8368fa9c5762e0c25c360")
+            MarmotKitVersion.vendoredSwiftSHA256 == "14546a0a018b423457ab23df43819bdf8d876069a6866ffe9052a3cce628036b")
         #expect(MarmotKitVersion.distribution == "static-library-and-privacy-v1")
         #expect(MarmotKitVersion.privacySHA256 == "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7")
         let privacyData = try #require(MarmotKitVersion.privacyManifestData())
