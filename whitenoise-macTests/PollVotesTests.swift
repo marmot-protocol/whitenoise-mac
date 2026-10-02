@@ -230,7 +230,7 @@ struct PollVotesTests: WorkspaceTestSupport {
         return snapshot
     }
 
-    @Test func aReprojectedPollRowRestartsTheListFromTheFirstPage() async throws {
+    @Test func aReprojectedPollRowRefreshesTheListWithoutBlankingIt() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.conversationWindowInitialSnapshots["group"] = Self.snapshot(sequence: 1, votes: [1, 0])
         let conversation = ConversationViewModel(
@@ -241,37 +241,137 @@ struct PollVotesTests: WorkspaceTestSupport {
             conversation.snapshot?.messages.first?.timeline.poll.map(MessagePoll.init(projection:)))
 
         runtime.pollVotePages = [
-            PollVotePageFfi(votes: [Self.vote(Self.alice, ["0"], at: 100)], hasMoreAfter: true)
+            PollVotePageFfi(votes: [Self.vote(Self.alice, ["0"], at: 100)], hasMoreAfter: true),
+            PollVotePageFfi(votes: [Self.vote(Self.bob, ["0"], at: 200)], hasMoreAfter: false),
         ]
+        // Opening the sheet starts the first read, so its first frame is already loading.
         conversation.showPollVotes(messageIdHex: "poll", poll: shown)
         let sheet = try #require(conversation.pollVotes)
-        await sheet.reload().value
+        #expect(sheet.isLoading)
+        #expect(!sheet.showsNoVotes)
+        await Self.waitUntil { sheet.hasLoaded && !sheet.isLoading }
         try await #require(sheet.loadMore()).value
+        #expect(sheet.votes.map(\.voterAccountIdHex) == [Self.alice, Self.bob])
         #expect(runtime.pollVotesRequests.count == 2)
 
-        // A snapshot that carries the row unchanged leaves the list alone.
+        // The refresh is held so the list can be checked while it runs.
+        let gate = BlockingFfiGate()
+        gate.isEnabled = true
+        runtime.pollVotesGates = [BlockingFfiGate(), BlockingFfiGate(), gate]
         runtime.pollVotePages = [
             PollVotePageFfi(
-                votes: [Self.vote(Self.alice, ["0"], at: 100), Self.vote(Self.bob, ["1"], at: 200)],
+                votes: [Self.vote(Self.alice, ["0"], at: 100), Self.vote(Self.carol, ["1"], at: 300)],
                 hasMoreAfter: false
             )
         ]
+        // A snapshot that carries the row unchanged leaves the list alone; a changed one refreshes.
         runtime.conversationWindowUpdates["group"] = [
             Self.snapshot(sequence: 2, votes: [1, 0]),
             Self.snapshot(sequence: 3, votes: [1, 1]),
         ]
         conversation.start(mode: .latest)
-        await Self.waitUntil { runtime.pollVotesRequests.count >= 3 && !sheet.isLoading }
+        await Self.waitUntil { gate.didReach }
+
+        #expect(sheet.votes.map(\.voterAccountIdHex) == [Self.alice, Self.bob])
+        #expect(sheet.poll?.options.map(\.votes) == [1, 1])
+
+        gate.release()
+        await Self.waitUntil { !sheet.isLoading }
 
         #expect(runtime.pollVotesRequests.count == 3)
         #expect(runtime.pollVotesRequests.last?.afterVotedAt == nil)
-        #expect(runtime.pollVotesRequests.last?.afterVoterAccountIdHex == nil)
-        #expect(sheet.poll?.options.map(\.votes) == [1, 1])
-        #expect(sheet.votes.map(\.voterAccountIdHex) == [Self.alice, Self.bob])
+        #expect(runtime.pollVotesRequests.last?.limit == UInt32(PollVotesPresentation.defaultPageSize))
+        #expect(sheet.votes.map(\.voterAccountIdHex) == [Self.alice, Self.carol])
 
         conversation.dismissPollVotes()
         #expect(conversation.pollVotes == nil)
         conversation.stop()
+    }
+
+    /// Two voters swapping options can leave the poll's row, tally included, exactly as it was, so
+    /// the row alone cannot say the list is stale. A poll response received in the group does.
+    @Test func aPollResponseInTheGroupRefreshesTheList() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.pollVotePages = [
+            PollVotePageFfi(votes: [Self.vote(Self.alice, ["0"], at: 100)], hasMoreAfter: false),
+            PollVotePageFfi(votes: [Self.vote(Self.alice, ["1"], at: 400)], hasMoreAfter: false),
+        ]
+        let model = Self.model(runtime: runtime)
+        model.start()
+        await Self.waitUntil { model.hasLoaded && !model.isLoading }
+
+        runtime.eventHub.emit(Self.received(kind: 1018, groupIdHex: "elsewhere"))
+        runtime.eventHub.emit(Self.received(kind: 9, groupIdHex: "group"))
+        runtime.eventHub.emit(Self.received(kind: 1018, groupIdHex: "GROUP"))
+        await Self.waitUntil { runtime.pollVotesRequests.count == 2 && !model.isLoading }
+
+        #expect(model.votes.map(\.optionIds) == [["1"]])
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(runtime.pollVotesRequests.count == 2)
+        model.cancel()
+    }
+
+    @Test func aFailedRefreshKeepsTheListAndRetryRepeatsIt() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.pollVotePages = [
+            PollVotePageFfi(votes: [Self.vote(Self.alice, ["0"], at: 100)], hasMoreAfter: false),
+            PollVotePageFfi(votes: [Self.vote(Self.bob, ["1"], at: 200)], hasMoreAfter: false),
+        ]
+        let model = Self.model(runtime: runtime)
+        await model.reload().value
+
+        runtime.pollVotesError = PollVotesReadFailure()
+        await model.refresh()?.value
+        #expect(model.failed)
+        #expect(model.votes.map(\.voterAccountIdHex) == [Self.alice])
+        #expect(!model.showsNoVotes)
+
+        runtime.pollVotesError = nil
+        try await #require(model.retry()).value
+
+        #expect(!model.failed)
+        #expect(model.votes.map(\.voterAccountIdHex) == [Self.bob])
+        #expect(runtime.pollVotesRequests.last?.afterVotedAt == nil)
+    }
+
+    @Test func noVotesYetOnlyOnceAReadHasSaidSo() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let gate = BlockingFfiGate()
+        gate.isEnabled = true
+        runtime.pollVotesGates = [gate]
+        let model = Self.model(runtime: runtime)
+        #expect(!model.showsNoVotes)
+
+        let first = model.reload()
+        await Self.waitUntil { gate.didReach }
+        #expect(!model.showsNoVotes)
+        gate.release()
+        await first.value
+
+        #expect(model.showsNoVotes)
+    }
+
+    private static func received(kind: UInt64, groupIdHex: String) -> MarmotEventFfi {
+        .messageReceived(
+            received: RuntimeMessageReceivedFfi(
+                accountIdHex: "account",
+                accountLabel: "account",
+                message: ReceivedMessageFfi(
+                    messageIdHex: "response",
+                    groupIdHex: groupIdHex,
+                    sender: bob,
+                    senderDisplayName: nil,
+                    plaintext: "",
+                    contentTokens: emptyMarkdownDocument(),
+                    kind: kind,
+                    tags: [MessageTagFfi(values: ["e", "poll"])],
+                    sourceEpoch: 1,
+                    retentionSeconds: nil,
+                    retentionExpiresAt: nil,
+                    recordedAt: 400,
+                    receivedAt: 400
+                )
+            ))
     }
 }
 

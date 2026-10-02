@@ -71,7 +71,7 @@ struct PollVotesSheet: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     if model.votes.isEmpty {
-                        if !model.isLoading, !model.failed {
+                        if model.showsNoVotes {
                             Text(L10n.string("No votes yet."))
                                 .wnFont(.medium12)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
@@ -89,7 +89,6 @@ struct PollVotesSheet: View {
         }
         .frame(width: 380)
         .frame(minHeight: 360, idealHeight: 480)
-        .onAppear { model.reload() }
         .onDisappear { model.cancel() }
     }
 }
@@ -251,8 +250,10 @@ private struct PollVotesPagingFooter: View {
         ],
         hasMoreAfter: false
     )
-    PollVotesSheet(
-        model: PollVotesViewModel(pollEventId: "poll", poll: poll) { _, _ in page },
+    let model = PollVotesViewModel(pollEventId: "poll", poll: poll) { _, _ in page }
+    model.start()
+    return PollVotesSheet(
+        model: model,
         blockedAccountIDs: [String(repeating: "c", count: 64)],
         voterDisplay: { accountIdHex in
             WorkspaceState.ReactionReactorDisplay(

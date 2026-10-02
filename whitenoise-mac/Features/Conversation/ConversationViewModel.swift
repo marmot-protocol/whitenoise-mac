@@ -393,13 +393,17 @@ final class ConversationViewModel {
     func showPollVotes(messageIdHex: String, poll: MessagePoll) {
         pollVotes?.cancel()
         pollVotesRecord = snapshot?.messages.first { $0.timeline.messageIdHex == messageIdHex }?.timeline
-        pollVotes = PollVotesViewModel(
+        let model = PollVotesViewModel(
             accountRef: account.accountRef,
             groupIdHex: groupIdHex,
             pollEventId: messageIdHex,
             poll: poll,
             runtime: runtime
         )
+        // Started before the sheet is presented, so its first frame shows the read in flight
+        // rather than an empty list.
+        model.start()
+        pollVotes = model
     }
 
     func dismissPollVotes() {
@@ -576,9 +580,10 @@ final class ConversationViewModel {
         }
     }
 
-    /// Restarts the open "View votes" list when this snapshot carries its poll's row and the row
+    /// Refreshes the open "View votes" list when this snapshot carries its poll's row and the row
     /// changed. A snapshot whose window no longer holds the row says nothing about it, so the list
-    /// stays as it is.
+    /// stays as it is. An unchanged row can still hide a change in who voted for what (two voters
+    /// swapping options), which the model's own poll-response observation covers.
     private func reprojectPollVotes(in snapshot: ConversationWindowSnapshotFfi) {
         guard let pollVotes,
             let record = snapshot.messages.first(where: { $0.timeline.messageIdHex == pollVotes.pollEventId })?
