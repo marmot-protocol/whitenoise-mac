@@ -426,6 +426,8 @@ private struct ConversationView: View {
     @State private var isComposerEmojiPickerPresented = false
     @State private var composerEmojiInsertion: ComposerEmojiInsertion?
     @State private var composerMentionContext: ComposerMentionContext?
+    /// The picker row Tab or Return would take. Back to the top whenever the "@query" changes.
+    @State private var mentionHighlightIndex = 0
     @State private var composerMentionInsertion: ComposerMentionInsertion?
     @State private var imageGallery: MessageImageGalleryPresentation?
     /// Hover-scoped text-selection gate for chat bubbles. Not read by `body` — bubbles
@@ -754,6 +756,12 @@ private struct ConversationView: View {
         )
     }
 
+    /// The highlight, clamped to `candidates` — a roster that loads under an unchanged query can
+    /// shrink the list beneath it.
+    private func highlightedMentionIndex(in candidates: [ComposerMentionCandidate]) -> Int {
+        min(mentionHighlightIndex, max(candidates.count - 1, 0))
+    }
+
     /// Replaces the open "@query" with `candidate`, whether it was clicked in the picker or taken
     /// with Tab or Return. Returns false when there is no draft to insert into.
     @discardableResult
@@ -794,7 +802,11 @@ private struct ConversationView: View {
         if let context = composerMentionContext {
             let candidates = mentionCandidates(for: context)
             if !candidates.isEmpty {
-                ComposerMentionPicker(candidates: candidates) { candidate in
+                ComposerMentionPicker(
+                    candidates: candidates,
+                    highlightedIndex: highlightedMentionIndex(in: candidates),
+                    onHighlight: { mentionHighlightIndex = $0 }
+                ) { candidate in
                     insertMention(candidate, for: context)
                 }
                 .padding(.bottom, 6)
@@ -880,16 +892,26 @@ private struct ConversationView: View {
                     mentionSelections: $workspace.composerMentionSelections,
                     mentionContextScope: workspace.selectedComposerDraftKey,
                     onMentionContextChange: { context in
+                        if context != composerMentionContext {
+                            mentionHighlightIndex = 0
+                        }
                         composerMentionContext = context
                         if context != nil {
                             workspace.ensureMentionRosterLoaded()
                         }
                     },
-                    onMentionAccept: {
-                        guard let context = composerMentionContext,
-                            let candidate = mentionCandidates(for: context).first
-                        else { return false }
-                        return insertMention(candidate, for: context)
+                    onMentionCommand: { command in
+                        guard let context = composerMentionContext else { return false }
+                        let candidates = mentionCandidates(for: context)
+                        guard !candidates.isEmpty else { return false }
+                        let index = highlightedMentionIndex(in: candidates)
+                        if command == .accept {
+                            return insertMention(candidates[index], for: context)
+                        }
+                        // The arrows stay consumed at either end, so the caret never jumps
+                        // while the picker is showing.
+                        mentionHighlightIndex = command.movingHighlight(index, among: candidates.count)
+                        return true
                     },
                     onPasteMedia: { attachments in
                         guard workspace.editingMessageContext == nil else { return }

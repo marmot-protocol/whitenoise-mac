@@ -240,43 +240,6 @@ struct SemanticPaletteTests {
         }
     }
 
-    /// A mention is one color for everybody — the app's single blue, shared with a link and a
-    /// search hit — so the first half of this pins its two steps. Blue is now confined to text:
-    /// the badges that used to carry it are `fillPrimary`, and a blue that stopped stepping
-    /// brighter in dark is the regression worth catching.
-    ///
-    /// The second half is what a per-person accent used to buy: a mention lands on the sent
-    /// bubble, the received bubble and the composer without knowing which, and both bubble fills
-    /// cross over between the appearances. This token crosses over too, and the right way round —
-    /// the darker `600` step falls in Aqua, where the sent bubble is near-black, and the brighter
-    /// `500` in Dark Aqua, where it is white. The floor is 3:1, the WCAG threshold for the bold
-    /// weight a mention is always drawn at; pinning the token to a single step fails it (`blue600`
-    /// everywhere lands at 2.93 on the dark received bubble).
-    @Test func mentionColorIsTheAppsOneBlueAndClearsEverySurfaceItLandsOn() throws {
-        let surfaces = [
-            ("sent bubble", WNNSColor.fillPrimary),
-            ("received bubble", WNNSColor.backgroundMessageIncoming),
-            ("composer", WNNSColor.backgroundPrimary),
-        ]
-
-        let steps = try Self.appearances().map {
-            try Self.resolvedHex(MentionTextPalette.nsForeground, in: $0)
-        }
-        #expect(
-            steps == ["2563EB", "3B82F6"],
-            "the mention blue should be blue600 in Aqua and the brighter blue500 in Dark Aqua")
-
-        for appearance in try Self.appearances() {
-            for (surfaceName, surface) in surfaces {
-                let ratio = try Self.contrast(surface, MentionTextPalette.nsForeground, in: appearance)
-                #expect(
-                    ratio >= 3,
-                    "mention on the \(surfaceName) is \(ratio) in \(appearance.name.rawValue)"
-                )
-            }
-        }
-    }
-
     // MARK: - Reactions
 
     /// A reaction chip hangs off a bubble's bottom edge, so it is drawn on `fillPrimary` or on

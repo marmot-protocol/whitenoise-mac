@@ -62,6 +62,24 @@ struct ComposerMentionContext: Equatable {
     let tokenRange: NSRange
 }
 
+/// A key the text view hands the mention picker while an "@query" is open: Tab or Return takes
+/// the highlighted candidate, and the arrows move the highlight.
+nonisolated enum ComposerMentionCommand: Equatable {
+    case accept
+    case moveUp
+    case moveDown
+
+    /// Where the highlight lands after this key among `count` rows. The arrows stop at either
+    /// end rather than wrapping.
+    func movingHighlight(_ index: Int, among count: Int) -> Int {
+        switch self {
+        case .accept: index
+        case .moveUp: max(index - 1, 0)
+        case .moveDown: min(index + 1, count - 1)
+        }
+    }
+}
+
 /// A caret-preserving mention insertion the text view applies on the next update, mirroring
 /// `ComposerEmojiInsertion` but replacing the "@query" token rather than the current selection.
 struct ComposerMentionInsertion: Equatable {
@@ -97,9 +115,9 @@ struct ComposerMessageInputView: View {
     @Binding var mentionSelections: [ComposerMentionSelection]
     let mentionContextScope: WorkspaceState.ComposerDraftKey?
     let onMentionContextChange: (ComposerMentionContext?) -> Void
-    /// Accepts the picker's top candidate for the open "@query". Returns whether one was taken,
-    /// so Tab and Return keep their ordinary meaning when there is nothing to complete.
-    let onMentionAccept: () -> Bool
+    /// Applies a picker key to the open "@query". Returns whether it was handled, so Tab, Return
+    /// and the arrows keep their ordinary meaning when there is nothing to complete.
+    let onMentionCommand: (ComposerMentionCommand) -> Bool
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
     var focusRequestID: UUID?
@@ -119,7 +137,7 @@ struct ComposerMessageInputView: View {
                 mentionSelections: $mentionSelections,
                 mentionContextScope: mentionContextScope,
                 onMentionContextChange: onMentionContextChange,
-                onMentionAccept: onMentionAccept,
+                onMentionCommand: onMentionCommand,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend,
                 focusRequestID: focusRequestID,
@@ -145,18 +163,24 @@ private enum ComposerMessageInputMetrics {
 }
 
 /// Autocomplete list of mentionable group members, shown above the composer while an "@query"
-/// is open. Click a row, or press Tab or Return to take the top one; the caret stays in the text
-/// field.
+/// is open. One row is always highlighted — the top one to begin with; Up, Down and the pointer
+/// move it. Click a row, or press Tab or Return to take the highlighted one; the caret stays in
+/// the text field.
 struct ComposerMentionPicker: View {
     let candidates: [ComposerMentionCandidate]
+    let highlightedIndex: Int
+    let onHighlight: (Int) -> Void
     let onSelect: (ComposerMentionCandidate) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(candidates) { candidate in
-                ComposerMentionRow(candidate: candidate) {
-                    onSelect(candidate)
-                }
+            ForEach(Array(candidates.enumerated()), id: \.element.id) { index, candidate in
+                ComposerMentionRow(
+                    candidate: candidate,
+                    isHighlighted: index == highlightedIndex,
+                    onHover: { onHighlight(index) },
+                    onSelect: { onSelect(candidate) }
+                )
                 if candidate.id != candidates.last?.id {
                     Divider().padding(.leading, 44)
                 }
@@ -175,9 +199,9 @@ struct ComposerMentionPicker: View {
 
 private struct ComposerMentionRow: View {
     let candidate: ComposerMentionCandidate
+    let isHighlighted: Bool
+    let onHover: () -> Void
     let onSelect: () -> Void
-
-    @State private var isHovered = false
 
     private var shortNpub: String? {
         candidate.npub.isEmpty ? nil : DisplayText.short(candidate.npub)
@@ -213,7 +237,8 @@ private struct ComposerMentionRow: View {
             .padding(.vertical, 5)
             .contentShape(Rectangle())
             .background {
-                if isHovered {
+                // The same fill a selected chat takes in the sidebar (`MessagesSidebarRowBackground`).
+                if isHighlighted {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(WNColor.fillTertiaryHover)
                         .padding(.horizontal, 4)
@@ -221,8 +246,34 @@ private struct ComposerMentionRow: View {
             }
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
+        .onHover { if $0 { onHover() } }
+        .accessibilityAddTraits(isHighlighted ? .isSelected : [])
     }
+}
+
+#Preview("Mention picker") {
+    @Previewable @State var highlightedIndex = 0
+    let candidates = ["Alice", "Bob", "Carol"].enumerated().map { index, name in
+        ComposerMentionCandidate(
+            details: GroupMemberDetailsFfi(
+                memberIdHex: String(repeating: "\(index + 1)", count: 64),
+                account: nil,
+                local: false,
+                isAdmin: false,
+                isSelf: false,
+                npub: "npub1\(name.lowercased())",
+                displayName: name
+            )
+        )
+    }
+    ComposerMentionPicker(
+        candidates: candidates,
+        highlightedIndex: highlightedIndex,
+        onHighlight: { highlightedIndex = $0 },
+        onSelect: { _ in }
+    )
+    .frame(width: 280)
+    .padding()
 }
 
 nonisolated enum ComposerReturnKeyAction: Equatable {
@@ -257,9 +308,9 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     @Binding var mentionSelections: [ComposerMentionSelection]
     let mentionContextScope: WorkspaceState.ComposerDraftKey?
     let onMentionContextChange: (ComposerMentionContext?) -> Void
-    /// Accepts the picker's top candidate for the open "@query". Returns whether one was taken,
-    /// so Tab and Return keep their ordinary meaning when there is nothing to complete.
-    let onMentionAccept: () -> Bool
+    /// Applies a picker key to the open "@query". Returns whether it was handled, so Tab, Return
+    /// and the arrows keep their ordinary meaning when there is nothing to complete.
+    let onMentionCommand: (ComposerMentionCommand) -> Bool
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
     /// A pending request moves keyboard focus into the text view, caret at the end of the draft,
@@ -292,7 +343,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             onPasteMedia: onPasteMedia,
             onSend: onSend,
             onMentionContextChange: onMentionContextChange,
-            onMentionAccept: onMentionAccept
+            onMentionCommand: onMentionCommand
         )
     }
 
@@ -343,11 +394,12 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         context.coordinator.onMentionInsertionConsumed = onMentionInsertionConsumed
         context.coordinator.mentionSelections = $mentionSelections
         context.coordinator.onMentionContextChange = onMentionContextChange
-        context.coordinator.onMentionAccept = onMentionAccept
+        context.coordinator.onMentionCommand = onMentionCommand
 
         guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
         configureHandlers(for: textView, coordinator: context.coordinator)
-        textView.font = WNNSFont.font(for: Self.typingStyle)
+        // No `textView.font =` here: the setter re-fonts the whole storage, which strips a draft
+        // mention's bold on every SwiftUI update. `makeNSView` sets the typing font once.
         if textView.string != text {
             textView.string = text
         }
@@ -384,7 +436,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         var onEmojiInsertionConsumed: (UUID) -> Void
         var onMentionInsertionConsumed: (UUID) -> Void
         var onMentionContextChange: (ComposerMentionContext?) -> Void
-        var onMentionAccept: () -> Bool
+        var onMentionCommand: (ComposerMentionCommand) -> Bool
         private var lastEmojiInsertionID: UUID?
         /// Dedupes the focus attempt already queued for this update pass; cleared when it runs,
         /// so a request that could not be applied is retried on the next update.
@@ -404,7 +456,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             onEmojiInsertionConsumed: @escaping (UUID) -> Void = { _ in },
             onMentionInsertionConsumed: @escaping (UUID) -> Void = { _ in },
             onMentionContextChange: @escaping (ComposerMentionContext?) -> Void = { _ in },
-            onMentionAccept: @escaping () -> Bool = { false }
+            onMentionCommand: @escaping (ComposerMentionCommand) -> Bool = { _ in false }
         ) {
             self.text = text
             self.measuredHeight = measuredHeight
@@ -415,7 +467,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             self.onEmojiInsertionConsumed = onEmojiInsertionConsumed
             self.onMentionInsertionConsumed = onMentionInsertionConsumed
             self.onMentionContextChange = onMentionContextChange
-            self.onMentionAccept = onMentionAccept
+            self.onMentionCommand = onMentionCommand
         }
 
         func scheduleEmojiInsertion(_ insertion: ComposerEmojiInsertion?, into textView: NSTextView) {
@@ -520,26 +572,32 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             publishMentionContext(for: textView)
         }
 
-        /// Tab completes an open "@query" with the picker's top candidate. Only when there is
-        /// something to complete is the key consumed; otherwise the text view inserts its tab as
-        /// before. Arrives as a command, so it never fires mid-composition — the input context
-        /// keeps Tab while text is marked.
+        private static let mentionCommands: [Selector: ComposerMentionCommand] = [
+            #selector(NSResponder.insertTab(_:)): .accept,
+            #selector(NSResponder.moveUp(_:)): .moveUp,
+            #selector(NSResponder.moveDown(_:)): .moveDown,
+        ]
+
+        /// Tab completes an open "@query" with the highlighted candidate, and Up and Down move the
+        /// highlight. Only when the picker is showing is the key consumed; otherwise the text view
+        /// inserts its tab or moves the caret as before. Arrives as a command, so it never fires
+        /// mid-composition — the input context keeps these keys while text is marked.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard commandSelector == #selector(NSResponder.insertTab(_:)) else { return false }
-            return acceptOpenMention(in: textView)
+            guard let command = Self.mentionCommands[commandSelector] else { return false }
+            return applyMentionCommand(command, in: textView)
         }
 
         /// The send shortcut. While an "@query" is open and has a candidate, Return completes the
         /// mention instead — a lone "@" must not go out as the message. Otherwise it sends.
         func handleReturnKeySend(in textView: NSTextView) {
-            guard !acceptOpenMention(in: textView) else { return }
+            guard !applyMentionCommand(.accept, in: textView) else { return }
             onSend()
         }
 
-        private func acceptOpenMention(in textView: NSTextView) -> Bool {
+        private func applyMentionCommand(_ command: ComposerMentionCommand, in textView: NSTextView) -> Bool {
             publishMentionContext(for: textView)
             guard lastMentionContext != nil else { return false }
-            return onMentionAccept()
+            return onMentionCommand(command)
         }
 
         /// Recompute the open mention query left of the caret and forward it upward when it
@@ -623,12 +681,11 @@ enum ComposerMentionMarkerStore {
         guard isExact(selection, in: textView.string), let storage = textView.textStorage else { return }
         storage.addAttribute(.composerMentionNpub, value: selection.npub, range: selection.range)
         storage.addAttribute(.composerMentionDisplayText, value: selection.displayText, range: selection.range)
-        // The same treatment a rendered mention gets — bold, in the app's one blue — so a token
-        // looks the same while you are typing it as it will once it is sent. See
-        // `MentionTextPalette`.
+        // The same treatment a rendered mention gets — bold, in the surrounding content color —
+        // so a token looks the same while you are typing it as it will once it is sent.
         storage.addAttribute(
             .foregroundColor,
-            value: MentionTextPalette.nsForeground,
+            value: WNNSColor.backgroundContentPrimary,
             range: selection.range
         )
         storage.addAttribute(

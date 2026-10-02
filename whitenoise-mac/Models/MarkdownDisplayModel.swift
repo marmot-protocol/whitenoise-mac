@@ -500,8 +500,11 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         }
         if let link {
             attributed.link = link.url
+            // A link is the one run that keeps the app's blue; everything else in a bubble,
+            // mentions included, takes the bubble's own content color through its tint.
             if link.presentation == .underlined {
                 attributed.underlineStyle = .single
+                attributed.foregroundColor = WNColor.intentionInfoContent
             }
         }
         return attributed
@@ -536,13 +539,10 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 MarkdownDisplayLink(url: $0, presentation: presentation)
             }
         )
-        // A mention is set off by weight plus the app's one blue — the same signal the unread
-        // badge and the pending-invite `+` carry, and the reason it needs no knowledge of the
-        // fill it lands on. It applies to every mention, an `nprofile` included: the color marks
-        // a tag rather than identifying which person is tagged. See `MentionTextPalette`.
+        // A mention is set off by weight alone and carries no color of its own, so it draws in
+        // the bubble's content color as on iOS — an `nprofile` included.
         if presentation == .mention {
             attributed.inlinePresentationIntent = intent.union(.stronglyEmphasized)
-            attributed.foregroundColor = MentionTextPalette.foreground
         }
         return attributed
     }
