@@ -237,9 +237,11 @@ struct ProjectionMigrationTests {
                     items: [
                         // The viewer reacted but fell outside the bounded reactor preview.
                         ConversationReactionFfi(
-                            emoji: "👍", count: 5, reactors: ["alice", "bob"], viewerReacted: true),
+                            emoji: "👍", count: 5, reactors: ["alice", "bob"], viewerReacted: true,
+                            reactionMessageIdHex: nil),
                         ConversationReactionFfi(
-                            emoji: "🎉", count: 1, reactors: ["carol"], viewerReacted: false),
+                            emoji: "🎉", count: 1, reactors: ["carol"], viewerReacted: false,
+                            reactionMessageIdHex: nil),
                     ],
                     omittedKinds: 0
                 )
@@ -258,7 +260,8 @@ struct ProjectionMigrationTests {
                     totalKinds: 10,
                     items: (0..<8).map { index in
                         ConversationReactionFfi(
-                            emoji: "e\(index)", count: 1, reactors: ["r\(index)"], viewerReacted: false)
+                            emoji: "e\(index)", count: 1, reactors: ["r\(index)"], viewerReacted: false,
+                            reactionMessageIdHex: nil)
                     },
                     omittedKinds: 2
                 )
@@ -1832,13 +1835,13 @@ struct ProjectionMigrationTests {
 
 struct MarmotKitReleaseProvenanceTests {
     @Test func generatedReleaseProvenancePinsTheAuditedBuild() throws {
-        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.11.0")
-        #expect(MarmotKitVersion.mdkSHA == "946e0547485c9a2c393c2048ec3a968fd50fb441")
+        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.12.0")
+        #expect(MarmotKitVersion.mdkSHA == "122bd90ffac60bb6311346e228d0f609a18521ee")
         #expect(MarmotKitVersion.uniffiVersion == "0.29.4")
         #expect(MarmotKitVersion.features == "otlp-export,product-analytics-export")
-        #expect(MarmotKitVersion.swiftPMChecksum == "bad0475a6793cfe5787326a87456d00b80dc02d39a095da4ccc28459c310becb")
+        #expect(MarmotKitVersion.swiftPMChecksum == "344251a65ec7afcdcce8b7bb0cbf26bfcf398983a99a11bfc93181a0069621a5")
         #expect(
-            MarmotKitVersion.vendoredSwiftSHA256 == "07bd2ce60659467ecbbd9b598d71ae83cc7502fa23f8368fa9c5762e0c25c360")
+            MarmotKitVersion.vendoredSwiftSHA256 == "14546a0a018b423457ab23df43819bdf8d876069a6866ffe9052a3cce628036b")
         #expect(MarmotKitVersion.distribution == "static-library-and-privacy-v1")
         #expect(MarmotKitVersion.privacySHA256 == "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7")
         let privacyData = try #require(MarmotKitVersion.privacyManifestData())
