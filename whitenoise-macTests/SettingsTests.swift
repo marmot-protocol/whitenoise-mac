@@ -862,7 +862,7 @@ struct SettingsTests: WorkspaceTestSupport {
         // New accounts' NIP-65 list adds general-purpose relays other Nostr clients can use.
         #expect(RelaySettingsSnapshot.defaults.nip65 == MarmotClient.accountRelays)
         #expect(RelaySettingsSnapshot.defaults.inbox == defaults)
-        #expect(RelaySettingsSnapshot.defaults.defaultRelays == defaults)
+        #expect(RelaySettingsSnapshot.defaults.defaultRelays == MarmotClient.accountRelays)
         #expect(RelaySettingsSnapshot.defaults.bootstrapRelays == defaults)
         #expect(RelayRole.allCases == [.profile, .inbox])
     }

@@ -398,6 +398,8 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.lastError == nil)
         #expect(state.phase == .ready)
         #expect(runtime.accountRelayArguments == [Self.newAccountRelayArguments])
+        // The profile the user typed replaces identity creation's kind 0 on every NIP-65 relay.
+        #expect(runtime.lastPublishedProfileDefaultRelays == MarmotClient.accountRelays)
         #expect(state.isImprovementsPromptPresented)
         #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
     }

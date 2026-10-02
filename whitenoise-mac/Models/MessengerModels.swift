@@ -3461,7 +3461,9 @@ struct RelaySettingsSnapshot: Equatable {
     static let defaults = RelaySettingsSnapshot(
         nip65: RelayRole.profile.defaultRelays,
         inbox: RelayRole.inbox.defaultRelays,
-        defaultRelays: MarmotClient.seedRelays,
+        // The account's publish set mirrors its NIP-65 list, so a profile published before the
+        // lists load (sign-up's first kind 0) reaches the same relays identity creation used.
+        defaultRelays: RelayRole.profile.defaultRelays,
         bootstrapRelays: MarmotClient.seedRelays,
         publishedNip65: RelayRole.profile.defaultRelays,
         publishedInbox: RelayRole.inbox.defaultRelays,
