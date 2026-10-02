@@ -21,13 +21,15 @@ struct MarkdownMessageView: View {
 
     var body: some View {
         if let inlineParagraph = message.contentMarkdown?.inlineParagraph {
-            textWithMetadata(CustomEmojiTextBuilder.text(inlineParagraph, glyphs: customEmoji))
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
+            MessageLinkText(
+                text: inlineParagraph, layoutID: "inline", trailing: trailingMetadata, glyphs: customEmoji
+            )
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
         } else if let document = message.contentMarkdown {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(document.blocks) { block in
-                    MarkdownBlockView(block: block.block)
+                    MarkdownBlockView(block: block.block, layoutID: "\(block.id)")
                 }
                 if document.truncated {
                     Text(L10n.string("… (message truncated)"))
@@ -60,14 +62,16 @@ struct MarkdownMessageView: View {
 
 private struct MarkdownBlockView: View {
     let block: MarkdownDisplayBlock
+    /// This block's path from the top of the message, e.g. `2.l0.1` — see `MessageLinkText`.
+    let layoutID: String
 
     var body: some View {
         switch block {
         case .paragraph(let text):
-            MarkdownInlineText(text: text)
+            MarkdownInlineText(text: text, layoutID: layoutID)
 
         case .heading(let level, let text):
-            MarkdownInlineText(text: text)
+            MarkdownInlineText(text: text, layoutID: layoutID)
                 .wnFont(Self.headingStyle(for: level))
 
         case .thematicBreak:
@@ -83,17 +87,17 @@ private struct MarkdownBlockView: View {
                     .frame(width: 3)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(blocks) { inner in
-                        MarkdownBlockView(block: inner.block)
+                        MarkdownBlockView(block: inner.block, layoutID: "\(layoutID).q\(inner.id)")
                     }
                 }
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
         case .list(let items):
-            MarkdownListView(items: items)
+            MarkdownListView(items: items, layoutID: layoutID)
 
         case .table(let header, let rows):
-            MarkdownTableView(header: header, rows: rows)
+            MarkdownTableView(header: header, rows: rows, layoutID: layoutID)
 
         case .mathBlock(let content):
             MarkdownCodeBlock(content: content)
@@ -117,10 +121,11 @@ private struct MarkdownBlockView: View {
 private struct MarkdownInlineText: View {
     @Environment(\.customEmojiGlyphs) private var customEmoji
     let text: AttributedString
+    let layoutID: String
 
     var body: some View {
         // No `.textSelection(.enabled)` — see the note in MarkdownMessageView.body.
-        CustomEmojiTextBuilder.text(text, glyphs: customEmoji)
+        MessageLinkText(text: text, layoutID: layoutID, glyphs: customEmoji)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -168,6 +173,7 @@ private struct MarkdownCodeBlock: View {
 
 private struct MarkdownListView: View {
     let items: [MarkdownDisplayListItem]
+    let layoutID: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -177,7 +183,8 @@ private struct MarkdownListView: View {
                         .frame(minWidth: 16, alignment: .trailing)
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(item.blocks) { block in
-                            MarkdownBlockView(block: block.block)
+                            MarkdownBlockView(
+                                block: block.block, layoutID: "\(layoutID).l\(item.id).\(block.id)")
                         }
                     }
                 }
@@ -203,19 +210,21 @@ private struct MarkdownListView: View {
 private struct MarkdownTableView: View {
     let header: [MarkdownDisplayTableCell]
     let rows: [MarkdownDisplayTableRow]
+    let layoutID: String
 
     var body: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 4) {
             GridRow {
                 ForEach(header) { cell in
-                    MarkdownInlineText(text: cell.text).wnFont(.semiBold16)
+                    MarkdownInlineText(text: cell.text, layoutID: "\(layoutID).h\(cell.id)")
+                        .wnFont(.semiBold16)
                 }
             }
             Divider()
             ForEach(rows) { row in
                 GridRow {
                     ForEach(row.cells) { cell in
-                        MarkdownInlineText(text: cell.text)
+                        MarkdownInlineText(text: cell.text, layoutID: "\(layoutID).r\(row.id).\(cell.id)")
                     }
                 }
             }
