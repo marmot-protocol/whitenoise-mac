@@ -12,6 +12,8 @@ struct PollMessageRow: View {
     /// Nil when this account cannot vote here — the composer is closed, or the row never reached
     /// the group.
     let onVote: ((String) -> Void)?
+    /// Opens the "View votes" sheet. Nil while nobody has voted, which hides the affordance.
+    var onViewVotes: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 6) {
@@ -21,7 +23,13 @@ struct PollMessageRow: View {
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .padding(.horizontal, 4)
             }
-            PollMessageCard(poll: poll, isOutgoing: isOutgoing, timeLabel: timeLabel, onVote: onVote)
+            PollMessageCard(
+                poll: poll,
+                isOutgoing: isOutgoing,
+                timeLabel: timeLabel,
+                onVote: onVote,
+                onViewVotes: onViewVotes
+            )
         }
         .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
         .padding(isOutgoing ? .leading : .trailing, 72)
@@ -34,6 +42,7 @@ struct PollMessageCard: View {
     let isOutgoing: Bool
     let timeLabel: String
     let onVote: ((String) -> Void)?
+    var onViewVotes: (() -> Void)? = nil
 
     private var deadlineSchedule: [Date] {
         guard let endsAt = poll.endsAt, PollPresentation.isOpen(poll, now: .now) else { return [] }
@@ -48,7 +57,8 @@ struct PollMessageCard: View {
                 isOpen: PollPresentation.isOpen(poll, now: .now),
                 isOutgoing: isOutgoing,
                 timeLabel: timeLabel,
-                onVote: onVote
+                onVote: onVote,
+                onViewVotes: onViewVotes
             )
         }
     }
@@ -60,6 +70,7 @@ private struct PollMessageCardContent: View {
     let isOutgoing: Bool
     let timeLabel: String
     let onVote: ((String) -> Void)?
+    let onViewVotes: (() -> Void)?
 
     private var content: Color { MessagesPalette.bubbleContent(isOutgoing: isOutgoing) }
     private var detail: Color { AttachmentRowPalette.detailContent(isOutgoing: isOutgoing) }
@@ -92,6 +103,10 @@ private struct PollMessageCardContent: View {
                 )
             }
 
+            if let onViewVotes, poll.participants > 0 {
+                PollViewVotesButton(isOutgoing: isOutgoing, action: onViewVotes)
+            }
+
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(PollFooter.text(poll: poll, isOpen: isOpen))
                 Spacer(minLength: 8)
@@ -108,6 +123,22 @@ private struct PollMessageCardContent: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
         }
+    }
+}
+
+/// The card's way into the voter list. Polls are not anonymous, so this shows who picked what.
+private struct PollViewVotesButton: View {
+    let isOutgoing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(L10n.string("View votes"), systemImage: "person.2")
+                .wnFont(.semiBold12)
+                .foregroundStyle(MessagesPalette.bubbleContent(isOutgoing: isOutgoing))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -375,7 +406,14 @@ nonisolated enum PollComposerCopy {
         isOpen: true
     )
     VStack(spacing: 12) {
-        PollMessageRow(poll: poll, isOutgoing: false, senderName: "Alice", timeLabel: "12:04", onVote: { _ in })
+        PollMessageRow(
+            poll: poll,
+            isOutgoing: false,
+            senderName: "Alice",
+            timeLabel: "12:04",
+            onVote: { _ in },
+            onViewVotes: {}
+        )
         PollMessageRow(poll: poll, isOutgoing: true, senderName: nil, timeLabel: "12:05", onVote: nil)
     }
     .padding()

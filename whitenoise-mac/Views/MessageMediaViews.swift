@@ -137,7 +137,8 @@ struct ConversationMessageRow: View {
                 isOutgoing: message.isOutgoing,
                 senderName: message.isOutgoing ? nil : message.senderName,
                 timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
-                onVote: canVoteInPolls && message.invalidationStatus == nil ? vote(for: poll) : nil
+                onVote: canVoteInPolls && message.invalidationStatus == nil ? vote(for: poll) : nil,
+                onViewVotes: poll.participants > 0 ? viewVotes(for: poll) : nil
             )
         } else {
             TimelineNoticeRow(
@@ -151,6 +152,13 @@ struct ConversationMessageRow: View {
 }
 
 extension ConversationMessageRow {
+    /// `poll` is MDK's tally, not the in-flight overlay: the sheet lists what MDK projected.
+    fileprivate func viewVotes(for poll: MessagePoll) -> () -> Void {
+        { [conversationModel, message] in
+            conversationModel.showPollVotes(messageIdHex: message.id, poll: poll)
+        }
+    }
+
     fileprivate func vote(for poll: MessagePoll) -> (String) -> Void {
         { [workspace, conversationModel, message] optionId in
             Task {
