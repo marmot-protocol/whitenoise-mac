@@ -233,6 +233,9 @@ struct MessageBubble: View {
     /// The hover strip's own width, measured. See `inlineActions`.
     @State private var inlineActionWidth: CGFloat = 0
     @State private var isSelectable = false
+    /// Owned here, above the selection gate, so the link geometry the body text recorded
+    /// survives the gate's branch flip on hover. See `MessageLinkRegions`.
+    @State private var linkRegions = MessageLinkRegions()
     @State private var isReactionViewerPresented = false
     @State private var reactionViewerEmoji: String?
     /// Clock the delivery marker is resolved against, advanced once this row's send has been
@@ -633,6 +636,7 @@ struct MessageBubble: View {
         // through the environment to the body + reply-quote Text, so only the active bubble
         // (`isSelectable`) is backed by a selection NSView. See whitenoise-mac#205.
         .textSelectable(isSelectable)
+        .environment(\.messageLinkRegions, linkRegions)
         // Metadata is pinned to the bubble's bottom-trailing corner no matter how the text
         // wraps. The inline spacer (flowing text) or hidden row (structured Markdown, empty
         // body) above reserves the space this overlay occupies, so it never covers content.
