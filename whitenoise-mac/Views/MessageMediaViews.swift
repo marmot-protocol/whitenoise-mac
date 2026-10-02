@@ -438,7 +438,7 @@ struct MessageBubble: View {
             let shortcode = CustomEmojiText.soleEmoji(
                 in: message.trimmedBody, shortcodes: Set(message.customEmoji.keys)),
             let attachment = message.customEmoji[shortcode],
-            !customEmojiImages.hasFailed(attachment.reference)
+            !customEmojiImages.isUnavailable(attachment.reference)
         else { return nil }
         return (shortcode, attachment)
     }

@@ -116,7 +116,7 @@ final class ConversationViewModel {
     }
 
     func start(mode: ConversationOpenModeFfi = .automatic, messageIdHex: String? = nil) {
-        stop()
+        stopWindow()
         isLoading = snapshot == nil
         unreadDivider = nil
         capturesUnreadDivider = true
@@ -130,7 +130,14 @@ final class ConversationViewModel {
         }
     }
 
+    /// The conversation is going away: its window, and the custom emoji images still loading.
     func stop() {
+        stopWindow()
+        customEmojiImages.cancelAll()
+    }
+
+    /// Ends the window subscription only, so `start` can reopen it without restarting emoji loads.
+    private func stopWindow() {
         subscriptionTask?.cancel()
         subscriptionTask = nil
         retentionExpiryTask?.cancel()

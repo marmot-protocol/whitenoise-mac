@@ -74,7 +74,9 @@ Chats and reactions from 0.12.0 peers can carry NIP-30 custom emoji.
 - **Reactions.** A `:shortcode:` reaction's image is the attachment of the kind-7 that
   `reactionMessageIdHex` names, resolved through `listMedia`.
 - **Loading.** `ConversationViewModel.customEmojiImages` (`CustomEmojiImageStore`) loads both
-  through the shared media disk cache and `downloadMedia`. Anything unresolved or failed stays the
+  through `downloadMedia` under the shared four-download cap, reading the media disk cache but never
+  writing it, so a download that finishes after a cache purge cannot put bytes back. A failed download
+  retries three times (15 s, 60 s, 240 s). Anything unresolved or failed stays the
   literal `:shortcode:` text, as do chat-list previews, notifications, reply quotes and search.
 
 ## Not adopted yet

@@ -30,7 +30,7 @@ struct CustomEmojiGlyphs: Equatable {
         for (shortcode, attachment) in message.customEmoji {
             if let image = store.image(for: attachment.reference) {
                 glyphs.images[shortcode] = image
-            } else if !store.hasFailed(attachment.reference) {
+            } else if !store.isUnavailable(attachment.reference) {
                 glyphs.pending.insert(shortcode)
             }
         }

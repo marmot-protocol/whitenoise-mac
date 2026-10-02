@@ -188,9 +188,9 @@ struct CustomEmojiTests {
             Self.record(messageIdHex: "other", index: 0, reference: second),
         ]
 
-        let resolved = CustomEmojiImageStore.reactionReferences(in: records, for: ["kind7", "missing"])
+        let resolved = CustomEmojiImageStore.reactionReferences(in: records)
 
-        #expect(resolved == ["kind7": first])
+        #expect(resolved == ["kind7": first, "other": second])
     }
 
     // MARK: - Image store
@@ -211,22 +211,114 @@ struct CustomEmojiTests {
 
         #expect(loaded)
         #expect(runtime.downloadMediaCallCount == 1)
-        #expect(!store.hasFailed(reference))
+        #expect(!store.isUnavailable(reference))
+    }
+
+    /// Emoji bytes stay in memory. Writing them to the media disk cache would race a cache purge
+    /// or account removal: a download finishing after the purge would put the bytes back.
+    @MainActor
+    @Test func aLoadedEmojiIsNeverWrittenToTheMediaDiskCache() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "party.png")
+        runtime.installMediaRecord(
+            Self.record(messageIdHex: "message", index: 0, reference: reference),
+            download: try Self.pngDownload()
+        )
+        let diskCache = MessageMediaDiskCache.makeIsolated()
+        let store = CustomEmojiImageStore(
+            accountId: "account", accountRef: "account", groupIdHex: "group", runtime: runtime,
+            diskCache: diskCache, limiter: MediaAttachmentDownloadLimiter(maxConcurrent: 4))
+
+        store.load(reference)
+        #expect(await waitFor { store.image(for: reference) != nil })
+
+        let key = MessageMediaDiskCacheKey(accountId: "account", groupIdHex: "group", reference: reference)
+        #expect(await diskCache.cachedDownload(for: key) == nil)
+    }
+
+    /// The emoji's attachment has no tile or Download action of its own, so a timeout or a relay
+    /// hiccup must not leave the literal shortcode for the rest of the conversation.
+    @MainActor
+    @Test func aFailedDownloadShowsTheShortcodeThenRetriesUntilItsDelaysAreSpent() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "gone.png")
+        let store = Self.store(runtime: runtime, retryDelays: [.milliseconds(10)])
+
+        store.load(reference)
+
+        #expect(await waitFor { runtime.downloadMediaCallCount == 2 })
+        #expect(await waitFor { store.isUnavailable(reference) })
+        try await Task.sleep(for: .milliseconds(100))
+        store.load(reference)
+        #expect(runtime.downloadMediaCallCount == 2)
+        #expect(store.image(for: reference) == nil)
     }
 
     @MainActor
-    @Test func aFailedDownloadIsRememberedAndNotRetried() async throws {
+    @Test func bytesThatAreNotAnImageAreGivenUpWithoutARetry() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
-        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "gone.png")
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "broken.png")
+        runtime.installMediaRecord(
+            Self.record(messageIdHex: "message", index: 0, reference: reference),
+            download: MediaDownloadResultFfi(
+                plaintext: Data("not an image".utf8), fileName: "broken.png", mediaType: "image/png", sizeBytes: 12)
+        )
+        let store = Self.store(runtime: runtime, retryDelays: [.milliseconds(10)])
+
+        store.load(reference)
+
+        #expect(await waitFor { store.isUnavailable(reference) })
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(runtime.downloadMediaCallCount == 1)
+    }
+
+    @MainActor
+    @Test func emojiDownloadsTakeTheAttachmentDownloadCap() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let references = ["a", "b", "c"].map {
+            mediaAttachmentReference(mediaType: "image/png", fileName: "\($0).png", plaintextSha256: $0)
+        }
+        for (index, reference) in references.enumerated() {
+            runtime.installMediaRecord(
+                Self.record(messageIdHex: "m\(index)", index: 0, reference: reference),
+                download: try Self.pngDownload()
+            )
+        }
+        runtime.mediaDownloadGateEnabled = true
+        let store = Self.store(runtime: runtime, limiter: MediaAttachmentDownloadLimiter(maxConcurrent: 1))
+
+        for reference in references { store.load(reference) }
+        #expect(await waitFor { runtime.didReachMediaDownloadGate })
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(runtime.downloadMediaCallCount == 1)
+
+        runtime.releaseMediaDownloadGate()
+
+        #expect(await waitFor { references.allSatisfy { store.image(for: $0) != nil } })
+        #expect(runtime.downloadMediaCallCount == 3)
+    }
+
+    @MainActor
+    @Test func cancellingTheStoreDropsADownloadInFlightWithoutGivingUpOnIt() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "party.png")
+        runtime.installMediaRecord(
+            Self.record(messageIdHex: "message", index: 0, reference: reference),
+            download: try Self.pngDownload()
+        )
+        runtime.mediaDownloadGateEnabled = true
         let store = Self.store(runtime: runtime)
 
         store.load(reference)
-        let failed = await waitFor { store.hasFailed(reference) }
-        store.load(reference)
+        #expect(await waitFor { runtime.didReachMediaDownloadGate })
+        store.cancelAll()
+        runtime.releaseMediaDownloadGate()
+        try await Task.sleep(for: .milliseconds(100))
 
-        #expect(failed)
         #expect(store.image(for: reference) == nil)
-        #expect(runtime.downloadMediaCallCount == 1)
+        #expect(!store.isUnavailable(reference))
+        store.load(reference)
+        #expect(await waitFor { store.image(for: reference) != nil })
     }
 
     @MainActor
@@ -246,6 +338,27 @@ struct CustomEmojiTests {
 
         #expect(loaded)
         #expect(store.reactionImage(for: unicode) == nil)
+        #expect(runtime.listMediaCallCount == 1)
+    }
+
+    @MainActor
+    @Test func aReactionScrolledIntoViewLaterResolvesFromTheEarlierListing() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let first = mediaAttachmentReference(mediaType: "image/png", fileName: "a.png", plaintextSha256: "a")
+        let second = mediaAttachmentReference(mediaType: "image/png", fileName: "b.png", plaintextSha256: "b")
+        runtime.installMediaRecord(
+            Self.record(messageIdHex: "k1", index: 0, reference: first), download: try Self.pngDownload())
+        runtime.installMediaRecord(
+            Self.record(messageIdHex: "k2", index: 0, reference: second), download: try Self.pngDownload())
+        let store = Self.store(runtime: runtime)
+        let party = MessageReaction(emoji: ":party:", count: 1, isOwn: false, reactionMessageIdHex: "k1")
+        let star = MessageReaction(emoji: ":star:", count: 1, isOwn: false, reactionMessageIdHex: "k2")
+
+        store.loadReactions([party])
+        #expect(await waitFor { store.reactionImage(for: party) != nil })
+        store.loadReactions([star])
+
+        #expect(await waitFor { store.reactionImage(for: star) != nil })
         #expect(runtime.listMediaCallCount == 1)
     }
 
@@ -306,13 +419,19 @@ struct CustomEmojiTests {
     }
 
     @MainActor
-    private static func store(runtime: FakeMarmotRuntime) -> CustomEmojiImageStore {
+    private static func store(
+        runtime: FakeMarmotRuntime,
+        limiter: MediaAttachmentDownloadLimiter = MediaAttachmentDownloadLimiter(maxConcurrent: 4),
+        retryDelays: [Duration] = CustomEmojiImageStore.defaultRetryDelays
+    ) -> CustomEmojiImageStore {
         CustomEmojiImageStore(
             accountId: "account",
             accountRef: "account",
             groupIdHex: "group",
             runtime: runtime,
-            diskCache: MessageMediaDiskCache.makeIsolated()
+            diskCache: MessageMediaDiskCache.makeIsolated(),
+            limiter: limiter,
+            retryDelays: retryDelays
         )
     }
 
