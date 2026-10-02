@@ -551,10 +551,16 @@ private struct ConversationView: View {
                     if previous.chatId != key.chatId { resetForNewChat() }
                     applyOpeningPosition(key)
                 }
-                // Opening a chat puts the caret in its composer, ready to type. A chat with no
+                // Opening a chat puts the caret in its composer, ready to type — but only once the
+                // saved draft is in place: a keystroke into the still-empty field would count as a
+                // live edit and the restore would discard the saved draft for it. A chat with no
                 // composer (pending invite, membership ended) leaves the request pending until
                 // one appears.
-                .onChange(of: chat.id, initial: true) { _, _ in
+                .task(id: chat.id) {
+                    if let accountId = workspace.activeAccountId {
+                        await workspace.restoreComposerDraftIfNeeded(accountId: accountId, groupIdHex: chat.id)
+                    }
+                    guard !Task.isCancelled else { return }
                     composerFocusRequester.request()
                 }
                 // Pressing Send scrolls to the live edge, off the send itself rather than off

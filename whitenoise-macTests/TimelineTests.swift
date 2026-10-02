@@ -10386,6 +10386,44 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func secondDraftRestoreCallerWaitsForTheInFlightRead() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMessageDraft(
+            MessageDraftFfi(
+                groupIdHex: "group",
+                content: "saved text",
+                replyToMessageIdHex: nil,
+                mediaAttachments: [],
+                createdAtMs: 1,
+                updatedAtMs: 1
+            ),
+            accountRef: account.label
+        )
+        runtime.messageDraftReadGateEnabled = true
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        let bootstrapTask = Task { await state.bootstrap() }
+        let didReachRead = await waitFor { runtime.didReachMessageDraftReadGate }
+        #expect(didReachRead)
+        let accountId = try #require(state.activeAccountId)
+
+        // The conversation focuses its composer after this returns, so it must not return while
+        // the field is still empty.
+        let secondCaller = Task { @MainActor in
+            await state.restoreComposerDraftIfNeeded(accountId: accountId, groupIdHex: "group")
+            return state.draftText
+        }
+        // Let the second caller reach the restore while the read is still held.
+        await Task.yield()
+        runtime.releaseMessageDraftReadGate()
+
+        #expect(await secondCaller.value == "saved text")
+        await bootstrapTask.value
+    }
+
+    @MainActor
     @Test func successfulSendDeletesPersistedComposerDraft() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])

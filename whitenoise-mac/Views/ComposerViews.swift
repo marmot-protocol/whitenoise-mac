@@ -423,6 +423,10 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             guard let coordinator, let textView else { return }
             coordinator.handleReturnKeySend(in: textView)
         }
+        textView.windowAttachHandler = { [weak coordinator, weak textView] in
+            guard let coordinator, let textView else { return }
+            coordinator.retryPendingFocus(in: textView)
+        }
     }
 
     @MainActor
@@ -441,6 +445,8 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         /// Dedupes the focus attempt already queued for this update pass; cleared when it runs,
         /// so a request that could not be applied is retried on the next update.
         private var inFlightFocusRequestID: UUID?
+        /// The request the last update pass carried, kept so entering a window can retry it.
+        private var latestFocusRequestID: UUID?
         var onFocusRequestConsumed: (UUID) -> Void = { _ in }
         private var lastMentionInsertionID: UUID?
         private var lastMentionContext: ComposerMentionContext?
@@ -484,6 +490,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         }
 
         func scheduleFocus(_ requestID: UUID?, in textView: NSTextView) {
+            latestFocusRequestID = requestID
             guard let requestID, requestID != inFlightFocusRequestID else { return }
             inFlightFocusRequestID = requestID
             // Deferred past the update pass: the text view may not be in a window yet when the
@@ -494,8 +501,16 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
                 guard let window = textView.window, window.makeFirstResponder(textView) else { return }
                 let end = (textView.string as NSString).length
                 textView.setSelectedRange(NSRange(location: end, length: 0))
+                if latestFocusRequestID == requestID { latestFocusRequestID = nil }
                 onFocusRequestConsumed(requestID)
             }
+        }
+
+        /// A focus attempt that ran before the text view had a window gave up without consuming
+        /// its request; nothing else re-runs it unless SwiftUI happens to update the view again.
+        func retryPendingFocus(in textView: NSTextView) {
+            guard textView.window != nil else { return }
+            scheduleFocus(latestFocusRequestID, in: textView)
         }
 
         func scheduleMentionSynchronization(
@@ -823,6 +838,12 @@ private extension NSAttributedString.Key {
 private final class ComposerPasteInterceptingTextView: NSTextView {
     var mediaPasteHandler: (() -> Bool)?
     var returnKeySendHandler: (() -> Void)?
+    var windowAttachHandler: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowAttachHandler?()
+    }
 
     override func paste(_ sender: Any?) {
         if mediaPasteHandler?() == true {
