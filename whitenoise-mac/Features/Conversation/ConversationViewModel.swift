@@ -85,6 +85,12 @@ final class ConversationViewModel {
     /// first. A failed vote falls back to the newest survivor rather than to whatever it replaced,
     /// which may itself have failed in the meantime.
     @ObservationIgnored private var pollVoteAttempts: [String: [PollVoteAttempt]] = [:]
+    /// The open "View votes" sheet's model, if any. Re-read from the start whenever a snapshot
+    /// reprojects its poll's row.
+    private(set) var pollVotes: PollVotesViewModel?
+    /// The poll row as the last installed snapshot projected it, to tell a reprojection of that
+    /// row from a snapshot that left it unchanged.
+    @ObservationIgnored private var pollVotesRecord: TimelineMessageRecordFfi?
 
     @ObservationIgnored private let runtime: any MarmotRuntime
     @ObservationIgnored private let productAnalytics: ProductAnalyticsRecorder?
@@ -382,6 +388,26 @@ final class ConversationViewModel {
         }
     }
 
+    /// Opens the "View votes" sheet for one poll. `poll` is MDK's tally for the row, without any
+    /// in-flight local vote drawn over it: the sheet lists what MDK has projected.
+    func showPollVotes(messageIdHex: String, poll: MessagePoll) {
+        pollVotes?.cancel()
+        pollVotesRecord = snapshot?.messages.first { $0.timeline.messageIdHex == messageIdHex }?.timeline
+        pollVotes = PollVotesViewModel(
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex,
+            pollEventId: messageIdHex,
+            poll: poll,
+            runtime: runtime
+        )
+    }
+
+    func dismissPollVotes() {
+        pollVotes?.cancel()
+        pollVotes = nil
+        pollVotesRecord = nil
+    }
+
     func localSendStatus(clientToken: String) async throws -> LocalSendStatusFfi? {
         try await FFIExecutor.run { [runtime, account, groupIdHex] in
             try runtime.localSendStatus(
@@ -504,6 +530,7 @@ final class ConversationViewModel {
             pendingSends[token] = nil
         }
         clearProjectedPollSelections(in: replacement)
+        reprojectPollVotes(in: replacement)
         error = nil
         isLoading = false
         if presents, let snapshotObserver {
@@ -547,6 +574,19 @@ final class ConversationViewModel {
             pendingPollSelections[id] = nil
             pollVoteAttempts[id] = nil
         }
+    }
+
+    /// Restarts the open "View votes" list when this snapshot carries its poll's row and the row
+    /// changed. A snapshot whose window no longer holds the row says nothing about it, so the list
+    /// stays as it is.
+    private func reprojectPollVotes(in snapshot: ConversationWindowSnapshotFfi) {
+        guard let pollVotes,
+            let record = snapshot.messages.first(where: { $0.timeline.messageIdHex == pollVotes.pollEventId })?
+                .timeline,
+            record != pollVotesRecord
+        else { return }
+        pollVotesRecord = record
+        pollVotes.reproject(poll: record.deleted ? nil : record.poll.map(MessagePoll.init(projection:)))
     }
 
     private func scheduleRetentionExpiry(for snapshot: ConversationWindowSnapshotFfi) {

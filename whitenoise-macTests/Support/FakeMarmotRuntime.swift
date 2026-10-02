@@ -270,6 +270,32 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         set { recordedStateLock.withLock { _pollVoteGates = newValue } }
     }
     private var _pollVoteGates: [AsyncFfiGate] = []
+    /// Pages `pollVotes` returns, one per call in order; an exhausted queue returns an empty page.
+    /// `pollVotes` runs on `FFIExecutor`'s concurrent queue, so this lives behind the lock too.
+    var pollVotePages: [PollVotePageFfi] {
+        get { recordedStateLock.withLock { _pollVotePages } }
+        set { recordedStateLock.withLock { _pollVotePages = newValue } }
+    }
+    private var _pollVotePages: [PollVotePageFfi] = []
+    /// Every `pollVotes` call, recorded before it blocks or throws.
+    var pollVotesRequests: [PollVotesRequest] {
+        recordedStateLock.withLock { _pollVotesRequests }
+    }
+    private var _pollVotesRequests: [PollVotesRequest] = []
+    /// Thrown by `pollVotes` after recording the call.
+    var pollVotesError: Error? {
+        get { recordedStateLock.withLock { _pollVotesError } }
+        set { recordedStateLock.withLock { _pollVotesError = newValue } }
+    }
+    private var _pollVotesError: Error?
+    /// The Nth `pollVotes` call blocks at `pollVotesGates[N]` while that gate is armed. The page it
+    /// returns is taken from the queue *after* the gate releases, so a held call answers with
+    /// whatever page is next at that moment.
+    var pollVotesGates: [BlockingFfiGate] {
+        get { recordedStateLock.withLock { _pollVotesGates } }
+        set { recordedStateLock.withLock { _pollVotesGates = newValue } }
+    }
+    private var _pollVotesGates: [BlockingFfiGate] = []
     private(set) var deletedMessage: DeletedMessage?
     private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
@@ -3240,6 +3266,36 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         return SendSummaryFfi(published: 1, messageIds: ["poll-vote"])
     }
 
+    func pollVotes(
+        accountRef: String,
+        groupIdHex: String,
+        pollEventId: String,
+        afterVotedAt: UInt64?,
+        afterVoterAccountIdHex: String?,
+        limit: UInt32
+    ) throws -> PollVotePageFfi {
+        let gate = recordedStateLock.withLock { () -> BlockingFfiGate? in
+            let index = _pollVotesRequests.count
+            _pollVotesRequests.append(
+                PollVotesRequest(
+                    groupIdHex: groupIdHex,
+                    pollEventId: pollEventId,
+                    afterVotedAt: afterVotedAt,
+                    afterVoterAccountIdHex: afterVoterAccountIdHex,
+                    limit: limit
+                ))
+            return _pollVotesGates.indices.contains(index) ? _pollVotesGates[index] : nil
+        }
+        gate?.passIfArmed()
+        return try recordedStateLock.withLock {
+            if let error = _pollVotesError {
+                throw error
+            }
+            guard !_pollVotePages.isEmpty else { return PollVotePageFfi(votes: [], hasMoreAfter: false) }
+            return _pollVotePages.removeFirst()
+        }
+    }
+
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi {
         deleteMessageCallCount += 1
         deletedMessage = DeletedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
@@ -3622,6 +3678,14 @@ struct CreatedPoll: Equatable {
     let options: [String]
     let pollType: PollTypeFfi
     let endsAt: UInt64?
+}
+
+struct PollVotesRequest: Equatable {
+    let groupIdHex: String
+    let pollEventId: String
+    let afterVotedAt: UInt64?
+    let afterVoterAccountIdHex: String?
+    let limit: UInt32
 }
 
 struct CastPollVote: Equatable {
