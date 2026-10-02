@@ -16,6 +16,8 @@ struct MessageReactionChips: View {
     let reactions: [MessageReaction]
     /// Emoji kinds the conversation window left out, counted into the overflow pill.
     var omittedKinds: Int = 0
+    /// Loaded images for custom-emoji reactions, keyed by the reaction's emoji text.
+    var emojiImages: [String: NSImage] = [:]
     /// emoji to focus the viewer on, or nil for the "All" tab.
     let onOpenViewer: (String?) -> Void
 
@@ -26,7 +28,7 @@ struct MessageReactionChips: View {
                 MessageReactionChipPill(isSelected: reaction.isOwn) {
                     onOpenViewer(reaction.emoji)
                 } label: {
-                    Text(reaction.emoji)
+                    ReactionEmojiGlyph(emoji: reaction.emoji, image: emojiImages[reaction.emoji])
                     if reaction.count > 1 {
                         Text(verbatim: MessageReactionChipRow.countLabel(for: reaction.count))
                             .wnFont(.semiBold10.monospacedDigit())
@@ -186,6 +188,8 @@ struct MessageReactionDetailsView: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
     @Binding var selectedEmoji: String?
+    /// Loaded images for custom-emoji reactions, keyed by the reaction's emoji text.
+    var emojiImages: [String: NSImage] = [:]
 
     private struct ReactorRow: Identifiable {
         let reactor: WorkspaceState.ReactionReactorDisplay
@@ -243,7 +247,11 @@ struct MessageReactionDetailsView: View {
             selectedEmoji = emoji
         } label: {
             HStack(spacing: 5) {
-                Text(label)
+                if let emoji {
+                    ReactionEmojiGlyph(emoji: emoji, image: emojiImages[emoji])
+                } else {
+                    Text(label)
+                }
                 Text(verbatim: "\(count)")
                     .wnFont(.semiBold10)
             }
@@ -337,7 +345,7 @@ struct MessageReactionDetailsView: View {
                 }
             }
             Spacer(minLength: 8)
-            Text(row.emoji)
+            ReactionEmojiGlyph(emoji: row.emoji, image: emojiImages[row.emoji], size: 20)
                 .wnFont(.medium16)
         }
         .padding(.horizontal, 12)

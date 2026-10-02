@@ -765,12 +765,21 @@ nonisolated struct MessageReaction: Identifiable, Hashable {
     /// Account-id-hex of the reactors the viewer can list. A bounded preview from the conversation
     /// window, so it is not a complete roster when `count` is larger.
     let senders: [String]
+    /// The earliest active kind-7 carrying this emoji. For a NIP-30 `:shortcode:` reaction its
+    /// image is that event's attachment, which `listMedia` lists under this id.
+    let reactionMessageIdHex: String?
 
-    init(emoji: String, count: Int, isOwn: Bool, senders: [String] = []) {
+    init(emoji: String, count: Int, isOwn: Bool, senders: [String] = [], reactionMessageIdHex: String? = nil) {
         self.emoji = emoji
         self.count = count
         self.isOwn = isOwn
         self.senders = senders
+        self.reactionMessageIdHex = reactionMessageIdHex
+    }
+
+    /// The custom emoji shortcode this reaction names, when it can carry an image.
+    var customEmojiShortcode: String? {
+        reactionMessageIdHex == nil ? nil : CustomEmojiText.reactionShortcode(emoji)
     }
 
     var id: String { emoji }
@@ -2492,6 +2501,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     }
     var replyContext: MessageReplyContext?
     let mediaAttachments: [MessageMediaAttachment]
+    /// The message's NIP-30 `emoji` tags, kept so an edit can re-resolve them against new text.
+    let customEmojiTags: [CustomEmojiTag]
+    /// Shortcode → the attachment the text draws inline in its place. See `CustomEmojiTag`.
+    let customEmoji: [String: MessageMediaAttachment]
+    /// `mediaAttachments` less the ones drawn inline as custom emoji: what the media grid, the
+    /// file rows and the download action show.
+    let contentMediaAttachments: [MessageMediaAttachment]
     let visualMediaAttachments: [MessageMediaAttachment]
     let nonvisualMediaAttachments: [MessageMediaAttachment]
     let hasBubbleContent: Bool
@@ -2587,7 +2603,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// The GIF this row carries when its text is a GIPHY envelope (see `RemoteGiphyMedia`). A row
     /// with attachments or a deleted row renders its text as usual, as on the other clients.
     var remoteGiphyMedia: RemoteGiphyMedia? {
-        guard !isDeleted, mediaAttachments.isEmpty, presentation.isChatBubble else { return nil }
+        guard !isDeleted, contentMediaAttachments.isEmpty, presentation.isChatBubble else { return nil }
         return RemoteGiphyMedia.parse(wireText: trimmedBody)
     }
 
@@ -2700,12 +2716,16 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         omittedReactionKinds: Int = 0,
         replyContext: MessageReplyContext? = nil,
         mediaAttachments: [MessageMediaAttachment] = [],
+        customEmojiTags: [CustomEmojiTag] = [],
         presentation: MessagePresentation = .chat,
         poll: MessagePoll? = nil,
         groupSystemType: String? = nil
     ) {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        let partitionedAttachments = Self.partitionMediaAttachments(mediaAttachments)
+        let customEmoji = CustomEmojiTag.resolve(customEmojiTags, attachments: mediaAttachments, text: body)
+        let emojiAttachmentIds = Set(customEmoji.values.map(\.id))
+        let contentMediaAttachments = mediaAttachments.filter { !emojiAttachmentIds.contains($0.id) }
+        let partitionedAttachments = Self.partitionMediaAttachments(contentMediaAttachments)
 
         self.id = id
         self.groupIdHex = groupIdHex
@@ -2763,6 +2783,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.omittedReactionKinds = omittedReactionKinds
         self.replyContext = replyContext
         self.mediaAttachments = mediaAttachments
+        self.customEmojiTags = customEmojiTags
+        self.customEmoji = customEmoji
+        self.contentMediaAttachments = contentMediaAttachments
         self.visualMediaAttachments = partitionedAttachments.visual
         self.nonvisualMediaAttachments = partitionedAttachments.nonvisual
         self.hasBubbleContent = replyContext != nil || !trimmedBody.isEmpty
@@ -2836,6 +2859,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             omittedReactionKinds: omittedReactionKinds,
             replyContext: replyContext,
             mediaAttachments: mediaAttachments,
+            customEmojiTags: customEmojiTags,
             presentation: presentation,
             poll: poll
         )
@@ -3015,13 +3039,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// Whether the hover actions offer "download every attachment on this message". Own messages
     /// qualify too — the local copy of a sent photo is only in the app until it is downloaded.
     var canDownloadMediaAttachments: Bool {
-        isActionableChatBubble && !mediaAttachments.isEmpty
+        isActionableChatBubble && !contentMediaAttachments.isEmpty
     }
 
     /// One gesture, two jobs: a lone attachment downloads itself, several download together, and
     /// the hover tooltip and the context menu both have to say which before the click.
     var mediaDownloadActionTitle: String {
-        Self.mediaDownloadActionTitle(forAttachmentCount: mediaAttachments.count)
+        Self.mediaDownloadActionTitle(forAttachmentCount: contentMediaAttachments.count)
     }
 
     /// The same wording for a gesture that targets a subset of the message: the image gallery's
@@ -3114,6 +3138,7 @@ extension MessageItem {
             && lhs.reactions == rhs.reactions
             && lhs.replyContext == rhs.replyContext
             && lhs.mediaAttachments == rhs.mediaAttachments
+            && lhs.customEmojiTags == rhs.customEmojiTags
             && lhs.presentation == rhs.presentation
             && lhs.poll == rhs.poll
             && lhs.groupSystemType == rhs.groupSystemType

@@ -605,6 +605,8 @@ nonisolated extension MessageItem {
             omittedReactionKinds: presentation.isChatBubble ? omittedReactionKinds : 0,
             replyContext: presentation.isChatBubble ? replyContext : nil,
             mediaAttachments: presentation.isChatBubble ? mediaAttachments : [],
+            // MarmotKit 0.12.0 keeps NIP-30 `emoji` tags on conversation-window chat rows.
+            customEmojiTags: presentation.isChatBubble && !record.deleted ? CustomEmojiTag.parse(record.tags) : [],
             presentation: presentation,
             poll: poll,
             groupSystemType: presentation == .groupSystem
@@ -1817,7 +1819,8 @@ nonisolated extension MessageReaction {
                 emoji: reaction.emoji,
                 count: Int(clamping: reaction.count),
                 isOwn: reaction.viewerReacted,
-                senders: senders
+                senders: senders,
+                reactionMessageIdHex: reaction.reactionMessageIdHex
             )
         }
     }

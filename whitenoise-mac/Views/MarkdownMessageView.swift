@@ -10,6 +10,7 @@
 import SwiftUI
 
 struct MarkdownMessageView: View {
+    @Environment(\.customEmojiGlyphs) private var customEmoji
     let message: MessageItem
     var trailingMetadata: Text?
 
@@ -20,7 +21,7 @@ struct MarkdownMessageView: View {
 
     var body: some View {
         if let inlineParagraph = message.contentMarkdown?.inlineParagraph {
-            textWithMetadata(Text(inlineParagraph))
+            textWithMetadata(CustomEmojiTextBuilder.text(inlineParagraph, glyphs: customEmoji))
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         } else if let document = message.contentMarkdown {
@@ -45,7 +46,7 @@ struct MarkdownMessageView: View {
             // ScrollView/LazyVStack scroll-anchor resolution into a multi-second main-thread
             // layout loop on send (Instruments: continuous SelectionOverlay.updateNSView /
             // ScrollViewAdjustedState.adjustOffsetIfNeeded). See whitenoise-mac#205.
-            textWithMetadata(Text(message.rawBubbleDisplayBody))
+            textWithMetadata(CustomEmojiTextBuilder.text(message.rawBubbleDisplayBody, glyphs: customEmoji))
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -114,11 +115,12 @@ private struct MarkdownBlockView: View {
 
 /// Renders a run of inline nodes as a single wrapping `Text`.
 private struct MarkdownInlineText: View {
+    @Environment(\.customEmojiGlyphs) private var customEmoji
     let text: AttributedString
 
     var body: some View {
         // No `.textSelection(.enabled)` — see the note in MarkdownMessageView.body.
-        Text(text)
+        CustomEmojiTextBuilder.text(text, glyphs: customEmoji)
             .fixedSize(horizontal: false, vertical: true)
     }
 }

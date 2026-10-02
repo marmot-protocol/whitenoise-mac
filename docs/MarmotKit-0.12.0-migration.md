@@ -61,13 +61,28 @@ menu's Retry stays on `controlAttachment(.retry)`.
 - **Recovery parks behind a dead relay** and raises the existing "history may be incomplete"
   notice, which `HistoryNoticesViewModel` already surfaces.
 
+## Custom emoji rendering
+
+Chats and reactions from 0.12.0 peers can carry NIP-30 custom emoji.
+
+- **Messages.** `MessageItem` keeps the row's `["emoji", shortcode, url]` tags and resolves each
+  `:shortcode:` the text uses to the row's own image attachment whose locator is the tag URL
+  (`CustomEmojiTag.resolve`). Those attachments leave the media grid, file rows and download action
+  (`contentMediaAttachments`) and draw inline instead, as `Text(Image)` runs inside the bubble's
+  single wrapping `Text`. A message that is exactly one custom emoji draws large without a bubble,
+  like a lone Unicode emoji. A tag URL matching no attachment is never fetched.
+- **Reactions.** A `:shortcode:` reaction's image is the attachment of the kind-7 that
+  `reactionMessageIdHex` names, resolved through `listMedia`.
+- **Loading.** `ConversationViewModel.customEmojiImages` (`CustomEmojiImageStore`) loads both
+  through `downloadMedia` under the shared four-download cap, reading the media disk cache but never
+  writing it, so a download that finishes after a cache purge cannot put bytes back. A failed download
+  retries three times (15 s, 60 s, 240 s). Anything unresolved or failed stays the
+  literal `:shortcode:` text, as do chat-list previews, notifications, reply quotes and search.
+
 ## Not adopted yet
 
-- **NIP-30 custom emoji** (upstream: strongly recommended). Peers on 0.12.0 can send them; until the
-  app renders them, chats and reaction chips show the literal `:shortcode:`. Rendering — the
-  `emoji` tags already reach `MessageItem.tags`, and reaction images resolve through
-  `reactionMessageIdHex` and `listMedia` — is the next PR. Sending needs a product decision on where
-  a user's custom emoji come from.
+- **Sending NIP-30 custom emoji.** The app renders them (above) but cannot send them yet: that needs
+  a product decision on where a user's custom emoji come from.
 - **Per-voter poll results** (`pollVotes`): a follow-up "View votes" sheet. Polls are not anonymous;
   that sheet must say so.
 - **Application-owned group components**: no current use.
