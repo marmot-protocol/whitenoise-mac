@@ -137,6 +137,9 @@ struct ProfileImageSourceMenu<Label: View>: View {
 struct ProfileImageSourceList: View {
     let chooseFile: () -> Void
     let findOnWeb: () -> Void
+    /// Set when there is an image to take away — the group-info menu's **Remove photo**, set off
+    /// below a divider as the iOS photo menu does. The profile menu never sets it.
+    var remove: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -151,6 +154,18 @@ struct ProfileImageSourceList: View {
                 systemImage: "globe",
                 action: findOnWeb
             )
+
+            if let remove {
+                Divider()
+                    .padding(.vertical, 2)
+
+                ProfileImageSourceButton(
+                    title: L10n.string("Remove photo"),
+                    systemImage: "trash",
+                    isDestructive: true,
+                    action: remove
+                )
+            }
         }
         .padding(6)
         .frame(width: Self.width)
@@ -169,6 +184,7 @@ struct ProfileImageSourceList: View {
 private struct ProfileImageSourceButton: View {
     let title: String
     let systemImage: String
+    var isDestructive = false
     let action: () -> Void
 
     @State private var isHovering = false
@@ -185,7 +201,9 @@ private struct ProfileImageSourceButton: View {
 
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(WNColor.backgroundContentPrimary)
+            .foregroundStyle(
+                isDestructive ? WNColor.backgroundContentDestructive : WNColor.backgroundContentPrimary
+            )
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)

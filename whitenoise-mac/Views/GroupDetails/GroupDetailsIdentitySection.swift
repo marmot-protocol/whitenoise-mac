@@ -30,17 +30,33 @@ struct GroupDetailsIdentitySection: View {
                     title: snapshot.name,
                     subtitle: subtitle,
                     description: snapshot.description,
-                    onEditProfile: permissions.canEditProfile ? onEditProfile : nil,
-                    onEditImage: permissions.canEditProfile ? { presentGroupImagePicker() } : nil
+                    onEditProfile: permissions.canEditProfile ? onEditProfile : nil
                 ) {
-                    ProfileImageAvatarView(
-                        seed: chat.avatarSeed,
-                        initials: chat.title,
-                        sanitizedPictureURL: GroupDetailsHeaderAvatar.sanitizedURL(snapshot: snapshot, fallback: chat),
-                        localImagePayload: chat.groupImagePayload,
-                        size: MessagesLayout.groupDetailsAvatarSize,
-                        isSelected: false
-                    )
+                    VStack(spacing: 12) {
+                        ProfileImageAvatarView(
+                            seed: chat.avatarSeed,
+                            initials: chat.title,
+                            sanitizedPictureURL: GroupDetailsHeaderAvatar.sanitizedURL(
+                                snapshot: snapshot, fallback: chat
+                            ),
+                            localImagePayload: chat.groupImagePayload,
+                            size: MessagesLayout.groupDetailsAvatarSize,
+                            isSelected: false
+                        )
+
+                        // Changing the image is a group commit, so only a member the group lets
+                        // edit it (an admin) is offered the pill — as on iOS.
+                        if permissions.canEditProfile {
+                            GroupImageSourceMenu(
+                                hasImage: chat.pictureURL != nil || chat.groupImageHashHex != nil,
+                                isSaving: workspace.isSavingGroupImage,
+                                chooseFile: { url in Task { await workspace.setGroupImage(fileURL: url) } },
+                                findOnWeb: presentGroupImagePicker,
+                                remove: { Task { await workspace.clearGroupImage() } },
+                                reportImportFailure: { workspace.reportUserActionError($0.localizedDescription) }
+                            )
+                        }
+                    }
                 }
                 .disabled(workspace.hasInFlightGroupCommit)
 

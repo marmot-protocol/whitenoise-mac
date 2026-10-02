@@ -83,6 +83,7 @@ enum SourceContract {
                     "GroupDetails/GroupDetailsSheet.swift",
                     "GroupDetails/GroupDetailsTopBar.swift",
                     "GroupDetails/GroupDeveloperSection.swift",
+                    "GroupDetails/GroupImageSourceMenu.swift",
                     "GroupDetails/GroupMemberBadge.swift",
                     "GroupDetails/GroupMembersSection.swift",
                     "GroupDetails/GroupMembershipStatusSections.swift",

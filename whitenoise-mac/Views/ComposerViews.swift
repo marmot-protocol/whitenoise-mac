@@ -1907,24 +1907,6 @@ struct ConversationHeader: View {
                 .help(L10n.string("Chat info"))
 
                 Spacer()
-
-                // Changing the group image is a send (commit) under the hood, which the
-                // core rejects until the invite is accepted, or once the local account is
-                // no longer a member.
-                if !chat.isDirect && chat.canUseComposer {
-                    Button {
-                        workspace.showGroupImagePicker(for: chat)
-                    } label: {
-                        Image(systemName: "photo.badge.plus")
-                            .wnFont(.semiBold16)
-                            .frame(width: 34, height: 34)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n.string("Set group image"))
-                }
             }
         }
         .padding(.horizontal, 14)

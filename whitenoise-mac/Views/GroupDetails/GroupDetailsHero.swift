@@ -21,8 +21,6 @@ struct GroupDetailsHero<Avatar: View, TitleAccessory: View>: View {
     let description: String
     /// Set when the reader may edit the group's name and description.
     var onEditProfile: (() -> Void)?
-    /// Set when the reader may change the group image; the avatar becomes its button.
-    var onEditImage: (() -> Void)?
     /// Controls drawn after the name, on its first line — a contact's nickname actions.
     let titleAccessory: TitleAccessory
     let avatar: Avatar
@@ -32,7 +30,6 @@ struct GroupDetailsHero<Avatar: View, TitleAccessory: View>: View {
         subtitle: String?,
         description: String,
         onEditProfile: (() -> Void)? = nil,
-        onEditImage: (() -> Void)? = nil,
         @ViewBuilder titleAccessory: () -> TitleAccessory,
         @ViewBuilder avatar: () -> Avatar
     ) {
@@ -40,23 +37,13 @@ struct GroupDetailsHero<Avatar: View, TitleAccessory: View>: View {
         self.subtitle = subtitle
         self.description = description
         self.onEditProfile = onEditProfile
-        self.onEditImage = onEditImage
         self.titleAccessory = titleAccessory()
         self.avatar = avatar()
     }
 
     var body: some View {
         VStack(spacing: 10) {
-            if let onEditImage {
-                Button(action: onEditImage) {
-                    avatar
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Set group image"))
-                .accessibilityLabel(L10n.string("Set group image"))
-            } else {
-                avatar
-            }
+            avatar
 
             VStack(spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -103,7 +90,6 @@ extension GroupDetailsHero where TitleAccessory == EmptyView {
         subtitle: String?,
         description: String,
         onEditProfile: (() -> Void)? = nil,
-        onEditImage: (() -> Void)? = nil,
         @ViewBuilder avatar: () -> Avatar
     ) {
         self.init(
@@ -111,7 +97,6 @@ extension GroupDetailsHero where TitleAccessory == EmptyView {
             subtitle: subtitle,
             description: description,
             onEditProfile: onEditProfile,
-            onEditImage: onEditImage,
             titleAccessory: { EmptyView() },
             avatar: avatar
         )
@@ -137,12 +122,17 @@ extension GroupDetailsHero where TitleAccessory == EmptyView {
         title: "Design Crew",
         subtitle: "Group · 8 members",
         description: "",
-        onEditProfile: {},
-        onEditImage: {}
+        onEditProfile: {}
     ) {
-        AvatarView(
-            seed: "design-crew", initials: "Design Crew", size: MessagesLayout.groupDetailsAvatarSize, isSelected: false
-        )
+        VStack(spacing: 12) {
+            AvatarView(
+                seed: "design-crew", initials: "Design Crew", size: MessagesLayout.groupDetailsAvatarSize,
+                isSelected: false
+            )
+            GroupImageSourceMenu(
+                hasImage: false, chooseFile: { _ in }, findOnWeb: {}, remove: {}, reportImportFailure: { _ in }
+            )
+        }
     }
     .padding()
     .frame(width: 420)
