@@ -59,22 +59,20 @@ nonisolated enum GiphyRemoteMediaLoader {
         return PreparedPlayback(data: data, aspectRatio: aspectRatio)
     }
 
-    /// The first frame's aspect ratio, or `invalidResponse` unless `data` is a multi-frame GIF.
-    /// Checking the container here is what lets the view hand the bytes to `NSImage` without
-    /// trusting the CDN's content type.
+    /// The admitted logical canvas's aspect ratio. The byte-level resource gate runs before
+    /// ImageIO inspection, and neither downloaded metadata nor retries bypass it.
     static func animatedImageAspectRatio(from data: Data) throws -> CGFloat {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-            CGImageSourceGetCount(source) > 1,
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let metadata = GIFPlaybackAdmission.inspect(data),
+            let source = CGImageSourceCreateWithData(data as CFData, options),
+            CGImageSourceGetCount(source) == metadata.frameCount,
+            CGImageSourceGetStatus(source) == .statusComplete,
             let type = CGImageSourceGetType(source),
-            UTType(type as String)?.conforms(to: .gif) == true,
-            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-            let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
-            let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
-            width > 0, height > 0, width.isFinite, height.isFinite
+            UTType(type as String)?.conforms(to: .gif) == true
         else {
             log.error("image_decode_failed bytes=\(data.count, privacy: .public)")
             throw Failure.invalidResponse
         }
-        return CGFloat(width / height)
+        return CGFloat(metadata.width) / CGFloat(metadata.height)
     }
 }
