@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
 import signal
 import socket
 import ssl
@@ -22,7 +21,7 @@ import uuid
 
 
 def command(*args):
-    return subprocess.run(args, check=True, text=True, capture_output=True).stdout
+    return subprocess.run(args, check=True, text=True, capture_output=True, timeout=60).stdout
 
 
 def certificate(directory, label, root=None, ip=False):
@@ -33,7 +32,9 @@ def certificate(directory, label, root=None, ip=False):
     if root is None:
         configuration = directory / (label + ".config")
         configuration.write_text("[req]\ndistinguished_name=dn\n[dn]\n[ca]\n"
-                                 "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n")
+                                 "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n"
+                                 "nameConstraints=critical,permitted;DNS:remote-media-fixture.invalid,"
+                                 "permitted;IP:127.0.0.1/255.255.255.255\n")
         command("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256",
                 "-days", "2", "-keyout", str(key), "-out", str(cert), "-subj",
                 "/CN=WN-CI-" + str(uuid.uuid4()), "-config", str(configuration), "-extensions", "ca")
@@ -98,6 +99,7 @@ class Server:
                     if b"/abrupt-close" in first_line:
                         os.close(connection.detach())  # Deliberately no TLS close_notify.
                     else:
+                        connection.settimeout(1)
                         try:
                             connection.unwrap().close()  # Sends close_notify before waiting for the client.
                         except (OSError, ssl.SSLError):
@@ -120,7 +122,6 @@ def main():
         raise SystemExit("This trust fixture is restricted to ephemeral macOS GitHub Actions runners.")
     if len(sys.argv) < 2:
         raise SystemExit("Supply the existing xcodebuild unit-test command after the script.")
-    original_keychains = shlex.split(command("security", "list-keychains", "-d", "user"))
     servers = []
     process = None
 
@@ -133,18 +134,25 @@ def main():
         directory = Path(temporary)
         root = certificate(directory, "root")
         other_root = certificate(directory, "untrusted-root")
-        keychain = directory / "fixture.keychain-db"
         trust_added = False
-        keychain_created = False
+        system_keychain = "/Library/Keychains/System.keychain"
+        fingerprint = command("openssl", "x509", "-in", str(root[0]), "-noout", "-fingerprint", "-sha1")
+        fingerprint = fingerprint.strip().split("=", 1)[1].replace(":", "")
+        if not re.fullmatch(r"[0-9A-Fa-f]{40}", fingerprint):
+            raise RuntimeError("invalid fixture certificate fingerprint")
         try:
-            command("security", "create-keychain", "-p", "ephemeral-ci-fixture", str(keychain))
-            keychain_created = True
-            command("security", "unlock-keychain", "-p", "ephemeral-ci-fixture", str(keychain))
-            command("security", "list-keychains", "-d", "user", "-s", str(keychain), *original_keychains)
-            command("security", "add-trusted-cert", "-r", "trustRoot", "-k", str(keychain), str(root[0]))
-            trust_added = True
             for label, issuer, ip in [("dns", root, False), ("ip", root, True), ("untrusted", other_root, False)]:
                 servers.append(Server(certificate(directory, label, issuer, ip)))
+            # The server contexts already loaded their leaf keys. Delete every ephemeral
+            # signing key BEFORE trusting the root; no root signing capability remains on disk.
+            for key in directory.glob("*.key"):
+                key.unlink()
+            # User-domain trust changes can require interactive authorization. Only this
+            # explicitly GitHub-hosted ephemeral runner may use noninteractive admin trust.
+            # No authorization policy is weakened, no persistent/package host runs this path.
+            trust_added = True  # Cleanup also covers an interrupted/partially successful add.
+            command("sudo", "-n", "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-p", "ssl",
+                    "-k", system_keychain, str(root[0]))
             fixture = json.dumps(dict(zip(("dns", "ip", "untrusted"), (s.port for s in servers))), separators=(",", ":"))
             args = sys.argv[1:] + ["WN_REMOTE_MEDIA_NATIVE_FIXTURE=" + fixture]
             # Capture only this build/test log. Do not write certificate keys to artifacts.
@@ -152,7 +160,8 @@ def main():
             passed = set()
             for line in process.stdout:
                 print(line, end="", flush=True)
-                match = re.search(r"Test (nativeTLS\w+)\(\).*passed after", line)
+                # Xcode emits either Swift Testing or XCTest-style forwarded test events.
+                match = re.search(r"(nativeTLS\w+)\(\).*passed (?:after|on)", line)
                 if match:
                     passed.add(match.group(1))
             result = process.wait()
@@ -175,9 +184,9 @@ def main():
                     process.kill()
                     process.wait(timeout=5)
             for operation in ([server.close for server in servers]
-                              + ([lambda: command("security", "remove-trusted-cert", str(root[0]))] if trust_added else [])
-                              + [lambda: command("security", "list-keychains", "-d", "user", "-s", *original_keychains)]
-                              + ([lambda: command("security", "delete-keychain", str(keychain))] if keychain_created else [])):
+                              + ([lambda: command("sudo", "-n", "security", "remove-trusted-cert", "-d", str(root[0])),
+                                  lambda: command("sudo", "-n", "security", "delete-certificate", "-Z", fingerprint,
+                                                  system_keychain)] if trust_added else [])):
                 try:
                     operation()
                 except Exception as error:
