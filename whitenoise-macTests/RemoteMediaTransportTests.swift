@@ -218,7 +218,7 @@ struct RemoteMediaTransportTests {
         #expect(harness.slots.inUseCount == 0)
     }
 
-    @Test func exhaustedDNSSlotsFailFastInsteadOfQueueing() async throws {
+    @Test func cancelledQueuedDNSDoesNotStartAnotherWorker() async throws {
         let harness = RemoteMediaFakeHarness()
         let limit = RemoteMediaDNSSlots.maximumConcurrentResolutions
         var fetches: [Task<Result<RemoteMediaFetchResult, RemoteMediaTransportError>, Never>] = []
@@ -228,10 +228,10 @@ struct RemoteMediaTransportTests {
         }
         await harness.wait { harness.network.heldResolutionCount == limit }
 
-        let overflow = await RemoteMediaFakeHarness.outcome {
-            try await harness.transport.fetch(try Self.url("https://another.example/x.png"))
-        }
-        #expect(overflow.transportError == .dnsUnavailable)
+        let queued = harness.startFetch(try Self.url("https://another.example/x.png"))
+        queued.cancel()
+        #expect(await queued.value.transportError == .cancelled)
+        #expect(harness.slots.queuedCount == 0)
         #expect(harness.network.resolveCalls.count == limit)
 
         // Abandoned callers do not give their slots back; only returning workers do.
@@ -245,6 +245,106 @@ struct RemoteMediaTransportTests {
         }
         #expect(harness.slots.inUseCount == 0)
         #expect(harness.network.connections.isEmpty)
+    }
+
+    @Test func dnsBurstWaitsInBoundedFIFOWithoutStartingExtraWorkers() async throws {
+        let slots = RemoteMediaDNSSlots(limit: 1)
+        #expect(slots.claim())
+        // Tickets and callbacks are observed through a lock-protected existing completion gate.
+        var gates: [RemoteMediaCompletionGate<Bool>] = []
+        var tickets: [UUID] = []
+        for _ in 0..<RemoteMediaDNSSlots.maximumQueuedResolutions {
+            let gate = RemoteMediaCompletionGate<Bool>()
+            gates.append(gate)
+            if let ticket = slots.request({ admitted in gate.complete(.success(admitted)) }) {
+                tickets.append(ticket)
+            }
+        }
+        #expect(tickets.count == RemoteMediaDNSSlots.maximumQueuedResolutions)
+        #expect(slots.queuedCount == tickets.count)
+        let refused = RemoteMediaCompletionGate<Bool>()
+        #expect(slots.request({ admitted in refused.complete(.success(admitted)) }) == nil)
+        #expect(!refused.isPending)
+        let wasAdmitted = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Bool, any Error>) in
+            _ = refused.install(continuation)
+        }
+        #expect(!wasAdmitted)
+        // Cancelled waiters are removed, and remaining callers are admitted in insertion order.
+        slots.cancelWaiter(tickets[0])
+        for index in 1..<gates.count {
+            slots.release()
+            #expect(!gates[index].isPending)
+            if index + 1 < gates.count { #expect(gates[index + 1].isPending) }
+            #expect(slots.inUseCount == 1)
+        }
+        slots.release()
+        #expect(slots.inUseCount == 0)
+        #expect(slots.queuedCount == 0)
+        #expect(gates[0].isPending)
+    }
+
+    @Test(arguments: [
+        "198.18.0.1", "198.19.255.254", "192.0.0.8", "192.0.0.170", "192.0.2.1",
+        "192.88.99.2", "198.51.100.1", "203.0.113.1", "fec0::1", "feff::1",
+        "100::1", "100:0:0:1::1", "2001:2::1", "2001:10::1", "3fff::1", "5f00::1",
+        "::ffff:198.18.0.1", "64:ff9b::198.18.0.1", "2002:c612:1::1"
+    ])
+    func specialUseAddressesAreRejectedForLiteralsAndDNS(address: String) async throws {
+        #expect(RemoteImageURLPolicy.isDisallowedHost(address))
+        let harness = RemoteMediaFakeHarness()
+        harness.network.setDNS("special.example", .answer(.addresses([Self.publicV4, address])))
+        let outcome = await RemoteMediaFakeHarness.outcome {
+            try await harness.transport.fetch(try Self.url("https://special.example/x.png"))
+        }
+        #expect(outcome.transportError == .unsafeResolution)
+        #expect(harness.network.connections.isEmpty)
+    }
+
+    @Test(arguments: [
+        "192.0.0.9", "192.0.0.10", "192.31.196.1", "192.52.193.1", "192.175.48.1",
+        "2001:1::1", "2001:1::2", "2001:1::3", "2001:3::1", "2001:4:112::1",
+        "2001:20::1", "2001:30::1", "2620:4f:8000::1"
+    ])
+    func globalSpecialUseExceptionsRemainAdmitted(address: String) throws {
+        #expect(!RemoteImageURLPolicy.isDisallowedHost(address))
+        #expect(try RemoteMediaResolution.admittedAddresses(.addresses([address])).count == 1)
+    }
+
+    @Test func dnsWaitTicketCancellationBeforeInstallationRemovesQueueEntry() throws {
+        let slots = RemoteMediaDNSSlots(limit: 1)
+        #expect(slots.claim())
+        let ticket = RemoteMediaDNSWaitTicket()
+        ticket.cancel(slots: slots)
+        let queued = try #require(slots.request { _ in Issue.record("Cancelled waiter ran") })
+        ticket.install(queued, slots: slots)
+        #expect(slots.queuedCount == 0)
+        slots.release()
+        #expect(slots.inUseCount == 0)
+    }
+
+    @Test func lateDNSAnswerCannotWinWhenDeadlineTimerDeliveryIsDelayed() async throws {
+        let harness = RemoteMediaFakeHarness()
+        harness.network.setDNS("slow.example", .hold)
+        let pending = harness.startFetch(try Self.url("https://slow.example/x.png"))
+        await harness.wait { harness.network.heldResolutionCount == 1 }
+        harness.clock.advance(by: RemoteMediaTransport.totalDeadline, fireTimers: false)
+        harness.network.completeHeldResolution(with: .addresses([Self.publicV4]))
+        #expect(await pending.value.transportError == .deadlineExceeded)
+        #expect(harness.network.connections.isEmpty)
+        #expect(harness.clock.pendingTimerCount == 0)
+    }
+
+    @Test func lateReceiveCannotWinWhenIdleTimerDeliveryIsDelayed() async throws {
+        let harness = RemoteMediaFakeHarness()
+        harness.network.respond { _, _ in .held }
+        let pending = harness.startFetch(try Self.url("https://cdn.example.com/x.png"))
+        await harness.wait { harness.network.connections.first?.hasPendingReceive == true }
+        harness.clock.advance(by: RemoteMediaTransport.idleTimeout, fireTimers: false)
+        try #require(harness.network.connections.first).deliver(FakeHTTP.response(body: Data("late".utf8)))
+        #expect(await pending.value.transportError == .idleTimeout)
+        #expect(harness.network.connections.first?.cancelCount ?? 0 > 0)
+        #expect(harness.clock.pendingTimerCount == 0)
     }
 
     // MARK: Network bounds
@@ -321,7 +421,9 @@ struct RemoteMediaTransportTests {
         let harness = RemoteMediaFakeHarness()
         harness.network.setDNS("cdn.example.com", .answer(.addresses(["93.184.216.34", "93.184.216.35"])))
         harness.network.respond { _, index in
-            index == 0 ? RemoteMediaConnectionScript(start: .fail) : .serving(FakeHTTP.response(body: Data("ok".utf8)))
+            index == 0
+                ? RemoteMediaConnectionScript(start: .fail)
+                : .serving(FakeHTTP.response(body: Data("ok".utf8)))
         }
 
         let result = try await harness.transport.fetch(try Self.url("https://cdn.example.com/x.png"))
@@ -448,7 +550,8 @@ struct RemoteMediaTransportTests {
     @Test func redirectWithoutAUsableLocationFails() async throws {
         let harness = RemoteMediaFakeHarness()
         harness.network.respond { _, _ in
-            .serving(FakeHTTP.response(status: 302, reason: "Found", headers: [("Location", "/a"), ("Location", "/b")]))
+                .serving(
+                    FakeHTTP.response(status: 302, reason: "Found", headers: [("Location", "/a"), ("Location", "/b")]))
         }
 
         let outcome = await RemoteMediaFakeHarness.outcome {
@@ -580,6 +683,7 @@ struct RemoteMediaTransportTests {
         [("Expires", "0")],
         [("Expires", "Tue, 14 Nov 2023 22:13:19 GMT")],
         [("Expires", "Tuesday, 14-Nov-23 22:18:20 GMT")],
+        [("Cache-Control", "max-age=600"), ("Date", "nonsense")],
     ])
     func responsesThatMustNotBeStoredAreBypassed(fields: [(String, String)]) {
         #expect(Self.freshness(fields) == nil)
@@ -610,7 +714,8 @@ struct RemoteMediaTransportTests {
         let start = ContinuousClock.now
         let freshness = RemoteMediaCacheFreshness(lifetime: .seconds(60), initialAge: .seconds(10))
 
-        #expect(cache.store(Data("x".utf8), for: url, freshness: freshness, now: start))
+        let stored = cache.store(Data("x".utf8), for: url, freshness: freshness, now: start)
+        #expect(stored)
         #expect(cache.body(for: url, now: start.advanced(by: .seconds(49))) == Data("x".utf8))
         #expect(cache.body(for: url, now: start.advanced(by: .seconds(50))) == nil)
         #expect(!cache.contains(url))
@@ -662,7 +767,8 @@ struct RemoteMediaTransportTests {
             Data("old".utf8), for: url,
             freshness: RemoteMediaCacheFreshness(lifetime: .seconds(600), initialAge: .zero), now: now)
 
-        #expect(!cache.store(Data("new".utf8), for: url, freshness: nil, now: now))
+        let stored = cache.store(Data("new".utf8), for: url, freshness: nil, now: now)
+        #expect(!stored)
         #expect(!cache.contains(url))
         #expect(cache.totalBytes == 0)
     }

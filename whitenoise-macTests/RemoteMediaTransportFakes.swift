@@ -102,12 +102,12 @@ final class VirtualRemoteMediaClock: RemoteMediaClock, @unchecked Sendable {
         return timers.count
     }
 
-    func advance(by duration: Duration) {
+    func advance(by duration: Duration, fireTimers: Bool = true) {
         lock.lock()
         elapsed += duration
         let now = origin.advanced(by: elapsed)
-        let due = timers.filter { $0.deadline <= now }.sorted { $0.deadline < $1.deadline }
-        timers.removeAll { $0.deadline <= now }
+        let due = fireTimers ? timers.filter { $0.deadline <= now }.sorted { $0.deadline < $1.deadline } : []
+        if fireTimers { timers.removeAll { $0.deadline <= now } }
         lock.unlock()
         due.forEach { $0.action() }
         signal.bump()

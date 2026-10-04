@@ -72,6 +72,15 @@ nonisolated final class RemoteMediaCompletionGate<Value: Sendable>: @unchecked S
     private let lock = NSLock()
     private var state = State.waiting
 
+    var isPending: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        switch state {
+        case .waiting, .installed: return true
+        case .delivered, .finished: return false
+        }
+    }
+
     /// Installs the awaiting continuation. Returns `true` when the operation should now start;
     /// `false` when an outcome was already recorded (the continuation has been resumed with it).
     func install(_ continuation: CheckedContinuation<Value, any Error>) -> Bool {
@@ -146,6 +155,7 @@ nonisolated struct RemoteMediaFetchResult: Sendable {
     let head: RemoteMediaHTTPResponseHead?
     let requestSentAt: ContinuousClock.Instant
     let responseReceivedAt: ContinuousClock.Instant
+    let responseWallClockAtHead: Date
 }
 
 nonisolated struct RemoteMediaTransport: Sendable {
@@ -217,7 +227,8 @@ nonisolated struct RemoteMediaTransport: Sendable {
             if let body = cachedBody(current) {
                 let now = clock.now()
                 return RemoteMediaFetchResult(
-                    url: current, body: body, head: nil, requestSentAt: now, responseReceivedAt: now)
+                    url: current, body: body, head: nil, requestSentAt: now,
+                    responseReceivedAt: now, responseWallClockAtHead: Date())
             }
 
             let addresses = try await admittedAddresses(for: target, deadline: deadline)
@@ -234,7 +245,8 @@ nonisolated struct RemoteMediaTransport: Sendable {
                     body: exchange.body,
                     head: exchange.head,
                     requestSentAt: exchange.requestSentAt,
-                    responseReceivedAt: exchange.responseReceivedAt
+                    responseReceivedAt: exchange.responseReceivedAt,
+                    responseWallClockAtHead: exchange.responseWallClockAtHead
                 )
             default:
                 throw RemoteMediaTransportError.httpStatus(status)
@@ -267,25 +279,31 @@ nonisolated struct RemoteMediaTransport: Sendable {
         case .name(let host):
             let resolver = self.resolver
             let slots = dnsSlots
+            let ticket = RemoteMediaDNSWaitTicket()
             let answer = try await awaitOperation(
                 until: deadline,
                 timeoutError: .deadlineExceeded,
-                abandon: {}
-            ) { (gate: RemoteMediaCompletionGate<RemoteMediaResolverAnswer>) in
-                // Claimed only once the caller is really waiting, and released by the worker
-                // itself — never by an abandoning caller — so a stuck `getaddrinfo` keeps
-                // counting against the cap until it actually returns.
-                guard slots.claim() else {
-                    gate.complete(.failure(RemoteMediaTransportError.dnsUnavailable))
-                    return
+                abandon: { ticket.cancel(slots: slots) },
+                start: { (gate: RemoteMediaCompletionGate<RemoteMediaResolverAnswer>) in
+                    // Held until the worker actually returns, even after caller cancellation.
+                    let queued = slots.request { admitted in
+                        guard admitted else {
+                            gate.complete(.failure(RemoteMediaTransportError.dnsUnavailable))
+                            return
+                        }
+                        guard gate.isPending else {
+                            slots.release()
+                            return
+                        }
+                        resolver.resolve(host: host) { answer in
+                            slots.release()
+                            // A late answer loses to timeout/cancel; it can never initiate a dial.
+                            gate.complete(.success(answer))
+                        }
+                    }
+                    ticket.install(queued, slots: slots)
                 }
-                resolver.resolve(host: host) { answer in
-                    slots.release()
-                    // A late answer loses to the timeout/cancel that already completed the gate
-                    // and is dropped here; nothing downstream can dial it.
-                    gate.complete(.success(answer))
-                }
-            }
+            )
             return try RemoteMediaResolution.admittedAddresses(answer)
         }
     }
@@ -297,6 +315,7 @@ nonisolated struct RemoteMediaTransport: Sendable {
         let body: Data
         let requestSentAt: ContinuousClock.Instant
         let responseReceivedAt: ContinuousClock.Instant
+        let responseWallClockAtHead: Date
     }
 
     /// Marks an attempt failure that happened before any response byte was processed, which is
@@ -348,7 +367,7 @@ nonisolated struct RemoteMediaTransport: Sendable {
             let timeoutError: RemoteMediaTransportError = bound < deadline ? .idleTimeout : .deadlineExceeded
             do {
                 return try await awaitOperation(
-                    until: bound, timeoutError: timeoutError, abandon: abandon, start)
+                    until: bound, timeoutError: timeoutError, abandon: abandon, start: start)
             } catch let error as RemoteMediaTransportError {
                 // Cancellation and the global deadline end the whole fetch; only a stall or a
                 // socket/TLS failure before any response byte may try the next address.
@@ -385,6 +404,7 @@ nonisolated struct RemoteMediaTransport: Sendable {
         var parser = RemoteMediaHTTPResponseParser()
         var receivedAnyByte = false
         var responseReceivedAt = requestSentAt
+        var responseWallClockAtHead = Date()
         while true {
             let chunk = try await stage(
                 retryable: !receivedAnyByte
@@ -414,12 +434,14 @@ nonisolated struct RemoteMediaTransport: Sendable {
 
             if progress == .headReceived, let head = parser.head {
                 responseReceivedAt = clock.now()
+                responseWallClockAtHead = Date()
                 guard Self.isAcceptedSuccess(head.statusCode) else {
                     // Redirects and errors close right after the head; their bodies are never
                     // drained, framed, or buffered.
                     return Exchange(
                         head: head, body: Data(), requestSentAt: requestSentAt,
-                        responseReceivedAt: responseReceivedAt)
+                        responseReceivedAt: responseReceivedAt,
+                        responseWallClockAtHead: responseWallClockAtHead)
                 }
                 progress = try parser.beginBody()
             }
@@ -429,9 +451,12 @@ nonisolated struct RemoteMediaTransport: Sendable {
             }
 
             if progress == .complete, let head = parser.head {
+                guard !Task.isCancelled else { throw RemoteMediaTransportError.cancelled }
+                guard clock.now() < deadline else { throw RemoteMediaTransportError.deadlineExceeded }
                 return Exchange(
                     head: head, body: parser.body, requestSentAt: requestSentAt,
-                    responseReceivedAt: responseReceivedAt)
+                    responseReceivedAt: responseReceivedAt,
+                    responseWallClockAtHead: responseWallClockAtHead)
             }
             if chunk.isComplete {
                 throw RemoteMediaTransportError.prematureEOF
@@ -450,7 +475,7 @@ nonisolated struct RemoteMediaTransport: Sendable {
         until bound: ContinuousClock.Instant,
         timeoutError: RemoteMediaTransportError,
         abandon: @escaping @Sendable () -> Void,
-        _ start: (RemoteMediaCompletionGate<Value>) -> Void
+        start: (RemoteMediaCompletionGate<Value>) -> Void
     ) async throws -> Value {
         if Task.isCancelled { throw RemoteMediaTransportError.cancelled }
         guard clock.now() < bound else {
@@ -462,7 +487,7 @@ nonisolated struct RemoteMediaTransport: Sendable {
             if gate.complete(.failure(timeoutError)) { abandon() }
         }
         defer { timer.cancel() }
-        return try await withTaskCancellationHandler {
+        let value = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Value, any Error>) in
                 if gate.install(continuation) {
                     start(gate)
@@ -471,5 +496,15 @@ nonisolated struct RemoteMediaTransport: Sendable {
         } onCancel: {
             if gate.complete(.failure(RemoteMediaTransportError.cancelled)) { abandon() }
         }
+        // Timer delivery may be delayed by executor pressure: time, not callback order, wins.
+        if Task.isCancelled {
+            abandon()
+            throw RemoteMediaTransportError.cancelled
+        }
+        guard clock.now() < bound else {
+            abandon()
+            throw timeoutError
+        }
+        return value
     }
 }

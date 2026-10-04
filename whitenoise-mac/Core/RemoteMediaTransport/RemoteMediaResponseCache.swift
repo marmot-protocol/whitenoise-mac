@@ -73,7 +73,13 @@ nonisolated enum RemoteMediaCachePolicy {
         let dates = head.values(for: "date")
         let ages = head.values(for: "age")
         guard dates.count <= 1, ages.count <= 1 else { return nil }
-        let dateValue = dates.first.flatMap(parseHTTPDate) ?? wallClockAtResponse
+        let dateValue: Date
+        if let date = dates.first {
+            guard let parsed = parseHTTPDate(date) else { return nil }
+            dateValue = parsed
+        } else {
+            dateValue = wallClockAtResponse
+        }
         var ageValue: Int64 = 0
         if let age = ages.first {
             guard let parsed = deltaSeconds(age) else { return nil }
