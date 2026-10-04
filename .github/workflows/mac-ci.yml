@@ -21,7 +21,7 @@ env:
   SCHEME: whitenoise-mac
   DESTINATION: platform=macOS
 
-# The first four jobs below are independent by construction, so they run in
+# The checks, test, build and analyze jobs are independent by construction, so they run in
 # parallel and the PR's wall clock is the slowest one rather than their sum.
 # Nothing is shared between them to lose: `test` compiles Debug, `build`
 # compiles Release and `analyze` compiles Debug under the analyzer, so even when
@@ -93,6 +93,8 @@ jobs:
     timeout-minutes: 30
     env:
       WN_REMOTE_MEDIA_NATIVE_CDN: "1"
+      # Match the older-runtime test executor, as required for transported test products.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
 
     steps:
       - name: Check out
@@ -113,9 +115,23 @@ jobs:
             -scheme "$SCHEME" \
             -testPlan PR \
             -destination "$DESTINATION" \
+            -derivedDataPath TestBuild \
             -resultBundlePath TestResults.xcresult \
             -enableCodeCoverage YES \
             CODE_SIGNING_ALLOWED=NO
+
+      # Reuse the exact full-suite products to qualify the older runtime without
+      # invoking Xcode 26's crashing icon asset compiler on macOS 15.
+      - name: Archive native test products
+        run: tar -czf NativeTestProducts.tar.gz -C TestBuild Build/Products
+
+      - name: Upload native test products
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-native-test-products
+          path: NativeTestProducts.tar.gz
+          if-no-files-found: error
+          retention-days: 1
 
       # No `if:` on purpose. Coverage from a run whose tests failed measures a
       # partial suite, and publishing that number would quietly lower the
@@ -150,6 +166,7 @@ jobs:
     name: Native transport (macOS 15 arm64)
     runs-on: macos-15
     timeout-minutes: 30
+    needs: test
     env:
       WN_REMOTE_MEDIA_NATIVE_CDN: "1"
       # The default Xcode 16.4 cannot compile the app's Swift 6.2 concurrency syntax.
@@ -159,8 +176,15 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Cache MarmotKit binary artifact
-        uses: ./.github/actions/marmotkit-cache
+      - name: Download exact-run native test products
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-native-test-products
+
+      - name: Restore native test products
+        run: |
+          mkdir TestBuild
+          tar -xzf NativeTestProducts.tar.gz -C TestBuild
 
       - name: Record actual platform
         run: |
@@ -168,15 +192,20 @@ jobs:
           uname -m
           xcodebuild -version
           test "$(uname -m)" = arm64
+          case "$(sw_vers -productVersion)" in
+            15.*) ;;
+            *) echo "Expected actual macOS 15 runtime" >&2; exit 1 ;;
+          esac
           # The image is macOS 15.x, not necessarily exact deployment minimum 15.6.
 
       - name: Native TLS and public CDN qualification
         run: |
           set -o pipefail
-          python3 scripts/ci/remote-media-native-fixture.py xcodebuild test \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -testPlan PR \
+          native_test_runs=(TestBuild/Build/Products/*.xctestrun)
+          test "${#native_test_runs[@]}" = 1
+          test -f "${native_test_runs[0]}"
+          python3 scripts/ci/remote-media-native-fixture.py xcodebuild test-without-building \
+            -xctestrun "${native_test_runs[0]}" \
             -destination 'platform=macOS,arch=arm64' \
             -resultBundlePath NativeTransportResults.xcresult \
             -only-testing:whitenoise-macTests/RemoteMediaNativeTLSTests \
