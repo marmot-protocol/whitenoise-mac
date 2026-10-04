@@ -8,6 +8,12 @@
     }
   ],
   "defaultOptions" : {
+    "environmentVariableEntries" : [
+      {
+        "key" : "WN_REMOTE_MEDIA_NATIVE_FIXTURE",
+        "value" : "$(WN_REMOTE_MEDIA_NATIVE_FIXTURE)"
+      }
+    ],
     "codeCoverage" : {
       "targets" : [
         {
