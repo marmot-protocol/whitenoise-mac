@@ -91,6 +91,8 @@ jobs:
     name: Unit tests
     runs-on: macos-26
     timeout-minutes: 30
+    env:
+      WN_REMOTE_MEDIA_NATIVE_CDN: "1"
 
     steps:
       - name: Check out
@@ -141,6 +143,52 @@ jobs:
         with:
           name: mac-unit-test-results
           path: TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+  native-macos-15:
+    name: Native transport (macOS 15 arm64)
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      WN_REMOTE_MEDIA_NATIVE_CDN: "1"
+      # The default Xcode 16.4 cannot compile the app's Swift 6.2 concurrency syntax.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Cache MarmotKit binary artifact
+        uses: ./.github/actions/marmotkit-cache
+
+      - name: Record actual platform
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          test "$(uname -m)" = arm64
+          # The image is macOS 15.x, not necessarily exact deployment minimum 15.6.
+
+      - name: Native TLS and public CDN qualification
+        run: |
+          set -o pipefail
+          python3 scripts/ci/remote-media-native-fixture.py xcodebuild test \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -testPlan PR \
+            -destination 'platform=macOS,arch=arm64' \
+            -resultBundlePath NativeTransportResults.xcresult \
+            -only-testing:whitenoise-macTests/RemoteMediaNativeTLSTests \
+            -only-testing:whitenoise-macTests/RemoteMediaNativeCDNTests \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload native test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-native-transport-results
+          path: NativeTransportResults.xcresult
           if-no-files-found: ignore
           retention-days: 7
 
@@ -262,13 +310,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: ${{ always() }}
-    needs: [checks, test, build, analyze, coverage]
+    needs: [checks, test, native-macos-15, build, analyze, coverage]
 
     steps:
       - name: Report job results
         run: |
           printf 'static checks   : %s\n' "${{ needs.checks.result }}"
           printf 'unit tests      : %s\n' "${{ needs.test.result }}"
+          printf 'native macOS 15 : %s\n' "${{ needs.native-macos-15.result }}"
           printf 'release build   : %s\n' "${{ needs.build.result }}"
           printf 'static analysis : %s\n' "${{ needs.analyze.result }}"
           printf 'coverage        : %s\n' "${{ needs.coverage.result }}"
@@ -279,6 +328,7 @@ jobs:
         if: >-
           ${{ needs.checks.result != 'success'
            || needs.test.result != 'success'
+           || needs.native-macos-15.result != 'success'
            || needs.build.result != 'success'
            || needs.analyze.result != 'success'
            || needs.coverage.result != 'success' }}

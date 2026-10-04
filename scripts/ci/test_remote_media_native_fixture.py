@@ -9,6 +9,12 @@ import unittest
 
 
 class TrustRecordTests(unittest.TestCase):
+    def test_public_cdn_case_is_required_only_when_explicitly_enabled(self):
+        tls = fixture.required_native_cases()
+        public = fixture.required_native_cases(include_public_cdn=True)
+        self.assertEqual(9, len(tls))
+        self.assertEqual(tls | {"nativePublicCDNPinnedImageFetchWorks"}, public)
+
     def test_explicit_deny_is_required_for_every_constraint(self):
         fingerprint = "A" * 40
         accepted = {"trustList": {fingerprint: {"trustSettings": [{"kSecTrustSettingsResult": 3}]}}}
