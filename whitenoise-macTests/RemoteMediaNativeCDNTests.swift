@@ -37,7 +37,8 @@ struct RemoteMediaNativeCDNTests {
         #expect(image.pixelsWide > 0 && image.pixelsHigh > 0)
     }
 
-    @MainActor @Test(
+    @MainActor
+    @Test(
         .enabled(if: ProcessInfo.processInfo.environment["WN_REMOTE_MEDIA_NATIVE_GIPHY"] == "1")
     )
     func nativePublicCDNGiphyGifFetchWorks() async throws {
