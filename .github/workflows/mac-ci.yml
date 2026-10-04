@@ -106,18 +106,37 @@ jobs:
       - name: Qualify ephemeral TLS trust lifecycle before building
         run: python3 scripts/ci/remote-media-native-fixture.py --trust-lifecycle-only
 
-      - name: Unit tests
+      # `test` alone did not leave a transportable .xctestrun. Generate it
+      # explicitly, then run these exact products on both native runtimes.
+      - name: Build transportable test products
         run: |
           set -o pipefail
-          rm -rf TestResults.xcresult
-          python3 scripts/ci/remote-media-native-fixture.py xcodebuild test \
+          xcodebuild build-for-testing \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
             -testPlan PR \
             -destination "$DESTINATION" \
             -derivedDataPath TestBuild \
-            -resultBundlePath TestResults.xcresult \
             -enableCodeCoverage YES \
+            WN_REMOTE_MEDIA_NATIVE_FIXTURE=refresh-before-execution \
+            WN_REMOTE_MEDIA_NATIVE_CDN=1 \
+            CODE_SIGNING_ALLOWED=NO
+          native_test_runs=(TestBuild/Build/Products/*.xctestrun)
+          test "${#native_test_runs[@]}" = 1
+          test -f "${native_test_runs[0]}"
+          printf 'Generated native test manifest: %s\n' "${native_test_runs[0]}"
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          rm -rf TestResults.xcresult
+          native_test_runs=(TestBuild/Build/Products/*.xctestrun)
+          test "${#native_test_runs[@]}" = 1
+          test -f "${native_test_runs[0]}"
+          python3 scripts/ci/remote-media-native-fixture.py xcodebuild test-without-building \
+            -xctestrun "${native_test_runs[0]}" \
+            -destination "$DESTINATION" \
+            -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO
 
       # Reuse the exact full-suite products to qualify the older runtime without
