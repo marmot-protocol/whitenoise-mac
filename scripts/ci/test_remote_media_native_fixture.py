@@ -42,7 +42,8 @@ class TrustRecordTests(unittest.TestCase):
         tls = fixture.required_native_cases()
         public = fixture.required_native_cases(include_public_cdn=True)
         self.assertEqual(9, len(tls))
-        self.assertEqual(tls | {"nativePublicCDNPinnedImageFetchWorks"}, public)
+        self.assertEqual(tls | {"nativePublicCDNPinnedImageFetchWorks", "nativePublicCDNGiphyGifFetchWorks"}, public)
+        self.assertEqual(11, len(public))
 
     def test_explicit_deny_is_required_for_every_constraint(self):
         fingerprint = "A" * 40

@@ -2,7 +2,7 @@
 """Run the existing full unit suite with tiny, owned TLS fixtures on ephemeral macOS CI.
 
 No user media, accounts, persistent key, custom app trust callback, or weakened TLS.
-An explicitly enabled public-CDN check fetches only a tiny immutable first-party PNG.
+Explicit public-CDN checks fetch tiny digest-pinned first-party PNG and GIPHY GIF samples.
 The production adapter is unchanged. The unique trust root is denied and deleted;
 the remaining deny record is contained by the disposable runner's lifetime.
 This helper refuses developer machines and the persistent Hermes host.
@@ -239,7 +239,7 @@ def required_native_cases(include_public_cdn=False):
              "nativeTLSCleanCloseRequiresExplicitFraming", "nativeTLSAbruptCloseDoesNotCompleteBody",
              "nativeTLSProductionReceiveAcceptsChunks", "nativeTLSProductionReceiveRejectsTruncatedLength"}
     if include_public_cdn:
-        cases.add("nativePublicCDNPinnedImageFetchWorks")
+        cases.update({"nativePublicCDNPinnedImageFetchWorks", "nativePublicCDNGiphyGifFetchWorks"})
     return cases
 
 

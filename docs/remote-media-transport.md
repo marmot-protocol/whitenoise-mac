@@ -163,13 +163,18 @@ These adapter tests do not bypass or change production URL admission: loopback r
 `RemoteMediaNativeCDNTests` separately uses `RemoteMediaTransport.live` with no
 injected DNS/socket, response cache, retry or fallback. When explicitly enabled
 by CI, it fetches a 1945-byte first-party PNG pinned to an immutable repository
-commit, checks its exact SHA256 and response framing, then decodes those verified
-bytes with the native image codec. The wrapper requires this tenth named test
-to execute and pass as well. Both the full macOS 26 suite and a focused macOS 15
+commit and a 7935-byte public GIPHY GIF, checks each exact SHA256 and response
+framing, then decodes only those verified bytes with the native image codec.
+The GIF also passes the existing GIPHY URL and animated-image validation helpers.
+The GIPHY object is not guaranteed immutable: disappearance or changed bytes
+fail qualification before decoding, never silently update the expected digest.
+The wrapper requires both named CDN tests and all nine TLS cases to execute and
+pass. Both the full macOS 26 suite and a focused macOS 15
 arm64 job enable it. Logs record the actual OS version: macOS 15.x is not proof
 of exact 15.6 behavior. Connectivity failure keeps qualification pending rather
-than permitting an alternate transport. This one PNG does not qualify GIPHY or
-configured proxy behavior; those remain separate checks below.
+than permitting an alternate transport. These two samples do not qualify GIF
+search, playback UI, broad CDN compatibility or configured proxy behavior;
+those remain separate checks below.
 The older-runtime job executes the same workflow run's tar-preserved build
 products with `test-without-building`, with fresh fixture ports and trust.
 An explicit `build-for-testing` generates the manifest before either runtime
