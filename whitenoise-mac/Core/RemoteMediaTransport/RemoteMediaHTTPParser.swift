@@ -77,7 +77,6 @@ nonisolated struct RemoteMediaHTTPResponseParser {
         case head
         case awaitingBodyDecision
         case fixedLength(remaining: Int)
-        case untilClose
         case chunkSize
         case chunkData(remaining: Int)
         case chunkDataEnd
@@ -165,7 +164,10 @@ nonisolated struct RemoteMediaHTTPResponseParser {
                 body.reserveCapacity(length)
                 state = length == 0 ? .complete : .fixedLength(remaining: length)
             } else {
-                state = .untilClose
+                // Network.framework reports an abrupt TLS EOF without close_notify as a
+                // clean receive completion on current macOS. EOF cannot authenticate the
+                // end of an unframed image, so never pass close-delimited bytes to a decoder.
+                throw RemoteMediaTransportError.unsupportedFraming
             }
             return try advance()
         } catch {
@@ -174,12 +176,10 @@ nonisolated struct RemoteMediaHTTPResponseParser {
         }
     }
 
-    /// The peer closed its side. Only a close-delimited body may end this way; anything else
-    /// is a truncated message.
+    /// EOF cannot complete a message. Its authenticated HTTP framing must already be complete.
     mutating func finishAtEOF() throws -> Progress {
         switch state {
-        case .untilClose, .complete:
-            state = .complete
+        case .complete:
             return .complete
         default:
             state = .failed
@@ -238,10 +238,6 @@ nonisolated struct RemoteMediaHTTPResponseParser {
                 try appendBody(count: count)
                 state = count == remaining ? .complete : .fixedLength(remaining: remaining - count)
                 if count < remaining { return .needsMoreData }
-
-            case .untilClose:
-                if available > 0 { try appendBody(count: available) }
-                return .needsMoreData
 
             case .chunkSize:
                 guard let lineEnd = findCRLF() else {

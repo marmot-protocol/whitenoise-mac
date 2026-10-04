@@ -452,7 +452,7 @@ struct RemoteMediaTransportTests {
         harness.network.setDNS("cdn.example.com", .answer(.addresses(["93.184.216.34", "93.184.216.35"])))
         let oversized = Data(count: RemoteMediaHTTPResponseParser.maximumBodyBytes + 1)
         harness.network.respond { _, _ in
-            .serving(FakeHTTP.response(body: oversized, contentLength: false))
+            .serving(FakeHTTP.response(body: oversized))
         }
 
         let outcome = await RemoteMediaFakeHarness.outcome {
@@ -460,6 +460,21 @@ struct RemoteMediaTransportTests {
         }
 
         #expect(outcome.transportError == .bodyTooLarge)
+        #expect(harness.network.connections.count == 1)
+    }
+
+    @Test func unframedBodyIsRefusedWithoutRetryingOrReturningBytes() async throws {
+        let harness = RemoteMediaFakeHarness()
+        harness.network.setDNS("cdn.example.com", .answer(.addresses(["93.184.216.34", "93.184.216.35"])))
+        harness.network.respond { _, _ in
+            .serving(FakeHTTP.response(body: Data("pixel".utf8), contentLength: false))
+        }
+
+        let outcome = await RemoteMediaFakeHarness.outcome {
+            try await harness.transport.fetch(try Self.url("https://cdn.example.com/x.png"))
+        }
+
+        #expect(outcome.transportError == .unsupportedFraming)
         #expect(harness.network.connections.count == 1)
     }
 
