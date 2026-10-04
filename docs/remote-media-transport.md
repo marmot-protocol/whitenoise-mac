@@ -140,17 +140,24 @@ with real TLS sockets in the existing full macOS CI suite. The wrapper
 It creates tiny owned loopback servers and an ephemeral certificate authority constrained to
 `remote-media-fixture.invalid` and `127.0.0.1`. It deletes all generated private keys before
 installing that authority with noninteractive administrator SSL trust on the disposable runner,
-then attempts removal of both the trust entry and exact certificate in cleanup.
-Every phase is logged, certificate absence is checked, and any failed cleanup
-keeps CI red. A setup/teardown-only diagnostic runs before building. No
-user-keychain or authorization-policy change is made; every setup/cleanup subprocess
-has a 60-second timeout and its owned process group is killed and reaped on timeout. It never
+then replaces only that authority's SSL grant with explicit denial, verifies a
+fresh admin trust export has no granting entry for its exact fingerprint and
+the user trust domain has no overriding record, and deletes the exact certificate.
+Native macOS 26 trust-entry removal timed out; a deny record remains until the
+disposable VM is destroyed. This is containment, **not strict trust-entry cleanup**.
+Every phase is logged; failed denial, export or verified absence keeps CI red.
+A setup/teardown-only diagnostic runs before building. No user-keychain or
+authorization-policy change is made. A bounded root-owned supervisor kills/reaps
+its direct `security` child after 60 seconds; an uncertain mutation forbids
+subsequent keychain changes. This supervisor runs only inside the guarded ephemeral
+CI path, never on the persistent Hermes host or a developer machine. It never
 modifies the production trust evaluator or adds a verify callback. Correct DNS-name/SNI and
 IP-SAN positive controls accompany wrong-name, missing-IP-SAN and untrusted-chain rejection;
 two further cases refuse unframed bodies with either clean or abrupt close. The wrapper requires
 all seven named tests to actually execute and pass, not merely an exit-zero or skipped suite.
 These adapter tests do not bypass or change production URL admission: loopback remains refused.
-The Python fixture's seven platform-independent tests validate only the controlled server,
+The Python fixture's platform-independent tests validate only the controlled server
+and fail-closed trust-export classification,
 **not** macOS trust or the app. Native results must be inspected before claiming qualification.
 
 ## Native qualification still required
@@ -173,8 +180,9 @@ Fakes cannot prove these. Each needs a native check on macOS 15.6 / arm64 before
   `b09b8b9`: Network.framework accepted TLS truncation as EOF. The parser now
   refuses unframed bodies, even on a clean close; qualification must verify both
   exact refusals and the framed positive control. The same run passed all six
-  other TLS assertions but timed out during teardown, so strict fixture cleanup
-  is still unproven. Certificate checks must never be weakened to pass a test.
+  other TLS assertions but timed out during teardown. The replacement denial
+  and verified-absence containment path must pass native CI before qualification;
+  it must not be described as strict cleanup. Certificate checks are never weakened.
 - **IDN hostnames.** Hostnames that Foundation hands over as non-ASCII are refused rather
   than converted.
 - **Compatibility.** The adapter uses HTTP/1.1 with identity content encoding and a fresh
