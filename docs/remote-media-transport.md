@@ -163,13 +163,16 @@ These adapter tests do not bypass or change production URL admission: loopback r
 `RemoteMediaNativeCDNTests` separately uses `RemoteMediaTransport.live` with no
 injected DNS/socket, response cache, retry or fallback. When explicitly enabled
 by CI, it fetches a 1945-byte first-party PNG pinned to an immutable repository
-commit and a 7935-byte public GIPHY GIF, checks each exact SHA256 and response
+commit. An explicit manual `workflow_dispatch` also enables a 7935-byte public
+GIPHY GIF. It checks each exact SHA256 and response
 framing, then decodes only those verified bytes with the native image codec.
 The GIF also passes the existing GIPHY URL and animated-image validation helpers.
 The GIPHY object is not guaranteed immutable: disappearance or changed bytes
 fail qualification before decoding, never silently update the expected digest.
-The wrapper requires both named CDN tests and all nine TLS cases to execute and
-pass. Both the full macOS 26 suite and a focused macOS 15
+The wrapper requires all nine TLS cases and the PNG on ordinary PR/master/scheduled
+runs (ten tests). Manual qualification requires the GIF too (eleven tests).
+This third-party object must not make unrelated PRs permanently fail after a CDN
+mutation. Both the full macOS 26 suite and a focused macOS 15
 arm64 job enable it. Logs record the actual OS version: macOS 15.x is not proof
 of exact 15.6 behavior. Connectivity failure keeps qualification pending rather
 than permitting an alternate transport. These two samples do not qualify GIF
@@ -179,7 +182,7 @@ The older-runtime job executes the same workflow run's tar-preserved build
 products with `test-without-building`, with fresh fixture ports and trust.
 An explicit `build-for-testing` generates the manifest before either runtime
 executes those products; a missing or ambiguous manifest fails the build job
-before upload. Both build and execution use Xcode 26.3. Only the two fixture environment
+before upload. Both build and execution use Xcode 26.3. Only the three fixture environment
 variables in the generated `.xctestrun` are refreshed; binary and test paths
 remain unchanged. The helper refuses an unexpected manifest or stale-port
 configuration rather than counting a skipped or unavailable test as PASS.

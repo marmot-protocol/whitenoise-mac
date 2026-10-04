@@ -11,9 +11,10 @@ import unittest
 
 class TrustRecordTests(unittest.TestCase):
     def test_transported_manifest_changes_only_fixture_variables(self):
-        updates = {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": '{"dns":1234}', "WN_REMOTE_MEDIA_NATIVE_CDN": "1"}
+        updates = {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": '{"dns":1234}', "WN_REMOTE_MEDIA_NATIVE_CDN": "1",
+                   "WN_REMOTE_MEDIA_NATIVE_GIPHY": "1"}
         environment = {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "old-ports", "WN_REMOTE_MEDIA_NATIVE_CDN": "0",
-                       "UNCHANGED": "ordinary-test-setting"}
+                       "WN_REMOTE_MEDIA_NATIVE_GIPHY": "0", "UNCHANGED": "ordinary-test-setting"}
         document = {"TestConfigurations": [{"TestTargets": [{"EnvironmentVariables": environment,
                       "TestBundlePath": "__TESTHOST__/tests.xctest", "TestHostPath": "__TESTROOT__/Debug/app.app"}]}]}
         with tempfile.TemporaryDirectory(prefix="wn-manifest-test-") as directory:
@@ -24,10 +25,13 @@ class TrustRecordTests(unittest.TestCase):
             self.assertEqual(document, plistlib.loads(path.read_bytes()))
 
     def test_missing_partial_and_symlinked_manifest_fail_without_modification(self):
-        updates = {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "fresh", "WN_REMOTE_MEDIA_NATIVE_CDN": "1"}
+        updates = {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "fresh", "WN_REMOTE_MEDIA_NATIVE_CDN": "1",
+                   "WN_REMOTE_MEDIA_NATIVE_GIPHY": "1"}
         with tempfile.TemporaryDirectory(prefix="wn-manifest-test-") as directory:
             path = Path(directory) / "owned.xctestrun"
-            for document in [{}, {"EnvironmentVariables": {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "old"}}]:
+            for document in [{}, {"EnvironmentVariables": {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "old"}},
+                             {"EnvironmentVariables": {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "old",
+                                                       "WN_REMOTE_MEDIA_NATIVE_CDN": "0"}}]:
                 original = plistlib.dumps(document)
                 path.write_bytes(original)
                 with self.assertRaises(RuntimeError):
@@ -42,8 +46,13 @@ class TrustRecordTests(unittest.TestCase):
         tls = fixture.required_native_cases()
         public = fixture.required_native_cases(include_public_cdn=True)
         self.assertEqual(9, len(tls))
-        self.assertEqual(tls | {"nativePublicCDNPinnedImageFetchWorks", "nativePublicCDNGiphyGifFetchWorks"}, public)
-        self.assertEqual(11, len(public))
+        self.assertEqual(tls | {"nativePublicCDNPinnedImageFetchWorks"}, public)
+        self.assertEqual(10, len(public))
+        qualified = fixture.required_native_cases(include_public_cdn=True, include_giphy=True)
+        self.assertEqual(public | {"nativePublicCDNGiphyGifFetchWorks"}, qualified)
+        self.assertEqual(11, len(qualified))
+        with self.assertRaises(ValueError):
+            fixture.required_native_cases(include_giphy=True)
 
     def test_explicit_deny_is_required_for_every_constraint(self):
         fingerprint = "A" * 40
