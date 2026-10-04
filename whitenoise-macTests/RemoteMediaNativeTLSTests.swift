@@ -22,6 +22,36 @@ struct RemoteMediaNativeTLSTests {
 
     private static let name = "remote-media-fixture.invalid"
 
+    private nonisolated struct FixtureResolver: RemoteMediaResolving {
+        func resolve(host: String, completion: @escaping @Sendable (RemoteMediaResolverAnswer) -> Void) {
+            completion(.addresses(["8.8.8.8"]))
+        }
+    }
+
+    // Only this injected factory substitutes the fixture address/port. URL/answer
+    // admission, original TLS name and the production receive loop remain unchanged.
+    private nonisolated struct FixtureFactory: RemoteMediaConnectionFactory {
+        let address: RemoteMediaAddress
+        let port: UInt16
+
+        func makeConnection(to endpoint: RemoteMediaEndpoint) -> any RemoteMediaConnection {
+            NetworkRemoteMediaConnectionFactory().makeConnection(
+                to: RemoteMediaEndpoint(address: address, port: port, tlsServerName: endpoint.tlsServerName))
+        }
+    }
+
+    private static func transportResponse(path: String) async throws -> Data {
+        let ports = try fixture()
+        let address = try #require(RemoteMediaAddress(ipv4: [127, 0, 0, 1]))
+        let transport = RemoteMediaTransport(
+            testingResolver: FixtureResolver(),
+            connectionFactory: FixtureFactory(address: address, port: ports.dns),
+            clock: SystemRemoteMediaClock(),
+            dnsSlots: RemoteMediaDNSSlots(limit: 1))
+        let url = try #require(URL(string: "https://\(name)\(path)"))
+        return try await transport.fetch(url).body
+    }
+
     private static func fixture() throws -> Fixture {
         let value = try #require(ProcessInfo.processInfo.environment["WN_REMOTE_MEDIA_NATIVE_FIXTURE"])
         return try JSONDecoder().decode(Fixture.self, from: Data(value.utf8))
@@ -139,6 +169,17 @@ struct RemoteMediaNativeTLSTests {
     @Test func nativeTLSAbruptCloseDoesNotCompleteBody() async throws {
         await #expect(throws: RemoteMediaTransportError.unsupportedFraming) {
             _ = try await Self.response(port: Self.fixture().dns, name: Self.name, path: "/abrupt-close")
+        }
+    }
+
+    @Test func nativeTLSProductionReceiveAcceptsChunks() async throws {
+        let body = try await Self.transportResponse(path: "/chunked")
+        #expect(String(decoding: body, as: UTF8.self) == Self.name)
+    }
+
+    @Test func nativeTLSProductionReceiveRejectsTruncatedLength() async throws {
+        await #expect(throws: RemoteMediaTransportError.prematureEOF) {
+            _ = try await Self.transportResponse(path: "/truncated-fixed")
         }
     }
 }

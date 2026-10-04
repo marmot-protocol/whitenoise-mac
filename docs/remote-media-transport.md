@@ -153,8 +153,12 @@ subsequent keychain changes. This supervisor runs only inside the guarded epheme
 CI path, never on the persistent Hermes host or a developer machine. It never
 modifies the production trust evaluator or adds a verify callback. Correct DNS-name/SNI and
 IP-SAN positive controls accompany wrong-name, missing-IP-SAN and untrusted-chain rejection;
-two further cases refuse unframed bodies with either clean or abrupt close. The wrapper requires
-all seven named tests to actually execute and pass, not merely an exit-zero or skipped suite.
+two further cases refuse unframed bodies with either clean or abrupt close. Two
+tests exercise the production transport receive loop with a fixture-only socket
+mapping: a complete chunked response and an abruptly closed Content-Length body
+that is one byte short. The original Host/TLS name, URL/answer admission, deadlines
+and parser run unchanged; no external address is dialed. The wrapper requires
+all nine named tests to actually execute and pass, not merely an exit-zero or skipped suite.
 These adapter tests do not bypass or change production URL admission: loopback remains refused.
 The Python fixture's platform-independent tests validate only the controlled server
 and fail-closed trust-export classification,
