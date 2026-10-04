@@ -6243,41 +6243,40 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @Test func remoteImageLoaderCoalescesConcurrentLoadsForSameCacheKey() async throws {
-        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0.2)
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RemoteImageURLProtocolStub.self]
-        config.urlCache = nil
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness(holdFirstResponse: true)
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://example.com/avatar.png"))
 
-        async let first = loader.image(for: url, maxPixelSize: 32)
-        async let second = loader.image(for: url, maxPixelSize: 32)
-        async let third = loader.image(for: url, maxPixelSize: 32)
+        let loads = (0..<3).map { _ in Task { await loader.image(for: url, maxPixelSize: 32) } }
+        let allJoined = await waitFor { loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 3 }
+        #expect(allJoined)
+        await harness.wait { harness.network.connections.first?.hasPendingReceive == true }
+        try #require(harness.network.connections.first).deliver(Self.singlePixelPNGResponse())
 
-        let results = await [first, second, third]
+        var results: [LoadedImage?] = []
+        for load in loads {
+            results.append(await load.value)
+        }
 
         #expect(results.allSatisfy { $0 != nil })
-        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+        #expect(harness.network.connections.count == 1)
     }
 
     @Test func remoteImageLoaderCancelsCoalescedDownloadAfterLastWaiterCancels() async throws {
-        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 2)
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RemoteImageURLProtocolStub.self]
-        config.urlCache = nil
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness(holdFirstResponse: true)
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://example.com/avatar.png"))
 
         let first = Task { await loader.image(for: url, maxPixelSize: 32) }
 
-        let requestStarted = await waitFor { RemoteImageURLProtocolStub.requestCount() == 1 }
-        #expect(requestStarted)
+        await harness.wait { harness.network.connections.first?.hasPendingReceive == true }
+        let connection = try #require(harness.network.connections.first)
 
         let second = Task { await loader.image(for: url, maxPixelSize: 32) }
 
         let secondJoined = await waitFor {
             loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 2
-                && RemoteImageURLProtocolStub.requestCount() == 1
+                && harness.network.connections.count == 1
         }
         #expect(secondJoined)
 
@@ -6286,24 +6285,23 @@ struct MediaTests: WorkspaceTestSupport {
             loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 1
         }
         #expect(firstReleased)
-        #expect(RemoteImageURLProtocolStub.stopLoadingCount() == 0)
+        #expect(connection.cancelCount == 0)
 
         second.cancel()
 
+        await harness.wait { connection.cancelCount >= 1 }
         let requestCancelled = await waitFor {
-            RemoteImageURLProtocolStub.stopLoadingCount() == 1
-                && loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 0
+            loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 0
         }
         #expect(requestCancelled)
 
         let results = await [first.value, second.value]
         #expect(results.allSatisfy { $0 == nil })
-        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+        #expect(harness.network.connections.count == 1)
     }
 
     @Test func remoteImageLoaderUsesBoundedDecodedCache() async throws {
-        let config = URLSessionConfiguration.ephemeral
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let loader = RemoteImageLoader(testingTransport: RemoteMediaFakeHarness().transport)
 
         #expect(loader.decodedCacheCountLimit == RemoteImageLoader.defaultDecodedCacheCountLimit)
         #expect(loader.decodedCacheTotalCostLimit == RemoteImageLoader.defaultDecodedCacheTotalCostLimit)
@@ -6311,23 +6309,130 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(loader.decodedCacheTotalCostLimit > 0)
     }
 
-    @Test func remoteImageLoaderDefaultSessionPinsMemoryOnlyURLCacheInvariant() async throws {
-        let config = RemoteImageLoader.makeSessionConfiguration()
-        let urlCache = try #require(config.urlCache)
+    /// Replaces the old `URLSessionConfiguration` pin: the same total/stall budgets and the
+    /// memory-only raw cache bounds now live on the pinned transport.
+    @Test func remoteImageLoaderTransportPinsTimeoutAndMemoryOnlyCacheInvariants() async throws {
+        #expect(RemoteMediaTransport.totalDeadline == .seconds(RemoteImageURLPolicy.downloadResourceTimeout))
+        #expect(RemoteMediaTransport.idleTimeout == .seconds(RemoteImageURLPolicy.downloadStallTimeout))
+        #expect(RemoteMediaTransport.totalDeadline > RemoteMediaTransport.idleTimeout)
+        #expect(RemoteMediaTransport.maximumRedirects == 5)
+        #expect(RemoteMediaHTTPResponseParser.maximumBodyBytes == Int(RemoteImageURLPolicy.maxResponseBytes))
+        #expect(RemoteMediaResponseCache.maximumTotalBytes == 16 * 1024 * 1024)
+        #expect(RemoteMediaResponseCache.maximumEntryCount == 512)
+    }
 
-        // Foundation does not expose a stable cross-platform seam for asserting URLCache disk
-        // writes directly, so pin the privacy invariant that prevents them for the default loader.
-        #expect(urlCache.memoryCapacity > 0)
-        #expect(urlCache.diskCapacity == 0)
-        #expect(config.timeoutIntervalForRequest == RemoteImageURLPolicy.downloadStallTimeout)
-        #expect(config.timeoutIntervalForResource == RemoteImageURLPolicy.downloadResourceTimeout)
-        #expect(config.timeoutIntervalForResource > config.timeoutIntervalForRequest)
-        #expect(config.requestCachePolicy == .useProtocolCachePolicy)
+    /// Both remote entry points — decoded avatars and raw source bytes — reach the network only
+    /// through the pinned transport: one admitted numeric address, the original TLS name, and
+    /// the original host/port in `Host`.
+    @Test func remoteImageLoaderFetchesAvatarsAndSourceBytesThroughThePinnedTransport() async throws {
+        let harness = Self.remoteImageHarness()
+        harness.network.setDNS("cdn.example.com", .answer(.addresses(["93.184.216.34"])))
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let avatar = try #require(URL(string: "https://cdn.example.com/avatar.png"))
+        let source = try #require(URL(string: "https://cdn.example.com:8443/source.png?size=full"))
+
+        let image = try #require(await loader.image(for: avatar, maxPixelSize: 32))
+        let bytes = await loader.data(for: source)
+
+        #expect(image.nsImage.size.width > 0)
+        #expect(bytes == Self.singlePixelPNG)
+        #expect(harness.network.resolveCalls == ["cdn.example.com", "cdn.example.com"])
+        let connections = harness.network.connections
+        #expect(connections.count == 2)
+        let address = try #require(RemoteMediaAddress(ipv4: [93, 184, 216, 34]))
+        #expect(
+            connections.map(\.endpoint) == [
+                RemoteMediaEndpoint(address: address, port: 443, tlsServerName: "cdn.example.com"),
+                RemoteMediaEndpoint(address: address, port: 8443, tlsServerName: "cdn.example.com"),
+            ])
+        #expect(connections[0].sentText.hasPrefix("GET /avatar.png HTTP/1.1\r\nHost: cdn.example.com\r\n"))
+        #expect(
+            connections[1].sentText.hasPrefix("GET /source.png?size=full HTTP/1.1\r\nHost: cdn.example.com:8443\r\n"))
+    }
+
+    @Test func remoteImageLoaderRefusesRebindingAnswersForAvatarsAndSourceBytes() async throws {
+        let harness = Self.remoteImageHarness()
+        harness.network.setDNS("rebind.example", .answer(.addresses(["93.184.216.34", "192.168.1.10"])))
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let url = try #require(URL(string: "https://rebind.example/avatar.png"))
+
+        #expect(await loader.image(for: url, maxPixelSize: 32) == nil)
+        #expect(await loader.data(for: url) == nil)
+        #expect(harness.network.connections.isEmpty)
+    }
+
+    @Test func remoteImageLoaderServesFreshRawResponsesFromMemoryUntilClearCache() async throws {
+        let harness = Self.remoteImageHarness(cacheControl: "max-age=600")
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let url = try #require(URL(string: "https://cdn.example.com/source.png"))
+
+        #expect(await loader.data(for: url) == Self.singlePixelPNG)
+        #expect(await loader.data(for: url) == Self.singlePixelPNG)
+        #expect(harness.network.connections.count == 1)
+        #expect(loader.hasCachedResponse(for: url))
+
+        // The media wipe leaves remote state warm.
+        loader.clearLocalCache()
+        #expect(loader.hasCachedResponse(for: url))
+        #expect(await loader.data(for: url) == Self.singlePixelPNG)
+        #expect(harness.network.connections.count == 1)
+
+        // The privacy wipe drops raw bytes too.
+        loader.clearCache()
+        #expect(!loader.hasCachedResponse(for: url))
+        #expect(await loader.data(for: url) == Self.singlePixelPNG)
+        #expect(harness.network.connections.count == 2)
+    }
+
+    @Test func remoteImageLoaderRefetchesExpiredRawResponses() async throws {
+        let harness = Self.remoteImageHarness(cacheControl: "max-age=60")
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let url = try #require(URL(string: "https://cdn.example.com/source.png"))
+
+        _ = await loader.data(for: url)
+        harness.clock.advance(by: .seconds(59))
+        _ = await loader.data(for: url)
+        #expect(harness.network.connections.count == 1)
+
+        harness.clock.advance(by: .seconds(1))
+        _ = await loader.data(for: url)
+        #expect(harness.network.connections.count == 2)
+    }
+
+    @Test(arguments: [nil, "no-store", "max-age=600, no-cache", "max-age=600, x-unknown"] as [String?])
+    func remoteImageLoaderDoesNotStoreResponsesWithoutUsableFreshness(cacheControl: String?) async throws {
+        let harness = Self.remoteImageHarness(cacheControl: cacheControl)
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let url = try #require(URL(string: "https://cdn.example.com/source.png"))
+
+        _ = await loader.data(for: url)
+        _ = await loader.data(for: url)
+
+        #expect(!loader.hasCachedResponse(for: url))
+        #expect(harness.network.connections.count == 2)
+    }
+
+    /// A fetch that was already in flight when `clearCache()` ran still answers its caller, but
+    /// its bytes must not repopulate the wiped cache.
+    @Test func remoteImageLoaderRefusesLateRawCacheInsertionAfterClearCache() async throws {
+        let harness = Self.remoteImageHarness(holdFirstResponse: true, cacheControl: "max-age=600")
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let url = try #require(URL(string: "https://cdn.example.com/source.png"))
+
+        let pending = Task { await loader.data(for: url) }
+        await harness.wait { harness.network.connections.first?.hasPendingReceive == true }
+        loader.clearCache()
+        try #require(harness.network.connections.first)
+            .deliver(Self.singlePixelPNGResponse(cacheControl: "max-age=600"))
+
+        #expect(await pending.value == Self.singlePixelPNG)
+        #expect(!loader.hasCachedResponse(for: url))
+        _ = await loader.data(for: url)
+        #expect(harness.network.connections.count == 2)
     }
 
     @Test func remoteImageLoaderDownsamplesAndCachesLocalAttachmentBytes() async throws {
-        let config = URLSessionConfiguration.ephemeral
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let loader = RemoteImageLoader(testingTransport: RemoteMediaFakeHarness().transport)
         let imageData = try Self.testPNGData(width: 400, height: 300)
 
         let small = try #require(
@@ -6350,8 +6455,7 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @Test func remoteImageLoaderClearCacheEvictsDecodedImages() async throws {
-        let config = URLSessionConfiguration.ephemeral
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let loader = RemoteImageLoader(testingTransport: RemoteMediaFakeHarness().transport)
         let imageData = try Self.testPNGData(width: 400, height: 300)
 
         let decoded = try #require(
@@ -6374,11 +6478,8 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @Test func remoteImageLoaderClearLocalCachePreservesRemoteImages() async throws {
-        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RemoteImageURLProtocolStub.self]
-        config.urlCache = nil
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://example.com/avatar.png"))
         let localData = try Self.testPNGData(width: 64, height: 64)
 
@@ -6391,7 +6492,7 @@ struct MediaTests: WorkspaceTestSupport {
 
         let remoteAfterClear = try #require(await loader.image(for: url, maxPixelSize: 32))
         #expect(remoteAfterClear.nsImage === remote.nsImage)
-        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+        #expect(harness.network.connections.count == 1)
         #expect(
             await loader.image(for: Data([0x00]), cacheKey: "attachment-1", maxPixelSize: 32) == nil
         )
@@ -6402,17 +6503,15 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @Test func remoteImageLoaderClearCacheInvalidatesInFlightLoads() async throws {
-        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0.2)
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RemoteImageURLProtocolStub.self]
-        config.urlCache = nil
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness(holdFirstResponse: true)
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://example.com/avatar.png"))
 
         let pending = Task { await loader.image(for: url, maxPixelSize: 32) }
+        await harness.wait { harness.network.connections.first?.hasPendingReceive == true }
+        let connection = try #require(harness.network.connections.first)
         let requestStarted = await waitFor {
-            RemoteImageURLProtocolStub.requestCount() == 1
-                && loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 1
+            loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 1
         }
         #expect(requestStarted)
 
@@ -6422,23 +6521,17 @@ struct MediaTests: WorkspaceTestSupport {
             loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 0
         }
         #expect(inFlightCleared)
-        let requestCancelled = await waitFor {
-            RemoteImageURLProtocolStub.stopLoadingCount() >= 1
-        }
-        #expect(requestCancelled)
+        await harness.wait { connection.cancelCount >= 1 }
         #expect(await pending.value == nil)
 
         let reloaded = try #require(await loader.image(for: url, maxPixelSize: 32))
         #expect(reloaded.nsImage.size.width > 0)
-        #expect(RemoteImageURLProtocolStub.requestCount() == 2)
+        #expect(harness.network.connections.count == 2)
     }
 
     @Test func remoteImageLoaderSeparatesRemoteAndLocalCacheNamespaces() async throws {
-        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RemoteImageURLProtocolStub.self]
-        config.urlCache = nil
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://example.com/avatar.png"))
         let localData = try Self.testPNGData(width: 64, height: 64)
 
@@ -6452,7 +6545,7 @@ struct MediaTests: WorkspaceTestSupport {
 
         #expect(remote.nsImage !== local.nsImage)
         #expect(localCached.nsImage === local.nsImage)
-        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+        #expect(harness.network.connections.count == 1)
     }
 
     /// The reason the fix exists. Bytes the app already holds for a URL are decoded from memory,
@@ -6461,11 +6554,8 @@ struct MediaTests: WorkspaceTestSupport {
     /// 1x1, so the decoded size says *which* bytes were used rather than only that nothing was
     /// fetched.
     @Test func remoteImageLoaderServesPrimedSourceBytesWithoutFetching() async throws {
-        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RemoteImageURLProtocolStub.self]
-        config.urlCache = nil
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://blossom.example/just-uploaded.png"))
         let uploaded = try Self.testPNGData(width: 200, height: 120)
 
@@ -6474,25 +6564,23 @@ struct MediaTests: WorkspaceTestSupport {
         let small = try #require(await loader.image(for: url, maxPixelSize: 64))
         let smallSize = try #require(Self.pixelSize(of: small.nsImage))
         #expect(smallSize.width == 64)
-        #expect(RemoteImageURLProtocolStub.requestCount() == 0)
+        #expect(harness.network.connections.isEmpty)
 
         // A second size is a second decode of the same primed bytes, not a download: the rail,
         // the form, and the switcher all draw this URL at different sizes.
         let large = try #require(await loader.image(for: url, maxPixelSize: 128))
         let largeSize = try #require(Self.pixelSize(of: large.nsImage))
         #expect(largeSize.width == 128)
-        #expect(RemoteImageURLProtocolStub.requestCount() == 0)
+        #expect(harness.network.connections.isEmpty)
+        #expect(harness.network.resolveCalls.isEmpty)
     }
 
     /// A decode that is already in the cache is readable synchronously, which is what lets a view
     /// draw it on its first frame instead of flashing initials for one pass of the async load.
     /// Keyed by size like the async path, so a warm 64px entry does not answer for a 128px view.
     @Test func remoteImageLoaderExposesAnAlreadyDecodedImageSynchronously() async throws {
-        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RemoteImageURLProtocolStub.self]
-        config.urlCache = nil
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://example.com/avatar.png"))
 
         #expect(loader.decodedImage(for: url, maxPixelSize: 32) == nil)
@@ -6502,14 +6590,14 @@ struct MediaTests: WorkspaceTestSupport {
         let peeked = try #require(loader.decodedImage(for: url, maxPixelSize: 32))
         #expect(peeked.nsImage === loaded.nsImage)
         #expect(loader.decodedImage(for: url, maxPixelSize: 64) == nil)
-        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+        #expect(harness.network.connections.count == 1)
     }
 
     /// A disallowed URL cannot be primed into being loadable. Priming is a shortcut past the
     /// *network*, never past `RemoteImageURLPolicy`.
     @Test func remoteImageLoaderRefusesToPrimeADisallowedURL() async throws {
-        let config = URLSessionConfiguration.ephemeral
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://192.168.1.10/avatar.png"))
         let uploaded = try Self.testPNGData(width: 64, height: 64)
 
@@ -6517,13 +6605,13 @@ struct MediaTests: WorkspaceTestSupport {
 
         #expect(loader.primedSourceByteCount(for: url) == nil)
         #expect(await loader.image(for: url, maxPixelSize: 32) == nil)
+        #expect(harness.network.connections.isEmpty)
     }
 
     /// Empty and oversized bodies are rejected, so `primedSourceLimit` bounds bytes held and not
     /// merely a count.
     @Test func remoteImageLoaderRejectsEmptyAndOversizedPrimedBytes() async throws {
-        let config = URLSessionConfiguration.ephemeral
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let loader = RemoteImageLoader(testingTransport: RemoteMediaFakeHarness().transport)
         let url = try #require(URL(string: "https://blossom.example/just-uploaded.png"))
 
         loader.primeRemoteImage(url: url, data: Data())
@@ -6541,8 +6629,7 @@ struct MediaTests: WorkspaceTestSupport {
     /// Oldest primed entry out first past the limit, and a re-prime of the same URL replaces its
     /// bytes rather than adding a second copy.
     @Test func remoteImageLoaderEvictsThePrimedSourceItHeldLongest() async throws {
-        let config = URLSessionConfiguration.ephemeral
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let loader = RemoteImageLoader(testingTransport: RemoteMediaFakeHarness().transport)
         let uploaded = try Self.testPNGData(width: 40, height: 40)
         let urls = try (0...RemoteImageLoader.primedSourceLimit).map { index in
             try #require(URL(string: "https://blossom.example/upload-\(index).png"))
@@ -6567,34 +6654,30 @@ struct MediaTests: WorkspaceTestSupport {
     /// The privacy wipes drop primed bytes too. They are the viewer's own picture, and a primed
     /// URL that outlived its account would keep serving bytes no fetch could have produced.
     @Test func remoteImageLoaderClearCacheDropsPrimedSourceBytes() async throws {
-        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RemoteImageURLProtocolStub.self]
-        config.urlCache = nil
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
         let url = try #require(URL(string: "https://blossom.example/just-uploaded.png"))
         let uploaded = try Self.testPNGData(width: 200, height: 120)
 
         loader.primeRemoteImage(url: url, data: uploaded)
         _ = try #require(await loader.image(for: url, maxPixelSize: 64))
-        #expect(RemoteImageURLProtocolStub.requestCount() == 0)
+        #expect(harness.network.connections.isEmpty)
 
         loader.clearCache()
 
         #expect(loader.primedSourceByteCount(for: url) == nil)
         let afterClear = try #require(await loader.image(for: url, maxPixelSize: 64))
         let afterClearSize = try #require(Self.pixelSize(of: afterClear.nsImage))
-        // Served from the network now, which is the 1x1 the stub answers with rather than the
+        // Served from the network now, which is the 1x1 the fake answers with rather than the
         // 200-wide upload that decoded to a full 64px above.
         #expect(afterClearSize.width < 64)
-        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+        #expect(harness.network.connections.count == 1)
     }
 
     /// `clearLocalCache()` is the media wipe, and it deliberately leaves remote avatars warm — so
     /// it must not throw away the bytes that keep the account's own picture drawing either.
     @Test func remoteImageLoaderClearLocalCachePreservesPrimedSourceBytes() async throws {
-        let config = URLSessionConfiguration.ephemeral
-        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let loader = RemoteImageLoader(testingTransport: RemoteMediaFakeHarness().transport)
         let url = try #require(URL(string: "https://blossom.example/just-uploaded.png"))
         let uploaded = try Self.testPNGData(width: 64, height: 64)
 
@@ -6602,6 +6685,29 @@ struct MediaTests: WorkspaceTestSupport {
         loader.clearLocalCache()
 
         #expect(loader.primedSourceByteCount(for: url) == uploaded.count)
+    }
+
+    /// A fake pinned network that answers every connection with `singlePixelPNG` (optionally
+    /// holding the first response until the test delivers it). Requests and cancellations are
+    /// observable on `harness.network.connections`.
+    private static func remoteImageHarness(
+        holdFirstResponse: Bool = false,
+        cacheControl: String? = nil
+    ) -> RemoteMediaFakeHarness {
+        let harness = RemoteMediaFakeHarness()
+        let response = singlePixelPNGResponse(cacheControl: cacheControl)
+        harness.network.respond { _, index in
+            holdFirstResponse && index == 0 ? .held : .serving(response)
+        }
+        return harness
+    }
+
+    private static func singlePixelPNGResponse(cacheControl: String? = nil) -> Data {
+        var headers = [("Content-Type", "image/png")]
+        if let cacheControl {
+            headers.append(("Cache-Control", cacheControl))
+        }
+        return FakeHTTP.response(headers: headers, body: singlePixelPNG)
     }
 
     private static let singlePixelPNG = Data([

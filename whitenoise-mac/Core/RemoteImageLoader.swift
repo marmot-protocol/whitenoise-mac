@@ -24,15 +24,16 @@ nonisolated struct LoadedImage: @unchecked Sendable {
 /// `https://127.0.0.1:8080/x.png`, or `https://[::1]/x.png` in their metadata and steer the
 /// viewer's client into probing its own LAN/loopback — a reachability/timing oracle for
 /// internal host and port discovery. The same check is applied to every redirect target
-/// (`CappedImageDownloadDelegate.willPerformHTTPRedirection`) so a public `https://` avatar
-/// cannot 3xx-redirect to an internal host either.
+/// (`RemoteMediaTransport.fetch`) so a public `https://` avatar cannot 3xx-redirect to an
+/// internal host either, and to every DNS answer for a hostname
+/// (`RemoteMediaResolution.admittedAddresses`) before the transport dials that exact address.
 nonisolated enum RemoteImageURLPolicy {
     /// Maximum bytes we are willing to download for a single remote image. A malicious URL can
     /// otherwise serve an arbitrarily large response. 8 MiB is generous for an avatar/preview.
     static let maxResponseBytes: Int64 = 8 * 1024 * 1024
 
-    /// Maximum idle gap between received response chunks. `URLSession` resets this timer on
-    /// progress, so it bounds a stalled peer but is not a total download-duration ceiling.
+    /// Maximum idle gap between real network progress events. `RemoteMediaTransport` resets this
+    /// timer on progress, so it bounds a stalled peer but is not a total download-duration ceiling.
     static let downloadStallTimeout: TimeInterval = 15
 
     /// Hard wall-clock ceiling for one remote image fetch, even if a peer keeps slow-dripping
@@ -47,12 +48,10 @@ nonisolated enum RemoteImageURLPolicy {
     /// is the SSRF guard: attacker-controlled avatar URLs must not be able to reach the viewer's
     /// internal network.
     ///
-    /// Limitation (documented, not silently ignored): a *public-looking* DNS hostname can still
-    /// resolve to a private IP (DNS rebinding), because `URLSession` performs its own resolution
-    /// after this check and we do not pin the resolved address at connection time. Closing that
-    /// fully requires a custom resolver / connection-time re-validation, which is a much larger
-    /// change; this policy deterministically closes the directly-exploitable literal-IP and
-    /// local-hostname vectors (which is what the attacker can set without controlling DNS).
+    /// This check alone cannot see that a *public-looking* hostname resolves to a private IP
+    /// (DNS rebinding). `RemoteMediaTransport` closes that: it resolves the name once, rejects
+    /// the whole answer set if any answer fails `isDisallowedHost`, and dials only those
+    /// numeric addresses. See docs/remote-media-transport.md.
     static func isAllowed(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "https" else { return false }
         // Reject embedded userinfo before host-based checks. A peer-controlled
@@ -94,8 +93,8 @@ nonisolated enum RemoteImageURLPolicy {
             return isPrivateIPv6(v6)
         }
 
-        // A non-literal hostname (e.g. cdn.example.com). Allowed here; see DNS-rebinding
-        // limitation documented on `isAllowed`.
+        // A non-literal hostname (e.g. cdn.example.com). Allowed here; its resolved answers are
+        // admitted separately by `RemoteMediaResolution` (see `isAllowed`).
         return false
     }
 
@@ -676,42 +675,40 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     private var cacheGenerations: [CacheScope: Int] = [.remote: 0, .local: 0]
     private var localCacheKeys = Set<String>()
     private var primedSources: [PrimedSource] = []
-    private let session: URLSession
+    /// Raw response bodies, memory only (never disk), bounded to 16 MiB / 512 entries, holding
+    /// only complete `200`s with explicit freshness. Guarded by `cacheStateLock`; insertion is
+    /// gated on the existing remote cache generation so `clearCache()` also refuses a late
+    /// insertion from a fetch that was already in flight.
+    private var responseCache = RemoteMediaResponseCache()
+    /// The only way this loader reaches the network. There is no URLSession path.
+    private let transport: RemoteMediaTransport
 
     var decodedCacheCountLimit: Int { cache.countLimit }
     var decodedCacheTotalCostLimit: Int { cache.totalCostLimit }
 
-    init(
-        session: URLSession = RemoteImageLoader.makeSession(),
+    convenience init(
         cacheCountLimit: Int = RemoteImageLoader.defaultDecodedCacheCountLimit,
         cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit
     ) {
-        self.session = session
+        self.init(transport: .live, cacheCountLimit: cacheCountLimit, cacheTotalCostLimit: cacheTotalCostLimit)
+    }
+
+    #if DEBUG
+        /// Test seam: a transport built from fake resolver/connection/clock doubles. Admission,
+        /// answer validation, framing and size bounds still run; only sockets and time are fake.
+        convenience init(
+            testingTransport transport: RemoteMediaTransport,
+            cacheCountLimit: Int = RemoteImageLoader.defaultDecodedCacheCountLimit,
+            cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit
+        ) {
+            self.init(transport: transport, cacheCountLimit: cacheCountLimit, cacheTotalCostLimit: cacheTotalCostLimit)
+        }
+    #endif
+
+    private init(transport: RemoteMediaTransport, cacheCountLimit: Int, cacheTotalCostLimit: Int) {
+        self.transport = transport
         cache.countLimit = cacheCountLimit
         cache.totalCostLimit = cacheTotalCostLimit
-    }
-
-    private static func makeSession() -> URLSession {
-        URLSession(configuration: makeSessionConfiguration())
-    }
-
-    // Internal so @testable configuration assertions can pin the privacy-sensitive defaults.
-    static func makeSessionConfiguration() -> URLSessionConfiguration {
-        // Remote image URLs are attacker-controlled peer metadata. Use an ephemeral session and
-        // an explicit diskCapacity: 0 URLCache as defense-in-depth so fetched avatar URLs/bodies
-        // do not become persistent forensic artifacts in the app Caches directory.
-        // .useProtocolCachePolicy lets servers revalidate when a download occurs; decoded NSCache
-        // entries may still serve same-session avatars until eviction.
-        let config = URLSessionConfiguration.ephemeral
-        config.urlCache = URLCache(
-            memoryCapacity: 16 * 1024 * 1024,
-            diskCapacity: 0,
-            diskPath: nil
-        )
-        config.timeoutIntervalForRequest = RemoteImageURLPolicy.downloadStallTimeout
-        config.timeoutIntervalForResource = RemoteImageURLPolicy.downloadResourceTimeout
-        config.requestCachePolicy = .useProtocolCachePolicy
-        return config
     }
 
     func image(for url: URL, maxPixelSize: CGFloat) async -> LoadedImage? {
@@ -738,7 +735,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// caller hands plaintext to MarmotKit for encrypted Blossom upload.
     func data(for url: URL) async -> Data? {
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
-        return await Self.download(url, using: session)
+        return await download(url, cacheGeneration: currentCacheGeneration(for: .remote))
     }
 
     /// Registers source bytes the app already holds for `url`, so the first load of that URL
@@ -869,6 +866,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         }
         cache.removeAllObjects()
         localCacheKeys.removeAll(keepingCapacity: true)
+        // Raw remote bytes go too; the generation bump above refuses any in-flight insertion.
+        responseCache.removeAll()
         // The privacy wipes this serves must not leave the user's own uploaded picture behind
         // in the process either, and a primed URL that outlived its account would go on serving
         // bytes no fetch could have produced.
@@ -894,6 +893,12 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     #if DEBUG
         func primedSourceByteCount(for url: URL) -> Int? {
             primedSource(for: url)?.count
+        }
+
+        func hasCachedResponse(for url: URL) -> Bool {
+            cacheStateLock.lock()
+            defer { cacheStateLock.unlock() }
+            return responseCache.contains(url)
         }
 
         func inFlightWaiterCount(for url: URL, maxPixelSize: CGFloat) -> Int {
@@ -929,7 +934,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         if let primed = primedSource(for: url) {
             source = primed
         } else {
-            guard let downloaded = await Self.download(url, using: session) else { return nil }
+            guard let downloaded = await download(url, cacheGeneration: generation) else { return nil }
             source = downloaded
         }
         guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
@@ -1015,27 +1020,49 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         return true
     }
 
-    /// Downloads the response in the `Data` chunks `URLSession` delivers natively, rejecting
-    /// non-success HTTP status codes and aborting once the body exceeds
-    /// `RemoteImageURLPolicy.maxResponseBytes` so a malicious server cannot feed us an
-    /// unbounded image.
+    /// The single network chokepoint for `image(for: URL)` and `data(for:)`.
     ///
-    /// We deliberately avoid `URLSession.AsyncBytes` (whose `Element` is a single `UInt8`, so
-    /// iterating it costs one async-sequence step per byte — 10^5–10^6 steps for a normal
-    /// avatar) and also avoid the fully-buffered `data(from:)` (which would have to hold an
-    /// entire malicious response in memory before we could check its length). Instead a
-    /// `URLSessionDataDelegate` collects the OS-sized chunks as they arrive, so a download is
-    /// O(number-of-chunks) while the incremental cap keeps peak memory bounded to roughly
-    /// `cap` plus one chunk before an oversized/length-less response is cancelled.
-    private static func download(_ url: URL, using session: URLSession) async -> Data? {
-        let cap = RemoteImageURLPolicy.maxResponseBytes
-        // A fresh per-download delegate keeps per-download collector state isolated (multiple
-        // avatars can download concurrently). The delegate is attached to the *task*, not a new
-        // session (see `CappedImageDownloadDelegate.download`), so every download runs on the
-        // shared `session` and reuses its connection pool + in-memory `URLCache` instead of paying
-        // a fresh DNS/TCP/TLS handshake and churning a throwaway `URLSession` per image.
-        let delegate = CappedImageDownloadDelegate(cap: cap)
-        return await delegate.download(url, using: session)
+    /// `RemoteMediaTransport` re-admits every redirect hop, pins every connection to an admitted
+    /// numeric address, and enforces the size, deadline and idle bounds; any failure is `nil`.
+    /// Task cancellation (the last coalesced waiter leaving, or `clearCache()`) reaches the
+    /// transport and closes the socket without waiting for it. Fresh bodies are served from and
+    /// stored to `responseCache` only while `generation` is still the current remote generation.
+    private func download(_ url: URL, cacheGeneration generation: Int) async -> Data? {
+        do {
+            let result = try await transport.fetch(url) { [self] hop in
+                cachedResponseBody(for: hop, cacheGeneration: generation)
+            }
+            if let head = result.head {
+                storeResponse(result, head: head, cacheGeneration: generation)
+            }
+            return result.body
+        } catch {
+            return nil
+        }
+    }
+
+    private func cachedResponseBody(for url: URL, cacheGeneration generation: Int) -> Data? {
+        let now = transport.now()
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        guard cacheGenerations[.remote, default: 0] == generation else { return nil }
+        return responseCache.body(for: url, now: now)
+    }
+
+    private func storeResponse(
+        _ result: RemoteMediaFetchResult,
+        head: RemoteMediaHTTPResponseHead,
+        cacheGeneration generation: Int
+    ) {
+        let freshness = RemoteMediaCachePolicy.freshness(
+            for: head,
+            wallClockAtResponse: Date(),
+            responseDelay: result.requestSentAt.duration(to: result.responseReceivedAt)
+        )
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        guard cacheGenerations[.remote, default: 0] == generation else { return }
+        responseCache.store(result.body, for: result.url, freshness: freshness, now: result.responseReceivedAt)
     }
 
     /// Decoded-pixel ceiling for one source image — a small compressed body can declare
@@ -1082,12 +1109,10 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     }
 }
 
-/// Pure, synchronously-testable accumulator for a capped chunked download. Collects the
-/// `Data` chunks `URLSession` delivers and reports when the running total exceeds `cap`, so
-/// the cap-enforcement logic can be unit tested without issuing a network request.
-///
-/// This is the chunk-granular replacement for the old per-byte loop: appends operate on
-/// whole `Data` chunks (one per `URLSession` delivery) rather than individual `UInt8`s.
+/// Pure, synchronously-testable accumulator for a capped chunked download. Collects `Data`
+/// chunks and reports when the running total exceeds `cap`. Remote image downloads now enforce
+/// their body cap inside `RemoteMediaHTTPResponseParser`; this generic accumulator remains for
+/// its existing value tests.
 nonisolated struct CappedDataCollector {
     let cap: Int64
     private(set) var data = Data()
@@ -1117,160 +1142,5 @@ nonisolated struct CappedDataCollector {
         }
         data.append(chunk)
         return true
-    }
-}
-
-/// `URLSessionDataDelegate` that downloads a single image body in the chunks `URLSession`
-/// delivers natively, enforcing an HTTP status check, an up-front `Content-Length` check,
-/// and an incremental byte cap. Bridges the delegate callbacks to a single `async` result.
-///
-/// Using the delegate's `didReceive data:` (which hands us OS-sized `Data` chunks) instead
-/// of `URLSession.AsyncBytes` is what removes the per-byte iteration: a download now costs
-/// O(number-of-chunks), not O(number-of-bytes), while the incremental cap still aborts an
-/// oversized or `Content-Length`-less response before it can exhaust memory.
-private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private let cap: Int64
-    private let lock = NSLock()
-    private var collector: CappedDataCollector
-    private var continuation: CheckedContinuation<Data?, Never>?
-    private var task: URLSessionDataTask?
-    private var cancelled = false
-    private var finished = false
-    private var redirectHopCount = 0
-
-    init(cap: Int64) {
-        self.cap = cap
-        self.collector = CappedDataCollector(cap: cap)
-    }
-
-    func download(_ url: URL, using session: URLSession) async -> Data? {
-        // Propagate Swift task cancellation to the underlying network request. The
-        // `DownsampledAsyncImage` call site runs this inside a `.task(id:)`, which cancels the
-        // awaiting task whenever the row's URL/size identity changes (scrolling, navigation);
-        // without this the request would keep running and buffering until it completed or timed
-        // out. (The native `URLSession.bytes(from:)` API we replaced did this automatically.)
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
-                lock.lock()
-                if cancelled {
-                    lock.unlock()
-                    continuation.resume(returning: nil)
-                    return
-                }
-                self.continuation = continuation
-                let task = session.dataTask(with: url)
-                // Attach *this* delegate per task (macOS 12+) rather than backing a throwaway
-                // per-download `URLSession`. This keeps per-download collector state isolated
-                // while letting the shared `session` reuse its connection pool across avatars.
-                task.delegate = self
-                self.task = task
-                lock.unlock()
-                task.resume()
-            }
-        } onCancel: {
-            cancel()
-        }
-    }
-
-    /// Cancels the in-flight data task (if any) and resolves the awaiting continuation with
-    /// `nil`. Safe to call before the task is created (the `cancelled` flag short-circuits
-    /// `download`) and idempotent (later calls are no-ops once `finished`).
-    private func cancel() {
-        lock.lock()
-        cancelled = true
-        let task = self.task
-        lock.unlock()
-        task?.cancel()
-        finish(with: nil)
-    }
-
-    /// Resumes the awaiting continuation exactly once; later calls are ignored. (A cap abort
-    /// resumes with `nil`, then the resulting cancellation error's `didComplete` is a no-op.)
-    private func finish(with result: Data?) {
-        lock.lock()
-        guard !finished, let continuation else {
-            lock.unlock()
-            return
-        }
-        finished = true
-        self.continuation = nil
-        lock.unlock()
-        continuation.resume(returning: result)
-    }
-
-    /// Re-validate redirect targets against the privacy policy. `URLSession` follows redirects
-    /// automatically by default, so without this an allowed `https://` avatar could 3xx-redirect
-    /// to `http://` (or another disallowed scheme/host), defeating the HTTPS-only,
-    /// IP-leak-limiting `RemoteImageURLPolicy` check applied to the original URL.
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        let hopCount = lock.withLock {
-            redirectHopCount += 1
-            return redirectHopCount
-        }
-        if hopCount > 5 {
-            completionHandler(nil)
-            task.cancel()
-            finish(with: nil)
-            return
-        }
-        guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else {
-            completionHandler(nil)
-            task.cancel()
-            finish(with: nil)
-            return
-        }
-        completionHandler(request)
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive response: URLResponse,
-        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
-    ) {
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            completionHandler(.cancel)
-            finish(with: nil)
-            return
-        }
-        // Honour an advertised oversized Content-Length up front when present.
-        if response.expectedContentLength > 0, response.expectedContentLength > cap {
-            completionHandler(.cancel)
-            finish(with: nil)
-            return
-        }
-        if response.expectedContentLength > 0 {
-            lock.lock()
-            collector.reserve(Int(min(response.expectedContentLength, cap)))
-            lock.unlock()
-        }
-        completionHandler(.allow)
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        lock.lock()
-        let ok = collector.append(data)
-        lock.unlock()
-        if !ok {
-            dataTask.cancel()
-            finish(with: nil)
-        }
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if error != nil {
-            finish(with: nil)
-            return
-        }
-        lock.lock()
-        let result: Data? = collector.exceededCap ? nil : collector.data
-        lock.unlock()
-        finish(with: result)
     }
 }
