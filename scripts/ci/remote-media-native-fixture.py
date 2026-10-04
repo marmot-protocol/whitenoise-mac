@@ -55,7 +55,10 @@ def command(*args):
         try:
             process.wait(timeout=75 if admin else 60)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError as error:
+                raise CommandTimeout("command termination/reap unproven") from error
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired as error:
@@ -89,7 +92,8 @@ def contain_root(directory, root, fingerprint, system_keychain):
     # Removal hung on native macOS26. Replace ONLY this root's SSL grant with
     # explicit denial via the setter, then verify before deleting its certificate.
     phase("admin-trust-deny", lambda: command("sudo", "-n", "security", "add-trusted-cert",
-                                              "-d", "-r", "deny", "-p", "ssl", str(root)))
+                                              "-d", "-r", "deny", "-p", "ssl",
+                                              "-k", system_keychain, str(root)))
     admin_export = directory / "admin-after-deny.plist"
     phase("verify-admin-deny-export", lambda: command("security", "trust-settings-export", "-d", str(admin_export)))
     require_denied_record(plistlib.loads(admin_export.read_bytes()), fingerprint)
@@ -201,9 +205,14 @@ class Server:
                     body = connection.fixture_sni.encode("ascii")
                     first_line = request.split(b"\r\n", 1)[0]
                     close_body = b"/clean-close" in first_line or b"/abrupt-close" in first_line
-                    framing = b"" if close_body else b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+                    truncated = b"/truncated-fixed" in first_line
+                    chunked = b"/chunked" in first_line
+                    framing = b"" if close_body else b"Content-Length: " + str(len(body) + int(truncated)).encode() + b"\r\n"
+                    if chunked:
+                        framing = b"Transfer-Encoding: chunked\r\n"
+                        body = format(len(body), "x").encode() + b"\r\n" + body + b"\r\n0\r\n\r\n"
                     connection.sendall(b"HTTP/1.1 200 OK\r\nConnection: close\r\n" + framing + b"\r\n" + body)
-                    if b"/abrupt-close" in first_line:
+                    if b"/abrupt-close" in first_line or truncated:
                         os.close(connection.detach())  # Deliberately no TLS close_notify.
                     else:
                         connection.settimeout(1)
@@ -283,12 +292,13 @@ def main():
             result = process.wait()
             expected = {"nativeTLSOriginalNameWorks", "nativeTLSWrongNameRejected", "nativeTLSLiteralIPNeedsSAN",
                         "nativeTLSLiteralIPWithSANWorks", "nativeTLSUntrustedCertificateRejected",
-                        "nativeTLSCleanCloseRequiresExplicitFraming", "nativeTLSAbruptCloseDoesNotCompleteBody"}
+                        "nativeTLSCleanCloseRequiresExplicitFraming", "nativeTLSAbruptCloseDoesNotCompleteBody",
+                        "nativeTLSProductionReceiveAcceptsChunks", "nativeTLSProductionReceiveRejectsTruncatedLength"}
             if result != 0:
                 raise SystemExit(result)
             if passed != expected:
                 raise SystemExit("Native TLS fixture tests did not all execute and pass: " + repr(sorted(passed)))
-            print("Native TLS qualification: all seven real-socket tests executed and passed.")
+            print("Native TLS qualification: all nine real-socket tests executed and passed.")
         except CommandTimeout:
             admin_outcome_unknown = True
             raise

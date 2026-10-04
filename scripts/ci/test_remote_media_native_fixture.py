@@ -96,6 +96,27 @@ class NativeFixtureTests(unittest.TestCase):
                 while connection.recv(4096):
                     pass
 
+    def test_chunked_fixture_has_explicit_terminator(self):
+        with self.connect(self.context(), "remote-media-fixture.invalid") as connection:
+            connection.sendall(b"GET /chunked HTTP/1.1\r\nHost: fixture\r\n\r\n")
+            received = b""
+            while part := connection.recv(4096):
+                received += part
+            self.assertIn(b"Transfer-Encoding: chunked\r\n", received)
+            self.assertTrue(received.endswith(b"\r\n0\r\n\r\n"))
+
+    def test_fixed_fixture_is_one_byte_short_and_abrupt(self):
+        with self.connect(self.context(), "remote-media-fixture.invalid") as connection:
+            connection.sendall(b"GET /truncated-fixed HTTP/1.1\r\nHost: fixture\r\n\r\n")
+            received = b""
+            with self.assertRaises(ssl.SSLEOFError):
+                while part := connection.recv(4096):
+                    received += part
+            expected_body = b"remote-media-fixture.invalid"
+            expected_length = str(len(expected_body) + 1).encode()
+            self.assertIn(b"Content-Length: " + expected_length + b"\r\n", received)
+            self.assertTrue(received.endswith(expected_body))
+
 
 if __name__ == "__main__":
     unittest.main()
