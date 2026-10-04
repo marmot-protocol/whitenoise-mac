@@ -1,4 +1,4 @@
-// A tiny immutable first-party PNG exercises the actual public network adapter.
+// Tiny digest-pinned PNG/GIPHY samples exercise the actual public network adapter.
 // This does not qualify configured proxies, GIF search or exact macOS 15.6.
 
 import AppKit
@@ -35,5 +35,27 @@ struct RemoteMediaNativeCDNTests {
         // Only the verified tiny source enters the native image codec.
         let image = try #require(NSBitmapImageRep(data: response.body))
         #expect(image.pixelsWide > 0 && image.pixelsHigh > 0)
+    }
+
+    @MainActor @Test func nativePublicCDNGiphyGifFetchWorks() async throws {
+        let url = try #require(
+            URL(string: "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"))
+        try #require(RemoteGiphyMedia.validatedMediaURL(url.absoluteString) == url)
+        // The same native adapter: no mocked resolver, cache, proxy or fallback.
+        let response = try await RemoteMediaTransport.live.fetch(url)
+        let head = try #require(response.head)
+        #expect(response.url == url)
+        #expect(head.statusCode == 200)
+        #expect(head.values(for: "content-type") == ["image/gif"])
+        #expect(
+            head.values(for: "content-length") == ["7935"]
+                || head.values(for: "transfer-encoding") == ["chunked"])
+        try #require(response.body.count == 7935)
+        let digest = SHA256.hash(data: response.body).map { String(format: "%02x", $0) }.joined()
+        try #require(digest == "377481a741347370e3cfe4ba3cb7fef50a1341612bd901c310a774eed2d0abf0")
+        // CDN mutation/disappearance fails before any unchecked source enters ImageIO.
+        #expect(try GiphyRemoteMediaLoader.animatedImageAspectRatio(from: response.body) == 1)
+        let image = try #require(NSBitmapImageRep(data: response.body))
+        #expect(image.pixelsWide == 256 && image.pixelsHigh == 256)
     }
 }
