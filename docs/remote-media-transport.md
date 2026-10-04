@@ -172,7 +172,9 @@ than permitting an alternate transport. This one PNG does not qualify GIPHY or
 configured proxy behavior; those remain separate checks below.
 The older-runtime job executes the same workflow run's tar-preserved build
 products with `test-without-building`, with fresh fixture ports and trust.
-Both build and execution use Xcode 26.3. Only the two fixture environment
+An explicit `build-for-testing` generates the manifest before either runtime
+executes those products; a missing or ambiguous manifest fails the build job
+before upload. Both build and execution use Xcode 26.3. Only the two fixture environment
 variables in the generated `.xctestrun` are refreshed; binary and test paths
 remain unchanged. The helper refuses an unexpected manifest or stale-port
 configuration rather than counting a skipped or unavailable test as PASS.
