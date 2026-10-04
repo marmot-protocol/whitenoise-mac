@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run the existing full unit suite with tiny, owned TLS fixtures on ephemeral macOS CI.
 
-No real media, external requests, persistent key, custom app trust callback, or weakened TLS.
+No user media, accounts, persistent key, custom app trust callback, or weakened TLS.
+An explicitly enabled public-CDN check fetches only a tiny immutable first-party PNG.
 The production adapter is unchanged. The unique trust root is denied and deleted;
 the remaining deny record is contained by the disposable runner's lifetime.
 This helper refuses developer machines and the persistent Hermes host.
@@ -242,6 +243,40 @@ def required_native_cases(include_public_cdn=False):
     return cases
 
 
+def replace_test_environment(path, updates):
+    """Refresh only fixture variables in an owned, transported Xcode test manifest.
+
+    Build products and test paths are untouched. Refuse a malformed, oversized,
+    symlinked or unexpected manifest rather than silently using old listener ports.
+    This is called only behind main's ephemeral hosted-macOS guard.
+    """
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise RuntimeError("unexpected transported test manifest")
+    document = plistlib.loads(path.read_bytes())
+    matches = []
+
+    def visit(value):
+        if isinstance(value, dict):
+            environment = value.get("EnvironmentVariables")
+            if isinstance(environment, dict) and set(updates).intersection(environment):
+                if not set(updates).issubset(environment):
+                    raise RuntimeError("incomplete transported fixture environment")
+                matches.append(environment)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(document)
+    if not matches:
+        raise RuntimeError("transported fixture environment missing")
+    for environment in matches:
+        environment.update(updates)
+    path.write_bytes(plistlib.dumps(document))
+    print("Transported test fixture environment refreshed; binary/test paths unchanged.", flush=True)
+
+
 def main():
     if (sys.platform != "darwin" or os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
@@ -292,6 +327,14 @@ def main():
             args = sys.argv[1:] + ["WN_REMOTE_MEDIA_NATIVE_FIXTURE=" + fixture]
             include_public_cdn = os.environ.get("WN_REMOTE_MEDIA_NATIVE_CDN") == "1"
             args.append("WN_REMOTE_MEDIA_NATIVE_CDN=" + ("1" if include_public_cdn else "0"))
+            if "-xctestrun" in args:
+                manifest_index = args.index("-xctestrun") + 1
+                if manifest_index >= len(args):
+                    raise RuntimeError("transported test manifest argument missing")
+                replace_test_environment(Path(args[manifest_index]), {
+                    "WN_REMOTE_MEDIA_NATIVE_FIXTURE": fixture,
+                    "WN_REMOTE_MEDIA_NATIVE_CDN": "1" if include_public_cdn else "0",
+                })
             # Capture only this build/test log. Do not write certificate keys to artifacts.
             process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             passed = set()

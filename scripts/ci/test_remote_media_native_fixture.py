@@ -1,6 +1,7 @@
 """Bounded, platform-independent checks of the owned TLS server fixtures (not the app)."""
 
 import importlib.util
+import plistlib
 from pathlib import Path
 import socket
 import ssl
@@ -9,6 +10,34 @@ import unittest
 
 
 class TrustRecordTests(unittest.TestCase):
+    def test_transported_manifest_changes_only_fixture_variables(self):
+        updates = {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": '{"dns":1234}', "WN_REMOTE_MEDIA_NATIVE_CDN": "1"}
+        environment = {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "old-ports", "WN_REMOTE_MEDIA_NATIVE_CDN": "0",
+                       "UNCHANGED": "ordinary-test-setting"}
+        document = {"TestConfigurations": [{"TestTargets": [{"EnvironmentVariables": environment,
+                      "TestBundlePath": "__TESTHOST__/tests.xctest", "TestHostPath": "__TESTROOT__/Debug/app.app"}]}]}
+        with tempfile.TemporaryDirectory(prefix="wn-manifest-test-") as directory:
+            path = Path(directory) / "owned.xctestrun"
+            path.write_bytes(plistlib.dumps(document))
+            fixture.replace_test_environment(path, updates)
+            environment.update(updates)
+            self.assertEqual(document, plistlib.loads(path.read_bytes()))
+
+    def test_missing_partial_and_symlinked_manifest_fail_without_modification(self):
+        updates = {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "fresh", "WN_REMOTE_MEDIA_NATIVE_CDN": "1"}
+        with tempfile.TemporaryDirectory(prefix="wn-manifest-test-") as directory:
+            path = Path(directory) / "owned.xctestrun"
+            for document in [{}, {"EnvironmentVariables": {"WN_REMOTE_MEDIA_NATIVE_FIXTURE": "old"}}]:
+                original = plistlib.dumps(document)
+                path.write_bytes(original)
+                with self.assertRaises(RuntimeError):
+                    fixture.replace_test_environment(path, updates)
+                self.assertEqual(original, path.read_bytes())
+            link = Path(directory) / "linked.xctestrun"
+            link.symlink_to(path)
+            with self.assertRaises(RuntimeError):
+                fixture.replace_test_environment(link, updates)
+
     def test_public_cdn_case_is_required_only_when_explicitly_enabled(self):
         tls = fixture.required_native_cases()
         public = fixture.required_native_cases(include_public_cdn=True)

@@ -170,6 +170,18 @@ arm64 job enable it. Logs record the actual OS version: macOS 15.x is not proof
 of exact 15.6 behavior. Connectivity failure keeps qualification pending rather
 than permitting an alternate transport. This one PNG does not qualify GIPHY or
 configured proxy behavior; those remain separate checks below.
+The older-runtime job executes the same workflow run's tar-preserved build
+products with `test-without-building`, with fresh fixture ports and trust.
+Both build and execution use Xcode 26.3. Only the two fixture environment
+variables in the generated `.xctestrun` are refreshed; binary and test paths
+remain unchanged. The helper refuses an unexpected manifest or stale-port
+configuration rather than counting a skipped or unavailable test as PASS.
+Xcode 26.3's icon asset compiler crashed before tests on the macOS 15 runner;
+building once on macOS 26 avoids that unrelated tool while retaining the real
+macOS 15 runtime oracle and the app's unchanged 15.6 deployment target. It does
+not claim macOS 15 build-tool qualification. A public-network failure requires
+bounded diagnosis and, only when proven transient, one rerun at the unchanged
+head; parser/TLS/policy/digest failures must not be retried into a false PASS.
 The Python fixture's platform-independent tests validate only the controlled server
 and fail-closed trust-export classification,
 **not** macOS trust or the app. Native results must be inspected before claiming qualification.
