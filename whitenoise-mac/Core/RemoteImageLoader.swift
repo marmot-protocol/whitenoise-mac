@@ -104,7 +104,7 @@ nonisolated enum RemoteImageURLPolicy {
     /// space: multicast `224.0.0.0/4`, reserved `240.0.0.0/4`, and limited broadcast
     /// `255.255.255.255` (all covered by first octet `224...255`).
     private static func isPrivateIPv4(_ octets: (UInt8, UInt8, UInt8, UInt8)) -> Bool {
-        let (a, b, _, _) = octets
+        let (a, b, c, d) = octets
         switch a {
         case 0, 127, 10:
             return true
@@ -113,6 +113,20 @@ nonisolated enum RemoteImageURLPolicy {
         case 172 where (16...31).contains(b):
             return true
         case 192 where b == 168:
+            return true
+        // IANA special-purpose allocations that are not globally reachable. Preserve the
+        // two globally reachable anycast exceptions in 192.0.0.0/24.
+        case 192 where b == 0 && c == 0:
+            return d != 9 && d != 10
+        case 192 where b == 0 && c == 2:
+            return true
+        case 192 where b == 88 && c == 99:
+            return true
+        case 198 where b == 18 || b == 19:
+            return true
+        case 198 where b == 51 && c == 100:
+            return true
+        case 203 where b == 0 && c == 113:
             return true
         case 169 where b == 254:
             return true
@@ -143,10 +157,28 @@ nonisolated enum RemoteImageURLPolicy {
         if (first & 0xFE00) == 0xFC00 { return true }
         // Link-local fe80::/10 — top 10 bits == 1111111010.
         if (first & 0xFFC0) == 0xFE80 { return true }
+        // Deprecated site-local fec0::/10 remains unsuitable for a public-only connection.
+        if (first & 0xFFC0) == 0xFEC0 { return true }
         // Multicast ff00::/8, mirroring the IPv4 `224.0.0.0/4` rejection.
         if (first & 0xFF00) == 0xFF00 { return true }
         // Documentation range 2001:db8::/32 — reserved, never a real destination.
         if first == 0x2001, groups[1] == 0x0DB8 { return true }
+        if first == 0x100, groups[1...3].allSatisfy({ $0 == 0 }) { return true }
+        if first == 0x100, groups[1] == 0, groups[2] == 0, groups[3] == 1 { return true }
+        if first == 0x3FFF, (groups[1] & 0xF000) == 0 { return true }
+        if first == 0x5F00 { return true }
+        if first == 0x2001, groups[1] == 2, groups[2] == 0 { return true }
+        // The general IETF protocol-assignment block is non-global except its explicit
+        // allocations. Teredo is handled below so both embedded IPv4 addresses are checked.
+        if first == 0x2001, groups[1] < 0x0200, groups[1] != 0 {
+            let anycast = groups[1] == 1 && groups[2...6].allSatisfy({ $0 == 0 })
+                && (1...3).contains(groups[7])
+            let assignedGlobal = groups[1] == 3
+                || (groups[1] == 4 && groups[2] == 0x0112)
+                || (groups[1] & 0xFFF0) == 0x0020
+                || (groups[1] & 0xFFF0) == 0x0030
+            if !anycast && !assignedGlobal { return true }
+        }
 
         // IPv4-mapped `::ffff:a.b.c.d` (and IPv4-compatible `::a.b.c.d`): re-check the
         // embedded IPv4 against the private ranges so `[::ffff:192.168.0.1]` is rejected too.
@@ -544,9 +576,9 @@ struct DownsampledDataImage<Content: View, Placeholder: View>: View {
 /// Shared decoded-image cache + downsampling pipeline. `NSCache` owns the decoded-image
 /// storage; in-flight work is coordinated by `RemoteImageLoadRegistry` so concurrent views
 /// that need the same URL/size await one download and decode.
-private nonisolated final class RemoteImageLoadRegistry: @unchecked Sendable {
+private nonisolated final class RemoteImageLoadRegistry<Value: Sendable>: @unchecked Sendable {
     private struct Entry {
-        let task: Task<LoadedImage?, Never>
+        let task: Task<Value?, Never>
         var waiters: Int
     }
 
@@ -555,8 +587,8 @@ private nonisolated final class RemoteImageLoadRegistry: @unchecked Sendable {
 
     func task(
         for key: String,
-        create: @Sendable () -> Task<LoadedImage?, Never>
-    ) -> Task<LoadedImage?, Never> {
+        create: @Sendable () -> Task<Value?, Never>
+    ) -> Task<Value?, Never> {
         lock.lock()
         defer { lock.unlock() }
 
@@ -574,7 +606,7 @@ private nonisolated final class RemoteImageLoadRegistry: @unchecked Sendable {
     }
 
     func releaseWaiter(for key: String) {
-        var taskToCancel: Task<LoadedImage?, Never>?
+        var taskToCancel: Task<Value?, Never>?
 
         lock.lock()
         if var entry = tasks[key] {
@@ -592,18 +624,20 @@ private nonisolated final class RemoteImageLoadRegistry: @unchecked Sendable {
     }
 
     func cancelAll() {
-        let tasksToCancel: [Task<LoadedImage?, Never>]
+        removeAllTasks().forEach { $0.cancel() }
+    }
 
+    /// Detach under the owning cache-generation lock, then cancel outside both locks.
+    func removeAllTasks() -> [Task<Value?, Never>] {
         lock.lock()
-        tasksToCancel = tasks.values.map(\.task)
+        let tasksToCancel = tasks.values.map(\.task)
         tasks.removeAll()
         lock.unlock()
-
-        tasksToCancel.forEach { $0.cancel() }
+        return tasksToCancel
     }
 
     func cancelAll(forKeyPrefix prefix: String) {
-        let tasksToCancel: [Task<LoadedImage?, Never>]
+        let tasksToCancel: [Task<Value?, Never>]
 
         lock.lock()
         let matchingKeys = tasks.keys.filter { $0.hasPrefix(prefix) }
@@ -670,7 +704,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     static let primedSourceLimit = 4
 
     private let cache = NSCache<NSString, NSImage>()
-    private let inFlight = RemoteImageLoadRegistry()
+    private let inFlight = RemoteImageLoadRegistry<LoadedImage>()
+    private let rawInFlight = RemoteImageLoadRegistry<Data>()
     private let cacheStateLock = NSLock()
     private var cacheGenerations: [CacheScope: Int] = [.remote: 0, .local: 0]
     private var localCacheKeys = Set<String>()
@@ -735,7 +770,35 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// caller hands plaintext to MarmotKit for encrypted Blossom upload.
     func data(for url: URL) async -> Data? {
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
-        return await download(url, cacheGeneration: currentCacheGeneration(for: .remote))
+        // Registration and generation capture share the privacy-wipe lock. A wipe detaches
+        // exactly the old tasks; downloads registered afterwards retain the new generation.
+        let (generation, key, task) = rawDownloadTask(for: url)
+        let waiter = RemoteImageLoadWaiter { [rawInFlight] in
+            rawInFlight.releaseWaiter(for: key)
+        }
+        return await withTaskCancellationHandler {
+            let data = await task.value
+            waiter.release()
+            guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
+            return data
+        } onCancel: {
+            waiter.release()
+        }
+    }
+
+    private func rawDownloadTask(for url: URL) -> (Int, String, Task<Data?, Never>) {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        let generation = cacheGenerations[.remote, default: 0]
+        let key = Self.inFlightKey(scope: .remote, forCacheKey: "raw|\(url.absoluteString)", generation: generation)
+        let task = rawInFlight.task(for: key) {
+            Task { [self] in
+                let data = await download(url, cacheGeneration: generation)
+                guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
+                return data
+            }
+        }
+        return (generation, key, task)
     }
 
     /// Registers source bytes the app already holds for `url`, so the first load of that URL
@@ -861,6 +924,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         inFlight.cancelAll()
 
         cacheStateLock.lock()
+        let rawTasks = rawInFlight.removeAllTasks()
         for scope in CacheScope.allCases {
             cacheGenerations[scope, default: 0] += 1
         }
@@ -873,6 +937,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         // bytes no fetch could have produced.
         primedSources.removeAll()
         cacheStateLock.unlock()
+        rawTasks.forEach { $0.cancel() }
     }
 
     /// Drops only decoded local/decrypted attachment images and their in-flight decodes. Remote
@@ -1056,7 +1121,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     ) {
         let freshness = RemoteMediaCachePolicy.freshness(
             for: head,
-            wallClockAtResponse: Date(),
+            wallClockAtResponse: result.responseWallClockAtHead,
             responseDelay: result.requestSentAt.duration(to: result.responseReceivedAt)
         )
         cacheStateLock.lock()

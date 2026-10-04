@@ -17,10 +17,15 @@ to a private address (DNS rebinding). The old loader checked the URL text and th
 
 ## What one fetch does
 
-1. **Admission.** `RemoteImageURLPolicy.isAllowed` (unchanged classifier: https only, no
+1. **Admission.** `RemoteImageURLPolicy.isAllowed` (https only, no
    userinfo, no local names, no private/loopback/link-local/CGNAT/multicast/reserved IPv4, no
    private IPv6 including documentation, NAT64/local-use translation, 6to4, Teredo and other
-   IPv4 embeddings, obfuscated IPv4 spellings). `RemoteMediaRequestTarget` then refuses
+   IPv4 embeddings, obfuscated IPv4 spellings). The classifier also rejects non-global
+   special-purpose benchmarking, documentation, discard/dummy, protocol-assignment and
+   deprecated site-local ranges. Explicit global IANA anycast exceptions remain admitted.
+   See [IANA IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/) and
+   [IANA IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/), reviewed 2026-10-04.
+   `RemoteMediaRequestTarget` then refuses
    anything it cannot represent exactly: ports outside `1...65535` (any valid port is
    allowed), zone ids, non-canonical numeric hosts such as `134744072` or `8.8.8.010`, and
    non-ASCII or malformed DNS names.
@@ -30,7 +35,8 @@ to a private address (DNS rebinding). The old loader checked the URL text and th
    directly with no DNS. A name is resolved once with `getaddrinfo` on a background worker,
    limited to 6 process-wide resolution slots. A slot is freed only when the worker returns,
    even if its caller has already given up, so stuck `getaddrinfo` threads are counted. When
-   all 6 are taken, a new fetch fails at once; requests are never queued.
+   all 6 are taken, at most 128 callers wait in a FIFO without starting workers. Cancellation
+   and the original deadline remove queued callers promptly; only queue overflow fails fast.
 4. **Answer admission.** The *complete* answer set is checked (`RemoteMediaResolution`). It is
    rejected if it is empty, has more than 64 answers (never truncated), contains any answer
    that is not canonical numeric IPv4/IPv6 text, or contains *any* address the classifier
@@ -81,7 +87,8 @@ to a private address (DNS rebinding). The old loader checked the URL text and th
    waiting caller first, through a locked once-only gate that is resumed outside its lock,
    then cancels the socket. The caller never waits for DNS or the socket to finish shutting
    down. A late DNS answer or a late socket callback is thrown away and can never start a
-   connection.
+   connection. A monotonic deadline check after each awaited callback also rejects a late
+   result when executor pressure delays timer delivery.
 10. **Retry.** The next admitted address is tried only after a transport failure that happened
     before any response byte was read: connect, TLS or send failure, a stall, or the connection
     closing without sending anything. Errors about size, framing, admission, cancellation or the
@@ -103,8 +110,11 @@ to a private address (DNS rebinding). The old loader checked the URL text and th
   accepted). It never uses heuristic freshness, revalidation or stale bodies. An expired
   entry is dropped and fetched again through the pinned transport. Cache lookups happen per
   hop, after admission.
-- `clearCache()` empties the raw cache and bumps the existing remote generation. A fetch that
-  started before the wipe cannot write its response back afterwards. `clearLocalCache()`
+- Raw requests for the same URL/generation coalesce. The last cancelled waiter cancels its
+  transport. `clearCache()` atomically detaches old raw requests, bumps the existing remote
+  generation and empties the raw cache, then cancels those requests outside the cache lock.
+  A fetch that started before the wipe cannot return bytes or repopulate the cache afterwards.
+  Newly registered requests retain the new generation. `clearLocalCache()`
   leaves remote state alone. No new generation counter was added.
 
 ## Testing
@@ -113,7 +123,9 @@ All transport behavior is tested with Swift Testing doubles injected through `#i
 initializers: `RemoteMediaTransport(testingResolver:connectionFactory:clock:dnsSlots:)` and
 `RemoteImageLoader(testingTransport:)`. A virtual clock fires timers only when a test moves it
 forward, the resolver can be held and released, and connections are fully scripted. No test
-sleeps, uses real DNS, or opens a socket. See `RemoteMediaHTTPParserTests`,
+sleeps or opens a socket. Scripted transport tests do not use real DNS; the separate
+`SystemRemoteMediaResolver.blockingResolve("localhost")` smoke case uses the native resolver
+and is host-dependent, not a deterministic transport test. See `RemoteMediaHTTPParserTests`,
 `RemoteMediaTransportTests` and the `remoteImageLoader…` tests in `MediaTests`.
 
 ## Native qualification still required
@@ -137,3 +149,6 @@ Fakes cannot prove these. Each needs a native check on macOS 15.6 / arm64 before
   `Content-Length` and `chunked` bodies are unaffected.
 - **IDN hostnames.** Hostnames that Foundation hands over as non-ASCII are refused rather
   than converted.
+- **Compatibility.** The adapter uses HTTP/1.1 with identity content encoding and a fresh
+  connection per exchange, without HTTP/2, HTTP/3 or connection reuse. Qualify ordinary CDN
+  avatars and GIF searches; a transport-only failure must not silently use an unpinned client.

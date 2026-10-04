@@ -86,14 +86,16 @@ nonisolated struct SystemRemoteMediaResolver: RemoteMediaResolving {
 /// A claimed slot is released by the resolver's own completion, *not* by the caller: a caller
 /// that is cancelled or times out returns promptly while its `getaddrinfo` keeps a worker thread
 /// pinned until the system resolver gives up. Counting those abandoned workers is the point —
-/// with the cap reached, a new fetch fails fast instead of queueing yet another stuck thread.
+/// with the cap reached, callers wait in a bounded FIFO without starting another worker.
 nonisolated final class RemoteMediaDNSSlots: @unchecked Sendable {
     static let maximumConcurrentResolutions = 6
+    static let maximumQueuedResolutions = 128
     static let processWide = RemoteMediaDNSSlots(limit: maximumConcurrentResolutions)
 
     let limit: Int
     private let lock = NSLock()
     private var inUse = 0
+    private var queue: [(UUID, @Sendable (Bool) -> Void)] = []
 
     init(limit: Int) {
         self.limit = limit
@@ -105,18 +107,81 @@ nonisolated final class RemoteMediaDNSSlots: @unchecked Sendable {
         return inUse
     }
 
+    var queuedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return queue.count
+    }
+
+    /// A nil ticket means the callback already received admission or queue-overflow refusal.
+    func request(_ completion: @escaping @Sendable (Bool) -> Void) -> UUID? {
+        lock.lock()
+        if inUse < limit, queue.isEmpty {
+            inUse += 1
+            lock.unlock()
+            completion(true)
+            return nil
+        }
+        guard queue.count < Self.maximumQueuedResolutions else {
+            lock.unlock()
+            completion(false)
+            return nil
+        }
+        let ticket = UUID()
+        queue.append((ticket, completion))
+        lock.unlock()
+        return ticket
+    }
+
+    func cancelWaiter(_ ticket: UUID) {
+        lock.lock()
+        queue.removeAll { $0.0 == ticket }
+        lock.unlock()
+    }
+
     func claim() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard inUse < limit else { return false }
+        guard inUse < limit, queue.isEmpty else { return false }
         inUse += 1
         return true
     }
 
     func release() {
         lock.lock()
-        defer { lock.unlock() }
         inUse = max(0, inUse - 1)
+        let next: (@Sendable (Bool) -> Void)?
+        if !queue.isEmpty {
+            next = queue.removeFirst().1
+            inUse += 1
+        } else {
+            next = nil
+        }
+        lock.unlock()
+        next?(true)
+    }
+}
+
+/// Cancellation can arrive before request() returns its queued ticket.
+nonisolated final class RemoteMediaDNSWaitTicket: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ticket: UUID?
+    private var cancelled = false
+
+    func install(_ value: UUID?, slots: RemoteMediaDNSSlots) {
+        lock.lock()
+        ticket = value
+        let shouldCancel = cancelled
+        lock.unlock()
+        if shouldCancel, let value { slots.cancelWaiter(value) }
+    }
+
+    func cancel(slots: RemoteMediaDNSSlots) {
+        lock.lock()
+        cancelled = true
+        let value = ticket
+        lock.unlock()
+        if let value { slots.cancelWaiter(value) }
     }
 }
 
@@ -149,7 +214,7 @@ nonisolated enum RemoteMediaResolution {
             }
             addresses.append(address)
         }
-        // The same classifier the URL policy applies to literal hosts, unchanged.
+        // The same classifier the URL policy applies to literal hosts.
         for text in texts where RemoteImageURLPolicy.isDisallowedHost(text) {
             throw RemoteMediaTransportError.unsafeResolution
         }

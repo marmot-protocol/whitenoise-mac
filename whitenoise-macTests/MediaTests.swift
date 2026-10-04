@@ -6412,8 +6412,7 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(harness.network.connections.count == 2)
     }
 
-    /// A fetch that was already in flight when `clearCache()` ran still answers its caller, but
-    /// its bytes must not repopulate the wiped cache.
+    /// A privacy wipe cancels pending raw transport and refuses its bytes as well as insertion.
     @Test func remoteImageLoaderRefusesLateRawCacheInsertionAfterClearCache() async throws {
         let harness = Self.remoteImageHarness(holdFirstResponse: true, cacheControl: "max-age=600")
         let loader = RemoteImageLoader(testingTransport: harness.transport)
@@ -6425,10 +6424,36 @@ struct MediaTests: WorkspaceTestSupport {
         try #require(harness.network.connections.first)
             .deliver(Self.singlePixelPNGResponse(cacheControl: "max-age=600"))
 
-        #expect(await pending.value == Self.singlePixelPNG)
+        #expect(await pending.value == nil)
+        #expect(harness.network.connections.first?.cancelCount ?? 0 > 0)
         #expect(!loader.hasCachedResponse(for: url))
         _ = await loader.data(for: url)
         #expect(harness.network.connections.count == 2)
+    }
+
+    @Test func remoteImageLoaderPrivacyWipeCancelsDNSAndPreventsLateRedirects() async throws {
+        let harness = Self.remoteImageHarness()
+        harness.network.setDNS("held.example", .hold)
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let url = try #require(URL(string: "https://held.example/source.png"))
+        let pending = Task { await loader.data(for: url) }
+        await harness.wait { harness.network.heldResolutionCount == 1 }
+        loader.clearCache()
+        #expect(await pending.value == nil)
+        harness.network.completeHeldResolution(with: .addresses(["93.184.216.34"]))
+        #expect(harness.network.connections.isEmpty)
+        #expect(!loader.hasCachedResponse(for: url))
+    }
+
+    @Test func remoteImageLoaderRawCallerCancellationClosesPendingTransport() async throws {
+        let harness = Self.remoteImageHarness(holdFirstResponse: true)
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let url = try #require(URL(string: "https://cdn.example.com/source.png"))
+        let pending = Task { await loader.data(for: url) }
+        await harness.wait { harness.network.connections.first?.hasPendingReceive == true }
+        pending.cancel()
+        #expect(await pending.value == nil)
+        #expect(harness.network.connections.first?.cancelCount ?? 0 > 0)
     }
 
     @Test func remoteImageLoaderDownsamplesAndCachesLocalAttachmentBytes() async throws {
