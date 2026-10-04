@@ -121,7 +121,7 @@ to a private address (DNS rebinding). The old loader checked the URL text and th
 
 ## Testing
 
-All transport behavior is tested with Swift Testing doubles injected through `#if DEBUG`
+Deterministic transport behavior is tested with Swift Testing doubles injected through `#if DEBUG`
 initializers: `RemoteMediaTransport(testingResolver:connectionFactory:clock:dnsSlots:)` and
 `RemoteImageLoader(testingTransport:)`. A virtual clock fires timers only when a test moves it
 forward, the resolver can be held and released, and connections are fully scripted. No test
@@ -130,15 +130,29 @@ sleeps or opens a socket. Scripted transport tests do not use real DNS; the sepa
 and is host-dependent, not a deterministic transport test. See `RemoteMediaHTTPParserTests`,
 `RemoteMediaTransportTests` and the `remoteImageLoader…` tests in `MediaTests`.
 
+`RemoteMediaNativeTLSTests` additionally exercises the **production Network.framework adapter**
+with real TLS sockets in the existing full macOS CI suite. The wrapper
+`scripts/ci/remote-media-native-fixture.py` refuses non-GitHub-hosted or non-macOS execution.
+It creates tiny owned loopback servers and an ephemeral certificate authority, installs that
+authority in a temporary user keychain, and restores the search list and removes the trust
+entry/keychain in cleanup (a forcibly destroyed hosted runner cannot retain it). It never
+modifies the production trust evaluator or adds a verify callback. Correct DNS-name/SNI and
+IP-SAN positive controls accompany wrong-name, missing-IP-SAN and untrusted-chain rejection;
+two further cases distinguish `close_notify` from abrupt TLS truncation. The wrapper requires
+all seven named tests to actually execute and pass, not merely an exit-zero or skipped suite.
+These adapter tests do not bypass or change production URL admission: loopback remains refused.
+The Python fixture's seven platform-independent tests validate only the controlled server,
+**not** macOS trust or the app. Native results must be inspected before claiming qualification.
+
 ## Native qualification still required
 
 Fakes cannot prove these. Each needs a native check on macOS 15.6 / arm64 before release:
 
-- **TLS name override.** Check against a real host that a pinned numeric connection with
+- **TLS name override.** The native CI fixture checks that a pinned numeric connection with
   `sec_protocol_options_set_tls_server_name` succeeds for the right name and fails for a
   wrong one (for example the name of another host that resolves to the same CDN address). The
-  name cannot be read back from `NWParameters`, so unit tests do not cover it.
-- **IP-literal origins.** Check that a literal-IP endpoint with no server name is verified
+  name cannot be read back from `NWParameters`, so parameter-inspection tests do not cover it.
+- **IP-literal origins.** The native CI fixture checks that a literal-IP endpoint with no server name is verified
   against its IP SAN, and fails when the certificate has no matching IP SAN.
 - **Proxies.** `preferNoProxies` is documented as ignoring enabled system proxies, but it is a
   preference, not a guarantee. The newer `NWParametersProvider.noProxiesPreferred` is
@@ -146,9 +160,10 @@ Fakes cannot prove these. Each needs a native check on macOS 15.6 / arm64 before
   still goes to the admitted address and not through the proxy (or else fails).
 - **VPN routing, public-server tracking, and native image-codec memory** are outside what DNS
   pinning protects.
-- **Clean-close bodies.** A body that ends at connection close relies on Network.framework
+- **Clean-close bodies.** The native CI fixture checks the assumption that a body ending at connection close relies on Network.framework
   reporting TLS truncation (no `close_notify`) as an error and not as a clean end.
-  `Content-Length` and `chunked` bodies are unaffected.
+  `Content-Length` and `chunked` bodies are unaffected. A failed truncation test is a blocker,
+  not permission to weaken the assertion or turn off certificate checks.
 - **IDN hostnames.** Hostnames that Foundation hands over as non-ASCII are refused rather
   than converted.
 - **Compatibility.** The adapter uses HTTP/1.1 with identity content encoding and a fresh

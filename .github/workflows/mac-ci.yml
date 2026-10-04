@@ -99,7 +99,7 @@ jobs:
         run: |
           set -o pipefail
           rm -rf TestResults.xcresult
-          xcodebuild test \
+          python3 scripts/ci/remote-media-native-fixture.py xcodebuild test \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
             -testPlan PR \
