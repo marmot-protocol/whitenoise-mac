@@ -12,6 +12,10 @@
       {
         "key" : "WN_REMOTE_MEDIA_NATIVE_FIXTURE",
         "value" : "$(WN_REMOTE_MEDIA_NATIVE_FIXTURE)"
+      },
+      {
+        "key" : "WN_REMOTE_MEDIA_NATIVE_CDN",
+        "value" : "$(WN_REMOTE_MEDIA_NATIVE_CDN)"
       }
     ],
     "codeCoverage" : {

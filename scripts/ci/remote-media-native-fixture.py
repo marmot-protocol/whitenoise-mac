@@ -232,6 +232,16 @@ class Server:
             raise RuntimeError("fixture listener did not stop")
 
 
+def required_native_cases(include_public_cdn=False):
+    cases = {"nativeTLSOriginalNameWorks", "nativeTLSWrongNameRejected", "nativeTLSLiteralIPNeedsSAN",
+             "nativeTLSLiteralIPWithSANWorks", "nativeTLSUntrustedCertificateRejected",
+             "nativeTLSCleanCloseRequiresExplicitFraming", "nativeTLSAbruptCloseDoesNotCompleteBody",
+             "nativeTLSProductionReceiveAcceptsChunks", "nativeTLSProductionReceiveRejectsTruncatedLength"}
+    if include_public_cdn:
+        cases.add("nativePublicCDNPinnedImageFetchWorks")
+    return cases
+
+
 def main():
     if (sys.platform != "darwin" or os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
@@ -280,25 +290,24 @@ def main():
                 return
             fixture = json.dumps(dict(zip(("dns", "ip", "untrusted"), (s.port for s in servers))), separators=(",", ":"))
             args = sys.argv[1:] + ["WN_REMOTE_MEDIA_NATIVE_FIXTURE=" + fixture]
+            include_public_cdn = os.environ.get("WN_REMOTE_MEDIA_NATIVE_CDN") == "1"
+            args.append("WN_REMOTE_MEDIA_NATIVE_CDN=" + ("1" if include_public_cdn else "0"))
             # Capture only this build/test log. Do not write certificate keys to artifacts.
             process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             passed = set()
             for line in process.stdout:
                 print(line, end="", flush=True)
                 # Xcode emits either Swift Testing or XCTest-style forwarded test events.
-                match = re.search(r"(nativeTLS\w+)\(\).*passed (?:after|on)", line)
+                match = re.search(r"(native(?:TLS|PublicCDN)\w+)\(\).*passed (?:after|on)", line)
                 if match:
                     passed.add(match.group(1))
             result = process.wait()
-            expected = {"nativeTLSOriginalNameWorks", "nativeTLSWrongNameRejected", "nativeTLSLiteralIPNeedsSAN",
-                        "nativeTLSLiteralIPWithSANWorks", "nativeTLSUntrustedCertificateRejected",
-                        "nativeTLSCleanCloseRequiresExplicitFraming", "nativeTLSAbruptCloseDoesNotCompleteBody",
-                        "nativeTLSProductionReceiveAcceptsChunks", "nativeTLSProductionReceiveRejectsTruncatedLength"}
+            expected = required_native_cases(include_public_cdn)
             if result != 0:
                 raise SystemExit(result)
             if passed != expected:
                 raise SystemExit("Native TLS fixture tests did not all execute and pass: " + repr(sorted(passed)))
-            print("Native TLS qualification: all nine real-socket tests executed and passed.")
+            print("Native transport qualification: all " + str(len(expected)) + " required tests executed and passed.")
         except CommandTimeout:
             admin_outcome_unknown = True
             raise

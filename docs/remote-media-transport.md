@@ -160,6 +160,16 @@ that is one byte short. The original Host/TLS name, URL/answer admission, deadli
 and parser run unchanged; no external address is dialed. The wrapper requires
 all nine named tests to actually execute and pass, not merely an exit-zero or skipped suite.
 These adapter tests do not bypass or change production URL admission: loopback remains refused.
+`RemoteMediaNativeCDNTests` separately uses `RemoteMediaTransport.live` with no
+injected DNS/socket, response cache, retry or fallback. When explicitly enabled
+by CI, it fetches a 1945-byte first-party PNG pinned to an immutable repository
+commit, checks its exact SHA256 and response framing, then decodes those verified
+bytes with the native image codec. The wrapper requires this tenth named test
+to execute and pass as well. Both the full macOS 26 suite and a focused macOS 15
+arm64 job enable it. Logs record the actual OS version: macOS 15.x is not proof
+of exact 15.6 behavior. Connectivity failure keeps qualification pending rather
+than permitting an alternate transport. This one PNG does not qualify GIPHY or
+configured proxy behavior; those remain separate checks below.
 The Python fixture's platform-independent tests validate only the controlled server
 and fail-closed trust-export classification,
 **not** macOS trust or the app. Native results must be inspected before claiming qualification.
