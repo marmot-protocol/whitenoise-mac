@@ -7,6 +7,23 @@ import ssl
 import tempfile
 import unittest
 
+
+class TrustRecordTests(unittest.TestCase):
+    def test_explicit_deny_is_required_for_every_constraint(self):
+        fingerprint = "A" * 40
+        accepted = {"trustList": {fingerprint: {"trustSettings": [{"kSecTrustSettingsResult": 3}]}}}
+        fixture.require_denied_record(accepted, fingerprint)
+        for constraints in [None, [], [{}], [{"kSecTrustSettingsResult": 1}],
+                            [{"kSecTrustSettingsResult": 2}], [{"kSecTrustSettingsResult": True}],
+                            [{"kSecTrustSettingsResult": 3}, {}]]:
+            with self.assertRaises(RuntimeError):
+                fixture.require_denied_record({"trustList": {fingerprint: {"trustSettings": constraints}}}, fingerprint)
+
+    def test_missing_or_wrong_root_is_not_denial(self):
+        for settings in [{}, {"trustList": {}}, {"trustList": {"B" * 40: {}}}]:
+            with self.assertRaises(RuntimeError):
+                fixture.require_denied_record(settings, "A" * 40)
+
 spec = importlib.util.spec_from_file_location("fixture", Path(__file__).with_name("remote-media-native-fixture.py"))
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)
