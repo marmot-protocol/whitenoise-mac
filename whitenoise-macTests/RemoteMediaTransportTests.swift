@@ -288,7 +288,7 @@ struct RemoteMediaTransportTests {
         "198.18.0.1", "198.19.255.254", "192.0.0.8", "192.0.0.170", "192.0.2.1",
         "192.88.99.2", "198.51.100.1", "203.0.113.1", "fec0::1", "feff::1",
         "100::1", "100:0:0:1::1", "2001:2::1", "2001:10::1", "3fff::1", "5f00::1",
-        "::ffff:198.18.0.1", "64:ff9b::198.18.0.1", "2002:c612:1::1"
+        "::ffff:198.18.0.1", "64:ff9b::198.18.0.1", "2002:c612:1::1",
     ])
     func specialUseAddressesAreRejectedForLiteralsAndDNS(address: String) async throws {
         #expect(RemoteImageURLPolicy.isDisallowedHost(address))
@@ -304,7 +304,7 @@ struct RemoteMediaTransportTests {
     @Test(arguments: [
         "192.0.0.9", "192.0.0.10", "192.31.196.1", "192.52.193.1", "192.175.48.1",
         "2001:1::1", "2001:1::2", "2001:1::3", "2001:3::1", "2001:4:112::1",
-        "2001:20::1", "2001:30::1", "2620:4f:8000::1"
+        "2001:20::1", "2001:30::1", "2620:4f:8000::1",
     ])
     func globalSpecialUseExceptionsRemainAdmitted(address: String) throws {
         #expect(!RemoteImageURLPolicy.isDisallowedHost(address))
@@ -429,7 +429,9 @@ struct RemoteMediaTransportTests {
         let result = try await harness.transport.fetch(try Self.url("https://cdn.example.com/x.png"))
 
         #expect(result.body == Data("ok".utf8))
-        #expect(harness.network.connections.map(\.endpoint.address.bytes) == [[93, 184, 216, 34], [93, 184, 216, 35]])
+        #expect(
+            harness.network.connections.map(\.endpoint.address.bytes)
+                == [[93, 184, 216, 34], [93, 184, 216, 35]])
     }
 
     @Test func failureAfterHTTPProcessingBeganIsNotRetried() async throws {
@@ -550,8 +552,8 @@ struct RemoteMediaTransportTests {
     @Test func redirectWithoutAUsableLocationFails() async throws {
         let harness = RemoteMediaFakeHarness()
         harness.network.respond { _, _ in
-                .serving(
-                    FakeHTTP.response(status: 302, reason: "Found", headers: [("Location", "/a"), ("Location", "/b")]))
+            .serving(
+                FakeHTTP.response(status: 302, reason: "Found", headers: [("Location", "/a"), ("Location", "/b")]))
         }
 
         let outcome = await RemoteMediaFakeHarness.outcome {

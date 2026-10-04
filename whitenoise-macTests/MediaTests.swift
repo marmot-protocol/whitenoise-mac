@@ -6456,6 +6456,19 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(harness.network.connections.first?.cancelCount ?? 0 > 0)
     }
 
+    @Test func remoteImageLoaderPrivacyWipeCancelsPendingDecodedImageAndKeepsNewGenerationUsable() async throws {
+        let harness = Self.remoteImageHarness(holdFirstResponse: true)
+        let loader = RemoteImageLoader(testingTransport: harness.transport)
+        let url = try #require(URL(string: "https://cdn.example.com/source.png"))
+        let pending = Task { await loader.image(for: url, maxPixelSize: 32) }
+        await harness.wait { harness.network.connections.first?.hasPendingReceive == true }
+        loader.clearCache()
+        #expect(await pending.value == nil)
+        #expect(harness.network.connections.first?.cancelCount ?? 0 > 0)
+        #expect(await loader.image(for: url, maxPixelSize: 32) != nil)
+        #expect(harness.network.connections.count == 2)
+    }
+
     @Test func remoteImageLoaderDownsamplesAndCachesLocalAttachmentBytes() async throws {
         let loader = RemoteImageLoader(testingTransport: RemoteMediaFakeHarness().transport)
         let imageData = try Self.testPNGData(width: 400, height: 300)

@@ -171,9 +171,11 @@ nonisolated enum RemoteImageURLPolicy {
         // The general IETF protocol-assignment block is non-global except its explicit
         // allocations. Teredo is handled below so both embedded IPv4 addresses are checked.
         if first == 0x2001, groups[1] < 0x0200, groups[1] != 0 {
-            let anycast = groups[1] == 1 && groups[2...6].allSatisfy({ $0 == 0 })
+            let anycast =
+                groups[1] == 1 && groups[2...6].allSatisfy({ $0 == 0 })
                 && (1...3).contains(groups[7])
-            let assignedGlobal = groups[1] == 3
+            let assignedGlobal =
+                groups[1] == 3
                 || (groups[1] == 4 && groups[2] == 0x0112)
                 || (groups[1] & 0xFFF0) == 0x0020
                 || (groups[1] & 0xFFF0) == 0x0030
@@ -896,13 +898,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             return LoadedImage(nsImage: cached)
         }
 
-        let generation = currentCacheGeneration(for: scope)
-        let taskKey = Self.inFlightKey(scope: scope, forCacheKey: key, generation: generation)
-        let task = inFlight.task(for: taskKey) {
-            Task {
-                await load(key, generation)
-            }
-        }
+        let (generation, taskKey, task) = registeredImageTask(scope: scope, key: key, load: load)
         let waiter = RemoteImageLoadWaiter { [inFlight] in
             inFlight.releaseWaiter(for: taskKey)
         }
@@ -910,10 +906,27 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         return await withTaskCancellationHandler {
             let loaded = await task.value
             waiter.release()
-            return Task.isCancelled ? nil : loaded
+            guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: scope) else { return nil }
+            return loaded
         } onCancel: {
             waiter.release()
         }
+    }
+
+    /// As with raw downloads, registration and privacy-wipe detachment share one lock.
+    private func registeredImageTask(
+        scope: CacheScope,
+        key: String,
+        load: @escaping @Sendable (_ cacheKey: String, _ cacheGeneration: Int) async -> LoadedImage?
+    ) -> (Int, String, Task<LoadedImage?, Never>) {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        let generation = cacheGenerations[scope, default: 0]
+        let taskKey = Self.inFlightKey(scope: scope, forCacheKey: key, generation: generation)
+        let task = inFlight.task(for: taskKey) {
+            Task { await load(key, generation) }
+        }
+        return (generation, taskKey, task)
     }
 
     /// Drops every decoded image held in memory and invalidates in-flight decodes/downloads.
@@ -921,9 +934,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// wipe paths (account removal reset and full local-data reset) must evict them rather than
     /// letting them linger in the process for its lifetime. See whitenoise-mac#177.
     func clearCache() {
-        inFlight.cancelAll()
-
         cacheStateLock.lock()
+        let imageTasks = inFlight.removeAllTasks()
         let rawTasks = rawInFlight.removeAllTasks()
         for scope in CacheScope.allCases {
             cacheGenerations[scope, default: 0] += 1
@@ -937,6 +949,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         // bytes no fetch could have produced.
         primedSources.removeAll()
         cacheStateLock.unlock()
+        imageTasks.forEach { $0.cancel() }
         rawTasks.forEach { $0.cancel() }
     }
 

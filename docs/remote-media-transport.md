@@ -116,6 +116,8 @@ to a private address (DNS rebinding). The old loader checked the URL text and th
   A fetch that started before the wipe cannot return bytes or repopulate the cache afterwards.
   Newly registered requests retain the new generation. `clearLocalCache()`
   leaves remote state alone. No new generation counter was added.
+- Decoded-image registration and old-task detachment use the same atomic privacy-wipe lock;
+  a download cannot register between cancellation and generation invalidation.
 
 ## Testing
 
@@ -152,3 +154,10 @@ Fakes cannot prove these. Each needs a native check on macOS 15.6 / arm64 before
 - **Compatibility.** The adapter uses HTTP/1.1 with identity content encoding and a fresh
   connection per exchange, without HTTP/2, HTTP/3 or connection reuse. Qualify ordinary CDN
   avatars and GIF searches; a transport-only failure must not silently use an unpinned client.
+- **Address-family fallback.** Admitted addresses are attempted sequentially rather than
+  raced with Happy Eyeballs. A blackholed first address can spend the 15-second idle budget
+  before fallback. A burst beyond six active and 128 queued DNS callers is deliberately refused.
+- **Network-specific DNS64.** Embedded private IPv4 is checked for the well-known NAT64
+  prefix, not arbitrary network-specific translation prefixes. VPN/router routing can also
+  map nominally public destinations to internal services; address pinning is not a guarantee
+  against local network remapping. Keep this limitation distinct from ordinary DNS rebinding.
