@@ -133,9 +133,12 @@ and is host-dependent, not a deterministic transport test. See `RemoteMediaHTTPP
 `RemoteMediaNativeTLSTests` additionally exercises the **production Network.framework adapter**
 with real TLS sockets in the existing full macOS CI suite. The wrapper
 `scripts/ci/remote-media-native-fixture.py` refuses non-GitHub-hosted or non-macOS execution.
-It creates tiny owned loopback servers and an ephemeral certificate authority, installs that
-authority in a temporary user keychain, and restores the search list and removes the trust
-entry/keychain in cleanup (a forcibly destroyed hosted runner cannot retain it). It never
+It creates tiny owned loopback servers and an ephemeral certificate authority constrained to
+`remote-media-fixture.invalid` and `127.0.0.1`. It deletes all generated private keys before
+installing that authority with noninteractive administrator SSL trust on the disposable runner,
+then removes both the trust entry and the exact certificate fingerprint in cleanup (a forcibly
+destroyed hosted runner cannot retain it). No user-keychain or authorization-policy change is
+made, and every setup/cleanup subprocess has a 60-second timeout. It never
 modifies the production trust evaluator or adds a verify callback. Correct DNS-name/SNI and
 IP-SAN positive controls accompany wrong-name, missing-IP-SAN and untrusted-chain rejection;
 two further cases distinguish `close_notify` from abrupt TLS truncation. The wrapper requires

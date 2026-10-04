@@ -65,6 +65,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: scripts/ci/check-localizations.sh
 
+      - name: Controlled native TLS fixture self-tests
+        if: ${{ !cancelled() }}
+        run: python3 -B scripts/ci/test_remote_media_native_fixture.py
+
       # Only the steps below here resolve SwiftPM, so the cache is restored late.
       - name: Cache MarmotKit binary artifact
         if: ${{ !cancelled() }}
