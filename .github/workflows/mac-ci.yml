@@ -99,6 +99,9 @@ jobs:
       - name: Cache MarmotKit binary artifact
         uses: ./.github/actions/marmotkit-cache
 
+      - name: Qualify ephemeral TLS trust lifecycle before building
+        run: python3 scripts/ci/remote-media-native-fixture.py --trust-lifecycle-only
+
       - name: Unit tests
         run: |
           set -o pipefail

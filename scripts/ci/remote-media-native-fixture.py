@@ -17,11 +17,37 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import uuid
 
 
 def command(*args):
-    return subprocess.run(args, check=True, text=True, capture_output=True, timeout=60).stdout
+    # sudo can spawn security: killing only sudo on timeout leaves a live keychain
+    # mutation. Own a process group, kill/reap it before any later cleanup mutation.
+    process = subprocess.Popen(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               start_new_session=True)
+    try:
+        output, errors = process.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate(timeout=5)
+        raise
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, args, output, errors)
+    return output
+
+
+def phase(label, operation):
+    started = time.monotonic()
+    print("TLS fixture phase " + label + " started", flush=True)
+    try:
+        result = operation()
+    except Exception as error:
+        print("TLS fixture phase " + label + " failed: " + type(error).__name__
+              + " after %.2fs" % (time.monotonic() - started), flush=True)
+        raise
+    print("TLS fixture phase " + label + " completed in %.2fs" % (time.monotonic() - started), flush=True)
+    return result
 
 
 def certificate(directory, label, root=None, ip=False):
@@ -122,6 +148,7 @@ def main():
         raise SystemExit("This trust fixture is restricted to ephemeral macOS GitHub Actions runners.")
     if len(sys.argv) < 2:
         raise SystemExit("Supply the existing xcodebuild unit-test command after the script.")
+    lifecycle_only = sys.argv[1:] == ["--trust-lifecycle-only"]
     servers = []
     process = None
 
@@ -151,8 +178,13 @@ def main():
             # explicitly GitHub-hosted ephemeral runner may use noninteractive admin trust.
             # No authorization policy is weakened, no persistent/package host runs this path.
             trust_added = True  # Cleanup also covers an interrupted/partially successful add.
-            command("sudo", "-n", "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-p", "ssl",
-                    "-k", system_keychain, str(root[0]))
+            print("TLS fixture root SHA1: " + fingerprint, flush=True)
+            phase("admin-trust-install", lambda: command(
+                "sudo", "-n", "security", "add-trusted-cert", "-d", "-r", "trustRoot", "-p", "ssl",
+                "-k", system_keychain, str(root[0])))
+            if lifecycle_only:
+                print("TLS fixture lifecycle diagnostic: setup completed; teardown follows.", flush=True)
+                return
             fixture = json.dumps(dict(zip(("dns", "ip", "untrusted"), (s.port for s in servers))), separators=(",", ":"))
             args = sys.argv[1:] + ["WN_REMOTE_MEDIA_NATIVE_FIXTURE=" + fixture]
             # Capture only this build/test log. Do not write certificate keys to artifacts.
@@ -167,7 +199,7 @@ def main():
             result = process.wait()
             expected = {"nativeTLSOriginalNameWorks", "nativeTLSWrongNameRejected", "nativeTLSLiteralIPNeedsSAN",
                         "nativeTLSLiteralIPWithSANWorks", "nativeTLSUntrustedCertificateRejected",
-                        "nativeTLSCleanCloseCompletesBody", "nativeTLSAbruptCloseDoesNotCompleteBody"}
+                        "nativeTLSCleanCloseRequiresExplicitFraming", "nativeTLSAbruptCloseDoesNotCompleteBody"}
             if result != 0:
                 raise SystemExit(result)
             if passed != expected:
@@ -183,14 +215,27 @@ def main():
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
-            for operation in ([server.close for server in servers]
-                              + ([lambda: command("sudo", "-n", "security", "remove-trusted-cert", "-d", str(root[0])),
-                                  lambda: command("sudo", "-n", "security", "delete-certificate", "-Z", fingerprint,
-                                                  system_keychain)] if trust_added else [])):
+            operations = [("listener", server.close) for server in servers]
+            if trust_added:
+                operations += [
+                    ("admin-trust-removal", lambda: command("sudo", "-n", "security", "remove-trusted-cert", "-d", str(root[0]))),
+                    ("certificate-removal", lambda: command("sudo", "-n", "security", "delete-certificate", "-Z", fingerprint,
+                                                            system_keychain)),
+                ]
+            for label, operation in operations:
                 try:
-                    operation()
+                    phase(label, operation)
                 except Exception as error:
-                    failures.append(type(error).__name__)
+                    failures.append(label + ":" + type(error).__name__)
+            if trust_added:
+                try:
+                    certificates = phase("verify-certificate-absence", lambda: command(
+                        "security", "find-certificate", "-a", "-Z", system_keychain))
+                    if fingerprint.upper() in certificates.upper():
+                        raise RuntimeError("fixture certificate remains in system keychain")
+                    print("TLS fixture exact certificate absence verified.", flush=True)
+                except Exception as error:
+                    failures.append("verify-certificate-absence:" + type(error).__name__)
             if failures:
                 raise RuntimeError("TLS fixture cleanup failed: " + repr(failures))
 

@@ -130,20 +130,15 @@ struct RemoteMediaNativeTLSTests {
         try await Self.rejectsTLS(port: Self.fixture().untrusted, name: Self.name)
     }
 
-    @Test func nativeTLSCleanCloseCompletesBody() async throws {
-        let body = try await Self.response(port: Self.fixture().dns, name: Self.name, path: "/clean-close")
-        #expect(String(decoding: body, as: UTF8.self) == Self.name)
+    @Test func nativeTLSCleanCloseRequiresExplicitFraming() async throws {
+        await #expect(throws: RemoteMediaTransportError.unsupportedFraming) {
+            _ = try await Self.response(port: Self.fixture().dns, name: Self.name, path: "/clean-close")
+        }
     }
 
     @Test func nativeTLSAbruptCloseDoesNotCompleteBody() async throws {
-        do {
+        await #expect(throws: RemoteMediaTransportError.unsupportedFraming) {
             _ = try await Self.response(port: Self.fixture().dns, name: Self.name, path: "/abrupt-close")
-            Issue.record("a TLS stream truncated without close_notify was accepted as a complete body")
-        } catch {
-            guard let networkError = error as? NWError, case .tls = networkError else {
-                Issue.record("expected TLS truncation, received \(error)")
-                return
-            }
         }
     }
 }

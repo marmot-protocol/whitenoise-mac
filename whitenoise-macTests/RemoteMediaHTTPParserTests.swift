@@ -85,14 +85,13 @@ struct RemoteMediaHTTPParserTests {
         #expect(parser.body == bytes("ok"))
     }
 
-    @Test func closeDelimitedBodyCompletesOnlyAtEOF() throws {
+    @Test func closeDelimitedBodyIsRefusedBeforeBufferingItsBody() throws {
         var parser = RemoteMediaHTTPResponseParser()
         #expect(try parser.consume(bytes("HTTP/1.0 200 OK\r\n\r\nab")) == .headReceived)
-        #expect(try parser.beginBody() == .needsMoreData)
-        #expect(try parser.consume(bytes("c")) == .needsMoreData)
+        #expect(throws: RemoteMediaTransportError.unsupportedFraming) { _ = try parser.beginBody() }
         #expect(!parser.isComplete)
-        #expect(try parser.finishAtEOF() == .complete)
-        #expect(parser.body == bytes("abc"))
+        #expect(parser.body.isEmpty)
+        #expect(throws: RemoteMediaTransportError.prematureEOF) { _ = try parser.finishAtEOF() }
     }
 
     @Test func emptyStatusesCompleteWithoutABody() throws {
@@ -176,17 +175,19 @@ struct RemoteMediaHTTPParserTests {
         #expect(parser.body.count == cap)
     }
 
-    @Test func closeDelimitedBodyIsCappedIncrementally() throws {
+    @Test func chunkedBodyIsCappedIncrementallyBeforeAnotherChunk() throws {
         let cap = RemoteMediaHTTPResponseParser.maximumBodyBytes
         var parser = RemoteMediaHTTPResponseParser()
-        _ = try parser.consume(bytes("HTTP/1.1 200 OK\r\n\r\n"))
+        _ = try parser.consume(bytes("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"))
         _ = try parser.beginBody()
+        _ = try parser.consume(bytes(String(cap, radix: 16) + "\r\n"))
         let chunk = Data(count: RemoteMediaTransport.receiveChunkBytes)
         for _ in 0..<(cap / chunk.count) {
             _ = try parser.consume(chunk)
         }
         #expect(parser.body.count == cap)
-        #expect(throws: RemoteMediaTransportError.bodyTooLarge) { _ = try parser.consume(Data([0])) }
+        _ = try parser.consume(bytes("\r\n"))
+        #expect(throws: RemoteMediaTransportError.bodyTooLarge) { _ = try parser.consume(bytes("1\r\n")) }
         #expect(parser.body.count == cap)
     }
 

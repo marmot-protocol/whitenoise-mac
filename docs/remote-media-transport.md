@@ -76,7 +76,11 @@ to a private address (DNS rebinding). The old loader checked the URL text and th
    - bytes after the end of the message
    - EOF before the end of the message
 
-   A body ends by `Content-Length`, by `chunked`, or by a clean close.
+   A body must end by `Content-Length` or `chunked` framing. Bodyless statuses
+   remain supported. Close-delimited bodies are refused before retaining their
+   payload or decoding: native macOS 26 qualification showed Network.framework
+   accepting an abrupt TLS close without `close_notify` as EOF. A legitimate
+   server using only connection-close framing is intentionally incompatible.
 8. **Status.** `2xx` except `206` succeeds. `301/302/303/307/308` are followed (at most 5
    times) by closing the connection right after the head; redirect bodies are never read. Each
    hop, including a same-host hop, goes through admission, resolution and answer admission
@@ -136,12 +140,14 @@ with real TLS sockets in the existing full macOS CI suite. The wrapper
 It creates tiny owned loopback servers and an ephemeral certificate authority constrained to
 `remote-media-fixture.invalid` and `127.0.0.1`. It deletes all generated private keys before
 installing that authority with noninteractive administrator SSL trust on the disposable runner,
-then removes both the trust entry and the exact certificate fingerprint in cleanup (a forcibly
-destroyed hosted runner cannot retain it). No user-keychain or authorization-policy change is
-made, and every setup/cleanup subprocess has a 60-second timeout. It never
+then attempts removal of both the trust entry and exact certificate in cleanup.
+Every phase is logged, certificate absence is checked, and any failed cleanup
+keeps CI red. A setup/teardown-only diagnostic runs before building. No
+user-keychain or authorization-policy change is made; every setup/cleanup subprocess
+has a 60-second timeout and its owned process group is killed and reaped on timeout. It never
 modifies the production trust evaluator or adds a verify callback. Correct DNS-name/SNI and
 IP-SAN positive controls accompany wrong-name, missing-IP-SAN and untrusted-chain rejection;
-two further cases distinguish `close_notify` from abrupt TLS truncation. The wrapper requires
+two further cases refuse unframed bodies with either clean or abrupt close. The wrapper requires
 all seven named tests to actually execute and pass, not merely an exit-zero or skipped suite.
 These adapter tests do not bypass or change production URL admission: loopback remains refused.
 The Python fixture's seven platform-independent tests validate only the controlled server,
@@ -163,10 +169,12 @@ Fakes cannot prove these. Each needs a native check on macOS 15.6 / arm64 before
   still goes to the admitted address and not through the proxy (or else fails).
 - **VPN routing, public-server tracking, and native image-codec memory** are outside what DNS
   pinning protects.
-- **Clean-close bodies.** The native CI fixture checks the assumption that a body ending at connection close relies on Network.framework
-  reporting TLS truncation (no `close_notify`) as an error and not as a clean end.
-  `Content-Length` and `chunked` bodies are unaffected. A failed truncation test is a blocker,
-  not permission to weaken the assertion or turn off certificate checks.
+- **Explicit framing.** The original abrupt-close test failed on macOS 26 at
+  `b09b8b9`: Network.framework accepted TLS truncation as EOF. The parser now
+  refuses unframed bodies, even on a clean close; qualification must verify both
+  exact refusals and the framed positive control. The same run passed all six
+  other TLS assertions but timed out during teardown, so strict fixture cleanup
+  is still unproven. Certificate checks must never be weakened to pass a test.
 - **IDN hostnames.** Hostnames that Foundation hands over as non-ASCII are refused rather
   than converted.
 - **Compatibility.** The adapter uses HTTP/1.1 with identity content encoding and a fresh
