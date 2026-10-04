@@ -93,6 +93,8 @@ jobs:
     timeout-minutes: 30
     env:
       WN_REMOTE_MEDIA_NATIVE_CDN: "1"
+      # A mutable third-party object is a deliberate qualification, not every PR's gate.
+      WN_REMOTE_MEDIA_NATIVE_GIPHY: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
       # Match the older-runtime test executor, as required for transported test products.
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
 
@@ -120,6 +122,7 @@ jobs:
             -enableCodeCoverage YES \
             WN_REMOTE_MEDIA_NATIVE_FIXTURE=refresh-before-execution \
             WN_REMOTE_MEDIA_NATIVE_CDN=1 \
+            WN_REMOTE_MEDIA_NATIVE_GIPHY="$WN_REMOTE_MEDIA_NATIVE_GIPHY" \
             CODE_SIGNING_ALLOWED=NO
           native_test_runs=(TestBuild/Build/Products/*.xctestrun)
           test "${#native_test_runs[@]}" = 1
@@ -188,6 +191,7 @@ jobs:
     needs: test
     env:
       WN_REMOTE_MEDIA_NATIVE_CDN: "1"
+      WN_REMOTE_MEDIA_NATIVE_GIPHY: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
       # The default Xcode 16.4 cannot compile the app's Swift 6.2 concurrency syntax.
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
 

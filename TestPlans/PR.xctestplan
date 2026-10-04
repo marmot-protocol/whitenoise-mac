@@ -16,6 +16,10 @@
       {
         "key" : "WN_REMOTE_MEDIA_NATIVE_CDN",
         "value" : "$(WN_REMOTE_MEDIA_NATIVE_CDN)"
+      },
+      {
+        "key" : "WN_REMOTE_MEDIA_NATIVE_GIPHY",
+        "value" : "$(WN_REMOTE_MEDIA_NATIVE_GIPHY)"
       }
     ],
     "codeCoverage" : {

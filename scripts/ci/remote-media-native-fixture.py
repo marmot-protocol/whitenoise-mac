@@ -233,13 +233,17 @@ class Server:
             raise RuntimeError("fixture listener did not stop")
 
 
-def required_native_cases(include_public_cdn=False):
+def required_native_cases(include_public_cdn=False, include_giphy=False):
+    if include_giphy and not include_public_cdn:
+        raise ValueError("GIPHY qualification requires the public-CDN suite")
     cases = {"nativeTLSOriginalNameWorks", "nativeTLSWrongNameRejected", "nativeTLSLiteralIPNeedsSAN",
              "nativeTLSLiteralIPWithSANWorks", "nativeTLSUntrustedCertificateRejected",
              "nativeTLSCleanCloseRequiresExplicitFraming", "nativeTLSAbruptCloseDoesNotCompleteBody",
              "nativeTLSProductionReceiveAcceptsChunks", "nativeTLSProductionReceiveRejectsTruncatedLength"}
     if include_public_cdn:
-        cases.update({"nativePublicCDNPinnedImageFetchWorks", "nativePublicCDNGiphyGifFetchWorks"})
+        cases.add("nativePublicCDNPinnedImageFetchWorks")
+    if include_giphy:
+        cases.add("nativePublicCDNGiphyGifFetchWorks")
     return cases
 
 
@@ -326,7 +330,10 @@ def main():
             fixture = json.dumps(dict(zip(("dns", "ip", "untrusted"), (s.port for s in servers))), separators=(",", ":"))
             args = sys.argv[1:] + ["WN_REMOTE_MEDIA_NATIVE_FIXTURE=" + fixture]
             include_public_cdn = os.environ.get("WN_REMOTE_MEDIA_NATIVE_CDN") == "1"
+            include_giphy = os.environ.get("WN_REMOTE_MEDIA_NATIVE_GIPHY") == "1"
+            expected = required_native_cases(include_public_cdn, include_giphy)
             args.append("WN_REMOTE_MEDIA_NATIVE_CDN=" + ("1" if include_public_cdn else "0"))
+            args.append("WN_REMOTE_MEDIA_NATIVE_GIPHY=" + ("1" if include_giphy else "0"))
             if "-xctestrun" in args:
                 manifest_index = args.index("-xctestrun") + 1
                 if manifest_index >= len(args):
@@ -334,6 +341,7 @@ def main():
                 replace_test_environment(Path(args[manifest_index]), {
                     "WN_REMOTE_MEDIA_NATIVE_FIXTURE": fixture,
                     "WN_REMOTE_MEDIA_NATIVE_CDN": "1" if include_public_cdn else "0",
+                    "WN_REMOTE_MEDIA_NATIVE_GIPHY": "1" if include_giphy else "0",
                 })
             # Capture only this build/test log. Do not write certificate keys to artifacts.
             process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -345,7 +353,6 @@ def main():
                 if match:
                     passed.add(match.group(1))
             result = process.wait()
-            expected = required_native_cases(include_public_cdn)
             if result != 0:
                 raise SystemExit(result)
             if passed != expected:
