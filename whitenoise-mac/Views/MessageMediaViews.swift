@@ -616,6 +616,11 @@ struct MessageBubble: View {
                     loadingPreference: .shared
                 )
             } else if !message.trimmedBody.isEmpty {
+                if let linkPreviewURL {
+                    LinkPreviewCard(url: linkPreviewURL, loader: .shared)
+                        .id(linkPreviewURL)
+                }
+
                 MarkdownMessageView(
                     message: message,
                     trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
@@ -658,6 +663,12 @@ struct MessageBubble: View {
 
     private var showsBubbleMetadata: Bool {
         !message.isDeleted
+    }
+
+    /// The first fetchable link in the message, while "Show Link Previews" is on.
+    private var linkPreviewURL: URL? {
+        guard !message.isDeleted, LinkPreviewPreference.shared.showsPreviews else { return nil }
+        return LinkPreviewMetadata.previewURL(in: message.contentMarkdown)
     }
 
     private var showsInlineMetadata: Bool {
