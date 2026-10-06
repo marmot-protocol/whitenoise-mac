@@ -142,7 +142,8 @@ struct whitenoise_macApp: App {
             [weak workspace, weak model, weak avatarAssets, weak blockedUsers] snapshot in
             guard let workspace, let model,
                 workspace.activeAccountId == account.id,
-                workspace.selectedChat?.id == model.groupIdHex
+                workspace.selectedChat?.id == model.groupIdHex,
+                model.isLatestPresentation(snapshot.revision)
             else { return }
             // A legacy load that started before the claim above, or a listener it started, would
             // replace this window with the latest page and mark it read. Re-assert ownership.
@@ -172,7 +173,9 @@ struct whitenoise_macApp: App {
                 groupIdHex: model.groupIdHex,
                 account: account,
                 client: runtime,
-                owner: nil,
+                owner: .conversationSnapshot(isCurrent: { [weak model] in
+                    model?.isLatestPresentation(snapshot.revision) ?? false
+                }),
                 preparedSenderProfiles: snapshot.senderProfiles(
                     activeAccount: account,
                     nicknames: workspace.activeContactNicknames,
@@ -187,8 +190,7 @@ struct whitenoise_macApp: App {
         }
         await model.setSnapshotObserver(installSnapshot)
         await blockedUsers.setChangeObserver { [weak model] _ in
-            guard let snapshot = model?.snapshot else { return }
-            await installSnapshot(snapshot)
+            await model?.representSnapshot()
         }
     }
 }

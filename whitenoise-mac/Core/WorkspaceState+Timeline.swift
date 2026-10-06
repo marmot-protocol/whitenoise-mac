@@ -21,6 +21,10 @@ enum TimelineWindowOwner {
     case subscription(TimelineMessagesSubscription)
     case loadGeneration(UInt64)
     case postSendRefresh(generation: UInt64, subscription: TimelineMessagesSubscription?)
+    /// A conversation-projection snapshot. `isCurrent` turns false once a newer snapshot has been
+    /// handed out: two presentations can be in flight together, and the older one must not land
+    /// last and put back rows (and reactions) the newer one replaced.
+    case conversationSnapshot(isCurrent: @MainActor () -> Bool)
 }
 
 @MainActor
@@ -506,6 +510,8 @@ extension WorkspaceState {
             } else {
                 guard activeTimelineSubscription == nil, activeTimelineGroupId == nil else { return false }
             }
+        case .conversationSnapshot(let isCurrent):
+            guard isCurrent() else { return false }
         }
         return true
     }

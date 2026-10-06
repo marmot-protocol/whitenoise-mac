@@ -72,6 +72,11 @@ final class ConversationViewModel {
     /// True once a snapshot has been handed to the snapshot observer, i.e. the transcript renders
     /// this window's rows rather than whatever it showed before.
     private(set) var hasPresentedWindow = false
+    /// The revision most recently handed to the snapshot observer. Presentations suspend (avatar
+    /// reads, off-main mapping) and can overlap — the receive loop, a page reply, a block-list
+    /// change — so an observer checks `isLatestPresentation` before it applies, and an older
+    /// window that finishes last cannot replace a newer one.
+    @ObservationIgnored private var presentedRevision: ConversationWindowRevisionFfi?
     /// The messages the transcript currently reports on screen, for paging. Ignored by
     /// observation: the transcript writes it as it scrolls and no view renders from it.
     @ObservationIgnored private(set) var visibleMessageIds: Set<String> = []
@@ -160,9 +165,29 @@ final class ConversationViewModel {
     ) async {
         snapshotObserver = observer
         if let snapshot, let observer {
-            await observer(snapshot)
-            hasPresentedWindow = true
+            await present(snapshot, to: observer)
         }
+    }
+
+    /// Hands the installed snapshot to the observer again, for a change the host projects over
+    /// it, such as a block-list update.
+    func representSnapshot() async {
+        guard let snapshot, let snapshotObserver else { return }
+        await present(snapshot, to: snapshotObserver)
+    }
+
+    /// Whether `revision` is still the newest one handed to the observer.
+    func isLatestPresentation(_ revision: ConversationWindowRevisionFfi) -> Bool {
+        presentedRevision == revision
+    }
+
+    private func present(
+        _ snapshot: ConversationWindowSnapshotFfi,
+        to observer: @MainActor (ConversationWindowSnapshotFfi) async -> Void
+    ) async {
+        presentedRevision = snapshot.revision
+        await observer(snapshot)
+        hasPresentedWindow = true
     }
 
     func setVisibleMessageIds(_ ids: Set<String>) {
@@ -538,8 +563,7 @@ final class ConversationViewModel {
         error = nil
         isLoading = false
         if presents, let snapshotObserver {
-            await snapshotObserver(replacement)
-            hasPresentedWindow = true
+            await present(replacement, to: snapshotObserver)
         }
     }
 

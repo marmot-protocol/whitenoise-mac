@@ -1653,6 +1653,35 @@ struct ProjectionMigrationTests {
         model.stop()
     }
 
+    /// The host applies a presentation only while it is the newest one handed out, so an older
+    /// window still being mapped cannot land over a newer one. A block-list re-presentation of
+    /// the installed snapshot counts as current again.
+    @Test func onlyTheNewestPresentedRevisionIsLatest() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let initial = Self.conversationSnapshot(sequence: 1, title: "Initial")
+        let replacement = Self.conversationSnapshot(sequence: 2, title: "Replacement")
+        runtime.conversationWindowInitialSnapshots["group"] = initial
+        runtime.conversationWindowUpdates["group"] = [replacement]
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        var currentWhenObserved: [Bool] = []
+        await model.setSnapshotObserver { snapshot in
+            currentWhenObserved.append(model.isLatestPresentation(snapshot.revision))
+        }
+
+        model.start(mode: .latest)
+        let didReceiveUpdate = await waitFor { currentWhenObserved.count == 2 }
+
+        #expect(didReceiveUpdate)
+        #expect(currentWhenObserved == [true, true])
+        #expect(!model.isLatestPresentation(initial.revision))
+        #expect(model.isLatestPresentation(replacement.revision))
+
+        await model.representSnapshot()
+        #expect(currentWhenObserved == [true, true, true])
+        #expect(model.isLatestPresentation(replacement.revision))
+        model.stop()
+    }
+
     @Test func preparedConversationCarriesEditSummaryAndDeletionProvenance() throws {
         var record = timelineMessage(
             id: "edited",

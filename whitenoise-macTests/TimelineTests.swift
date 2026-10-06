@@ -5195,6 +5195,111 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(state.messagesByChat["direct-group"]?.first?.reactions.first?.senders == [reactorId])
     }
 
+    /// Two conversation snapshots can be presented at once — the receive loop, a page reply, a
+    /// block-list change — and the older one can be the slower. Once the newer one has been
+    /// handed out the older must not land: here it would put back a row without the reaction the
+    /// newer snapshot carries, which is how a chat opened with its reactions missing.
+    @MainActor
+    @Test func aSupersededConversationSnapshotDoesNotOverwriteTheNewerWindow() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "message-000",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Hello",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let accountItem = try #require(state.activeAccount)
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "message-000",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Hello",
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+        var latestPresentation = 1
+
+        state.timelineApplyMapGateEnabled = true
+        async let older: Void = state.applyTimelineWindow(
+            page,
+            groupIdHex: "direct-group",
+            account: accountItem,
+            client: runtime,
+            owner: .conversationSnapshot(isCurrent: { latestPresentation == 1 }),
+            preparedSenderProfiles: [:],
+            preparedReactions: [:]
+        )
+        let didSuspend = await waitFor { state.didReachTimelineApplyMapGate }
+        guard didSuspend else {
+            state.timelineApplyMapGateEnabled = false
+            state.releaseTimelineApplyMapGate()
+            _ = await older
+            Issue.record("Expected the older snapshot's apply to reach the map gate")
+            return
+        }
+
+        latestPresentation = 2
+        await state.applyTimelineWindow(
+            page,
+            groupIdHex: "direct-group",
+            account: accountItem,
+            client: runtime,
+            owner: .conversationSnapshot(isCurrent: { latestPresentation == 2 }),
+            preparedSenderProfiles: [:],
+            preparedReactions: [
+                "message-000": PreparedMessageReactions(
+                    reactions: [MessageReaction(emoji: "👍", count: 1, isOwn: false, senders: [aliceId])],
+                    totalCount: 1,
+                    omittedKinds: 0
+                )
+            ]
+        )
+        #expect(state.messagesByChat["direct-group"]?.first?.reactions.map(\.emoji) == ["👍"])
+
+        state.releaseTimelineApplyMapGate()
+        _ = await older
+
+        #expect(state.messagesByChat["direct-group"]?.first?.reactions.map(\.emoji) == ["👍"])
+    }
+
     @MainActor
     @Test func peerProfileResolutionsWithinTheDebounceWindowCostOneReprojection() async throws {
         // A roster resolving one member at a time must repaint once, not once per member.
