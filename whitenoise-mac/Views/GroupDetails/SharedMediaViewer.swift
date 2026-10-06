@@ -17,6 +17,8 @@ struct SharedMediaViewerOverlay: View {
     let onClose: () -> Void
     @State private var selectedIndex: Int
     @State private var zoom = ImageZoomState()
+    @State private var isSaving = false
+    @State private var saveError: String?
 
     init(presentation: SharedMediaViewerPresentation, model: AttachmentViewModel, onClose: @escaping () -> Void) {
         self.presentation = presentation
@@ -52,6 +54,8 @@ struct SharedMediaViewerOverlay: View {
                     SharedMediaViewerTopBar(
                         title: selectedItem.reference?.fileName ?? L10n.string("Attachment"),
                         position: canNavigate ? (selectedIndex + 1, presentation.items.count) : nil,
+                        download: selectedItem.target == nil
+                            ? nil : SharedMediaViewerDownload(isInFlight: isSaving, perform: save),
                         onClose: onClose
                     )
                     Spacer()
@@ -86,13 +90,37 @@ struct SharedMediaViewerOverlay: View {
         .onExitCommand(perform: onClose)
         // Each page starts fitted, as in the message gallery.
         .onChange(of: selectedIndex) { zoom.reset() }
+        .retainedAttachmentErrorAlert($saveError)
     }
+
+    /// Saves the item on screen, not the whole message — as the message gallery's button does.
+    private func save() {
+        let item = selectedItem
+        Task {
+            isSaving = true
+            defer { isSaving = false }
+            do {
+                try await saveRetainedAttachment(item, model: model)
+            } catch is CancellationError {
+            } catch {
+                saveError = error.localizedDescription
+            }
+        }
+    }
+}
+
+/// The top bar's download button: what it does, and whether a save is already running.
+private struct SharedMediaViewerDownload {
+    let isInFlight: Bool
+    let perform: () -> Void
 }
 
 private struct SharedMediaViewerTopBar: View {
     let title: String
     /// One-based index and total; `nil` when there is only one item.
     let position: (Int, Int)?
+    /// `nil` when the item on screen has nothing the core could fetch.
+    let download: SharedMediaViewerDownload?
     let onClose: () -> Void
 
     var body: some View {
@@ -108,6 +136,28 @@ private struct SharedMediaViewerTopBar: View {
                 Text(verbatim: "\(index) / \(total)")
                     .wnFont(.semiBold10.monospacedDigit())
                     .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.72))
+            }
+
+            if let download {
+                Button(action: download.perform) {
+                    Group {
+                        if download.isInFlight {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(WNColor.fillContentQuaternary)
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                                .wnFont(.bold16)
+                        }
+                    }
+                    .frame(width: 34, height: 34)
+                    .background(WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(WNColor.fillContentQuaternary)
+                .disabled(download.isInFlight)
+                .help(L10n.string("Download"))
+                .accessibilityLabel(L10n.string("Download"))
             }
 
             Button(action: onClose) {
@@ -294,7 +344,12 @@ private struct SharedMediaViewerUnavailable: View {
         WNColor.shadow.opacity(0.92)
         SharedMediaViewerUnavailable(onRetry: {})
         VStack {
-            SharedMediaViewerTopBar(title: "IMG_2041.jpg", position: (3, 9), onClose: {})
+            SharedMediaViewerTopBar(
+                title: "IMG_2041.jpg",
+                position: (3, 9),
+                download: SharedMediaViewerDownload(isInFlight: false, perform: {}),
+                onClose: {}
+            )
             Spacer()
         }
         HStack {
