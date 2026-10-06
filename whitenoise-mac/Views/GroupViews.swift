@@ -248,6 +248,7 @@ struct GroupImagePickerSheet: View {
                         initials: chat.title,
                         sanitizedPictureURL: chat.sanitizedPictureURL,
                         localImagePayload: chat.groupImagePayload,
+                        isPeerProfileImage: chat.isDirect,
                         size: 46,
                         isSelected: false
                     )

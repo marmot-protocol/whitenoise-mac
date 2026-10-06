@@ -38,6 +38,7 @@ struct GroupDetailsIdentitySection: View {
                         initials: chat.title,
                         sanitizedPictureURL: GroupDetailsHeaderAvatar.sanitizedURL(snapshot: snapshot, fallback: chat),
                         localImagePayload: chat.groupImagePayload,
+                        isPeerProfileImage: chat.isDirect,
                         size: MessagesLayout.groupDetailsAvatarSize,
                         isSelected: false
                     )

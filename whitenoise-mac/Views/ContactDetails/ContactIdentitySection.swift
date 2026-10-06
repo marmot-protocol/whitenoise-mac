@@ -38,6 +38,7 @@ struct ContactIdentitySection: View {
                             initials: contact.title,
                             sanitizedPictureURL: contact.sanitizedPictureURL,
                             localImagePayload: contact.imagePayload,
+                            isPeerProfileImage: !isLocalProfile,
                             size: MessagesLayout.groupDetailsAvatarSize,
                             isSelected: false
                         )

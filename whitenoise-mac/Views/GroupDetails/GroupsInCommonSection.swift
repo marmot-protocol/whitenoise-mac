@@ -36,6 +36,7 @@ struct GroupsInCommonSection: View {
                                 initials: commonGroup.title,
                                 sanitizedPictureURL: commonGroup.sanitizedPictureURL,
                                 localImagePayload: commonGroup.groupImagePayload,
+                                isPeerProfileImage: commonGroup.isDirect,
                                 size: 34,
                                 isSelected: false
                             )

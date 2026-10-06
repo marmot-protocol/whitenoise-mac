@@ -50,4 +50,15 @@ nonisolated enum RemoteImageDisplayPolicy {
     static func loadsRemoteImage(isOwnAccountImage: Bool, preferenceEnabled: Bool) -> Bool {
         isOwnAccountImage || preferenceEnabled
     }
+
+    /// Whether avatar bytes the app already holds may be drawn.
+    ///
+    /// MDK fetches peer avatars itself and hands over the bytes, so drawing them leaks nothing on
+    /// the wire. They still answer to the preference: "Load Remote Profile Images" is what the
+    /// viewer reads as "show other people's profile pictures", and a DM row or a group sender
+    /// drawing a picture while it is off looks like the switch does nothing. A group's own image
+    /// is not a profile picture — it is shared encrypted inside the group — so it always draws.
+    static func drawsLocalImage(isPeerProfileImage: Bool, preferenceEnabled: Bool) -> Bool {
+        !isPeerProfileImage || preferenceEnabled
+    }
 }

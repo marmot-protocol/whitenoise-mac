@@ -367,6 +367,7 @@ struct MessageBubble: View {
                         initials: message.senderName,
                         sanitizedPictureURL: message.senderSanitizedPictureURL,
                         localImagePayload: message.senderImagePayload,
+                        isPeerProfileImage: true,
                         size: 28,
                         isSelected: false
                     )

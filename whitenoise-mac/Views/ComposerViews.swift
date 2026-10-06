@@ -1769,6 +1769,10 @@ struct ProfileImageAvatarView: View {
     /// Own-account avatars ignore the "Load Remote Profile Images" preference — see
     /// `RemoteImageDisplayPolicy` for why, and for the six call sites allowed to pass `true`.
     let isOwnAccountImage: Bool
+    /// Whether `localImagePayload` is another person's profile picture rather than a group's own
+    /// image. Those bytes wait for the same preference as a peer's URL — see
+    /// `RemoteImageDisplayPolicy.drawsLocalImage`.
+    let isPeerProfileImage: Bool
     let size: CGFloat
     let isSelected: Bool
 
@@ -1778,6 +1782,7 @@ struct ProfileImageAvatarView: View {
         sanitizedPictureURL: URL?,
         localImagePayload: DownloadedMediaPayload? = nil,
         isOwnAccountImage: Bool = false,
+        isPeerProfileImage: Bool = false,
         size: CGFloat,
         isSelected: Bool
     ) {
@@ -1786,13 +1791,14 @@ struct ProfileImageAvatarView: View {
         self.sanitizedPictureURL = sanitizedPictureURL
         self.localImagePayload = localImagePayload
         self.isOwnAccountImage = isOwnAccountImage
+        self.isPeerProfileImage = isPeerProfileImage
         self.size = size
         self.isSelected = isSelected
     }
 
     var body: some View {
         Group {
-            if let localImagePayload {
+            if let localImagePayload = drawableLocalImagePayload {
                 DownsampledDataImage(payload: localImagePayload, maxPixelSize: size * 2) { image in
                     image
                         .resizable()
@@ -1826,11 +1832,22 @@ struct ProfileImageAvatarView: View {
         )
     }
 
+    /// The held avatar bytes, unless they are a peer's picture the viewer has not opted into.
+    private var drawableLocalImagePayload: DownloadedMediaPayload? {
+        guard
+            RemoteImageDisplayPolicy.drawsLocalImage(
+                isPeerProfileImage: isPeerProfileImage && !isOwnAccountImage,
+                preferenceEnabled: workspace.loadRemoteImages
+            )
+        else { return nil }
+        return localImagePayload
+    }
+
     /// A picture keeps the neutral hairline; the initials fallback wears its accent border, whose
     /// pale fill needs the ring to read as an object. Keyed on whether an image will be *attempted*
     /// rather than on whether one has decoded, so the ring does not change color mid-load.
     private var ringColor: Color {
-        let showsPicture = localImagePayload != nil || (loadsRemoteImage && sanitizedPictureURL != nil)
+        let showsPicture = drawableLocalImagePayload != nil || (loadsRemoteImage && sanitizedPictureURL != nil)
         return showsPicture ? AvatarChromeModifier.neutralRing : AvatarPalette.colors(for: seed).border
     }
 }
@@ -1888,6 +1905,7 @@ struct ConversationHeader: View {
                             initials: chat.title,
                             sanitizedPictureURL: chat.sanitizedPictureURL,
                             localImagePayload: chat.groupImagePayload,
+                            isPeerProfileImage: chat.isDirect,
                             size: 38,
                             isSelected: false
                         )
@@ -2091,6 +2109,7 @@ struct MessageForwardSheet: View {
                                     initials: chat.title,
                                     sanitizedPictureURL: chat.sanitizedPictureURL,
                                     localImagePayload: chat.groupImagePayload,
+                                    isPeerProfileImage: chat.isDirect,
                                     size: 34,
                                     isSelected: false
                                 )

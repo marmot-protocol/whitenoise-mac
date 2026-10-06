@@ -845,6 +845,7 @@ struct ChatRowContent: View {
                 initials: chat.title,
                 sanitizedPictureURL: chat.sanitizedPictureURL,
                 localImagePayload: chat.groupImagePayload,
+                isPeerProfileImage: chat.isDirect,
                 size: MessagesLayout.chatRowAvatarSize,
                 isSelected: false
             )
@@ -1024,6 +1025,7 @@ struct CollapsedChatRowContent: View {
             initials: chat.title,
             sanitizedPictureURL: chat.sanitizedPictureURL,
             localImagePayload: chat.groupImagePayload,
+            isPeerProfileImage: chat.isDirect,
             size: MessagesLayout.chatRowAvatarSize,
             isSelected: false
         )

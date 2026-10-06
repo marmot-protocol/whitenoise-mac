@@ -45,6 +45,17 @@ struct PureValueTests {
         )
     }
 
+    @Test func peerAvatarBytesHeldLocallyAlsoWaitForThePreference() {
+        // MDK fetches peer avatars itself, so a DM row or a group sender can carry the picture's
+        // bytes with no URL fetch at all. The preference is what the viewer reads as "show other
+        // people's profile pictures", so those bytes are gated too and the avatar falls back to
+        // initials. A group's own image is not anyone's profile picture and always draws.
+        #expect(!RemoteImageDisplayPolicy.drawsLocalImage(isPeerProfileImage: true, preferenceEnabled: false))
+        #expect(RemoteImageDisplayPolicy.drawsLocalImage(isPeerProfileImage: true, preferenceEnabled: true))
+        #expect(RemoteImageDisplayPolicy.drawsLocalImage(isPeerProfileImage: false, preferenceEnabled: false))
+        #expect(RemoteImageDisplayPolicy.drawsLocalImage(isPeerProfileImage: false, preferenceEnabled: true))
+    }
+
     @MainActor
     @Test func primaryButtonSizesGrowMonotonicallyAcrossTheWholeScale() {
         // `small` was added after `medium`/`large` were already in use, so the risk is not that it

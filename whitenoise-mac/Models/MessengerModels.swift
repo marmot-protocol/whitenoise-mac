@@ -3551,7 +3551,8 @@ struct NewChatRecipient: Equatable {
     /// Pre-sanitized once from the peer-controlled raw URL so recipient rows only read it.
     let sanitizedPictureURL: URL?
     /// MDK's retained copy of the peer's avatar, drawn ahead of `sanitizedPictureURL`. The core
-    /// fetched it, so it draws whatever the "Load Remote Profile Images" preference says.
+    /// fetched it, so it leaks nothing, but it is still a peer's profile picture and waits for the
+    /// "Load Remote Profile Images" preference — see `RemoteImageDisplayPolicy.drawsLocalImage`.
     let imagePayload: DownloadedMediaPayload?
     /// The published bio. Line breaks are kept — it is prose, not a label — but bidi controls are
     /// stripped so a peer cannot reorder the text around it.
