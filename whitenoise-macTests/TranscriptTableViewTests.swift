@@ -151,6 +151,53 @@ struct TranscriptTableViewTests {
         #expect(harness.cellVisibilityMatchesViewport)
     }
 
+    /// The conversation mounts the table in the same update that carries the opening request (the
+    /// first window and its starting position arrive together), before AppKit has given the table
+    /// a size. The request must land once the table is laid out, not against a zero-size viewport.
+    /// Not following yet: the conversation pins the foot only once the open has landed, so the
+    /// request alone has to put the reader there.
+    @Test func anOpeningAtTheFootLandsWhenTheTableMountsWithIt() {
+        let harness = TranscriptTableHarness(rows: [])
+        harness.mount(rows: TableTestRow.range(0..<60), request: .bottom)
+
+        #expect(harness.distanceFromBottom.map { $0 <= 0.5 } == true)
+    }
+
+    @Test func anOpeningAtTheUnreadDividerLandsWhenTheTableMountsWithIt() {
+        let harness = TranscriptTableHarness(rows: [])
+        harness.mount(rows: TableTestRow.range(0..<60), request: .top(id: "row-30", inset: 8))
+
+        #expect(harness.offset(of: "row-30").map { abs($0 - 8) <= 0.5 } == true)
+    }
+
+    /// Rows settle their heights after the open lands (a GIF decoding, an image resolving) and
+    /// before the conversation starts following the foot. The open's foot must survive that.
+    @Test func anOpeningAtTheFootStaysThereWhileAVisibleRowSettles() {
+        let harness = TranscriptTableHarness(rows: [])
+        harness.mount(rows: TableTestRow.range(0..<60), request: .bottom)
+        let heightBefore = harness.height(of: "row-58")
+
+        harness.model.innerGrowth["row-58"] = 120
+        harness.settle(until: { harness.height(of: "row-58") != heightBefore })
+
+        #expect(harness.height(of: "row-58").map { $0 - (heightBefore ?? 0) } == 120)
+        #expect(harness.distanceFromBottom.map { $0 <= 0.5 } == true)
+    }
+
+    /// Once the reader scrolls, the requested position is theirs to leave: a row settling above
+    /// holds their row still rather than pulling them back to the request.
+    @Test func theReadersScrollReleasesTheRequestedPosition() {
+        let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<80))
+        harness.request(.top(id: "row-20", inset: 0))
+        harness.scrollByReader(toTopOf: "row-40")
+        let before = harness.offset(of: "row-40")
+
+        harness.set(rows: TableTestRow.range(0..<80).map { $0.index == 30 ? $0.growing(by: 6) : $0 })
+
+        #expect(before.map { abs($0) <= 0.5 } == true)
+        #expect(harness.offset(of: "row-40") == before)
+    }
+
     @Test func aShortTranscriptSitsAtTheFoot() {
         let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<2))
 
@@ -202,20 +249,26 @@ struct TranscriptTableHarnessView: View {
     let model: TranscriptTableHarnessModel
 
     var body: some View {
-        TranscriptTableView(
-            rows: model.rows,
-            scrollRequest: model.request,
-            followsBottom: model.followsBottom,
-            onViewportChanged: { _ in },
-            onLiveScrollChanged: { _ in },
-            onScrollRequestApplied: { _ in },
-            anchorsPosition: { !$0.isChrome },
-            cell: { row in
-                HarnessRowContent(model: model, row: row)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        )
+        // Mounted only once there are rows, as the conversation shows a placeholder until its
+        // first window arrives.
+        if model.rows.isEmpty {
+            Color.clear
+        } else {
+            TranscriptTableView(
+                rows: model.rows,
+                scrollRequest: model.request,
+                followsBottom: model.followsBottom,
+                onViewportChanged: { _ in },
+                onLiveScrollChanged: { _ in },
+                onScrollRequestApplied: { _ in },
+                anchorsPosition: { !$0.isChrome },
+                cell: { row in
+                    HarnessRowContent(model: model, row: row)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            )
+        }
     }
 }
 
@@ -257,6 +310,23 @@ final class TranscriptTableHarness {
 
     func set(rows: [TableTestRow]) {
         model.rows = rows
+        settle()
+    }
+
+    /// Delivers the first rows and the opening request in one update, as the conversation does.
+    func mount(rows: [TableTestRow], request target: TranscriptScrollTarget) {
+        model.rows = rows
+        model.request = TranscriptScrollRequest(target: target)
+        settle()
+    }
+
+    /// Moves the viewport the way the reader does, outside any request.
+    func scrollByReader(toTopOf id: String) {
+        guard let tableView, let scrollView = tableView.enclosingScrollView,
+            let index = model.rows.firstIndex(where: { $0.id == id })
+        else { return }
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: tableView.rect(ofRow: index + 1).minY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
         settle()
     }
 
