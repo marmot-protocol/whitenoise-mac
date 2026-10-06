@@ -98,7 +98,7 @@ nonisolated enum GiphyPlaybackState: Equatable, Sendable {
 /// A received or sent GIPHY GIF inside its bubble.
 ///
 /// Received GIFs wait for a click unless "Automatically Load Remote GIFs" is on (see
-/// `RemoteGIFLoadingPreference`); your own always load. The transcript realizes every row eagerly,
+/// `RemoteGIFLoadingPreference`), and a click is remembered for the session; your own always load. The transcript realizes every row eagerly,
 /// so `onDisappear` does not fire on scroll — scroll visibility is what starts playback and what
 /// drops the bytes again, and the stable geometry keeps the row's height through that.
 struct RemoteGiphyMediaView: View {
@@ -110,7 +110,6 @@ struct RemoteGiphyMediaView: View {
     let prepare: @Sendable (RemoteGiphyMedia) async throws -> GiphyRemoteMediaLoader.PreparedPlayback
 
     @State private var state: GiphyPlaybackState
-    @State private var loadRequested = false
     /// Bumped by every Load/Retry click so the load task re-keys even when eligibility did not
     /// change (a failed own send is already eligible). The task must never key on `state`: its
     /// own `state = .loading` would cancel it, and the cancellation would reset it to `.idle` and
@@ -141,7 +140,8 @@ struct RemoteGiphyMediaView: View {
     }
 
     private var shouldLoad: Bool {
-        mayLoadAutomatically || loadingPreference.automaticallyLoads || loadRequested
+        mayLoadAutomatically || loadingPreference.automaticallyLoads
+            || loadingPreference.wasLoadRequested(for: media.url)
     }
 
     var body: some View {
@@ -149,7 +149,7 @@ struct RemoteGiphyMediaView: View {
             ZStack {
                 Color.black
                 GiphyPlaybackContent(state: state) {
-                    loadRequested = true
+                    loadingPreference.recordLoadRequest(for: media.url)
                     if state == .failed { state = .idle }
                     retryRequests &+= 1
                 }
@@ -169,7 +169,13 @@ struct RemoteGiphyMediaView: View {
             if !visible, case .playing = state { state = .idle }
         }
         .task(id: PlaybackTaskID(url: media.url, isEligible: isVisible && shouldLoad, retryRequests: retryRequests)) {
-            guard isVisible, shouldLoad, state == .idle else { return }
+            guard isVisible, shouldLoad else {
+                if state == .loading { state = .idle }
+                return
+            }
+            // `.loading` is not "someone else is on it": a cancelled load can still be unwinding
+            // when visibility comes back, and waiting for it left the bubble on "Load GIF".
+            guard state == .idle || state == .loading else { return }
             await load()
         }
         .accessibilityElement(children: .combine)
@@ -183,11 +189,12 @@ struct RemoteGiphyMediaView: View {
             try Task.checkCancellation()
             displayGeometry.record(decodedAspectRatio: prepared.aspectRatio)
             state = .playing(prepared)
-        } catch is CancellationError {
-            if state == .loading { state = .idle }
         } catch {
+            // A cancelled load leaves the state to whichever task replaced it: resetting it here
+            // would clobber a newer load's spinner. The task that found the bubble ineligible
+            // already put it back to `.idle`.
+            guard !Task.isCancelled, !(error is CancellationError) else { return }
             state = .failed
-            loadRequested = false
         }
     }
 

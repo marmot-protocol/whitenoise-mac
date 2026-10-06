@@ -80,6 +80,96 @@ struct GiphyTests: WorkspaceTestSupport {
         #expect(prepareCount == 1, "prepare ran \(prepareCount) times")
     }
 
+    /// A cancelled download does not return the instant it is cancelled, so the task that the next
+    /// visibility change starts can run while the previous one still says `.loading`. Visibility
+    /// flickers like that whenever a row is appended or a GIF resizes its row. That task must start
+    /// its own download, not leave the bubble on "Load GIF" until someone clicks it.
+    @MainActor
+    @Test func bubbleReloadsWhenVisibilityReturnsBeforeACancelledLoadUnwinds() async throws {
+        let calls = PrepareCallCounter()
+        let gate = PrepareGate()
+        let visibility = TranscriptCellVisibility()
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+        let playback = GiphyRemoteMediaLoader.PreparedPlayback(data: Data([0x47, 0x49, 0x46]), aspectRatio: 16 / 9)
+        let window = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: true,
+                loadingPreference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                prepare: { _ in
+                    await calls.increment()
+                    await gate.wait()
+                    try Task.checkCancellation()
+                    return playback
+                }
+            )
+            .environment(\.transcriptCellVisibility, visibility)
+        )
+        defer { window.orderOut(nil) }
+
+        visibility.isVisible = true
+        #expect(await Self.waitForPrepareCount(1, in: calls))
+
+        visibility.isVisible = false
+        try await Task.sleep(for: .milliseconds(100))
+        visibility.isVisible = true
+
+        let reloaded = await Self.waitForPrepareCount(2, in: calls)
+        await gate.open()
+        #expect(reloaded, "the bubble stopped at Load GIF instead of downloading again")
+    }
+
+    /// A received GIF the viewer chose to load stays chosen for the session: a transcript cell
+    /// recycled for that message starts with fresh view state, and must not ask again.
+    @MainActor
+    @Test func aGIFLoadedOnRequestLoadsAutomaticallyWhenItsBubbleIsRebuilt() async throws {
+        let calls = PrepareCallCounter()
+        let visibility = TranscriptCellVisibility()
+        visibility.isVisible = true
+        let preference = RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+        let playback = GiphyRemoteMediaLoader.PreparedPlayback(data: Data([0x47, 0x49, 0x46]), aspectRatio: 16 / 9)
+        preference.recordLoadRequest(for: media.url)
+
+        let window = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: false,
+                loadingPreference: preference,
+                prepare: { _ in
+                    await calls.increment()
+                    return playback
+                }
+            )
+            .environment(\.transcriptCellVisibility, visibility)
+        )
+        defer { window.orderOut(nil) }
+
+        #expect(await Self.waitForPrepareCount(1, in: calls))
+    }
+
+    @MainActor
+    private static func hostingWindow(_ view: some View) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 400),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSHostingView(rootView: view.frame(width: 320, height: 400))
+        window.orderFrontRegardless()
+        return window
+    }
+
+    private static func waitForPrepareCount(_ expected: Int, in calls: PrepareCallCounter) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline {
+            if await calls.count >= expected { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return await calls.count >= expected
+    }
+
     // MARK: Envelope
 
     @Test func wireTextRoundTripsTheExactGiphyURLAndCredit() throws {
@@ -440,8 +530,12 @@ struct GiphyTests: WorkspaceTestSupport {
         let reloaded = RemoteGIFLoadingPreference(defaults: defaults)
         #expect(reloaded.automaticallyLoads)
 
+        reloaded.recordLoadRequest(for: Self.gifURL)
+        #expect(reloaded.wasLoadRequested(for: Self.gifURL))
+
         reloaded.reset()
         #expect(!reloaded.automaticallyLoads)
+        #expect(!reloaded.wasLoadRequested(for: Self.gifURL))
         #expect(!RemoteGIFLoadingPreference(defaults: defaults).automaticallyLoads)
     }
 
@@ -522,4 +616,22 @@ struct GiphyTests: WorkspaceTestSupport {
 private actor PrepareCallCounter {
     private(set) var count = 0
     func increment() { count += 1 }
+}
+
+/// A download that ignores cancellation until it is let through, the way a network fetch keeps
+/// running for a while after its task is cancelled.
+private actor PrepareGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters = []
+    }
 }
