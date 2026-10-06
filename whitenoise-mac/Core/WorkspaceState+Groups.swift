@@ -25,16 +25,10 @@ private struct GroupImageUpdateContext {
 }
 
 private enum GroupImageSelectionError: LocalizedError {
-    case invalidWebImage
-    case downloadFailed
     case notAnImage
 
     var errorDescription: String? {
         switch self {
-        case .invalidWebImage:
-            return L10n.string("That image URL is not allowed.")
-        case .downloadFailed:
-            return L10n.string("That image could not be downloaded.")
         case .notAnImage:
             return L10n.string("Please choose an image file.")
         }
@@ -1280,50 +1274,25 @@ extension WorkspaceState {
         }
     }
 
-    func setGroupImage(_ result: GroupImageSearchResult) async {
+    /// Commit a picture that has already been through `AvatarCropSheet`, file or web alike.
+    ///
+    /// Throws what went wrong so the crop editor can show it beside the picture; an update that
+    /// no longer targets the selected group returns quietly.
+    func setGroupImage(croppedImageData data: Data) async throws {
         guard let context = beginGroupImageUpdate() else { return }
         defer { isSavingGroupImage = false }
 
         do {
-            guard let sourceURL = RemoteImageURLPolicy.sanitizedURL(from: result.imageURL) else {
-                throw GroupImageSelectionError.invalidWebImage
-            }
-            guard let data = await groupImageSourceLoader.data(for: sourceURL) else {
-                throw GroupImageSelectionError.downloadFailed
-            }
             let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(
                 fromPastedImageData: data,
-                typeIdentifier: nil
+                typeIdentifier: AvatarImageCropper.outputTypeIdentifier
             )
-            try await commitSelectedGroupImage(attachment, context: context)
-        } catch is CancellationError {
-            return
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    func setGroupImage(fileURL: URL) async {
-        guard let context = beginGroupImageUpdate() else { return }
-        defer { isSavingGroupImage = false }
-
-        let isSecurityScoped = fileURL.startAccessingSecurityScopedResource()
-        defer {
-            if isSecurityScoped {
-                fileURL.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        do {
-            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: fileURL)
             guard attachment.kind == .image else {
                 throw GroupImageSelectionError.notAnImage
             }
             try await commitSelectedGroupImage(attachment, context: context)
         } catch is CancellationError {
             return
-        } catch {
-            lastError = error.localizedDescription
         }
     }
 
