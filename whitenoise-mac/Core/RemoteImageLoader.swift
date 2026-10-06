@@ -741,6 +741,20 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         return await Self.download(url, using: session)
     }
 
+    /// Fetches a web page for a link preview through the same pinned protections as an image:
+    /// `RemoteImageURLPolicy` on the URL and on every redirect, the response-size cap, and the
+    /// ephemeral, cookieless session. Returns the body with the final response, so the caller can
+    /// check the MIME type and resolve relative URLs against where the redirects ended. Nil means
+    /// the fetch itself failed (disallowed, non-2xx, oversized, cancelled, or a network error).
+    func page(for request: URLRequest) async -> (Data, URLResponse)? {
+        guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else { return nil }
+        let delegate = CappedImageDownloadDelegate(cap: RemoteImageURLPolicy.maxResponseBytes)
+        guard let data = await delegate.download(request, using: session),
+            let response = delegate.receivedResponse
+        else { return nil }
+        return (data, response)
+    }
+
     /// Registers source bytes the app already holds for `url`, so the first load of that URL
     /// decodes from memory instead of fetching it.
     ///
@@ -1137,6 +1151,7 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
     private var cancelled = false
     private var finished = false
     private var redirectHopCount = 0
+    private var response: URLResponse?
 
     init(cap: Int64) {
         self.cap = cap
@@ -1144,6 +1159,15 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
     }
 
     func download(_ url: URL, using session: URLSession) async -> Data? {
+        await download(URLRequest(url: url), using: session)
+    }
+
+    /// The final response, once headers arrived. Read after `download` returns.
+    var receivedResponse: URLResponse? {
+        lock.withLock { response }
+    }
+
+    func download(_ request: URLRequest, using session: URLSession) async -> Data? {
         // Propagate Swift task cancellation to the underlying network request. The
         // `DownsampledAsyncImage` call site runs this inside a `.task(id:)`, which cancels the
         // awaiting task whenever the row's URL/size identity changes (scrolling, navigation);
@@ -1158,7 +1182,7 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
                     return
                 }
                 self.continuation = continuation
-                let task = session.dataTask(with: url)
+                let task = session.dataTask(with: request)
                 // Attach *this* delegate per task (macOS 12+) rather than backing a throwaway
                 // per-download `URLSession`. This keeps per-download collector state isolated
                 // while letting the shared `session` reuse its connection pool across avatars.
@@ -1245,6 +1269,7 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
             finish(with: nil)
             return
         }
+        lock.withLock { self.response = response }
         if response.expectedContentLength > 0 {
             lock.lock()
             collector.reserve(Int(min(response.expectedContentLength, cap)))

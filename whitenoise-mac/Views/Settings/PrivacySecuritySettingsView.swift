@@ -53,6 +53,8 @@ struct PrivacySecuritySettingsView: View {
 
             RemoteGIFLoadingSection(preference: .shared)
 
+            LinkPreviewSettingsSection(preference: .shared)
+
             DiagnosticsAndImprovementsSections(model: model)
 
             StoredDiagnosticLogsSection(
@@ -145,6 +147,40 @@ struct RemoteGIFLoadingSection: View {
     Form {
         RemoteGIFLoadingSection(
             preference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: "gif-settings-preview")!)
+        )
+    }
+    .formStyle(.grouped)
+    .frame(width: 520, height: 200)
+}
+
+/// Whether a message's first link shows a title-and-image card. Next to the GIF switch rather
+/// than under Appearance, because what it costs is the same kind of thing: a fetch from a server
+/// someone else picked, which learns the viewer's IP address.
+struct LinkPreviewSettingsSection: View {
+    let preference: LinkPreviewPreference
+
+    var body: some View {
+        SettingsSection(
+            footer: L10n.string(
+                "Shows the title and image of links in chats. Loading a preview tells the linked website your IP address."
+            )
+        ) {
+            WNToggle(
+                L10n.string("Show Link Previews"),
+                systemImage: "link",
+                isOn: Binding(
+                    get: { preference.showsPreviews },
+                    set: { preference.setShowsPreviews($0) }
+                )
+            )
+        }
+    }
+}
+
+#Preview("Link previews") {
+    Form {
+        LinkPreviewSettingsSection(
+            preference: LinkPreviewPreference(defaults: UserDefaults(suiteName: "link-preview-settings-preview")!)
         )
     }
     .formStyle(.grouped)
