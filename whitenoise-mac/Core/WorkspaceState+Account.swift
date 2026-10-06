@@ -46,7 +46,6 @@ extension WorkspaceState {
                 directPeerMemoryStore = DirectPeerMemoryFileStore(storageRootPath: storageRootPath)
             }
             loadHiddenMessages()
-            loadPinnedChats()
             loadContactNicknames()
             loadRememberedDirectPeers()
             let summaries = try await FFIExecutor.run {
@@ -75,6 +74,7 @@ extension WorkspaceState {
             try await bringRuntimeOnline(runtime)
             accounts = try await accountItemsFromRuntime(client: runtime)
             restoreOrSelectFirstAccount()
+            await migrateLegacyPinnedChats(runtime: runtime)
             await activateReadyState()
             runtime.recordHostPerformance(
                 operation: .splashReady,

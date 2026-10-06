@@ -253,14 +253,16 @@ nonisolated extension ChatListRowFfi {
         updatedAt: UInt64,
         selfMembership: SelfMembershipFfi,
         leaveRequestPending: Bool = false,
-        conversationKind: ChatConversationKindFfi? = nil
+        conversationKind: ChatConversationKindFfi? = nil,
+        pinned: Bool = false,
+        pinnedPosition: UInt32? = nil
     ) {
         let previewTimelineAt = lastMessage?.timelineAt ?? 0
         let activitySortAt = previewTimelineAt > 0 ? previewTimelineAt : updatedAt
         self.init(
             groupIdHex: groupIdHex,
-            pinned: false,
-            pinnedPosition: nil,
+            pinned: pinned,
+            pinnedPosition: pinnedPosition,
             archived: archived,
             pendingConfirmation: pendingConfirmation,
             lifecycleState: .stable,

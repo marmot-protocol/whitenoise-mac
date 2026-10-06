@@ -3520,6 +3520,22 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         )
     }
 
+    /// Every `setChatPinned` call in order, and the pinned section it leaves behind per account.
+    var setChatPinnedCalls: [(accountRef: String, groupIdHex: String, pinned: Bool)] = []
+    var pinnedGroupIdsByAccountRef: [String: [String]] = [:]
+    var setChatPinnedError: Error?
+
+    func setChatPinned(accountRef: String, groupIdHex: String, pinned: Bool) throws -> ChatPinStateFfi {
+        setChatPinnedCalls.append((accountRef, groupIdHex, pinned))
+        if let setChatPinnedError { throw setChatPinnedError }
+        // Mirrors mdk: a newly pinned chat enters at the top of the pinned section.
+        var order = pinnedGroupIdsByAccountRef[accountRef] ?? []
+        order.removeAll { $0 == groupIdHex }
+        if pinned { order.insert(groupIdHex, at: 0) }
+        pinnedGroupIdsByAccountRef[accountRef] = order
+        return ChatPinStateFfi(orderedGroupIds: order)
+    }
+
     func recordHostPerformance(
         operation: HostPerformanceOperationFfi,
         durationMs: UInt64,
@@ -3534,6 +3550,10 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     private func chatListRow(for group: AppGroupRecordFfi) -> ChatListRowFfi {
         let latest = timelinePagesByGroupId[group.groupIdHex]?.messages.last(where: { $0.kind == 9 })
+        let pinnedPosition = pinnedGroupIdsByAccountRef.values.lazy
+            .compactMap { $0.firstIndex(of: group.groupIdHex) }
+            .first
+            .map { UInt32($0) }
         return ChatListRowFfi(
             groupIdHex: group.groupIdHex,
             archived: group.archived,
@@ -3571,7 +3591,11 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             lastReadTimelineAt: latest?.timelineAt,
             updatedAt: latest?.timelineAt ?? 0,
             selfMembership: group.selfMembership,
-            leaveRequestPending: pendingLeaveGroupIds.contains(group.groupIdHex)
+            leaveRequestPending: pendingLeaveGroupIds.contains(group.groupIdHex),
+            // The shared `groups` are not per account, so any account's pin applies; a row
+            // that always said "unpinned" would erase the pin on the next snapshot.
+            pinned: pinnedPosition != nil,
+            pinnedPosition: pinnedPosition
         )
     }
 }
