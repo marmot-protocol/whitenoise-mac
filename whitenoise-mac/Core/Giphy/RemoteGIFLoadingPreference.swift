@@ -13,6 +13,11 @@ final class RemoteGIFLoadingPreference {
 
     @ObservationIgnored private let defaults: UserDefaults
     private(set) var automaticallyLoads: Bool
+    /// GIFs the viewer clicked to load, remembered for the session. A transcript cell recycled for
+    /// the same message starts with fresh view state, so a per-view flag put the "Load GIF" button
+    /// back on a GIF the viewer had already opened. Never persisted: a click consents to one load
+    /// of one GIF, not to GIPHY learning about it on every later launch.
+    private var requestedURLs: Set<URL> = []
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -24,9 +29,18 @@ final class RemoteGIFLoadingPreference {
         defaults.set(enabled, forKey: Self.storageKey)
     }
 
+    func recordLoadRequest(for url: URL) {
+        requestedURLs.insert(url)
+    }
+
+    func wasLoadRequested(for url: URL) -> Bool {
+        requestedURLs.contains(url)
+    }
+
     /// Back to the new-install default, for Erase App Data.
     func reset() {
         automaticallyLoads = false
+        requestedURLs = []
         defaults.removeObject(forKey: Self.storageKey)
     }
 }
