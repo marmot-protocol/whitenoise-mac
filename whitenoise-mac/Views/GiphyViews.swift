@@ -7,18 +7,41 @@
 //
 
 import AppKit
+import ImageIO
+import OSLog
 import SwiftUI
 
 // MARK: - Playback
 
-/// An `NSImageView` that animates GIF data natively and reports no intrinsic size, so SwiftUI
-/// sizes it from the aspect-ratio frame around it instead of from the GIF's pixel dimensions.
-final class GiphyAnimatedNSImageView: NSImageView {
+/// Plays GIF data with ImageIO's animator (`CGAnimateImageDataWithBlock`), the player the iOS app
+/// uses. ImageIO decodes one frame at a time at the GIF's own delays and each frame goes straight
+/// into the layer; `NSImageView.animates` re-rasterized an `NSImage` per tick and started over at
+/// the first frame whenever SwiftUI rebuilt the view. The view reports no intrinsic size, so
+/// SwiftUI sizes it from the aspect-ratio frame around it instead of from the GIF's pixels.
+final class GiphyAnimatedNSView: NSView {
+    /// One run of the animator. ImageIO keeps calling a run's block until the block asks it to
+    /// stop, so stopping marks the run and its next frame ends it.
+    private final class Run {
+        var isStopped = false
+    }
+
+    /// Called with every frame the animator delivers.
+    var onFrame: ((GiphyPlaybackCache.Position) -> Void)?
+
+    private(set) var data: Data?
+    /// The frame on screen, which is where a paused animation picks up again.
+    private(set) var frameIndex = 0
+    private var run: Run?
+    private var wantsAnimation = false
+
+    var isAnimating: Bool { run != nil }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        imageScaling = .scaleProportionallyUpOrDown
-        animates = true
-        isEditable = false
+        wantsLayer = true
+        layer?.contentsGravity = .resizeAspect
+        // A frame must replace the last one outright: the default action cross-fades `contents`.
+        layer?.actions = ["contents": NSNull()]
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentHuggingPriority(.defaultLow, for: .vertical)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -34,47 +57,117 @@ final class GiphyAnimatedNSImageView: NSImageView {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 
+    override var wantsUpdateLayer: Bool { true }
+
     /// The bubble is a click target for the whole row (context menu, selection), not the image.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Shows `data`, starting from `position` — the frame a previous player of the same GIF was
+    /// on — so a rebuilt view carries on rather than restarting. The same data again is a no-op.
+    func show(_ data: Data, resumingAt position: GiphyPlaybackCache.Position?) {
+        guard data != self.data else { return }
+        stopAnimator()
+        self.data = data
+        frameIndex = position?.frameIndex ?? 0
+        layer?.contents = position?.image
+        if wantsAnimation { startAnimator() }
+    }
+
+    /// Runs or pauses the animation. A paused one keeps its current frame on screen. It only runs
+    /// while the view is in a window: a recycled transcript cell waits off-window for reuse.
+    func setAnimating(_ animating: Bool) {
+        wantsAnimation = animating
+        if animating { startAnimator() } else { stopAnimator() }
+    }
+
+    /// Stops the animation and releases the GIF.
+    func clear() {
+        wantsAnimation = false
+        stopAnimator()
+        data = nil
+        frameIndex = 0
+        layer?.contents = nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            stopAnimator()
+        } else if wantsAnimation {
+            startAnimator()
+        }
+    }
+
+    private func startAnimator() {
+        guard run == nil, window != nil, let data else { return }
+        let run = Run()
+        self.run = run
+        let options: [CFString: Any] = [
+            kCGImageAnimationLoopCount: Double.infinity,
+            kCGImageAnimationStartIndex: frameIndex,
+        ]
+        let status = CGAnimateImageDataWithBlock(data as CFData, options as CFDictionary) {
+            [weak self] index, image, stop in
+            guard let self, !run.isStopped else {
+                stop.pointee = true
+                return
+            }
+            frameIndex = index
+            layer?.contents = image
+            onFrame?(GiphyPlaybackCache.Position(frameIndex: index, image: image))
+        }
+        if status != noErr {
+            Self.log.error("animation_start_failed status=\(status, privacy: .public)")
+            run.isStopped = true
+            self.run = nil
+        }
+    }
+
+    private func stopAnimator() {
+        run?.isStopped = true
+        run = nil
+    }
+
+    private static let log = Logger(subsystem: "dev.ipf.whitenoise.mac", category: "giphy-playback")
 }
 
 private struct GiphyAnimatedImage: NSViewRepresentable {
     let data: Data
+    /// The GIF's envelope URL: where `cache` keeps its position.
+    let url: URL
+    var isAnimating = true
+    let cache: GiphyPlaybackCache
 
-    func makeNSView(context: Context) -> GiphyAnimatedNSImageView {
-        let view = GiphyAnimatedNSImageView(frame: .zero)
-        view.image = NSImage(data: data)
-        context.coordinator.data = data
+    func makeNSView(context: Context) -> GiphyAnimatedNSView {
+        let view = GiphyAnimatedNSView(frame: .zero)
+        updateNSView(view, context: context)
         return view
     }
 
-    func updateNSView(_ nsView: GiphyAnimatedNSImageView, context: Context) {
-        guard context.coordinator.data != data else { return }
-        context.coordinator.data = data
-        nsView.image = NSImage(data: data)
+    func updateNSView(_ nsView: GiphyAnimatedNSView, context: Context) {
+        let cache = cache
+        let url = url
+        nsView.onFrame = { cache.record($0, for: url) }
+        nsView.show(data, resumingAt: cache.position(for: url))
+        nsView.setAnimating(isAnimating)
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    static func dismantleNSView(_ nsView: GiphyAnimatedNSImageView, coordinator: Coordinator) {
-        nsView.image = nil
+    static func dismantleNSView(_ nsView: GiphyAnimatedNSView, coordinator: ()) {
+        nsView.onFrame = nil
+        nsView.clear()
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: GiphyAnimatedNSImageView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: GiphyAnimatedNSView, context: Context) -> CGSize? {
         guard let width = proposal.width, let height = proposal.height else { return nil }
         return CGSize(width: width, height: height)
-    }
-
-    final class Coordinator {
-        var data: Data?
     }
 }
 
 // MARK: - Message bubble
 
 /// Keeps a timeline row's measured size independent of whether its GIF is currently resident.
-/// Scrolling a GIF out of view drops its bytes; reverting to the 4:3 fallback then would change
-/// the row's height and feed that geometry change back into the visibility it was driven by.
+/// A bubble rebuilt before its GIF is back would otherwise revert to the 4:3 fallback, change the
+/// row's height, and feed that geometry change back into the visibility it was driven by.
 nonisolated struct StableGiphyDisplayGeometry: Equatable, Sendable {
     private(set) var aspectRatio: CGFloat
 
@@ -98,9 +191,11 @@ nonisolated enum GiphyPlaybackState: Equatable, Sendable {
 /// A received or sent GIPHY GIF inside its bubble.
 ///
 /// Received GIFs wait for a click unless "Automatically Load Remote GIFs" is on (see
-/// `RemoteGIFLoadingPreference`), and a click is remembered for the session; your own always load. The transcript realizes every row eagerly,
-/// so `onDisappear` does not fire on scroll — scroll visibility is what starts playback and what
-/// drops the bytes again, and the stable geometry keeps the row's height through that.
+/// `RemoteGIFLoadingPreference`), and a click is remembered for the session; your own always load.
+/// Transcript visibility is what starts a download and what runs the animation: off screen it
+/// pauses on its current frame rather than letting go of the GIF. A bubble rebuilt for a GIF the
+/// session already has — a recycled cell, a table reload — starts out playing from
+/// `GiphyPlaybackCache`, so it never passes back through "Load GIF" or the spinner.
 struct RemoteGiphyMediaView: View {
     static let width: CGFloat = 280
 
@@ -108,6 +203,7 @@ struct RemoteGiphyMediaView: View {
     let mayLoadAutomatically: Bool
     let loadingPreference: RemoteGIFLoadingPreference
     let prepare: @Sendable (RemoteGiphyMedia) async throws -> GiphyRemoteMediaLoader.PreparedPlayback
+    let cache: GiphyPlaybackCache
 
     @State private var state: GiphyPlaybackState
     /// Bumped by every Load/Retry click so the load task re-keys even when eligibility did not
@@ -123,6 +219,7 @@ struct RemoteGiphyMediaView: View {
         mayLoadAutomatically: Bool,
         loadingPreference: RemoteGIFLoadingPreference,
         initialState: GiphyPlaybackState = .idle,
+        cache: GiphyPlaybackCache = .shared,
         prepare: @escaping @Sendable (RemoteGiphyMedia) async throws -> GiphyRemoteMediaLoader.PreparedPlayback = {
             try await GiphyRemoteMediaLoader.preparePlayback(for: $0)
         }
@@ -131,15 +228,30 @@ struct RemoteGiphyMediaView: View {
         self.mayLoadAutomatically = mayLoadAutomatically
         self.loadingPreference = loadingPreference
         self.prepare = prepare
-        _state = State(initialValue: initialState)
+        self.cache = cache
+        var state = initialState
+        if state == .idle, Self.mayLoad(media, mayLoadAutomatically, loadingPreference),
+            let cached = cache.playback(for: media.url)
+        {
+            state = .playing(cached)
+        }
+        _state = State(initialValue: state)
         var geometry = StableGiphyDisplayGeometry(fallbackAspectRatio: media.aspectRatio)
-        if case .playing(let prepared) = initialState {
+        if case .playing(let prepared) = state {
             geometry.record(decodedAspectRatio: prepared.aspectRatio)
         }
         _displayGeometry = State(initialValue: geometry)
     }
 
     private var shouldLoad: Bool {
+        Self.mayLoad(media, mayLoadAutomatically, loadingPreference)
+    }
+
+    private static func mayLoad(
+        _ media: RemoteGiphyMedia,
+        _ mayLoadAutomatically: Bool,
+        _ loadingPreference: RemoteGIFLoadingPreference
+    ) -> Bool {
         mayLoadAutomatically || loadingPreference.automaticallyLoads
             || loadingPreference.wasLoadRequested(for: media.url)
     }
@@ -148,7 +260,7 @@ struct RemoteGiphyMediaView: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 Color.black
-                GiphyPlaybackContent(state: state) {
+                GiphyPlaybackContent(state: state, url: media.url, isAnimating: isVisible, cache: cache) {
                     loadingPreference.recordLoadRequest(for: media.url)
                     if state == .failed { state = .idle }
                     retryRequests &+= 1
@@ -164,10 +276,7 @@ struct RemoteGiphyMediaView: View {
                 .lineLimit(1)
                 .frame(width: Self.width, alignment: .leading)
         }
-        .onTranscriptVisibilityChange(threshold: 0.01) { visible in
-            isVisible = visible
-            if !visible, case .playing = state { state = .idle }
-        }
+        .onTranscriptVisibilityChange(threshold: 0.01) { isVisible = $0 }
         .task(id: PlaybackTaskID(url: media.url, isEligible: isVisible && shouldLoad, retryRequests: retryRequests)) {
             guard isVisible, shouldLoad else {
                 if state == .loading { state = .idle }
@@ -176,6 +285,11 @@ struct RemoteGiphyMediaView: View {
             // `.loading` is not "someone else is on it": a cancelled load can still be unwinding
             // when visibility comes back, and waiting for it left the bubble on "Load GIF".
             guard state == .idle || state == .loading else { return }
+            if let cached = cache.playback(for: media.url) {
+                displayGeometry.record(decodedAspectRatio: cached.aspectRatio)
+                state = .playing(cached)
+                return
+            }
             await load()
         }
         .accessibilityElement(children: .combine)
@@ -187,6 +301,7 @@ struct RemoteGiphyMediaView: View {
         do {
             let prepared = try await prepare(media)
             try Task.checkCancellation()
+            cache.insert(prepared, for: media.url)
             displayGeometry.record(decodedAspectRatio: prepared.aspectRatio)
             state = .playing(prepared)
         } catch {
@@ -208,12 +323,15 @@ struct RemoteGiphyMediaView: View {
 /// What fills the GIF's frame: the animation, a spinner, or the click-to-load / retry control.
 private struct GiphyPlaybackContent: View {
     let state: GiphyPlaybackState
+    let url: URL
+    let isAnimating: Bool
+    let cache: GiphyPlaybackCache
     let onLoad: () -> Void
 
     var body: some View {
         switch state {
         case .playing(let prepared):
-            GiphyAnimatedImage(data: prepared.data)
+            GiphyAnimatedImage(data: prepared.data, url: url, isAnimating: isAnimating, cache: cache)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loading:
             ProgressView()
@@ -390,17 +508,25 @@ private struct GiphySearchResultTile: View {
 
 /// A search result's animation. Loaded without a click: the user asked GIPHY for these results,
 /// and the picker says so above them.
+///
+/// Results share `GiphyPlaybackCache` with the bubbles, so a GIF sent from here plays in its
+/// bubble at once, from where the preview was.
 private struct GiphySearchPreview: View {
     let media: RemoteGiphyMedia
 
-    @State private var state: GiphyPlaybackState = .idle
+    @State private var state: GiphyPlaybackState
+
+    init(media: RemoteGiphyMedia) {
+        self.media = media
+        _state = State(initialValue: GiphyPlaybackCache.shared.playback(for: media.url).map { .playing($0) } ?? .idle)
+    }
 
     var body: some View {
         ZStack {
             WNColor.fillSecondary
             switch state {
             case .playing(let prepared):
-                GiphyAnimatedImage(data: prepared.data)
+                GiphyAnimatedImage(data: prepared.data, url: media.url, cache: .shared)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failed:
                 Image(systemName: "photo")
@@ -411,9 +537,12 @@ private struct GiphySearchPreview: View {
             }
         }
         .task(id: media.url) {
+            if case .playing = state { return }
             state = .loading
             do {
-                state = .playing(try await GiphyRemoteMediaLoader.preparePlayback(for: media))
+                let prepared = try await GiphyRemoteMediaLoader.preparePlayback(for: media)
+                GiphyPlaybackCache.shared.insert(prepared, for: media.url)
+                state = .playing(prepared)
             } catch is CancellationError {
                 state = .idle
             } catch {

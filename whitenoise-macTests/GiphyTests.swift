@@ -52,6 +52,7 @@ struct GiphyTests: WorkspaceTestSupport {
                 media: media,
                 mayLoadAutomatically: true,
                 loadingPreference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                cache: GiphyPlaybackCache(),
                 prepare: { _ in
                     await calls.increment()
                     try await Task.sleep(for: .milliseconds(20))
@@ -96,6 +97,7 @@ struct GiphyTests: WorkspaceTestSupport {
                 media: media,
                 mayLoadAutomatically: true,
                 loadingPreference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                cache: GiphyPlaybackCache(),
                 prepare: { _ in
                     await calls.increment()
                     await gate.wait()
@@ -136,6 +138,7 @@ struct GiphyTests: WorkspaceTestSupport {
                 media: media,
                 mayLoadAutomatically: false,
                 loadingPreference: preference,
+                cache: GiphyPlaybackCache(),
                 prepare: { _ in
                     await calls.increment()
                     return playback
@@ -146,6 +149,217 @@ struct GiphyTests: WorkspaceTestSupport {
         defer { window.orderOut(nil) }
 
         #expect(await Self.waitForPrepareCount(1, in: calls))
+    }
+
+    /// Transcript cells are recycled and the table reloads whenever a message arrives, so a GIF
+    /// bubble is rebuilt with fresh state all the time. A rebuild for a GIF the session already has
+    /// must come up playing — not flash "Load GIF" or a spinner, and not download it again.
+    @MainActor
+    @Test func aRebuiltBubbleForACachedGIFComesUpPlayingWithoutLoading() async throws {
+        let calls = PrepareCallCounter()
+        let cache = GiphyPlaybackCache()
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+        cache.insert(
+            .init(data: try Self.animatedGIF(width: 4, height: 2), aspectRatio: 2),
+            for: media.url
+        )
+
+        let window = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: false,
+                loadingPreference: Self.preferenceRemembering(media.url),
+                cache: cache,
+                prepare: { _ in
+                    await calls.increment()
+                    throw CancellationError()
+                }
+            )
+            .environment(\.transcriptCellVisibility, TranscriptCellVisibility())
+        )
+        defer { window.orderOut(nil) }
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        #expect(Self.animatedViews(in: window).count == 1, "the first frame drew something other than the GIF")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await calls.count == 0)
+    }
+
+    /// The same rebuild for a GIF the viewer never chose to load must still wait for the click:
+    /// the cache is not a way around the preference.
+    @MainActor
+    @Test func aCachedGIFTheViewerNeverLoadedStillWaitsForTheClick() throws {
+        let cache = GiphyPlaybackCache()
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+        cache.insert(.init(data: try Self.animatedGIF(width: 4, height: 2), aspectRatio: 2), for: media.url)
+
+        let window = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: false,
+                loadingPreference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                cache: cache
+            )
+            .environment(\.transcriptCellVisibility, TranscriptCellVisibility())
+        )
+        defer { window.orderOut(nil) }
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        #expect(Self.animatedViews(in: window).isEmpty)
+    }
+
+    /// Scrolling a GIF out of view pauses it on its frame; it used to drop the GIF, so scrolling
+    /// back showed a spinner, fetched it again, and restarted it from the first frame.
+    @MainActor
+    @Test func scrollingABubbleAwayPausesItAndScrollingBackResumesWithoutReloading() async throws {
+        let calls = PrepareCallCounter()
+        let visibility = TranscriptCellVisibility()
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+        let playback = GiphyRemoteMediaLoader.PreparedPlayback(
+            data: try Self.animatedGIF(width: 4, height: 2), aspectRatio: 2)
+        let window = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: true,
+                loadingPreference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                cache: GiphyPlaybackCache(),
+                prepare: { _ in
+                    await calls.increment()
+                    return playback
+                }
+            )
+            .environment(\.transcriptCellVisibility, visibility)
+        )
+        defer { window.orderOut(nil) }
+
+        visibility.isVisible = true
+        #expect(await Self.waitUntil { Self.animatedViews(in: window).first?.isAnimating == true })
+
+        visibility.isVisible = false
+        #expect(await Self.waitUntil { Self.animatedViews(in: window).first?.isAnimating == false })
+        #expect(Self.animatedViews(in: window).first?.data == playback.data, "scrolling away dropped the GIF")
+
+        visibility.isVisible = true
+        #expect(await Self.waitUntil { Self.animatedViews(in: window).first?.isAnimating == true })
+        #expect(await calls.count == 1)
+    }
+
+    @MainActor
+    @Test func playerDrawsFramesAndReportsWhereItIs() async throws {
+        let cache = GiphyPlaybackCache()
+        let data = try Self.animatedGIF(width: 4, height: 2, frames: 3)
+        cache.insert(.init(data: data, aspectRatio: 2), for: Self.gifURL)
+        let (window, player) = Self.playerWindow()
+        defer { window.orderOut(nil) }
+        player.onFrame = { cache.record($0, for: Self.gifURL) }
+
+        player.show(data, resumingAt: nil)
+        player.setAnimating(true)
+
+        #expect(await Self.waitUntil { cache.position(for: Self.gifURL)?.frameIndex ?? 0 >= 1 })
+        #expect(player.layer?.contents != nil)
+
+        player.setAnimating(false)
+        #expect(!player.isAnimating)
+        #expect(player.layer?.contents != nil, "a paused GIF must keep its frame on screen")
+
+        player.clear()
+        #expect(player.layer?.contents == nil)
+        #expect(player.data == nil)
+    }
+
+    /// A rebuilt player draws the frame its predecessor was on before its first tick, and picks
+    /// the animation up from there instead of from the first frame.
+    @MainActor
+    @Test func playerResumesFromARecordedPosition() throws {
+        let data = try Self.animatedGIF(width: 4, height: 2, frames: 3)
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let thirdFrame = try #require(CGImageSourceCreateImageAtIndex(source, 2, nil))
+        let (window, player) = Self.playerWindow()
+        defer { window.orderOut(nil) }
+
+        player.show(data, resumingAt: .init(frameIndex: 2, image: thirdFrame))
+
+        #expect(player.frameIndex == 2)
+        #expect((player.layer?.contents as! CGImage) === thirdFrame)
+    }
+
+    @MainActor
+    @Test func playerOnlyRunsInAWindow() throws {
+        let player = GiphyAnimatedNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 20))
+        player.show(try Self.animatedGIF(width: 4, height: 2), resumingAt: nil)
+
+        player.setAnimating(true)
+        #expect(!player.isAnimating, "a recycled cell waiting off-window must not keep decoding")
+
+        let (window, _) = Self.playerWindow()
+        defer { window.orderOut(nil) }
+        window.contentView?.addSubview(player)
+        #expect(player.isAnimating)
+
+        player.removeFromSuperview()
+        #expect(!player.isAnimating)
+    }
+
+    @MainActor
+    @Test func playbackCacheKeepsAPositionOnlyForTheBytesItWasReadFrom() throws {
+        let cache = GiphyPlaybackCache()
+        let data = try Self.animatedGIF(width: 4, height: 2)
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let frame = try #require(CGImageSourceCreateImageAtIndex(source, 1, nil))
+
+        cache.record(.init(frameIndex: 1, image: frame), for: Self.gifURL)
+        #expect(cache.position(for: Self.gifURL) == nil, "a position without its GIF is meaningless")
+
+        let playback = GiphyRemoteMediaLoader.PreparedPlayback(data: data, aspectRatio: 2)
+        cache.insert(playback, for: Self.gifURL)
+        cache.record(.init(frameIndex: 1, image: frame), for: Self.gifURL)
+        cache.insert(playback, for: Self.gifURL)
+        #expect(cache.playback(for: Self.gifURL) == playback)
+        #expect(cache.position(for: Self.gifURL)?.frameIndex == 1, "storing the same GIF again lost its place")
+
+        cache.insert(.init(data: try Self.animatedGIF(width: 2, height: 2), aspectRatio: 1), for: Self.gifURL)
+        #expect(cache.position(for: Self.gifURL) == nil, "new bytes inherited the old GIF's frame")
+    }
+
+    @MainActor
+    private static func playerWindow() -> (NSWindow, GiphyAnimatedNSView) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 40, height: 20),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let player = GiphyAnimatedNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 20))
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 40, height: 20))
+        window.contentView?.addSubview(player)
+        window.orderFrontRegardless()
+        return (window, player)
+    }
+
+    @MainActor
+    private static func preferenceRemembering(_ url: URL) -> RemoteGIFLoadingPreference {
+        let preference = RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        preference.recordLoadRequest(for: url)
+        return preference
+    }
+
+    @MainActor
+    private static func animatedViews(in window: NSWindow) -> [GiphyAnimatedNSView] {
+        func collect(_ view: NSView) -> [GiphyAnimatedNSView] {
+            (view as? GiphyAnimatedNSView).map { [$0] } ?? view.subviews.flatMap(collect)
+        }
+        return window.contentView.map(collect) ?? []
+    }
+
+    @MainActor
+    private static func waitUntil(_ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return condition()
     }
 
     @MainActor
