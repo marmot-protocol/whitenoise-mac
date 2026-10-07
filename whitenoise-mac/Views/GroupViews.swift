@@ -232,6 +232,7 @@ struct ContactFollowControl: View {
 struct GroupImagePickerSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var isFileImporterPresented = false
+    @State private var cropModel: AvatarCropViewModel?
 
     private let columns = [
         GridItem(.adaptive(minimum: 132, maximum: 168), spacing: 12)
@@ -352,7 +353,8 @@ struct GroupImagePickerSheet: View {
                             LazyVGrid(columns: columns, spacing: 12) {
                                 ForEach(workspace.groupImageResults) { result in
                                     Button {
-                                        Task { await workspace.setGroupImage(result) }
+                                        let loader = workspace.groupImageSourceLoader
+                                        crop { try await AvatarImageCropSource.data(for: result, using: loader) }
                                     } label: {
                                         GroupImageResultTile(result: result)
                                     }
@@ -379,11 +381,23 @@ struct GroupImagePickerSheet: View {
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
-                Task { await workspace.setGroupImage(fileURL: url) }
+                crop { try await AvatarImageCropSource.data(fromFileURL: url) }
             case .failure(let error):
                 workspace.reportUserActionError(error.localizedDescription)
             }
         }
+        .avatarCropSheet($cropModel)
+    }
+
+    /// Opens the crop editor on whichever source was picked. Committing the crop closes this sheet
+    /// too, through `finishGroupImageUpdate`.
+    private func crop(loadData: @escaping @MainActor () async throws -> Data) {
+        cropModel = AvatarCropViewModel(
+            loadData: loadData,
+            commit: { [workspace] data in
+                try await workspace.setGroupImage(croppedImageData: data)
+            }
+        )
     }
 }
 

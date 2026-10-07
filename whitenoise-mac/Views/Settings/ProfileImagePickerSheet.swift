@@ -19,9 +19,10 @@ import SwiftUI
 /// * **A grid of bare squares.** Three flexible columns, 1pt gutters, edge to edge, each result
 ///   cropped to fill a 1:1 tile. See `ProfileImageResultTile` for why the card, the caption, and
 ///   the 1.18:1 crop this grid used to draw are all gone, and where the credit went.
-/// * **Choose, then confirm.** A tile press takes the selection badge and nothing else happens;
-///   **Done** downloads, re-encodes, and commits. Every press used to do all of that, so the only
-///   way to look at a second candidate was to commit the first and reopen the sheet.
+/// * **Choose, then crop.** A tile press takes the selection badge and nothing else happens;
+///   **Next** downloads it into `AvatarCropSheet`, whose **Done** re-encodes and commits. Every
+///   press used to do all of that, so the only way to look at a second candidate was to commit the
+///   first and reopen the sheet.
 /// * **The privacy line said before the results, not after them.** Neutral — an outline
 ///   `hand.raised`, primary title, secondary sentence, no warning colour and no confirmation. The
 ///   sentence is this app's own: the prototype names DuckDuckGo because that is what a shipping
@@ -33,6 +34,7 @@ import SwiftUI
 struct ProfileImagePickerSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @FocusState private var isSearchFocused: Bool
+    @State private var cropModel: AvatarCropViewModel?
 
     static let sheetWidth: CGFloat = 620
     static let sheetHeight: CGFloat = 600
@@ -99,6 +101,20 @@ struct ProfileImagePickerSheet: View {
             LiquidGlassBackground()
         }
         .defaultFocus($isSearchFocused, true)
+        .avatarCropSheet($cropModel)
+    }
+
+    /// Downloads the selected tile into the crop editor. Committing the crop closes this sheet
+    /// too, through `closeProfileImagePicker()`.
+    private func cropSelectedResult() {
+        guard let selected = workspace.selectedProfileImageResult else { return }
+        let loader = workspace.groupImageSourceLoader
+        cropModel = AvatarCropViewModel(
+            loadData: { try await AvatarImageCropSource.data(for: selected, using: loader) },
+            commit: { [workspace] data in
+                try await workspace.setProfileImage(croppedImageData: data)
+            }
+        )
     }
 
     private var header: some View {
@@ -246,12 +262,10 @@ struct ProfileImagePickerSheet: View {
                     .controlSize(.small)
             }
 
-            Button(L10n.string("Done")) {
-                Task { await workspace.useSelectedProfileImage() }
-            }
-            .nativeGlassProminentButtonStyle()
-            .disabled(workspace.selectedProfileImageResult == nil || workspace.isUploadingProfileImage)
-            .accessibilityIdentifier("profile-image-picker.done")
+            Button(L10n.string("Next"), action: cropSelectedResult)
+                .nativeGlassProminentButtonStyle()
+                .disabled(workspace.selectedProfileImageResult == nil || workspace.isUploadingProfileImage)
+                .accessibilityIdentifier("profile-image-picker.done")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)

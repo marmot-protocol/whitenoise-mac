@@ -57,19 +57,6 @@ import Testing
         #expect(state.selectedProfileImageResult == nil)
     }
 
-    /// `Done` with an empty badge is a no-op rather than a crash or a committed nothing. The
-    /// button is disabled in that state, but the disabled-ness is a view detail and this is the
-    /// thing it protects.
-    @Test func confirmingWithNothingSelectedDoesNothing() async {
-        let loader = StubProfileImageSourceLoader()
-        let state = WorkspaceState(groupImageSourceLoader: loader)
-
-        await state.useSelectedProfileImage()
-
-        #expect(await loader.requestedURLs.isEmpty)
-        #expect(state.signUpDraft.image == nil)
-    }
-
     /// A selection is scoped to one visit. Reopening the sheet on a different destination — the
     /// sign-up draft after the settings page, say — would otherwise come up with **Done** already
     /// live over a grid of results from the previous search that are no longer on screen.

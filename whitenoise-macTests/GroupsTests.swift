@@ -78,7 +78,9 @@ struct GroupsTests: WorkspaceTestSupport {
             Issue.record("Expected an image result")
             return
         }
-        await state.setGroupImage(result)
+        try await state.setGroupImage(
+            croppedImageData: AvatarImageCropSource.data(for: result, using: imageSourceLoader)
+        )
 
         let imageSearchQueries = await imageSearchClient.queries
         #expect(imageSearchQueries == ["aurora"])
@@ -119,7 +121,7 @@ struct GroupsTests: WorkspaceTestSupport {
         await state.bootstrap()
         let groupChat = try #require(state.activeChats.first)
         state.showGroupImagePicker(for: groupChat)
-        await state.setGroupImage(fileURL: imageURL)
+        try await state.setGroupImage(croppedImageData: AvatarImageCropSource.data(fromFileURL: imageURL))
 
         #expect(await imageSourceLoader.requestedURLs.isEmpty)
         #expect(runtime.updateGroupImageCallCount == 1)
@@ -206,7 +208,8 @@ struct GroupsTests: WorkspaceTestSupport {
 
         state.showGroupImagePicker(for: groupChat)
         runtime.groupAvatarUpdateGateEnabled = true
-        async let firstUpdate: Void = state.setGroupImage(result)
+        let croppedImageData = try await AvatarImageCropSource.data(for: result, using: imageSourceLoader)
+        async let firstUpdate: Void = state.setGroupImage(croppedImageData: croppedImageData)
 
         while !(state.isSavingGroupImage && runtime.didReachGroupAvatarUpdateGate) {
             await Task.yield()
@@ -223,7 +226,7 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(runtime.clearGroupImageCallCount == 0)
 
         runtime.releaseGroupAvatarUpdateGate()
-        await firstUpdate
+        try await firstUpdate
 
         #expect(runtime.updateGroupImageCallCount == 1)
         #expect(runtime.updatedEncryptedGroupImage?.isEmpty == false)
@@ -2515,19 +2518,6 @@ struct GroupsTests: WorkspaceTestSupport {
             return
         }
 
-        let result = GroupImageSearchResult(
-            id: "image-1",
-            title: "Aurora",
-            imageURL: "https://example.com/aurora.jpg",
-            thumbnailURL: "https://example.com/aurora-thumb.jpg",
-            creator: "Open Photographer",
-            license: "by",
-            attribution: nil,
-            sourceURL: "https://example.com/aurora",
-            width: 1024,
-            height: 680
-        )
-
         runtime.groupMutationGateEnabled = true
         async let firstPromote: Void = state.promoteGroupMember(member)
         let didSuspendPromote = await waitFor {
@@ -2542,7 +2532,7 @@ struct GroupsTests: WorkspaceTestSupport {
         }
 
         state.showGroupImagePicker(for: groupChat)
-        await state.setGroupImage(result)
+        try await state.setGroupImage(croppedImageData: Self.testPNGData(width: 64, height: 64))
         #expect(runtime.updateGroupAvatarUrlCallCount == 0)
         #expect(!state.isSavingGroupImage)
 
