@@ -5459,6 +5459,26 @@ struct PureValueTests {
         )
     }
 
+    /// The inspector header of an unnamed conversation with one other member is titled with that
+    /// member, not with the "Unnamed group" placeholder.
+    @MainActor
+    @Test func headerTitleNamesTheSolePeerOfAnUnnamedConversation() {
+        let alice = handoffMember(id: "Alice")
+        let direct = confirmationSnapshot(customName: nil, others: [alice])
+        #expect(direct.headerTitle == "Alice")
+        // `name` keeps the placeholder: it seeds the profile editor, which must not propose the
+        // peer's name as the group's own.
+        #expect(direct.name == L10n.string("Unnamed group"))
+
+        // A real group with no name still says so.
+        let group = confirmationSnapshot(customName: nil, others: [alice, handoffMember(id: "Bob")])
+        #expect(group.headerTitle == L10n.string("Unnamed group"))
+        // Nobody left to name it after.
+        #expect(confirmationSnapshot(customName: nil, others: []).headerTitle == L10n.string("Unnamed group"))
+        // A name wins whatever the size.
+        #expect(confirmationSnapshot(customName: "Book club", others: [alice]).headerTitle == "Book club")
+    }
+
     /// The case that already worked keeps working: a group the user named is still quoted by name
     /// in all three dialogs.
     @Test func namedGroupConfirmationsStillQuoteTheName() {

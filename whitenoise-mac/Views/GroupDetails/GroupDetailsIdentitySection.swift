@@ -27,7 +27,7 @@ struct GroupDetailsIdentitySection: View {
         } header: {
             VStack(spacing: 16) {
                 GroupDetailsHero(
-                    title: snapshot.name,
+                    title: snapshot.headerTitle,
                     subtitle: subtitle,
                     description: snapshot.description,
                     onEditProfile: permissions.canEditProfile ? onEditProfile : nil,

@@ -732,6 +732,21 @@ struct GroupDetailsSnapshot: Hashable {
     }
 
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
+
+    /// What the inspector header calls this conversation.
+    ///
+    /// A conversation with no name of its own and a single other member is a direct chat — the
+    /// same rule MDK's `conversation_kind` applies — so it is titled with that member, not with the
+    /// "Unnamed group" placeholder `name` falls back to. The peer comes from this snapshot's own
+    /// roster, which already carries the private nickname when there is one.
+    var headerTitle: String {
+        if let customName { return customName }
+        let others = members.filter { !$0.isSelf }
+        guard others.count == 1, let peerName = PeerDisplayText.sanitize(others[0].displayName) else {
+            return name
+        }
+        return peerName
+    }
 }
 
 struct ConversationMetadata: Hashable {
