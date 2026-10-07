@@ -976,7 +976,10 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(copyCardIndex < actionsRowIndex)
 
         // The nickname is managed beside the name, not from a row lower in the form.
-        #expect(identityBody.contains("ContactNicknameHeaderActions(accountIdHex: contact.accountIdHex)"))
+        #expect(identityBody.contains("ContactNicknameHeaderActions("))
+        #expect(
+            identityBody.contains(
+                "accountIdHex: contact.accountIdHex, publishedName: contact.publishedDisplayName)"))
         let detailsBody = try SourceContract.viewBody("ContactDetailsView")
         #expect(!detailsBody.contains("ContactNicknameRow("))
         let identityIndex = try #require(detailsBody.range(of: "ContactIdentitySection(")?.lowerBound)
