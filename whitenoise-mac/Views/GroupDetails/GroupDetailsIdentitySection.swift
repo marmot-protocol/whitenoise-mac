@@ -27,7 +27,7 @@ struct GroupDetailsIdentitySection: View {
         } header: {
             VStack(spacing: 16) {
                 GroupDetailsHero(
-                    title: snapshot.headerTitle,
+                    title: snapshot.headerTitle(rememberedPeerName: chat.rememberedDirectPeerTitle),
                     subtitle: subtitle,
                     description: snapshot.description,
                     onEditProfile: permissions.canEditProfile ? onEditProfile : nil,

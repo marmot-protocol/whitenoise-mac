@@ -5465,18 +5465,34 @@ struct PureValueTests {
     @Test func headerTitleNamesTheSolePeerOfAnUnnamedConversation() {
         let alice = handoffMember(id: "Alice")
         let direct = confirmationSnapshot(customName: nil, others: [alice])
-        #expect(direct.headerTitle == "Alice")
+        #expect(direct.headerTitle(rememberedPeerName: nil) == "Alice")
+        // The live roster outranks the chat list's remembered title.
+        #expect(direct.headerTitle(rememberedPeerName: "Stale") == "Alice")
         // `name` keeps the placeholder: it seeds the profile editor, which must not propose the
         // peer's name as the group's own.
         #expect(direct.name == L10n.string("Unnamed group"))
 
         // A real group with no name still says so.
         let group = confirmationSnapshot(customName: nil, others: [alice, handoffMember(id: "Bob")])
-        #expect(group.headerTitle == L10n.string("Unnamed group"))
-        // Nobody left to name it after.
-        #expect(confirmationSnapshot(customName: nil, others: []).headerTitle == L10n.string("Unnamed group"))
+        #expect(group.headerTitle(rememberedPeerName: nil) == L10n.string("Unnamed group"))
         // A name wins whatever the size.
-        #expect(confirmationSnapshot(customName: "Book club", others: [alice]).headerTitle == "Book club")
+        #expect(
+            confirmationSnapshot(customName: "Book club", others: [alice]).headerTitle(rememberedPeerName: "Alice")
+                == "Book club")
+    }
+
+    /// An unnamed direct chat the other person left keeps naming them, the way the sidebar does,
+    /// rather than turning into "Unnamed group" under a "Direct message" subtitle.
+    @MainActor
+    @Test func headerTitleKeepsTheRememberedPeerOfAnUnnamedChatTheyLeft() {
+        let emptied = confirmationSnapshot(customName: nil, others: [])
+        #expect(emptied.headerTitle(rememberedPeerName: "Alice") == "Alice")
+        // Nobody left and nobody remembered: the placeholder is all there is.
+        #expect(emptied.headerTitle(rememberedPeerName: nil) == L10n.string("Unnamed group"))
+        #expect(emptied.headerTitle(rememberedPeerName: " \n") == L10n.string("Unnamed group"))
+        // A remembered peer never renames a group that still has several other members.
+        let group = confirmationSnapshot(customName: nil, others: [handoffMember(id: "Bob"), handoffMember(id: "Cy")])
+        #expect(group.headerTitle(rememberedPeerName: "Alice") == L10n.string("Unnamed group"))
     }
 
     /// The case that already worked keeps working: a group the user named is still quoted by name
