@@ -5468,8 +5468,8 @@ struct PureValueTests {
         #expect(direct.headerTitle(rememberedPeerName: nil) == "Alice")
         // The live roster outranks the chat list's remembered title.
         #expect(direct.headerTitle(rememberedPeerName: "Stale") == "Alice")
-        // `name` keeps the placeholder: it seeds the profile editor, which must not propose the
-        // peer's name as the group's own.
+        // `name` keeps the placeholder: it is a display label, and must not offer the peer's name
+        // as the group's own anywhere it is read.
         #expect(direct.name == L10n.string("Unnamed group"))
 
         // A real group with no name still says so.

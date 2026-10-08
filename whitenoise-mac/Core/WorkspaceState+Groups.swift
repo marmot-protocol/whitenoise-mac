@@ -435,7 +435,10 @@ extension WorkspaceState {
         else { return }
         let trimmedName = groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDescription = groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
+        // An unnamed group's editor starts empty, and saving only its description must leave it
+        // unnamed: `nil` tells MDK to keep the name as it is. Sending the "Unnamed group"
+        // placeholder instead would publish it, localized, as the group's real name to everyone.
+        guard !trimmedName.isEmpty || snapshot.customName == nil else {
             lastError = L10n.string("Group name cannot be empty.")
             return
         }
@@ -448,7 +451,7 @@ extension WorkspaceState {
             _ = try await client.updateGroupProfile(
                 accountRef: activeAccount.accountRef,
                 groupIdHex: snapshot.groupIdHex,
-                name: trimmedName,
+                name: trimmedName.isEmpty ? nil : trimmedName,
                 description: trimmedDescription
             )
             await reloadChats(forceFreshSnapshot: true)
@@ -1689,7 +1692,7 @@ extension WorkspaceState {
         )
         let snapshot = groupDetailsSnapshot(from: details, managementState: managementState)
         groupDetailsSnapshot = snapshot
-        groupProfileDraftName = snapshot.name
+        groupProfileDraftName = snapshot.customName ?? ""
         groupProfileDraftDescription = snapshot.description
     }
 
