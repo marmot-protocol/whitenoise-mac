@@ -630,6 +630,8 @@ struct MessageBubble: View {
             }
 
             if let replyContext = message.replyContext {
+                // Over media the quote sits at the media's inset, not the text's, on purpose: it
+                // lines up with the grid under it, as the iOS rich-media bubble does.
                 MessageReplyContextView(
                     context: replyContext,
                     isOutgoing: message.isOutgoing,
@@ -643,7 +645,8 @@ struct MessageBubble: View {
                     message: message,
                     attachments: message.visualMediaAttachments,
                     isOutgoing: message.isOutgoing,
-                    onOpenImageGallery: onOpenImageGallery
+                    onOpenImageGallery: onOpenImageGallery,
+                    cornerRadius: MessageReplyMediaLayout.innerCornerRadius
                 )
             }
 
@@ -983,6 +986,10 @@ nonisolated enum MessageReplyMediaLayout {
     /// The gap between the bubble's edge and the media it wraps.
     static let outerInset: CGFloat = 6
 
+    /// The wrapped media's corner radius: concentric with the bubble's, so the rim of bubble fill
+    /// around the media is as thick at the corners as along the edges.
+    static let innerCornerRadius = MessageBubbleShape.cornerRadius - outerInset
+
     static func embedsVisualMedia(hasReply: Bool, visualMediaCount: Int) -> Bool {
         hasReply && visualMediaCount > 0
     }
@@ -1049,13 +1056,14 @@ struct MessageVisualMediaGrid: View {
     let attachments: [MessageMediaAttachment]
     let isOutgoing: Bool
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+    /// A standalone grid's own rounding; a bubble wrapping the grid passes its concentric radius.
+    var cornerRadius: CGFloat = 10
 
     /// The grid's fixed width; a reply bubble that embeds the grid takes it as its content width.
     static let width: CGFloat = 360
 
     private let maxWidth = Self.width
     private let spacing: CGFloat = 3
-    private let cornerRadius: CGFloat = 10
 
     private var visibleAttachments: [MessageMediaAttachment] {
         Array(attachments.prefix(MessageMediaGridPresentation.visibleCount(totalCount: attachments.count)))
@@ -2788,6 +2796,9 @@ struct MessageReplyContextView: View {
             }
             .multilineTextAlignment(.leading)
             .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
+            // A plain button hit-tests only the pixels its label draws, so without this the gaps
+            // between the lines and beside a short name miss — on every quote, not only a
+            // stretched one.
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

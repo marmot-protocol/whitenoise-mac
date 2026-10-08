@@ -54,8 +54,8 @@ import Testing
     // MARK: - Helpers
 
     private static let scale: CGFloat = 2
-    private static let rowWidth: CGFloat = 760
-    private static let rowPadding: CGFloat = 28
+    private static let rowWidth = TranscriptPerformanceRows.width
+    private static let rowPadding = TranscriptPerformanceRows.horizontalPadding
 
     private static func message(reply: Bool) -> MessageItem {
         MessageItem(
