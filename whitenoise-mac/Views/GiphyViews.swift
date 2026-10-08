@@ -59,6 +59,9 @@ final class GiphyAnimatedNSView: NSView {
 
     override var wantsUpdateLayer: Bool { true }
 
+    /// Nothing to redraw: the animator pushes each frame straight into `layer.contents`.
+    override func updateLayer() {}
+
     /// The bubble is a click target for the whole row (context menu, selection), not the image.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -219,7 +222,7 @@ struct RemoteGiphyMediaView: View {
         mayLoadAutomatically: Bool,
         loadingPreference: RemoteGIFLoadingPreference,
         initialState: GiphyPlaybackState = .idle,
-        cache: GiphyPlaybackCache = .shared,
+        cache: GiphyPlaybackCache? = nil,
         prepare: @escaping @Sendable (RemoteGiphyMedia) async throws -> GiphyRemoteMediaLoader.PreparedPlayback = {
             try await GiphyRemoteMediaLoader.preparePlayback(for: $0)
         }
@@ -228,6 +231,7 @@ struct RemoteGiphyMediaView: View {
         self.mayLoadAutomatically = mayLoadAutomatically
         self.loadingPreference = loadingPreference
         self.prepare = prepare
+        let cache = cache ?? .shared
         self.cache = cache
         var state = initialState
         if state == .idle, Self.mayLoad(media, mayLoadAutomatically, loadingPreference),
@@ -476,7 +480,10 @@ private struct GiphySearchResultTile: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
+            // Keyed on the URL so a new rendition rebuilds the preview, whose init re-reads the
+            // cache, instead of keeping the old GIF playing under the new URL.
             GiphySearchPreview(media: result.media)
+                .id(result.media.url)
 
             if let attribution = result.media.attribution {
                 Text(verbatim: attribution)
@@ -542,9 +549,12 @@ private struct GiphySearchPreview: View {
             do {
                 let prepared = try await GiphyRemoteMediaLoader.preparePlayback(for: media)
                 GiphyPlaybackCache.shared.insert(prepared, for: media.url)
+                // Awaiting the detached validation does not observe cancellation; a newer task
+                // owns `state` now.
+                try Task.checkCancellation()
                 state = .playing(prepared)
             } catch is CancellationError {
-                state = .idle
+                return
             } catch {
                 state = .failed
             }
