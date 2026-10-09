@@ -31,9 +31,10 @@ final class GiphyPlaybackCache {
 
     private let entries = NSCache<NSURL, Entry>()
 
-    /// - Parameter totalCostLimit: the encoded bytes kept, at most. GIFs are capped at
-    ///   `GiphySearchClient.maximumMediaBytes` each, and players decode one frame at a time, so
-    ///   this bounds the cache's memory to roughly this figure.
+    /// - Parameter totalCostLimit: the encoded bytes past which `NSCache` starts evicting. It is
+    ///   a threshold, not a hard cap: the cache may sit above it for a while. GIFs are capped at
+    ///   `GiphySearchClient.maximumMediaBytes` each. The cost counts encoded bytes only: each
+    ///   entry also keeps the one decoded frame its `Position` was recorded at.
     init(totalCostLimit: Int = 48 * 1_024 * 1_024) {
         entries.totalCostLimit = totalCostLimit
     }
