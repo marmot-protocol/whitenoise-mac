@@ -156,6 +156,10 @@ struct TranscriptTableViewTests {
     /// a size. The request must land once the table is laid out, not against a zero-size viewport.
     /// Not following yet: the conversation pins the foot only once the open has landed, so the
     /// request alone has to put the reader there.
+    ///
+    /// The foot also lands without the held request: performed at zero size it scrolls to the
+    /// table's full height, which the clip clamps to the real foot once it is sized. This guards
+    /// the foot path of the open; the unread-divider test below is the one the held request fixes.
     @Test func anOpeningAtTheFootLandsWhenTheTableMountsWithIt() {
         let harness = TranscriptTableHarness(rows: [])
         harness.mount(rows: TableTestRow.range(0..<60), request: .bottom)
@@ -198,6 +202,84 @@ struct TranscriptTableViewTests {
         #expect(harness.offset(of: "row-40") == before)
     }
 
+    /// A resize that leaves the scroll origin in place (the composer growing under a held unread
+    /// divider) posts no bounds change. The reader's next scroll must still count as theirs.
+    @Test func theReadersScrollAfterAResizeReleasesTheRequestedPosition() {
+        let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<80))
+        harness.request(.top(id: "row-20", inset: 0))
+        harness.resize(height: 500)
+        harness.scrollByReader(toTopOf: "row-40")
+        let before = harness.offset(of: "row-40")
+
+        harness.set(rows: TableTestRow.range(0..<80).map { $0.index == 30 ? $0.growing(by: 6) : $0 })
+
+        #expect(before.map { abs($0) <= 0.5 } == true)
+        #expect(harness.offset(of: "row-40") == before)
+    }
+
+    /// The conversation lands its open when the table confirms the opening request, and reads and
+    /// pages from the viewport from then on, so confirmation waits for a viewport with a size.
+    @Test func aRequestIsConfirmedOnlyOnceTheViewportHasASize() async throws {
+        let harness = TranscriptTableHarness(rows: [], height: 0)
+        harness.mount(rows: TableTestRow.range(0..<60), request: .bottom)
+        let opening = try #require(harness.model.request?.id)
+        await harness.deliverReports()
+
+        #expect(harness.model.appliedRequestIds.isEmpty)
+
+        harness.resize(height: 600)
+        await harness.deliverReports()
+
+        #expect(harness.model.appliedRequestIds == [opening])
+        #expect(harness.distanceFromBottom.map { $0 <= 0.5 } == true)
+    }
+
+    /// A request that replaces the opening one before the table has a size (a send in that first
+    /// moment) must not swallow the opening's confirmation, or the chat never lands.
+    @Test func aRequestSupersededBeforeTheViewportHasASizeIsStillConfirmed() async throws {
+        let harness = TranscriptTableHarness(rows: [], height: 0)
+        harness.mount(rows: TableTestRow.range(0..<60), request: .top(id: "row-30", inset: 8))
+        let opening = try #require(harness.model.request?.id)
+        harness.request(.bottom)
+        let later = try #require(harness.model.request?.id)
+
+        harness.resize(height: 600)
+        await harness.deliverReports()
+
+        #expect(harness.model.appliedRequestIds == [opening, later])
+        #expect(harness.distanceFromBottom.map { $0 <= 0.5 } == true)
+    }
+
+    /// A held foot covers rows settling, not rows arriving: a newer page in a window that does not
+    /// follow the tail keeps the reader's row still instead of carrying them to the new foot, which
+    /// would page again.
+    @Test func aNewerPageReleasesAHeldFootInAWindowThatDoesNotFollow() {
+        let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<60))
+        harness.request(.bottom)
+        let before = harness.offset(of: "row-58")
+
+        harness.set(rows: TableTestRow.range(0..<80))
+
+        #expect(before != nil)
+        #expect(harness.offset(of: "row-58") == before)
+        #expect(harness.distanceFromBottom.map { $0 > 100 } == true)
+    }
+
+    /// A held row that leaves the window stops holding: when it comes back, the reader's row stays
+    /// still rather than the old request reclaiming the viewport.
+    @Test func aHeldRowThatLeavesTheWindowStopsHolding() {
+        let rows = TableTestRow.range(0..<80)
+        let harness = TranscriptTableHarness(rows: rows)
+        harness.request(.top(id: "row-20", inset: 200))
+        let before = harness.offset(of: "row-19")
+
+        harness.set(rows: rows.filter { $0.index != 20 })
+        harness.set(rows: rows.map { $0.index == 19 ? $0.growing(by: 4) : $0 })
+
+        #expect(before.map { $0 > 0 } == true)
+        #expect(harness.offset(of: "row-19") == before)
+    }
+
     @Test func aShortTranscriptSitsAtTheFoot() {
         let harness = TranscriptTableHarness(rows: TableTestRow.range(0..<2))
 
@@ -237,6 +319,8 @@ final class TranscriptTableHarnessModel {
     /// Extra height a row's content grows by from inside, without its row value changing.
     var innerGrowth: [String: CGFloat] = [:]
     var liveOnlyGrowth: Set<String> = []
+    /// Every request id the table has confirmed, in order.
+    var appliedRequestIds: [UUID] = []
     let followsBottom: Bool
 
     init(rows: [TableTestRow], followsBottom: Bool) {
@@ -260,7 +344,7 @@ struct TranscriptTableHarnessView: View {
                 followsBottom: model.followsBottom,
                 onViewportChanged: { _ in },
                 onLiveScrollChanged: { _ in },
-                onScrollRequestApplied: { _ in },
+                onScrollRequestApplied: { model.appliedRequestIds.append($0) },
                 anchorsPosition: { !$0.isChrome },
                 cell: { row in
                     HarnessRowContent(model: model, row: row)
@@ -298,10 +382,11 @@ final class TranscriptTableHarness {
     let window: NSWindow
     let host: NSHostingView<TranscriptTableHarnessView>
 
-    init(rows: [TableTestRow], followsBottom: Bool = false) {
+    /// `height` 0 mounts the table in a window that has not been given a size yet.
+    init(rows: [TableTestRow], followsBottom: Bool = false, height: CGFloat = 600) {
         model = TranscriptTableHarnessModel(rows: rows, followsBottom: followsBottom)
         host = NSHostingView(rootView: TranscriptTableHarnessView(model: model))
-        host.frame = NSRect(x: 0, y: 0, width: 520, height: 600)
+        host.frame = NSRect(x: 0, y: 0, width: 520, height: height)
         window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
         window.orderBack(nil)
@@ -381,6 +466,21 @@ final class TranscriptTableHarness {
     func resize(width: CGFloat) {
         window.setContentSize(NSSize(width: width, height: host.frame.height))
         host.frame = NSRect(x: 0, y: 0, width: width, height: host.frame.height)
+        settle()
+    }
+
+    /// Lets the table's reports reach the model. The table sends them on the main queue, which does
+    /// not drain while the test runs on it, only once the test suspends; this block queues behind
+    /// every report already sent.
+    func deliverReports() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
+    func resize(height: CGFloat) {
+        window.setContentSize(NSSize(width: host.frame.width, height: height))
+        host.frame = NSRect(x: 0, y: 0, width: host.frame.width, height: height)
         settle()
     }
 
