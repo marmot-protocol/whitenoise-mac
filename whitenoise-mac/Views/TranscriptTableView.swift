@@ -218,11 +218,18 @@ where Row.ID == String {
     /// their heights after it lands (the column reaching its width, live cells reporting); holding
     /// the target keeps the reader on it through all of that instead of wherever the first
     /// layout's offset falls afterwards.
+    ///
+    /// This includes resizes: until the reader scrolls, a window resize or a growing composer keeps
+    /// the requested row where it was requested (a reply jump stays centred) rather than holding
+    /// the top visible row still, as the transcript does for any other change. That is deliberate:
+    /// the request is still the reader's position until they move.
     private var heldTarget: TranscriptScrollTarget?
-    /// A performed request the SwiftUI side has not been told about yet. Confirmation waits for a
-    /// viewport with a size: the conversation starts reading and paging from the first confirmed
-    /// position, which a zero-size viewport does not have.
-    private var unconfirmedRequestId: UUID?
+    /// Performed requests the SwiftUI side has not been told about yet, oldest first. Confirmation
+    /// waits for a viewport with a size: the conversation starts reading and paging from the first
+    /// confirmed position, which a zero-size viewport does not have. A request superseded before
+    /// then is still confirmed, as applied or superseded: the conversation lands its open on that
+    /// request's id, and an id that never comes back would leave the chat unlanded.
+    private var unconfirmedRequestIds: [UUID] = []
     /// True while the coordinator itself moves the viewport, so only the reader's own scrolling
     /// releases `heldTarget`.
     private var isMovingProgrammatically = false
@@ -322,7 +329,7 @@ where Row.ID == String {
         if let scrollRequest, scrollRequest.id != appliedRequestId {
             appliedRequestId = scrollRequest.id
             heldTarget = holdsPosition(scrollRequest.target) ? scrollRequest.target : nil
-            unconfirmedRequestId = scrollRequest.id
+            unconfirmedRequestIds.append(scrollRequest.id)
             moveProgrammatically {
                 tableView.layoutSubtreeIfNeeded()
                 if !perform(scrollRequest.target) { heldTarget = nil }
@@ -377,16 +384,21 @@ where Row.ID == String {
     }
 
     private func confirmRequestIfLaidOut() {
-        guard let id = unconfirmedRequestId, let clip = scrollView?.contentView,
+        guard !unconfirmedRequestIds.isEmpty, let clip = scrollView?.contentView,
             clip.bounds.width > 0, clip.bounds.height > 0
         else { return }
-        unconfirmedRequestId = nil
-        report { $0.onScrollRequestApplied(id) }
+        let ids = unconfirmedRequestIds
+        unconfirmedRequestIds = []
+        for id in ids {
+            report { $0.onScrollRequestApplied(id) }
+        }
     }
 
     /// The clip view's bounds changed. A move of the origin at an unchanged size that the
-    /// coordinator did not make is the reader scrolling, which releases the held target; a size
-    /// change is the container resizing, which `containerResized` repositions for.
+    /// coordinator did not make is the reader scrolling, which releases the held target. A resize
+    /// posts no bounds change (only changes independent of the frame do), so `containerResized`
+    /// records the new size itself; otherwise the reader's next scroll would compare against the
+    /// old size, pass for a resize, and leave the target held.
     private func clipBoundsChanged() {
         if let bounds = scrollView?.contentView.bounds {
             if !isMovingProgrammatically, bounds.size == lastClipBounds.size, bounds.origin != lastClipBounds.origin {
@@ -545,6 +557,7 @@ where Row.ID == String {
                 tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: Self.fillerRow))
             }
         }
+        if let bounds = scrollView?.contentView.bounds { lastClipBounds = bounds }
         confirmRequestIfLaidOut()
         viewportMoved()
     }
