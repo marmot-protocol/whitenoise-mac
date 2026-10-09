@@ -296,6 +296,29 @@ struct ContactNicknameValueTests {
         #expect(chatItem(id: "group", title: "Book club").directPeerAccountIdHex == nil)
     }
 
+    /// Group info titles an unnamed chat the other person left after this, so it must name a
+    /// person or nothing — never a group, and never a peer's raw account hex.
+    @Test func rememberedDirectPeerTitleNamesOnlyAResolvedPerson() {
+        let named = ChatItem(
+            row: directChatRow(title: ""),
+            activeAccountIdHex: "self",
+            directPeer: ChatPeerProfile(accountIdHex: aliceAccountIdHex, displayName: "Mum", pictureURL: nil)
+        )
+        #expect(named.rememberedDirectPeerTitle == "Mum")
+
+        // The peer resolved, but nothing named them yet: the title fell back to their shortened hex.
+        let nameless = ChatItem(
+            row: directChatRow(title: ""),
+            activeAccountIdHex: "self",
+            directPeer: ChatPeerProfile(accountIdHex: aliceAccountIdHex, displayName: nil, pictureURL: nil)
+        )
+        #expect(nameless.title == DisplayText.short(aliceAccountIdHex))
+        #expect(nameless.rememberedDirectPeerTitle == nil)
+
+        #expect(chatItem(id: "dm", title: "Alice", isDirect: true, avatarSeed: "dm").rememberedDirectPeerTitle == nil)
+        #expect(chatItem(id: "group", title: "Book club").rememberedDirectPeerTitle == nil)
+    }
+
     @Test func chatFilterMatchesTheNicknameAndThePublishedTitle() {
         let nicknamed = chatItem(id: "dm", title: "Mum", publishedTitle: "Alice", isDirect: true)
         let group = chatItem(id: "group", title: "Book club")

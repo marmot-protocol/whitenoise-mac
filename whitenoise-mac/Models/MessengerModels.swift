@@ -244,6 +244,18 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         return avatarSeed
     }
 
+    /// The person a direct chat is titled after, or nil when its title names nobody.
+    ///
+    /// Nil for a group, for a direct chat whose peer never resolved, and while the title is still
+    /// only that peer's account hex (which `ChatItem.init(row:…)` shortens), so a key is never
+    /// offered as a name.
+    var rememberedDirectPeerTitle: String? {
+        guard let peer = directPeerAccountIdHex, title != peer, title != DisplayText.short(peer) else {
+            return nil
+        }
+        return title
+    }
+
     /// A chat row's last-message line with the sender it is attributed to, or the line alone when
     /// nobody's name precedes it.
     ///
@@ -649,7 +661,7 @@ struct GroupDetailsSnapshot: Hashable {
     let endpoint: String
     /// The group's name as the inspector header draws it, falling back to a localized "Unnamed
     /// group" so the header is never blank. A display label, not a name — read `customName` for
-    /// anything that has to put the group's own name into a sentence.
+    /// anything that has to put the group's own name into a sentence or seed an editor with it.
     let name: String
     /// The name the group actually carries, or `nil` when it has none. Kept alongside `name`
     /// because the placeholder above is both localized and indistinguishable from a group somebody
@@ -739,13 +751,21 @@ struct GroupDetailsSnapshot: Hashable {
     /// same rule MDK's `conversation_kind` applies — so it is titled with that member, not with the
     /// "Unnamed group" placeholder `name` falls back to. The peer comes from this snapshot's own
     /// roster, which already carries the private nickname when there is one.
-    var headerTitle: String {
+    ///
+    /// The app goes one step past MDK for an unnamed direct chat the other person has left: MDK
+    /// then reports `.group` and the roster has nobody else in it, but the chat list keeps the
+    /// remembered peer as the title (see `ChatItem.init(row:…)`). `rememberedPeerName` carries that
+    /// title, so the header keeps naming the conversation the way the sidebar does.
+    func headerTitle(rememberedPeerName: String?) -> String {
         if let customName { return customName }
         let others = members.filter { !$0.isSelf }
-        guard others.count == 1, let peerName = PeerDisplayText.sanitize(others[0].displayName) else {
-            return name
+        if others.count == 1, let peerName = PeerDisplayText.sanitize(others[0].displayName) {
+            return peerName
         }
-        return peerName
+        if others.isEmpty, let rememberedPeerName = PeerDisplayText.sanitize(rememberedPeerName) {
+            return rememberedPeerName
+        }
+        return name
     }
 }
 

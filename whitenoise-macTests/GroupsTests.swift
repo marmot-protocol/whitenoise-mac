@@ -2001,6 +2001,48 @@ struct GroupsTests: WorkspaceTestSupport {
         return state
     }
 
+    /// An unnamed group's editor starts empty rather than holding the "Unnamed group" placeholder,
+    /// and saving only its description keeps it unnamed. Seeding the placeholder used to publish
+    /// it, localized, as the group's real name the first time anyone edited the description.
+    @MainActor
+    @Test func savingAnUnnamedGroupsDescriptionLeavesItUnnamed() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        details.group.name = ""
+        runtime.installGroupDetails(details)
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        #expect(state.groupDetailsSnapshot?.customName == nil)
+        #expect(state.groupProfileDraftName.isEmpty)
+
+        state.groupProfileDraftDescription = "Planning room"
+        await state.saveGroupProfile()
+
+        #expect(state.lastError == nil)
+        #expect(
+            runtime.updatedGroupProfile
+                == UpdatedGroupProfile(groupIdHex: details.group.groupIdHex, name: nil, description: "Planning room"))
+        #expect(state.groupDetailsSnapshot?.customName == nil)
+    }
+
+    /// Emptying the name field is still refused for a group that has a name: there is no "remove
+    /// the name" gesture, and an empty save must not quietly publish only the description.
+    @MainActor
+    @Test func savingANamedGroupWithAnEmptyNameIsRefused() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        #expect(state.groupProfileDraftName == state.groupDetailsSnapshot?.customName)
+        state.groupProfileDraftName = "  "
+        await state.saveGroupProfile()
+
+        #expect(state.lastError == L10n.string("Group name cannot be empty."))
+        #expect(runtime.updateGroupProfileCallCount == 0)
+    }
+
     @MainActor
     @Test func saveGroupProfileDropsOverlappingDuplicateInvocation() async throws {
         let account = desktopAccount()

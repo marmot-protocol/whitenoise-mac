@@ -37,14 +37,15 @@ struct GroupDetailsSheet: View {
 
     private func presentProfileEditor(_ snapshot: GroupDetailsSnapshot) {
         // Start from what the group carries now, not from an edit abandoned last time.
-        workspace.groupProfileDraftName = snapshot.name
+        workspace.groupProfileDraftName = snapshot.customName ?? ""
         workspace.groupProfileDraftDescription = snapshot.description
         isProfileEditorPresented = true
     }
 
     private var hasProfileChanges: Bool {
         guard let snapshot = workspace.groupDetailsSnapshot else { return false }
-        return workspace.groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines) != snapshot.name
+        return workspace.groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
+            != (snapshot.customName ?? "")
             || workspace.groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
                 != snapshot.description
     }
