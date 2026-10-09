@@ -57,16 +57,19 @@ extension WorkspaceState {
     /// Opens the inviter's profile, the way a group-details member row or a message avatar does.
     ///
     /// `name` is what the notice calls them, so the pane opens on the name the user just read
-    /// rather than blanking until the profile re-resolves.
+    /// rather than blanking until the profile re-resolves. The notice's name is nickname-first:
+    /// with a nickname set it is not a published name, so it is not handed in as one — the pane
+    /// still opens on the nickname, which it looks up itself.
     func showContactDetails(
         for inviter: PendingInviteInviterIdentity,
         named name: String,
         invitedTo chat: ChatItem
     ) async {
+        let hasNickname = activeContactNicknames.nickname(forContactAccountIdHex: inviter.accountIdHex) != nil
         await showContactDetails(
             accountIdHex: inviter.accountIdHex,
             npub: inviter.npub,
-            displayName: name,
+            displayName: hasNickname ? nil : name,
             pictureURL: inviter.pictureURL,
             // The invite has not been accepted, so the group it is for is not a group in common.
             excludingGroupIdHex: chat.id

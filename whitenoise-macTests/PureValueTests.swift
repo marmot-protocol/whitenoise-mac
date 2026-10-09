@@ -6077,6 +6077,7 @@ private func handoffMember(
         id: id,
         displayName: id,
         publishedDisplayName: nil,
+        profileName: id,
         npub: "npub1\(id)",
         accountLabel: nil,
         isLocal: isSelf,

@@ -32,7 +32,7 @@ struct ContactIdentitySection: View {
                         description: contact.about ?? ""
                     ) {
                         ContactNicknameHeaderActions(
-                            accountIdHex: contact.accountIdHex, publishedName: contact.publishedDisplayName)
+                            accountIdHex: contact.accountIdHex, publishedName: contact.profileName)
                     } avatar: {
                         ProfileImageAvatarView(
                             seed: contact.accountIdHex,

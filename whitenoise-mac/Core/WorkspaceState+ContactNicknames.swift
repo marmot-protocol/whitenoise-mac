@@ -299,12 +299,13 @@ extension WorkspaceState {
             })
         else { return }
         let existing = composeContacts[index]
-        let published = existing.publishedDisplayName ?? existing.displayName
+        let published = existing.profileName
         composeContacts[index] = ComposeContact(
             accountIdHex: existing.accountIdHex,
             npub: existing.npub,
             displayName: nickname ?? published,
             publishedDisplayName: nickname == nil ? nil : published,
+            displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published),
             pictureURL: existing.pictureURL,
             lastActivity: existing.lastActivity
         )
@@ -314,10 +315,11 @@ extension WorkspaceState {
         guard let existing = contactDetailsTarget,
             ContactNicknames.normalizedHex(existing.accountIdHex) == accountIdHex
         else { return }
-        let published = existing.publishedDisplayName ?? existing.displayName
+        let published = existing.profileName
         contactDetailsTarget = existing.relabeled(
             displayName: nickname ?? published,
-            publishedDisplayName: nickname == nil ? nil : published
+            publishedDisplayName: nickname == nil ? nil : published,
+            displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published)
         )
     }
 }

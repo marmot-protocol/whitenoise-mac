@@ -712,6 +712,193 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(restored.imagePayload == avatar)
     }
 
+    /// A contact with no published name: the nickname labels them but is never handed out as the
+    /// name from their profile, and renaming or clearing it never promotes the old one to it.
+    @MainActor
+    @Test func aNicknameOnANamelessContactNeverBecomesTheirProfileName() async throws {
+        let account = desktopAccount()
+        let strangerIdHex = String(repeating: "5", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(strangerIdHex)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.setContactNickname("Mum", forContactAccountIdHex: strangerIdHex)
+        await state.showContactDetails(accountIdHex: strangerIdHex, displayName: nil, pictureURL: nil)
+        let opened = try #require(state.contactDetailsTarget)
+        #expect(opened.title == "Mum")
+        #expect(opened.profileName == nil)
+
+        state.setContactNickname("Mom", forContactAccountIdHex: strangerIdHex)
+        let renamed = try #require(state.contactDetailsTarget)
+        #expect(renamed.title == "Mom")
+        #expect(renamed.publishedDisplayName == nil)
+        #expect(renamed.profileName == nil)
+
+        state.setContactNickname(nil, forContactAccountIdHex: strangerIdHex)
+        let cleared = try #require(state.contactDetailsTarget)
+        #expect(cleared.displayName == nil)
+        #expect(cleared.profileName == nil)
+    }
+
+    /// The compose list follows the same rule as the contact card: renaming the nickname of a
+    /// contact with no published name never promotes the old nickname to their name.
+    @MainActor
+    @Test func renamingANamelessComposeContactsNicknameNeverPromotesTheOldOne() async throws {
+        let account = desktopAccount()
+        let strangerIdHex = String(repeating: "5", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.composeContacts = [
+            ComposeContact(
+                accountIdHex: strangerIdHex, npub: "", displayName: nil, pictureURL: nil, lastActivity: nil)
+        ]
+
+        state.setContactNickname("Mum", forContactAccountIdHex: strangerIdHex)
+        state.setContactNickname("Mom", forContactAccountIdHex: strangerIdHex)
+        let renamed = try #require(state.composeContacts.first)
+        #expect(renamed.displayName == "Mom")
+        #expect(renamed.publishedDisplayName == nil)
+        #expect(renamed.profileName == nil)
+        #expect(renamed.recipient.profileName == nil)
+
+        state.setContactNickname(nil, forContactAccountIdHex: strangerIdHex)
+        let cleared = try #require(state.composeContacts.first)
+        #expect(cleared.displayName == nil)
+    }
+
+    /// A member row labels a nameless member by their nickname, or by their shortened npub
+    /// without one. Neither is a name they published, so neither reaches the card as one.
+    @MainActor
+    @Test func aNamelessMemberOpenedFromTheRosterHasNoProfileName() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(aliceIdHex)
+        var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        details.members = details.members.map { member in
+            var member = member
+            if member.memberIdHex == aliceIdHex { member.displayName = nil }
+            return member
+        }
+        runtime.installGroupDetails(details)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(groupChat)
+
+        await state.showGroupDetails(for: groupChat)
+        let unnamed = try #require(state.groupDetailsSnapshot?.members.first { $0.id == aliceIdHex })
+        #expect(unnamed.profileName == nil)
+        await state.showContactDetails(for: unnamed)
+        #expect(try #require(state.contactDetailsTarget).profileName == nil)
+
+        state.setContactNickname("Mum", forContactAccountIdHex: aliceIdHex)
+        await state.showGroupDetails(for: groupChat)
+        let nicknamed = try #require(state.groupDetailsSnapshot?.members.first { $0.id == aliceIdHex })
+        #expect(nicknamed.displayName == "Mum")
+        await state.showContactDetails(for: nicknamed)
+        let opened = try #require(state.contactDetailsTarget)
+        #expect(opened.title == "Mum")
+        #expect(opened.profileName == nil)
+    }
+
+    /// A nickname saved while the card's profile is still resolving survives the resolve: the
+    /// late write reads the nickname again instead of restoring the one the card opened with.
+    @MainActor
+    @Test func aNicknameSavedWhileTheProfileResolvesSurvivesTheResolve() async throws {
+        let account = desktopAccount()
+        let strangerIdHex = String(repeating: "5", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let resolveGate = BlockingFfiGate()
+        resolveGate.isEnabled = true
+        runtime.onUserProfileLookup = { if $0 == strangerIdHex { resolveGate.passIfArmed() } }
+        defer {
+            runtime.onUserProfileLookup = nil
+            resolveGate.release()
+        }
+
+        let opening = Task {
+            await state.showContactDetails(accountIdHex: strangerIdHex, displayName: "Alice", pictureURL: nil)
+        }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !resolveGate.didReach, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(resolveGate.didReach)
+        state.setContactNickname("Mum", forContactAccountIdHex: strangerIdHex)
+        resolveGate.release()
+        await opening.value
+
+        let opened = try #require(state.contactDetailsTarget)
+        #expect(opened.title == "Mum")
+        #expect(opened.profileName != "Mum")
+    }
+
+    /// A message row labels a nameless sender by the nickname alone, so opening their card from it
+    /// must not hand that label in as the name they published.
+    @MainActor
+    @Test func aNicknamedNamelessSenderOpenedFromAMessageHasNoProfileName() async throws {
+        let account = desktopAccount()
+        let strangerIdHex = String(repeating: "5", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(strangerIdHex)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.setContactNickname("Mum", forContactAccountIdHex: strangerIdHex)
+
+        let message = MessageItem(
+            id: "m1",
+            groupIdHex: "group",
+            senderAccountIdHex: strangerIdHex,
+            senderName: "Mum",
+            body: "Hello",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineAt: 1_700_000_000,
+            isOutgoing: false
+        )
+        await state.showContactDetails(for: message)
+
+        let opened = try #require(state.contactDetailsTarget)
+        #expect(opened.title == "Mum")
+        #expect(opened.profileName == nil)
+    }
+
+    /// An invite notice names a nicknamed inviter by the nickname, so opening their card from the
+    /// notice must not hand that label in as the name they published.
+    @MainActor
+    @Test func aNicknamedNamelessInviterOpenedFromAnInviteHasNoProfileName() async throws {
+        let account = desktopAccount()
+        let strangerIdHex = String(repeating: "5", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(strangerIdHex)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.setContactNickname("Mum", forContactAccountIdHex: strangerIdHex)
+
+        let invite = ChatItem(
+            id: "invite-group",
+            title: "Weekend",
+            subtitle: "Invite",
+            preview: "",
+            updatedAt: nil,
+            avatarSeed: "invite-group",
+            pictureURL: nil,
+            unreadCount: 0,
+            isDirect: false
+        )
+        let inviter = WorkspaceState.PendingInviteInviterIdentity(
+            accountIdHex: strangerIdHex, npub: "", pictureURL: nil, sanitizedPictureURL: nil)
+        await state.showContactDetails(for: inviter, named: "Mum", invitedTo: invite)
+
+        let opened = try #require(state.contactDetailsTarget)
+        #expect(opened.title == "Mum")
+        #expect(opened.profileName == nil)
+    }
+
     @Test func contactAvatarPayloadPrefersTheNewestTranscriptBytesThenTheDirectChat() {
         let aliceIdHex = "alice"
         func message(_ id: String, sender: String, payload: DownloadedMediaPayload?) -> MessageItem {
@@ -976,10 +1163,9 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(copyCardIndex < actionsRowIndex)
 
         // The nickname is managed beside the name, not from a row lower in the form.
+        // Checked separately so a re-wrap of the argument list cannot fail it.
         #expect(identityBody.contains("ContactNicknameHeaderActions("))
-        #expect(
-            identityBody.contains(
-                "accountIdHex: contact.accountIdHex, publishedName: contact.publishedDisplayName)"))
+        #expect(identityBody.contains("publishedName: contact.profileName"))
         let detailsBody = try SourceContract.viewBody("ContactDetailsView")
         #expect(!detailsBody.contains("ContactNicknameRow("))
         let identityIndex = try #require(detailsBody.range(of: "ContactIdentitySection(")?.lowerBound)

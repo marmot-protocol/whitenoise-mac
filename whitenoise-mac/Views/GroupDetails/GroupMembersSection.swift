@@ -76,6 +76,7 @@ struct GroupMembersSection: View {
             id: "member-\(index)",
             displayName: index == 1 ? "You" : "Member \(index)",
             publishedDisplayName: nil,
+            profileName: index == 1 ? "You" : "Member \(index)",
             npub: "npub1member\(index)",
             accountLabel: nil,
             isLocal: index == 1,
