@@ -45,6 +45,31 @@ struct AvatarCropTests: WorkspaceTestSupport {
         #expect(rect.width == 800)
     }
 
+    /// Whatever the zoom and drag, the rect handed to `CGImage.cropping` is whole pixels, square,
+    /// and inside the image — a rect a pixel wider than tall would be stretched into the output.
+    @Test func theCropRectIsAlwaysAWholePixelSquareInsideTheImage() {
+        let imageSizes = [
+            CGSize(width: 1_201, height: 799), CGSize(width: 333, height: 1_000), CGSize(width: 7, height: 5),
+        ]
+        let zooms: [CGFloat] = [1, 1.37, 2.9, 4.444, AvatarImageCropper.maximumZoom]
+        let drags = [CGSize(width: 13.3, height: -7.7), CGSize(width: -999, height: 999), .zero]
+
+        for imageSize in imageSizes {
+            for zoom in zooms {
+                for drag in drags {
+                    let offset = AvatarImageCropper.clampedOffset(drag, imageSize: imageSize, cropSide: 280, zoom: zoom)
+                    let rect = AvatarImageCropper.cropRect(
+                        imageSize: imageSize, cropSide: 280, zoom: zoom, offset: offset)
+
+                    #expect(rect.width == rect.height, "\(imageSize) zoom \(zoom) drag \(drag): \(rect)")
+                    #expect(rect.width >= 1)
+                    #expect(rect == rect.integral)
+                    #expect(CGRect(origin: .zero, size: imageSize).contains(rect))
+                }
+            }
+        }
+    }
+
     @Test func zoomIsClampedBetweenOneAndTheMaximum() {
         #expect(AvatarImageCropper.clampedZoom(0.2) == 1)
         #expect(AvatarImageCropper.clampedZoom(99) == AvatarImageCropper.maximumZoom)
@@ -80,6 +105,38 @@ struct AvatarCropTests: WorkspaceTestSupport {
         #expect(image.height == AvatarImageCropper.outputPixelSize)
     }
 
+    /// The editor's JPEG is what gets uploaded, byte for byte — not decoded and encoded a second
+    /// time at a lower quality on the way out.
+    @Test func theEditorsJPEGIsUploadedAsItIs() async throws {
+        let source = try #require(AvatarImageCropper.normalizedImage(from: Self.testPNGData(width: 300, height: 200)))
+        let cropped = try #require(
+            AvatarImageCropper.croppedJPEG(image: source, cropSide: 280, zoom: 1.5, offset: .zero))
+
+        let attachment = try await AvatarImageCropper.attachment(fromCroppedImageData: cropped)
+
+        #expect(attachment.data == cropped)
+        #expect(attachment.mediaType == "image/jpeg")
+        #expect(attachment.kind == .image)
+        let side = AvatarImageCropper.outputPixelSize
+        #expect(attachment.dim == "\(side)x\(side)")
+    }
+
+    /// Bytes the editor did not write still go through the attachment pipeline, so a JPEG that
+    /// carries a location — or a PNG — never reaches the upload as it was handed in.
+    @Test func bytesTheEditorDidNotWriteAreReencoded() async throws {
+        let located = try Self.jpegData(width: 64, height: 64, gpsLatitude: 51.5)
+        let locatedAttachment = try await AvatarImageCropper.attachment(fromCroppedImageData: located)
+        #expect(locatedAttachment.data != located)
+        let reencoded = try #require(CGImageSourceCreateWithData(locatedAttachment.data as CFData, nil))
+        let properties = try #require(CGImageSourceCopyPropertiesAtIndex(reencoded, 0, nil) as? [CFString: Any])
+        #expect(properties[kCGImagePropertyGPSDictionary] == nil)
+
+        let png = try Self.testPNGData(width: 64, height: 64)
+        let pngAttachment = try await AvatarImageCropper.attachment(fromCroppedImageData: png)
+        #expect(pngAttachment.mediaType == "image/jpeg")
+        #expect(pngAttachment.data != png)
+    }
+
     @Test func theEditorWorksOnABoundedCopyOfAHugeImage() throws {
         let image = try #require(
             AvatarImageCropper.normalizedImage(from: Self.testPNGData(width: 4_000, height: 1_000)))
@@ -91,6 +148,14 @@ struct AvatarCropTests: WorkspaceTestSupport {
     @Test func bytesThatAreNotAnImageDoNotDecode() {
         #expect(AvatarImageCropper.normalizedImage(from: Data("not an image".utf8)) == nil)
         #expect(AvatarImageCropper.normalizedImage(from: Data()) == nil)
+    }
+
+    /// A picture the app took before the editor existed is still one it takes: the editor's byte
+    /// cap is the attachment cap, not iOS's lower one.
+    @Test func theEditorTakesAnyFileAnAttachmentCouldBe() {
+        #expect(AvatarImageCropper.maximumEncodedBytes == OutgoingMediaDraftProcessor.maxAttachmentBytes)
+        #expect(AvatarImageCropper.encodedByteCountIsAllowed(30 * 1024 * 1024))
+        #expect(!AvatarImageCropper.encodedByteCountIsAllowed(OutgoingMediaDraftProcessor.maxAttachmentBytes + 1))
     }
 
     // MARK: - Sources
@@ -112,7 +177,7 @@ struct AvatarCropTests: WorkspaceTestSupport {
         }
     }
 
-    @Test func aFileOverTheCapIsRefusedWithoutBeingReadWhole() async throws {
+    @Test func aFileOverTheCapIsRefused() async throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "avatar-crop-\(UUID().uuidString).png")
         try Data(repeating: 0xAB, count: 64).write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -206,6 +271,60 @@ struct AvatarCropTests: WorkspaceTestSupport {
         #expect(await model.save() == false)
         #expect(model.saveError == AvatarImageCropSource.Failure.downloadFailed.localizedDescription)
         #expect(model.canSave)
+    }
+
+    /// A destination that is busy refuses the crop without losing it: the framing survives, and
+    /// the same Done saves once the other change has finished.
+    @Test func aBusyDestinationKeepsTheFramingForARetry() async throws {
+        var isBusy = true
+        var commits = 0
+        let model = AvatarCropViewModel(
+            loadData: { try Self.testPNGData(width: 300, height: 200) },
+            commit: { _ in
+                if isBusy { throw AvatarImageCropper.CommitError.busy }
+                commits += 1
+            }
+        )
+        await model.load()
+        model.setZoom(2)
+        model.drag(by: CGSize(width: 25, height: -10))
+        model.endDrag()
+        let framing = (zoom: model.zoom, offset: model.offset)
+
+        #expect(await model.save() == false)
+        #expect(model.saveError == AvatarImageCropper.CommitError.busy.localizedDescription)
+        #expect(model.zoom == framing.zoom)
+        #expect(model.offset == framing.offset)
+
+        isBusy = false
+        #expect(await model.save())
+        #expect(commits == 1)
+        #expect(model.saveError == nil)
+    }
+
+    /// A JPEG the way a phone writes one: carrying where it was taken.
+    private static func jpegData(width: Int, height: Int, gpsLatitude: Double) throws -> Data {
+        let png = try testPNGData(width: width, height: height)
+        let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let data = NSMutableData()
+        let destination = try #require(
+            CGImageDestinationCreateWithData(data, AvatarImageCropper.outputTypeIdentifier as CFString, 1, nil))
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            [
+                kCGImagePropertyGPSDictionary: [
+                    kCGImagePropertyGPSLatitude: gpsLatitude,
+                    kCGImagePropertyGPSLatitudeRef: "N",
+                ]
+            ] as CFDictionary
+        )
+        #expect(CGImageDestinationFinalize(destination))
+        let written = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let properties = try #require(CGImageSourceCopyPropertiesAtIndex(written, 0, nil) as? [CFString: Any])
+        #expect(properties[kCGImagePropertyGPSDictionary] != nil, "the fixture must actually carry a location")
+        return data as Data
     }
 
     private static func result(imageURL: String) -> GroupImageSearchResult {

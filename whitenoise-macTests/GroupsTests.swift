@@ -2552,7 +2552,7 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func updateSelectedGroupImageDropsWhileMemberMutationIsInFlight() async throws {
+    @Test func updateSelectedGroupImageIsRefusedAsBusyWhileMemberMutationIsInFlight() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
@@ -2577,7 +2577,12 @@ struct GroupsTests: WorkspaceTestSupport {
         }
 
         state.showGroupImagePicker(for: groupChat)
-        try await state.setGroupImage(croppedImageData: Self.testPNGData(width: 64, height: 64))
+        // Thrown, not returned: a return closes the crop editor as though the picture had saved.
+        let croppedImageData = try Self.testPNGData(width: 64, height: 64)
+        await #expect(throws: AvatarImageCropper.CommitError.busy) {
+            try await state.setGroupImage(croppedImageData: croppedImageData)
+        }
+        #expect(runtime.updateGroupImageCallCount == 0)
         #expect(runtime.updateGroupAvatarUrlCallCount == 0)
         #expect(!state.isSavingGroupImage)
 

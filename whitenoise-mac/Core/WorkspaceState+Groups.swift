@@ -1279,17 +1279,16 @@ extension WorkspaceState {
 
     /// Commit a picture that has already been through `AvatarCropSheet`, file or web alike.
     ///
-    /// Throws what went wrong so the crop editor can show it beside the picture; an update that
-    /// no longer targets the selected group returns quietly.
+    /// Throws what went wrong so the crop editor can show it beside the picture — including
+    /// `CommitError.busy` while another change to the group is in flight, which the editor stays
+    /// open over. An update with no group left to target returns quietly.
     func setGroupImage(croppedImageData data: Data) async throws {
+        guard !hasInFlightGroupCommit else { throw AvatarImageCropper.CommitError.busy }
         guard let context = beginGroupImageUpdate() else { return }
         defer { isSavingGroupImage = false }
 
         do {
-            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(
-                fromPastedImageData: data,
-                typeIdentifier: AvatarImageCropper.outputTypeIdentifier
-            )
+            let attachment = try await AvatarImageCropper.attachment(fromCroppedImageData: data)
             guard attachment.kind == .image else {
                 throw GroupImageSelectionError.notAnImage
             }
