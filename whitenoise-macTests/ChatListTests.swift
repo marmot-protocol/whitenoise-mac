@@ -2638,6 +2638,10 @@ struct ChatListTests: WorkspaceTestSupport {
     /// Regression: pins were written only to a host-side file the core never read, so the
     /// prepared chat list the sidebar renders kept the chat where it was. The pin has to reach
     /// MarmotKit, which owns the pinned section's order.
+    ///
+    /// The `setChatPinnedCalls` assertions and the `ChatListViewModel` order are what guard the
+    /// regression. `activeChats` is only the legacy mirror, which the host-only pins also
+    /// reordered, so its order would have passed before the fix too.
     @MainActor
     @Test func pinningRoutesThroughMarmotKitAndMovesTheChatToTheTop() async throws {
         let account = desktopAccount()
@@ -2645,23 +2649,37 @@ struct ChatListTests: WorkspaceTestSupport {
         runtime.installGroups([messageGroup(), directGroup()])
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
-        let accountRef = try #require(state.activeAccount?.accountRef)
-        let last = try #require(state.activeChats.last)
-        #expect(state.activeChats.count == 2)
-        #expect(state.activeChats.first?.id != last.id)
+        let accountItem = try #require(state.activeAccount)
+        let sidebarBefore = await sidebarChatIds(account: accountItem, runtime: runtime)
+        #expect(sidebarBefore.count == 2)
+        let lastId = try #require(sidebarBefore.last)
+        #expect(sidebarBefore.first != lastId)
+        let last = try #require(state.activeChats.first { $0.id == lastId })
 
         await state.setChatPinned(last, pinned: true)
 
-        #expect(runtime.setChatPinnedCalls.map(\.accountRef) == [accountRef])
+        #expect(runtime.setChatPinnedCalls.map(\.accountRef) == [accountItem.accountRef])
         #expect(runtime.setChatPinnedCalls.map(\.groupIdHex) == [last.id])
         #expect(runtime.setChatPinnedCalls.map(\.pinned) == [true])
         #expect(state.isChatPinned(last))
         #expect(state.activeChats.first?.id == last.id)
+        #expect(await sidebarChatIds(account: accountItem, runtime: runtime).first == last.id)
 
         await state.setChatPinned(last, pinned: false)
 
         #expect(runtime.setChatPinnedCalls.map(\.pinned) == [true, false])
         #expect(!state.isChatPinned(last))
+        #expect(await sidebarChatIds(account: accountItem, runtime: runtime) == sidebarBefore)
+    }
+
+    /// The chat ids a freshly subscribed `ChatListViewModel` hands the sidebar, in its order.
+    @MainActor
+    private func sidebarChatIds(account: AccountItem, runtime: FakeMarmotRuntime) async -> [String] {
+        let model = ChatListViewModel(account: account, runtime: runtime)
+        model.start()
+        defer { model.stop() }
+        _ = await waitFor { model.windowSnapshot != nil && !model.presentedRows.isEmpty }
+        return model.chats(view: .chats, nicknames: .none).map(\.id)
     }
 
     @MainActor
@@ -3270,8 +3288,10 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(state.archivedChats.count == 1)
         #expect(state.archivedChats.first?.id == chat.id)
         #expect(state.archivedChats.first?.subtitle == L10n.string("Archived"))
-        #expect(state.isChatPinned(accountId: accountId, groupIdHex: chat.id))
-        #expect(runtime.pinnedGroupIdsByAccountRef.values.contains([chat.id]))
+        // MarmotKit drops the pin of an archived chat (`unpin_chat_when_archived`), so the
+        // archive round-trip does not keep it, unlike the host-only pins it replaced.
+        #expect(!state.isChatPinned(accountId: accountId, groupIdHex: chat.id))
+        #expect(runtime.pinnedGroupIdsByAccountRef.values.flatMap { $0 }.isEmpty)
 
         let archivedChat = try #require(state.archivedChats.first)
         await state.setChatArchived(archivedChat, archived: false)
@@ -3279,8 +3299,26 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(runtime.archivedGroup == ArchivedGroup(groupIdHex: "group", archived: false))
         #expect(state.archivedChats.isEmpty)
         #expect(state.activeChats.count == 2)
-        #expect(state.activeChats.first?.id == chat.id)
-        #expect(state.isChatPinned(chat))
+        #expect(!state.isChatPinned(chat))
+        #expect(state.activeChats.map(\.id) == ChatListOrdering.sorted(state.activeChats).map(\.id))
+    }
+
+    @MainActor
+    @Test func anArchivedChatCannotBePinned() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        await state.setChatArchived(chat, archived: true)
+        let archivedChat = try #require(state.archivedChats.first)
+
+        await state.setChatPinned(archivedChat, pinned: true)
+
+        #expect(runtime.setChatPinnedCalls.map(\.groupIdHex) == ["group"])
+        #expect(!state.isChatPinned(archivedChat))
+        #expect(state.lastError != nil)
     }
 
     @MainActor

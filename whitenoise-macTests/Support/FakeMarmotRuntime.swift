@@ -2189,6 +2189,13 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             throw FakeMarmotRuntimeError.unused
         }
         groups[index].archived = archived
+        if archived {
+            // Mirrors mdk's `unpin_chat_when_archived` trigger: archiving drops the pin, and
+            // unarchiving does not bring it back.
+            for accountRef in pinnedGroupIdsByAccountRef.keys {
+                pinnedGroupIdsByAccountRef[accountRef]?.removeAll { $0 == groupIdHex }
+            }
+        }
         if var details = groupDetailsById[groupIdHex] {
             details.group.archived = archived
             groupDetailsById[groupIdHex] = details
@@ -2564,10 +2571,19 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         )
     }
 
+    /// Pinned rows first in pinned-section order, the way mdk's `list_pin_ordinal` orders the
+    /// projection; everything else keeps `groups` order.
     private func chatListRows(includeArchived: Bool) -> [ChatListRowFfi] {
-        groups
+        let rows =
+            groups
             .filter { includeArchived || !$0.archived }
             .map { chatListRow(for: $0) }
+        let pinned =
+            rows
+            .compactMap { row in row.pinnedPosition.map { (position: $0, row: row) } }
+            .sorted { $0.position < $1.position }
+            .map(\.row)
+        return pinned + rows.filter { $0.pinnedPosition == nil }
     }
 
     /// Per-account one-shot chat lists, for the accounts the app never subscribes to. An account
@@ -3522,16 +3538,29 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     /// Every `setChatPinned` call in order, and the pinned section it leaves behind per account.
     var setChatPinnedCalls: [(accountRef: String, groupIdHex: String, pinned: Bool)] = []
+    /// Not account-scoped where it is read: `chatListRow(for:)` reports a group as pinned when
+    /// *any* account pinned it, so don't use the fake for cross-account pin tests.
     var pinnedGroupIdsByAccountRef: [String: [String]] = [:]
     var setChatPinnedError: Error?
 
     func setChatPinned(accountRef: String, groupIdHex: String, pinned: Bool) throws -> ChatPinStateFfi {
         setChatPinnedCalls.append((accountRef, groupIdHex, pinned))
         if let setChatPinnedError { throw setChatPinnedError }
-        // Mirrors mdk: a newly pinned chat enters at the top of the pinned section.
+        // Mirrors mdk's `ChatPinError::UnknownGroup` and `ChatPinError::ArchivedChat`.
+        guard let group = groups.first(where: { $0.groupIdHex == groupIdHex }) else {
+            throw MarmotKitError.UnknownGroup(groupIdHex: groupIdHex)
+        }
+        if pinned, group.archived {
+            throw MarmotKitError.InvalidChatPin(details: "archived chats cannot be pinned")
+        }
+        // Mirrors mdk: a newly pinned chat enters at the top of the pinned section, and pinning a
+        // chat that is already pinned leaves it where it is.
         var order = pinnedGroupIdsByAccountRef[accountRef] ?? []
-        order.removeAll { $0 == groupIdHex }
-        if pinned { order.insert(groupIdHex, at: 0) }
+        if pinned {
+            if !order.contains(groupIdHex) { order.insert(groupIdHex, at: 0) }
+        } else {
+            order.removeAll { $0 == groupIdHex }
+        }
         pinnedGroupIdsByAccountRef[accountRef] = order
         return ChatPinStateFfi(orderedGroupIds: order)
     }
