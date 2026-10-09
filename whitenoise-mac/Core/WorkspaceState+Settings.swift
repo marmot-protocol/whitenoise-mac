@@ -653,18 +653,17 @@ extension WorkspaceState {
     /// Commit a picture that has already been through `AvatarCropSheet`.
     ///
     /// Every source — a file, a web search result — reaches this as the cropped JPEG the editor
-    /// rendered, so the only thing left to do is re-encode it for upload and send it where
-    /// `profileImagePickerDestination` says. Throws what went wrong so the crop editor can show it
-    /// beside the picture; a selection superseded by a newer one returns quietly.
+    /// rendered, so the only thing left to do is send it where `profileImagePickerDestination`
+    /// says. Throws what went wrong so the crop editor can show it beside the picture — including
+    /// `CommitError.busy` while another picture is still saving, which the editor stays open over.
+    /// A selection with no account left to save to, or superseded by a newer one, returns quietly.
     func setProfileImage(croppedImageData data: Data) async throws {
+        guard !isUploadingProfileImage else { throw AvatarImageCropper.CommitError.busy }
         guard let context = beginProfileImageSelection() else { return }
         defer { finishProfileImageSelection(context) }
 
         do {
-            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(
-                fromPastedImageData: data,
-                typeIdentifier: AvatarImageCropper.outputTypeIdentifier
-            )
+            let attachment = try await AvatarImageCropper.attachment(fromCroppedImageData: data)
             try await commitSelectedProfileImage(attachment, context: context)
         } catch is CancellationError {
             return

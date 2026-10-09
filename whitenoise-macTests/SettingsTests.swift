@@ -451,6 +451,27 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(RemoteImageLoader.shared.primedSourceByteCount(for: published) == staged.data.count)
     }
 
+    /// A second picture committed while the first is still saving is refused with an error the
+    /// crop editor stays open over — not dropped with a return the editor reads as "saved".
+    @MainActor
+    @Test func aProfileImageCommittedWhileAnotherIsSavingIsRefusedAsBusy() async throws {
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        await state.bootstrap()
+        state.authenticationMode = .signUp
+        state.prepareProfileImageDestination(.signUpDraft)
+        let croppedImageData = try Self.testPNGData(width: 64, height: 64)
+
+        state.isUploadingProfileImage = true
+        await #expect(throws: AvatarImageCropper.CommitError.busy) {
+            try await state.setProfileImage(croppedImageData: croppedImageData)
+        }
+        #expect(state.signUpDraft.image == nil)
+
+        state.isUploadingProfileImage = false
+        try await state.setProfileImage(croppedImageData: croppedImageData)
+        #expect(state.signUpDraft.image != nil)
+    }
+
     @MainActor
     @Test func settingsSelectionUsesDetailPaneWithoutChangingAccount() async throws {
         let state = WorkspaceState.preview()

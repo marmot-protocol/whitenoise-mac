@@ -123,11 +123,17 @@ struct ProfileImageSourceMenu<Label: View>: View {
 
     /// Opens the picked file in the crop editor. The destination is claimed again at commit time,
     /// because the web picker can point the shared machinery elsewhere while this sheet is open.
+    /// It is not claimed at all while something else is saving there, so the editor can stay open
+    /// over the wait instead of closing on a picture that was never saved.
     private func cropFile(at url: URL) {
         let destination = destination
         cropModel = AvatarCropViewModel(
             loadData: { try await AvatarImageCropSource.data(fromFileURL: url) },
             commit: { [workspace] data in
+                let isSigningUp = destination == .signUpDraft && workspace.isAuthenticating
+                guard !workspace.isUploadingProfileImage, !isSigningUp else {
+                    throw AvatarImageCropper.CommitError.busy
+                }
                 guard workspace.prepareProfileImageDestination(destination) else { return }
                 try await workspace.setProfileImage(croppedImageData: data)
             }

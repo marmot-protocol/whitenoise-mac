@@ -22,9 +22,30 @@ import UniformTypeIdentifiers
 /// square (`baseScale`), multiplied by `zoom`, and shifted by `offset` in points from centred.
 /// Offsets are in the same top-left-origin space as SwiftUI's, which is also `CGImage.cropping`'s.
 nonisolated enum AvatarImageCropper {
+    /// Why a destination turned a finished crop away before it started saving.
+    ///
+    /// A commit that returns closes the editor as if it had saved, so a refusal the user can retry
+    /// past — another change to the same group or profile still in flight — has to throw, or the
+    /// picture they just framed is thrown away with nothing saved. A destination that has gone
+    /// (the account switched, the group deselected) still returns quietly: there is nothing left
+    /// to retry against.
+    enum CommitError: LocalizedError, Equatable {
+        case busy
+
+        var errorDescription: String? {
+            switch self {
+            case .busy:
+                L10n.string("Another change is still saving. Try again in a moment.")
+            }
+        }
+    }
+
     static let maximumZoom: CGFloat = 6
-    /// The cap on picked bytes, before decoding. Matches iOS.
-    static let maximumEncodedBytes = 25 * 1024 * 1024
+    /// The cap on picked bytes, before decoding: the same one any attachment gets, which is what a
+    /// picture could be before the editor existed. iOS stops at 25 MB, but memory is bounded by
+    /// `maximumSourcePixelCount` and `maximumEditorPixelSize`, not by this, so halving it here would
+    /// only refuse large photos that used to work.
+    static let maximumEncodedBytes = OutgoingMediaDraftProcessor.maxAttachmentBytes
     /// The cap on decoded source pixels, checked from the header before anything is decoded.
     static let maximumSourcePixelCount = 80_000_000
     /// The longest edge the editor works on. The output is 1024 square, so anything sharper than
@@ -126,15 +147,78 @@ nonisolated enum AvatarImageCropper {
         zoom: CGFloat,
         offset: CGSize
     ) -> CGRect {
+        guard imageSize.width >= 1, imageSize.height >= 1 else { return .zero }
         let displayScale = baseScale(imageSize: imageSize, cropSide: cropSide) * zoom
-        let length = cropSide / displayScale
-        let origin = CGPoint(
-            x: (imageSize.width - length) / 2 - offset.width / displayScale,
-            y: (imageSize.height - length) / 2 - offset.height / displayScale
+        // One rounded side for both axes, and an origin clamped rather than an edge intersected:
+        // `.integral` rounds each edge outward on its own, so a fractional square could come back
+        // a pixel wider than tall and be stretched into the square output.
+        let side = min(
+            max(1, (cropSide / displayScale).rounded()),
+            imageSize.width.rounded(.down),
+            imageSize.height.rounded(.down)
         )
-        return CGRect(origin: origin, size: CGSize(width: length, height: length))
-            .integral
-            .intersection(CGRect(origin: .zero, size: imageSize))
+        let centre = CGPoint(
+            x: imageSize.width / 2 - offset.width / displayScale,
+            y: imageSize.height / 2 - offset.height / displayScale
+        )
+        let origin = CGPoint(
+            x: min(max((centre.x - side / 2).rounded(), 0), imageSize.width - side),
+            y: min(max((centre.y - side / 2).rounded(), 0), imageSize.height - side)
+        )
+        return CGRect(origin: origin, size: CGSize(width: side, height: side))
+    }
+
+    /// The attachment a profile or group picture is uploaded or staged as.
+    ///
+    /// What `croppedJPEG` rendered is already a small, upright, metadata-free JPEG, so it is
+    /// wrapped as it is: running it back through `OutgoingMediaDraftProcessor` would decode it and
+    /// encode it again at a lower quality for nothing. Anything else — bytes that did not come
+    /// from the editor — still takes that path.
+    static func attachment(fromCroppedImageData data: Data) async throws -> PendingMediaAttachment {
+        if let size = editorJPEGPixelSize(data) {
+            return PendingMediaAttachment(
+                fileName: "avatar.jpg",
+                mediaType: "image/jpeg",
+                data: data,
+                dim: "\(size.width)x\(size.height)"
+            )
+        }
+        return try await OutgoingMediaDraftProcessor.preparedAttachment(
+            fromPastedImageData: data,
+            typeIdentifier: nil
+        )
+    }
+
+    /// The header properties `croppedJPEG`'s ImageIO output carries. A JPEG with anything more —
+    /// an orientation, GPS, a camera's EXIF — did not come from the editor, and is re-encoded so
+    /// none of it is uploaded.
+    private static let editorJPEGPropertyKeys: Set<CFString> = [
+        kCGImagePropertyColorModel, kCGImagePropertyDepth, kCGImagePropertyPixelWidth,
+        kCGImagePropertyPixelHeight, kCGImagePropertyProfileName, kCGImagePropertyExifDictionary,
+        kCGImagePropertyJFIFDictionary,
+    ]
+    private static let editorJPEGExifKeys: Set<CFString> = [
+        kCGImagePropertyExifColorSpace, kCGImagePropertyExifPixelXDimension, kCGImagePropertyExifPixelYDimension,
+    ]
+
+    /// The pixel size of `data` when it is a JPEG the editor could have produced: no metadata
+    /// beyond what it writes, and no larger than an attachment may be. Read from the header only.
+    private static func editorJPEGPixelSize(_ data: Data) -> (width: Int, height: Int)? {
+        guard data.count <= OutgoingMediaDraftProcessor.maxImageAttachmentBytes,
+            let source = CGImageSourceCreateWithData(
+                data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+            CGImageSourceGetType(source) as String? == outputTypeIdentifier,
+            CGImageSourceGetCount(source) == 1,
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            Set(properties.keys).isSubset(of: editorJPEGPropertyKeys),
+            Set((properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]).keys)
+                .isSubset(of: editorJPEGExifKeys),
+            let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+            let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+            width > 0, height > 0,
+            CGFloat(max(width, height)) <= OutgoingMediaDraftProcessor.maxLongEdge
+        else { return nil }
+        return (width, height)
     }
 
     /// The visible square, scaled to `outputPixelSide` and encoded as JPEG.
