@@ -13,8 +13,8 @@ struct ContactNicknameRow: View {
     @Environment(WorkspaceState.self) private var workspace
 
     let accountIdHex: String
-    /// The contact's published name, shown as secondary context while a nickname hides it. Pass
-    /// nil when nothing is being overridden or no published name has resolved yet.
+    /// The contact's published name: shown under the nickname while one is set, and offered as the
+    /// editor's placeholder while none is. Nil only when no published name has resolved yet.
     let publishedName: String?
 
     @State private var isEditingNickname = false

@@ -1897,17 +1897,18 @@ final class WorkspaceState {
         let members = details.members
             .map { member in
                 let action = actionByMemberId[member.memberIdHex]
-                let published =
-                    firstNonBlank([
-                        PeerDisplayText.sanitize(member.displayName),
-                        PeerDisplayText.sanitize(member.account),
-                    ]) ?? DisplayText.short(member.npub, head: 12, tail: 8)
+                let profileName = firstNonBlank([
+                    PeerDisplayText.sanitize(member.displayName),
+                    PeerDisplayText.sanitize(member.account),
+                ])
+                let published = profileName ?? DisplayText.short(member.npub, head: 12, tail: 8)
                 let nickname = member.nickname(from: nicknames)
                 let displayName = nickname ?? published
                 return GroupMemberItem(
                     id: member.memberIdHex,
                     displayName: displayName,
                     publishedDisplayName: nickname == nil ? nil : published,
+                    profileName: profileName,
                     npub: member.npub,
                     accountLabel: PeerDisplayText.sanitize(member.account),
                     isLocal: member.local,

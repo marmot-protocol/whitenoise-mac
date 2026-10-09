@@ -95,6 +95,7 @@ extension WorkspaceState {
             npub: member.npub,
             displayName: nickname ?? published,
             publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
+            displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published),
             pictureURL: resolved?.profilePicture
         )
     }
@@ -409,6 +410,8 @@ extension WorkspaceState {
                 npub: existing?.npub ?? "",
                 displayName: chat.title,
                 publishedDisplayName: chat.publishedTitle,
+                displayNameIsPrivate: Self.nicknameIsPrivate(
+                    nicknames.nickname(forContactAccountIdHex: hex), over: chat.publishedTitle),
                 pictureURL: chat.pictureURL ?? existing?.pictureURL,
                 lastActivity: latestDate(existing?.lastActivity, chat.updatedAt)
             )
@@ -462,13 +465,14 @@ extension WorkspaceState {
                 if let existing, !existing.npub.isEmpty {
                     npub = existing.npub
                 }
-                let published = existing?.publishedDisplayName ?? existing?.displayName ?? member.displayName
+                let published = existing?.profileName ?? member.displayName
                 let nickname = nicknames.nickname(forContactAccountIdHex: hex)
                 byHex[hex] = ComposeContact(
                     accountIdHex: hex,
                     npub: npub,
                     displayName: nickname ?? published,
                     publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
+                    displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published),
                     pictureURL: existing?.pictureURL,
                     lastActivity: latestDate(existing?.lastActivity, group.updatedAt)
                 )
@@ -528,6 +532,7 @@ extension WorkspaceState {
                 npub: contact.npub ?? "",
                 displayName: nickname ?? published,
                 publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
+                displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published),
                 pictureURL: nil,
                 lastActivity: nil
             )

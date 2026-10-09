@@ -16,37 +16,39 @@ import SwiftUI
 ///
 /// It owns its own draft and reports a decision through `onSave`, so it never reads the workspace.
 struct ContactNicknameEditorSheet: View {
-    /// The nickname in force when the sheet opened, or nil when there is none.
-    let currentNickname: String?
     /// What the contact calls themselves, kept visible so a private label is never mistaken for it.
     let publishedName: String?
     /// The nickname to store, or nil to remove it.
     let onSave: (String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// The nickname in force when the sheet opened, or nil when there is none. Held as state, not
+    /// re-read from the caller: Save writes the store while the sheet is still animating out, and
+    /// a live value would flip the closing sheet to Edit, with a Remove button, for a frame.
+    @State private var currentNickname: String?
     @State private var draft: String
 
     init(currentNickname: String?, publishedName: String?, onSave: @escaping (String?) -> Void) {
-        self.currentNickname = currentNickname
         self.publishedName = publishedName
         self.onSave = onSave
+        _currentNickname = State(initialValue: currentNickname)
         _draft = State(initialValue: currentNickname ?? "")
-    }
-
-    /// The draft as it would be stored. An emptied field is the remove gesture, the same rule the
-    /// alert this replaced followed.
-    private var sanitizedDraft: String? {
-        ContactNicknames.sanitized(draft)
     }
 
     private var canSave: Bool {
         Self.canSave(draft: draft, currentNickname: currentNickname)
     }
 
+    /// What Save hands `onSave`: the draft as it would be stored, or nil to remove the nickname.
+    /// An emptied field is the remove gesture, the same rule the alert this replaced followed.
+    static func nicknameToStore(draft: String) -> String? {
+        ContactNicknames.sanitized(draft)
+    }
+
     /// Save is offered only when it would store something different — compared as stored, so
     /// padding a name with spaces is not an edit, and emptying a nickname is.
     static func canSave(draft: String, currentNickname: String?) -> Bool {
-        ContactNicknames.sanitized(draft) != ContactNicknames.sanitized(currentNickname)
+        nicknameToStore(draft: draft) != ContactNicknames.sanitized(currentNickname)
     }
 
     var body: some View {
@@ -60,7 +62,8 @@ struct ContactNicknameEditorSheet: View {
                 WNInput(
                     label: L10n.string("Nickname"),
                     prompt: publishedName ?? L10n.string("Nickname"),
-                    text: $draft
+                    text: $draft,
+                    focusOnAppear: true
                 )
                 .onSubmit(save)
 
@@ -87,7 +90,7 @@ struct ContactNicknameEditorSheet: View {
 
     private func save() {
         guard canSave else { return }
-        finish(with: sanitizedDraft)
+        finish(with: Self.nicknameToStore(draft: draft))
     }
 
     private func finish(with nickname: String?) {
