@@ -10,6 +10,9 @@ import SwiftUI
 struct GroupDeveloperSection: View {
     @Environment(WorkspaceState.self) private var workspace
     let snapshot: GroupDetailsSnapshot
+    /// The MLS epoch from the live conversation header, so it advances with every commit
+    /// without a separate `groupMlsState` read. `nil` until the window's header arrives.
+    let epoch: UInt64?
 
     var body: some View {
         Section(L10n.string("Developer")) {
@@ -42,6 +45,8 @@ struct GroupDeveloperSection: View {
             GroupDiagnosticsValueRow(title: L10n.string("Group ID"), value: snapshot.groupIdHex)
             GroupDiagnosticsValueRow(
                 title: L10n.string("Nostr group ID"), value: snapshot.nostrGroupIdHex)
+            GroupDiagnosticsValueRow(
+                title: L10n.string("Epoch"), value: epoch.map(String.init) ?? "", copyable: false)
             GroupDiagnosticsValueRow(title: L10n.string("Endpoint"), value: snapshot.endpoint)
             GroupDiagnosticsValueRow(title: L10n.string("Avatar URL"), value: snapshot.avatarURL ?? "")
             GroupDiagnosticsValueRow(

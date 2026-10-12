@@ -123,7 +123,8 @@ struct GroupDetailsSheet: View {
                         GroupDetailsLeaveSection(chat: chat, snapshot: snapshot)
 
                         if workspace.developerMode {
-                            GroupDeveloperSection(snapshot: snapshot)
+                            GroupDeveloperSection(
+                                snapshot: snapshot, epoch: conversationModel.snapshot?.header.epoch)
                         }
 
                         SettingsErrorView(error: workspace.lastError)
