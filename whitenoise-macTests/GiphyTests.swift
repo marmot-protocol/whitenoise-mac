@@ -18,6 +18,8 @@ import UniformTypeIdentifiers
 
 @testable import whitenoise_mac
 
+// Async window tests must not occlude one another and cancel a visibility-bound load.
+@Suite(.serialized)
 struct GiphyTests: WorkspaceTestSupport {
     private static let gifURL = URL(string: "https://media1.giphy.com/media/abc123/giphy.gif?cid=client&rid=giphy.gif")!
 
