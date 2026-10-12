@@ -288,7 +288,7 @@ struct RemoteGiphyMediaView: View {
             // An old ineligible task can start after visibility changes. Its key,
             // rather than the latest State alone, must authorize this download.
             guard taskID.isEligible, isVisible, shouldLoad else {
-                if (!isVisible || !shouldLoad), state == .loading { state = .idle }
+                if !isVisible || !shouldLoad, state == .loading { state = .idle }
                 return
             }
             // `.loading` is not "someone else is on it": a cancelled load can still be unwinding
