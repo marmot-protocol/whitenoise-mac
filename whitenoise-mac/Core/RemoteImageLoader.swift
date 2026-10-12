@@ -805,16 +805,23 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
     /// Fetches a web page for a link preview through the same pinned protections as an image:
     /// `RemoteImageURLPolicy` on the URL and on every redirect, the response-size cap, and the
-    /// ephemeral, cookieless session. Returns the body with the final response, so the caller can
+    /// pinned, cookieless transport. Returns the body with the final response, so the caller can
     /// check the MIME type and resolve relative URLs against where the redirects ended. Nil means
     /// the fetch itself failed (disallowed, non-2xx, oversized, cancelled, or a network error).
     func page(for request: URLRequest) async -> (Data, URLResponse)? {
         guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else { return nil }
-        let delegate = CappedImageDownloadDelegate(cap: RemoteImageURLPolicy.maxResponseBytes)
-        guard let data = await delegate.download(request, using: session),
-            let response = delegate.receivedResponse
+        guard let fetched = try? await transport.fetch(url),
+            let head = fetched.head,
+            let response = HTTPURLResponse(
+                url: fetched.url,
+                statusCode: head.statusCode,
+                httpVersion: "HTTP/1.\(head.minorVersion)",
+                headerFields: Dictionary(grouping: head.fields, by: \.name).mapValues {
+                    $0.map(\.value).joined(separator: ", ")
+                }
+            )
         else { return nil }
-        return (data, response)
+        return (fetched.body, response)
     }
 
     /// Registers source bytes the app already holds for `url`, so the first load of that URL
