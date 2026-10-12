@@ -287,7 +287,7 @@ struct MessageBubble: View {
                 }
             }
 
-            if !message.visualMediaAttachments.isEmpty {
+            if !message.visualMediaAttachments.isEmpty, !embedsVisualMediaInBubble {
                 MessageVisualMediaGrid(
                     message: message,
                     attachments: message.visualMediaAttachments,
@@ -426,6 +426,34 @@ struct MessageBubble: View {
 
     private var usesBubbleSurface: Bool {
         showsDebugMetadata || message.hasBubbleContent
+    }
+
+    /// A reply that carries images or videos draws them inside its own bubble, under the quote,
+    /// as iOS does — instead of as a detached card above a bubble holding only the quote.
+    private var embedsVisualMediaInBubble: Bool {
+        MessageReplyMediaLayout.embedsVisualMedia(
+            hasReply: message.replyContext != nil,
+            visualMediaCount: message.visualMediaAttachments.count
+        )
+    }
+
+    /// The bubble's padding. A bubble wrapping media hugs it at `MessageReplyMediaLayout.outerInset`
+    /// and moves the text back in by the difference, so captions and the metadata footer keep the
+    /// text bubble's insets.
+    private var bubbleHorizontalInset: CGFloat {
+        embedsVisualMediaInBubble ? MessageReplyMediaLayout.outerInset : 12
+    }
+
+    private var bubbleVerticalInset: CGFloat {
+        embedsVisualMediaInBubble ? MessageReplyMediaLayout.outerInset : 8
+    }
+
+    private var textHorizontalInset: CGFloat {
+        12 - bubbleHorizontalInset
+    }
+
+    private var textBottomInset: CGFloat {
+        8 - bubbleVerticalInset
     }
 
     /// Replies, media captions, deleted messages, and debug rows retain the normal bubble
@@ -602,36 +630,61 @@ struct MessageBubble: View {
             }
 
             if let replyContext = message.replyContext {
+                // Over media the quote sits at the media's inset, not the text's, on purpose: it
+                // lines up with the grid under it, as the iOS rich-media bubble does.
                 MessageReplyContextView(
                     context: replyContext,
                     isOutgoing: message.isOutgoing,
+                    fillsWidth: embedsVisualMediaInBubble,
                     onOpen: { onNavigateToMessage(replyContext.targetMessageId) }
                 )
             }
 
-            if let giphyMedia = message.remoteGiphyMedia {
-                RemoteGiphyMediaView(
-                    media: giphyMedia,
-                    mayLoadAutomatically: message.isOutgoing,
-                    loadingPreference: .shared
-                )
-            } else if !message.trimmedBody.isEmpty {
-                MarkdownMessageView(
+            if embedsVisualMediaInBubble {
+                MessageVisualMediaGrid(
                     message: message,
-                    trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
+                    attachments: message.visualMediaAttachments,
+                    isOutgoing: message.isOutgoing,
+                    onOpenImageGallery: onOpenImageGallery,
+                    cornerRadius: MessageReplyMediaLayout.innerCornerRadius
                 )
-                .wnFont(.medium16)
-                .foregroundStyle(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
-                // A mention is a link run without a color, so the tint is what it draws in: the
-                // bubble's own content, as on iOS. Real links color themselves blue per run.
-                .tint(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
-                .multilineTextAlignment(.leading)
             }
 
-            if showsReservedMetadataRow {
-                compactMetadata.hidden()
+            // One container, so the insets wrap the text block rather than each line of it.
+            VStack(alignment: .leading, spacing: 8) {
+                if let giphyMedia = message.remoteGiphyMedia {
+                    RemoteGiphyMediaView(
+                        media: giphyMedia,
+                        mayLoadAutomatically: message.isOutgoing,
+                        loadingPreference: .shared
+                    )
+                } else if !message.trimmedBody.isEmpty {
+                    if let linkPreviewURL {
+                        LinkPreviewCard(url: linkPreviewURL, loader: .shared)
+                            .id(linkPreviewURL)
+                    }
+
+                    MarkdownMessageView(
+                        message: message,
+                        trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
+                    )
+                    .wnFont(.medium16)
+                    .foregroundStyle(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
+                    // A mention is a link run without a color, so the tint is what it draws in: the
+                    // bubble's own content, as on iOS. Real links color themselves blue per run.
+                    .tint(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
+                    .multilineTextAlignment(.leading)
+                }
+
+                if showsReservedMetadataRow {
+                    compactMetadata.hidden()
+                }
             }
+            .padding(.horizontal, textHorizontalInset)
+            .padding(.bottom, textBottomInset)
         }
+        // Media sets the bubble's width: the quote stretches to it and the caption wraps inside it.
+        .frame(width: embedsVisualMediaInBubble ? MessageVisualMediaGrid.width : nil, alignment: .leading)
         // One hover-gated selection gate for the whole bubble: `.textSelection` propagates
         // through the environment to the body + reply-quote Text, so only the active bubble
         // (`isSelectable`) is backed by a selection NSView. See whitenoise-mac#205.
@@ -643,10 +696,12 @@ struct MessageBubble: View {
         .overlay(alignment: .bottomTrailing) {
             if showsBubbleMetadata {
                 compactMetadata
+                    .padding(.trailing, textHorizontalInset)
+                    .padding(.bottom, textBottomInset)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, bubbleHorizontalInset)
+        .padding(.vertical, bubbleVerticalInset)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
         // Attach controls before the positioning frame so short messages use the visible
         // bubble edge instead of the frame's maximum width.
@@ -658,6 +713,12 @@ struct MessageBubble: View {
 
     private var showsBubbleMetadata: Bool {
         !message.isDeleted
+    }
+
+    /// The first fetchable link in the message, while "Show Link Previews" is on.
+    private var linkPreviewURL: URL? {
+        guard !message.isDeleted, LinkPreviewPreference.shared.showsPreviews else { return nil }
+        return LinkPreviewMetadata.previewURL(in: message.contentMarkdown)
     }
 
     private var showsInlineMetadata: Bool {
@@ -918,6 +979,22 @@ private struct BubbleBackground: View {
     }
 }
 
+/// How a reply that carries images or videos is laid out: one bubble, quote on top, then the
+/// media, then the caption — the iOS client's rich-media bubble. Audio and documents keep their
+/// own rows above the bubble, as they do on iOS.
+nonisolated enum MessageReplyMediaLayout {
+    /// The gap between the bubble's edge and the media it wraps.
+    static let outerInset: CGFloat = 6
+
+    /// The wrapped media's corner radius: concentric with the bubble's, so the rim of bubble fill
+    /// around the media is as thick at the corners as along the edges.
+    static let innerCornerRadius = MessageBubbleShape.cornerRadius - outerInset
+
+    static func embedsVisualMedia(hasReply: Bool, visualMediaCount: Int) -> Bool {
+        hasReply && visualMediaCount > 0
+    }
+}
+
 struct MessageImageGalleryPresentation: Identifiable, Equatable {
     let id: String
     let message: MessageItem
@@ -979,10 +1056,14 @@ struct MessageVisualMediaGrid: View {
     let attachments: [MessageMediaAttachment]
     let isOutgoing: Bool
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+    /// A standalone grid's own rounding; a bubble wrapping the grid passes its concentric radius.
+    var cornerRadius: CGFloat = 10
 
-    private let maxWidth: CGFloat = 360
+    /// The grid's fixed width; a reply bubble that embeds the grid takes it as its content width.
+    static let width: CGFloat = 360
+
+    private let maxWidth = Self.width
     private let spacing: CGFloat = 3
-    private let cornerRadius: CGFloat = 10
 
     private var visibleAttachments: [MessageMediaAttachment] {
         Array(attachments.prefix(MessageMediaGridPresentation.visibleCount(totalCount: attachments.count)))
@@ -2687,6 +2768,10 @@ struct MessageContextMenuItems: View {
 struct MessageReplyContextView: View {
     let context: MessageReplyContext
     let isOutgoing: Bool
+    /// Stretch the card to the width it is offered — set when it heads media, so the quote spans
+    /// the grid under it instead of hugging its text. A text bubble leaves it off, or a short quote
+    /// would widen the bubble to its maximum.
+    var fillsWidth = false
     let onOpen: () -> Void
 
     var body: some View {
@@ -2710,6 +2795,11 @@ struct MessageReplyContextView: View {
                 }
             }
             .multilineTextAlignment(.leading)
+            .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
+            // A plain button hit-tests only the pixels its label draws, so without this the gaps
+            // between the lines and beside a short name miss — on every quote, not only a
+            // stretched one.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(L10n.string("Show replied-to message"))

@@ -803,6 +803,20 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         return (generation, key, task)
     }
 
+    /// Fetches a web page for a link preview through the same pinned protections as an image:
+    /// `RemoteImageURLPolicy` on the URL and on every redirect, the response-size cap, and the
+    /// ephemeral, cookieless session. Returns the body with the final response, so the caller can
+    /// check the MIME type and resolve relative URLs against where the redirects ended. Nil means
+    /// the fetch itself failed (disallowed, non-2xx, oversized, cancelled, or a network error).
+    func page(for request: URLRequest) async -> (Data, URLResponse)? {
+        guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else { return nil }
+        let delegate = CappedImageDownloadDelegate(cap: RemoteImageURLPolicy.maxResponseBytes)
+        guard let data = await delegate.download(request, using: session),
+            let response = delegate.receivedResponse
+        else { return nil }
+        return (data, response)
+    }
+
     /// Registers source bytes the app already holds for `url`, so the first load of that URL
     /// decodes from memory instead of fetching it.
     ///
@@ -1189,8 +1203,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
 /// Pure, synchronously-testable accumulator for a capped chunked download. Collects `Data`
 /// chunks and reports when the running total exceeds `cap`. Remote image downloads now enforce
-/// their body cap inside `RemoteMediaHTTPResponseParser`; this generic accumulator remains for
-/// its existing value tests.
+/// their body cap inside `RemoteMediaHTTPResponseParser`; encrypted Blossom downloads use
+/// this accumulator through `CappedImageDownloadDelegate`.
 nonisolated struct CappedDataCollector {
     let cap: Int64
     private(set) var data = Data()
@@ -1220,5 +1234,171 @@ nonisolated struct CappedDataCollector {
         }
         data.append(chunk)
         return true
+    }
+}
+
+/// `URLSessionDataDelegate` that downloads a single image body in the chunks `URLSession`
+/// delivers natively, enforcing an HTTP status check, an up-front `Content-Length` check,
+/// and an incremental byte cap. Bridges the delegate callbacks to a single `async` result.
+///
+/// Using the delegate's `didReceive data:` (which hands us OS-sized `Data` chunks) instead
+/// of `URLSession.AsyncBytes` is what removes the per-byte iteration: a download now costs
+/// O(number-of-chunks), not O(number-of-bytes), while the incremental cap still aborts an
+/// oversized or `Content-Length`-less response before it can exhaust memory.
+private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let cap: Int64
+    private let lock = NSLock()
+    private var collector: CappedDataCollector
+    private var continuation: CheckedContinuation<Data?, Never>?
+    private var task: URLSessionDataTask?
+    private var cancelled = false
+    private var finished = false
+    private var redirectHopCount = 0
+    private var response: URLResponse?
+
+    init(cap: Int64) {
+        self.cap = cap
+        self.collector = CappedDataCollector(cap: cap)
+    }
+
+    func download(_ url: URL, using session: URLSession) async -> Data? {
+        await download(URLRequest(url: url), using: session)
+    }
+
+    /// The final response, once headers arrived. Read after `download` returns.
+    var receivedResponse: URLResponse? {
+        lock.withLock { response }
+    }
+
+    func download(_ request: URLRequest, using session: URLSession) async -> Data? {
+        // Propagate Swift task cancellation to the underlying network request. The
+        // `DownsampledAsyncImage` call site runs this inside a `.task(id:)`, which cancels the
+        // awaiting task whenever the row's URL/size identity changes (scrolling, navigation);
+        // without this the request would keep running and buffering until it completed or timed
+        // out. (The native `URLSession.bytes(from:)` API we replaced did this automatically.)
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+                lock.lock()
+                if cancelled {
+                    lock.unlock()
+                    continuation.resume(returning: nil)
+                    return
+                }
+                self.continuation = continuation
+                let task = session.dataTask(with: request)
+                // Attach *this* delegate per task (macOS 12+) rather than backing a throwaway
+                // per-download `URLSession`. This keeps per-download collector state isolated
+                // while letting the shared `session` reuse its connection pool across avatars.
+                task.delegate = self
+                self.task = task
+                lock.unlock()
+                task.resume()
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+
+    /// Cancels the in-flight data task (if any) and resolves the awaiting continuation with
+    /// `nil`. Safe to call before the task is created (the `cancelled` flag short-circuits
+    /// `download`) and idempotent (later calls are no-ops once `finished`).
+    private func cancel() {
+        lock.lock()
+        cancelled = true
+        let task = self.task
+        lock.unlock()
+        task?.cancel()
+        finish(with: nil)
+    }
+
+    /// Resumes the awaiting continuation exactly once; later calls are ignored. (A cap abort
+    /// resumes with `nil`, then the resulting cancellation error's `didComplete` is a no-op.)
+    private func finish(with result: Data?) {
+        lock.lock()
+        guard !finished, let continuation else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        self.continuation = nil
+        lock.unlock()
+        continuation.resume(returning: result)
+    }
+
+    /// Re-validate redirect targets against the privacy policy. `URLSession` follows redirects
+    /// automatically by default, so without this an allowed `https://` avatar could 3xx-redirect
+    /// to `http://` (or another disallowed scheme/host), defeating the HTTPS-only,
+    /// IP-leak-limiting `RemoteImageURLPolicy` check applied to the original URL.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        let hopCount = lock.withLock {
+            redirectHopCount += 1
+            return redirectHopCount
+        }
+        if hopCount > 5 {
+            completionHandler(nil)
+            task.cancel()
+            finish(with: nil)
+            return
+        }
+        guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else {
+            completionHandler(nil)
+            task.cancel()
+            finish(with: nil)
+            return
+        }
+        completionHandler(request)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            completionHandler(.cancel)
+            finish(with: nil)
+            return
+        }
+        // Honour an advertised oversized Content-Length up front when present.
+        if response.expectedContentLength > 0, response.expectedContentLength > cap {
+            completionHandler(.cancel)
+            finish(with: nil)
+            return
+        }
+        lock.withLock { self.response = response }
+        if response.expectedContentLength > 0 {
+            lock.lock()
+            collector.reserve(Int(min(response.expectedContentLength, cap)))
+            lock.unlock()
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        lock.lock()
+        let ok = collector.append(data)
+        lock.unlock()
+        if !ok {
+            dataTask.cancel()
+            finish(with: nil)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if error != nil {
+            finish(with: nil)
+            return
+        }
+        lock.lock()
+        let result: Data? = collector.exceededCap ? nil : collector.data
+        lock.unlock()
+        finish(with: result)
     }
 }

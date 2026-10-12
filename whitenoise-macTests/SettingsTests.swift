@@ -336,7 +336,9 @@ struct SettingsTests: WorkspaceTestSupport {
         await state.searchProfileImages()
         #expect(state.profileImageResults == [result])
 
-        await state.setProfileImage(result)
+        try await state.setProfileImage(
+            croppedImageData: AvatarImageCropSource.data(for: result, using: imageSourceLoader)
+        )
 
         #expect(await imageSourceLoader.requestedURLs == [URL(string: result.imageURL)!])
         #expect(runtime.uploadedProfileImageData?.isEmpty == false)
@@ -369,7 +371,7 @@ struct SettingsTests: WorkspaceTestSupport {
 
         await state.bootstrap()
         state.showProfileImagePicker()
-        await state.setProfileImage(fileURL: imageURL)
+        try await state.setProfileImage(croppedImageData: AvatarImageCropSource.data(fromFileURL: imageURL))
 
         #expect(runtime.uploadedProfileImageData?.isEmpty == false)
         #expect(runtime.uploadedProfileImageMediaType == "image/jpeg")
@@ -405,7 +407,7 @@ struct SettingsTests: WorkspaceTestSupport {
 
         await state.bootstrap()
         state.showProfileImagePicker()
-        await state.setProfileImage(fileURL: imageURL)
+        try await state.setProfileImage(croppedImageData: AvatarImageCropSource.data(fromFileURL: imageURL))
 
         let uploaded = try #require(runtime.uploadedProfileImageData)
         let published = try #require(RemoteImageURLPolicy.sanitizedURL(from: state.profileDraft.picture))
@@ -438,7 +440,7 @@ struct SettingsTests: WorkspaceTestSupport {
         await state.bootstrap()
         state.authenticationMode = .signUp
         state.prepareProfileImageDestination(.signUpDraft)
-        await state.setProfileImage(fileURL: imageURL)
+        try await state.setProfileImage(croppedImageData: AvatarImageCropSource.data(fromFileURL: imageURL))
         let staged = try #require(state.signUpDraft.image)
         state.signUpDraft.displayName = "Pepi"
 

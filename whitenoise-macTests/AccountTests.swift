@@ -1922,7 +1922,7 @@ struct AccountTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func accountRemovalPurgesOnlyItsPinsAndDeleteAllDataClearsTheRemainder() async throws {
+    @Test func launchHandsLegacyHostPinsToMarmotKitOnce() async throws {
         let primary = desktopAccount()
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -1933,12 +1933,13 @@ struct AccountTests: WorkspaceTestSupport {
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        runtime.installGroups([messageGroup()])
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("whitenoise-pinned-cleanup-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("whitenoise-pinned-migration-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = PinnedChatFileStore(directoryURL: directory)
-        try store.write(["shared-group"], forAccountId: primary.label)
-        try store.write(["shared-group"], forAccountId: secondary.label)
+        try store.write(["group"], forAccountId: primary.label)
+        try store.write(["other-group"], forAccountId: secondary.label)
 
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
@@ -1947,20 +1948,26 @@ struct AccountTests: WorkspaceTestSupport {
         let state = WorkspaceState(pinnedChatStore: store, clientFactory: { runtime })
         await state.bootstrap()
 
-        #expect(state.isChatPinned(accountId: primary.label, groupIdHex: "shared-group"))
-        #expect(state.isChatPinned(accountId: secondary.label, groupIdHex: "shared-group"))
-
-        let backupAccount = try #require(state.accounts.first { $0.id == secondary.label })
-        await state.removeAccount(backupAccount)
-
-        #expect(try store.loadAll() == [primary.label: ["shared-group"]])
-        #expect(state.isChatPinned(accountId: primary.label, groupIdHex: "shared-group"))
-        #expect(!state.isChatPinned(accountId: secondary.label, groupIdHex: "shared-group"))
-
-        await state.deleteAllData()
-
+        let accountRefs = Dictionary(uniqueKeysWithValues: state.accounts.map { ($0.id, $0.accountRef) })
+        let migrated = runtime.setChatPinnedCalls.map { "\($0.accountRef)/\($0.groupIdHex)/\($0.pinned)" }
+        #expect(
+            Set(migrated) == [
+                "\(try #require(accountRefs[primary.label]))/group/true",
+                "\(try #require(accountRefs[secondary.label]))/other-group/true",
+            ]
+        )
         #expect(try store.loadAll().isEmpty)
-        #expect(state.pinnedChatIdsByAccount.isEmpty)
+        // The first snapshot after launch already carries the migrated pin.
+        #expect(state.isChatPinned(accountId: primary.label, groupIdHex: "group"))
+        #expect(state.activeChats.first?.id == "group")
+
+        let callsAfterLaunch = runtime.setChatPinnedCalls.count
+        let relaunched = WorkspaceState(pinnedChatStore: store, clientFactory: { runtime })
+        await relaunched.bootstrap()
+        #expect(runtime.setChatPinnedCalls.count == callsAfterLaunch)
+
+        await relaunched.deleteAllData()
+        #expect(relaunched.pinnedChatIdsByAccount.isEmpty)
     }
 
     @MainActor

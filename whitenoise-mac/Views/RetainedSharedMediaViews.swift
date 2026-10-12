@@ -426,29 +426,36 @@ private struct RetainedFileRow: View {
     }
 
     private func saveOrDownload() async {
-        guard let target = item.target, let reference = item.reference else { return }
         isWorking = true
         defer { isWorking = false }
         do {
-            if localAsset?.reference == nil {
-                _ = try await model.downloadExplicitly(target)
-            }
-            guard let asset = model.localAssetsByTarget[target], let retainedReference = asset.reference else {
-                return
-            }
-            let data = try await model.readRetainedAsset(
-                reference: retainedReference,
-                byteCount: asset.byteCount
-            )
-            let panel = NSSavePanel()
-            panel.nameFieldStringValue = MessageMediaAttachment(id: item.id, reference: reference).fileName
-            panel.canCreateDirectories = true
-            guard panel.runModal() == .OK, let url = panel.url else { return }
-            try data.write(to: url, options: .atomic)
+            try await saveRetainedAttachment(item, model: model)
         } catch {
             actionError = error.localizedDescription
         }
     }
+}
+
+/// Saves one retained attachment wherever the user picks, downloading it first when the automatic
+/// policy left it alone. Shared by the file row and the full-pane viewer, so both write the same
+/// bytes under the same name.
+func saveRetainedAttachment(_ item: RetainedAttachmentItem, model: AttachmentViewModel) async throws {
+    guard let target = item.target, let reference = item.reference else { return }
+    if model.localAssetsByTarget[target]?.reference == nil {
+        _ = try await model.downloadExplicitly(target)
+    }
+    guard let asset = model.localAssetsByTarget[target], let retainedReference = asset.reference else {
+        return
+    }
+    let data = try await model.readRetainedAsset(
+        reference: retainedReference,
+        byteCount: asset.byteCount
+    )
+    let panel = NSSavePanel()
+    panel.nameFieldStringValue = MessageMediaAttachment(id: item.id, reference: reference).fileName
+    panel.canCreateDirectories = true
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    try data.write(to: url, options: .atomic)
 }
 
 private struct RetainedAttachmentControlMenu: View {
@@ -516,7 +523,7 @@ private extension AttachmentTransferStatusFfi {
     }
 }
 
-private extension View {
+extension View {
     func retainedAttachmentErrorAlert(_ message: Binding<String?>) -> some View {
         alert(
             L10n.string("Something went wrong"),

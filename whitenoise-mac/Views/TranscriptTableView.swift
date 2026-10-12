@@ -212,6 +212,21 @@ where Row.ID == String {
     private var liveCellIds: Set<String> = []
     private let sizingHost = NSHostingView(rootView: AnyView(EmptyView()))
     private var appliedRequestId: UUID?
+    /// The last requested position, re-applied after every change to the rows or their heights
+    /// until the reader scrolls. A request can arrive before the table has a size (the
+    /// conversation mounts the table in the same update as its opening position), and rows settle
+    /// their heights after it lands (the column reaching its width, live cells reporting); holding
+    /// the target keeps the reader on it through all of that instead of wherever the first
+    /// layout's offset falls afterwards.
+    private var heldTarget: TranscriptScrollTarget?
+    /// A performed request the SwiftUI side has not been told about yet. Confirmation waits for a
+    /// viewport with a size: the conversation starts reading and paging from the first confirmed
+    /// position, which a zero-size viewport does not have.
+    private var unconfirmedRequestId: UUID?
+    /// True while the coordinator itself moves the viewport, so only the reader's own scrolling
+    /// releases `heldTarget`.
+    private var isMovingProgrammatically = false
+    private var lastClipBounds: NSRect = .zero
     private var followsBottom = false
     private var isAtBottom = false
     private var lastViewport: TranscriptViewport?
@@ -239,7 +254,7 @@ where Row.ID == String {
                 object: scrollView.contentView,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.viewportMoved() }
+                MainActor.assumeIsolated { self?.clipBoundsChanged() }
             })
         observers.append(
             center.addObserver(
@@ -280,38 +295,104 @@ where Row.ID == String {
         guard let tableView else { return }
         if newRows != rows {
             let sameIds = newRows.count == rows.count && zip(newRows, rows).allSatisfy { $0.id == $1.id }
-            let pinnedToBottom = isAtBottom && followsBottom
-            let anchor = pinnedToBottom ? nil : currentAnchor()
-            if sameIds {
-                let changed = IndexSet(newRows.indices.filter { newRows[$0] != rows[$0] }.map { $0 + 1 })
-                rows = newRows
-                for tableRow in changed {
-                    if let cell = tableView.view(atColumn: 0, row: tableRow, makeIfNecessary: false)
-                        as? TranscriptHostingCell
-                    {
-                        configure(cell, row: rows[tableRow - 1])
+            // A held foot covers rows settling, not rows arriving: holding it through a newer page
+            // in a window that does not follow the tail would reach the foot again and page again.
+            if !sameIds, heldTarget == .bottom { heldTarget = nil }
+            relayout {
+                if sameIds {
+                    let changed = IndexSet(newRows.indices.filter { newRows[$0] != rows[$0] }.map { $0 + 1 })
+                    rows = newRows
+                    for tableRow in changed {
+                        if let cell = tableView.view(atColumn: 0, row: tableRow, makeIfNecessary: false)
+                            as? TranscriptHostingCell
+                        {
+                            configure(cell, row: rows[tableRow - 1])
+                        }
                     }
+                    tableView.noteHeightOfRows(
+                        withIndexesChanged: changed.union(IndexSet(integer: Self.fillerRow)))
+                } else {
+                    rows = newRows
+                    let liveIds = Set(rows.map(\.id))
+                    heights = heights.filter { liveIds.contains($0.key) }
+                    tableView.reloadData()
                 }
-                tableView.noteHeightOfRows(withIndexesChanged: changed.union(IndexSet(integer: Self.fillerRow)))
-            } else {
-                rows = newRows
-                let liveIds = Set(rows.map(\.id))
-                heights = heights.filter { liveIds.contains($0.key) }
-                tableView.reloadData()
-            }
-            tableView.layoutSubtreeIfNeeded()
-            if pinnedToBottom {
-                scrollToBottom()
-            } else if let anchor {
-                restore(anchor)
             }
         }
         if let scrollRequest, scrollRequest.id != appliedRequestId {
             appliedRequestId = scrollRequest.id
+            heldTarget = holdsPosition(scrollRequest.target) ? scrollRequest.target : nil
+            unconfirmedRequestId = scrollRequest.id
+            moveProgrammatically {
+                tableView.layoutSubtreeIfNeeded()
+                if !perform(scrollRequest.target) { heldTarget = nil }
+            }
+            confirmRequestIfLaidOut()
+        }
+        viewportMoved()
+    }
+
+    /// Applies a change to the rows or their heights, then puts the reader back: at the foot while
+    /// following it there, else on the held request's target, else with the first visible row
+    /// exactly where it was.
+    private func relayout(_ change: () -> Void) {
+        guard let tableView else { return }
+        let pinnedToBottom = isAtBottom && followsBottom
+        let anchor = pinnedToBottom ? nil : currentAnchor()
+        moveProgrammatically {
+            change()
             tableView.layoutSubtreeIfNeeded()
-            perform(scrollRequest.target)
-            let id = scrollRequest.id
-            report { $0.onScrollRequestApplied(id) }
+            if pinnedToBottom {
+                scrollToBottom()
+                return
+            }
+            if let heldTarget {
+                if perform(heldTarget) { return }
+                // The target row left the window; from here the reader's row holds still.
+                self.heldTarget = nil
+            }
+            if let anchor { restore(anchor) }
+        }
+    }
+
+    /// Whether a target can stand for the reader's position: the foot, or a row that anchors it.
+    /// Chrome (a loading row) does not travel with the messages, so holding it would move them.
+    private func holdsPosition(_ target: TranscriptScrollTarget) -> Bool {
+        let id: String
+        switch target {
+        case .bottom:
+            return true
+        case .top(let rowId, _), .center(let rowId):
+            id = rowId
+        }
+        guard let row = rows.first(where: { $0.id == id }) else { return false }
+        return configuration?.anchorsPosition(row) ?? true
+    }
+
+    private func moveProgrammatically(_ body: () -> Void) {
+        let wasMoving = isMovingProgrammatically
+        isMovingProgrammatically = true
+        defer { isMovingProgrammatically = wasMoving }
+        body()
+    }
+
+    private func confirmRequestIfLaidOut() {
+        guard let id = unconfirmedRequestId, let clip = scrollView?.contentView,
+            clip.bounds.width > 0, clip.bounds.height > 0
+        else { return }
+        unconfirmedRequestId = nil
+        report { $0.onScrollRequestApplied(id) }
+    }
+
+    /// The clip view's bounds changed. A move of the origin at an unchanged size that the
+    /// coordinator did not make is the reader scrolling, which releases the held target; a size
+    /// change is the container resizing, which `containerResized` repositions for.
+    private func clipBoundsChanged() {
+        if let bounds = scrollView?.contentView.bounds {
+            if !isMovingProgrammatically, bounds.size == lastClipBounds.size, bounds.origin != lastClipBounds.origin {
+                heldTarget = nil
+            }
+            lastClipBounds = bounds
         }
         viewportMoved()
     }
@@ -405,14 +486,8 @@ where Row.ID == String {
 
     private func reheightRow(id: String) {
         guard let tableView, let index = rows.firstIndex(where: { $0.id == id }) else { return }
-        let pinnedToBottom = isAtBottom && followsBottom
-        let anchor = pinnedToBottom ? nil : currentAnchor()
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet([Self.fillerRow, index + 1]))
-        tableView.layoutSubtreeIfNeeded()
-        if pinnedToBottom {
-            scrollToBottom()
-        } else if let anchor {
-            restore(anchor)
+        relayout {
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet([Self.fillerRow, index + 1]))
         }
     }
 
@@ -462,32 +537,22 @@ where Row.ID == String {
     private func containerResized() {
         guard let tableView else { return }
         let width = columnWidth
-        let pinnedToBottom = isAtBottom && followsBottom
-        let anchor = pinnedToBottom ? nil : currentAnchor()
-        if width != measuredWidth {
-            measuredWidth = width
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<tableView.numberOfRows))
-        } else {
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: Self.fillerRow))
+        relayout {
+            if width != measuredWidth {
+                measuredWidth = width
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<tableView.numberOfRows))
+            } else {
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: Self.fillerRow))
+            }
         }
-        tableView.layoutSubtreeIfNeeded()
-        if pinnedToBottom {
-            scrollToBottom()
-        } else if let anchor {
-            restore(anchor)
-        }
+        confirmRequestIfLaidOut()
+        viewportMoved()
     }
 
     func liveResizeEnded() {
         guard let tableView else { return }
-        let pinnedToBottom = isAtBottom && followsBottom
-        let anchor = pinnedToBottom ? nil : currentAnchor()
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<tableView.numberOfRows))
-        tableView.layoutSubtreeIfNeeded()
-        if pinnedToBottom {
-            scrollToBottom()
-        } else if let anchor {
-            restore(anchor)
+        relayout {
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<tableView.numberOfRows))
         }
     }
 
@@ -516,19 +581,22 @@ where Row.ID == String {
         scroll(toY: tableView.rect(ofRow: index + 1).minY - anchor.offset)
     }
 
-    private func perform(_ target: TranscriptScrollTarget) {
-        guard let tableView, let scrollView else { return }
+    /// Scrolls to `target`. Returns false when its row is not in the transcript.
+    @discardableResult
+    private func perform(_ target: TranscriptScrollTarget) -> Bool {
+        guard let tableView, let scrollView else { return false }
         switch target {
         case .bottom:
             scrollToBottom()
         case .top(let id, let inset):
-            guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = rows.firstIndex(where: { $0.id == id }) else { return false }
             scroll(toY: tableView.rect(ofRow: index + 1).minY - inset)
         case .center(let id):
-            guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = rows.firstIndex(where: { $0.id == id }) else { return false }
             let rect = tableView.rect(ofRow: index + 1)
             scroll(toY: rect.midY - scrollView.contentView.bounds.height / 2)
         }
+        return true
     }
 
     private func scrollToBottom() {
@@ -540,8 +608,10 @@ where Row.ID == String {
         guard let tableView, let scrollView else { return }
         let maxY = max(0, tableView.bounds.height - scrollView.contentView.bounds.height)
         let clamped = min(max(0, y), maxY)
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: clamped))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+        moveProgrammatically {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: clamped))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     private func viewportMoved() {

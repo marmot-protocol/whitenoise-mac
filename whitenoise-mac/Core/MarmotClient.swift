@@ -331,6 +331,10 @@ nonisolated protocol MarmotRuntime: Sendable {
     func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int64?) throws
         -> ChatNotificationSettingsFfi
     func clearChatMuted(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi
+    /// Pins or unpins one chat in the account-device's pinned section. A newly pinned chat enters
+    /// at the top; the result is the complete pinned order, and the chat-list projections publish
+    /// the reordered rows on their own.
+    func setChatPinned(accountRef: String, groupIdHex: String, pinned: Bool) throws -> ChatPinStateFfi
     func recordHostPerformance(
         operation: HostPerformanceOperationFfi,
         durationMs: UInt64,
@@ -1484,6 +1488,10 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func clearChatMuted(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi {
         try marmot.clearChatMuted(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func setChatPinned(accountRef: String, groupIdHex: String, pinned: Bool) throws -> ChatPinStateFfi {
+        try marmot.setChatPinned(accountRef: accountRef, groupIdHex: groupIdHex, pinned: pinned)
     }
 
     func recordHostPerformance(

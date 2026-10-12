@@ -1198,6 +1198,65 @@
         }
       }
     },
+    "Couldn’t add photo" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Foto konnte nicht hinzugefügt werden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo añadir la foto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible d’ajouter la photo"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile aggiungere la foto"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível adicionar a foto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось добавить фото"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fotoğraf eklenemedi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法添加照片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法加入照片"
+          }
+        }
+      }
+    },
     "Couldn’t dismiss notice" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1373,6 +1432,124 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法傳送投票。請再試一次。"
+          }
+        }
+      }
+    },
+    "Drag to position the image. Pinch or use the slider to zoom." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziehe das Bild, um es zu positionieren. Zoome per Zwei-Finger-Geste oder mit dem Schieberegler."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrastra para colocar la imagen. Pellizca o usa el control deslizante para ampliar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faites glisser l’image pour la positionner. Pincez ou utilisez le curseur pour zoomer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trascina per posizionare l’immagine. Pizzica o usa il cursore per ingrandire."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arraste para posicionar a imagem. Use o gesto de pinça ou o controle deslizante para ampliar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перетащите изображение, чтобы расположить его. Для масштабирования сведите или разведите пальцы либо используйте ползунок."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Görseli konumlandırmak için sürükleyin. Yakınlaştırmak için parmaklarınızı açın veya kaydırıcıyı kullanın."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖动以调整图像位置。双指捏合或使用滑块进行缩放。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖曳以調整影像位置。雙指撥動或使用滑桿進行縮放。"
+          }
+        }
+      }
+    },
+    "Crop image" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bild zuschneiden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recortar imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recadrer l’image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ritaglia immagine"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recortar imagem"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обрезать изображение"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Görseli kırp"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "裁剪图像"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "裁切影像"
           }
         }
       }
@@ -60665,6 +60842,65 @@
         }
       }
     },
+    "Show Link Previews" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkvorschauen anzeigen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar vistas previas de enlaces"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher les aperçus de liens"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra anteprime dei link"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar pré-visualizações de links"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать превью ссылок"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bağlantı önizlemelerini göster"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示链接预览"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示連結預覽"
+          }
+        }
+      }
+    },
     "Show message preview" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -60958,6 +61194,65 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顯示被回覆的訊息"
+          }
+        }
+      }
+    },
+    "Shows the title and image of links in chats. Loading a preview tells the linked website, and the site hosting its image, your IP address." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt Titel und Bild von Links in Chats. Beim Laden einer Vorschau erfahren die verlinkte Website und die Website, auf der das Bild liegt, deine IP-Adresse."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra el título y la imagen de los enlaces en los chats. Al cargar una vista previa, el sitio web enlazado y el sitio que aloja su imagen conocen tu dirección IP."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche le titre et l’image des liens dans les discussions. Le chargement d’un aperçu communique votre adresse IP au site lié et au site qui héberge son image."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra il titolo e l’immagine dei link nelle chat. Il caricamento di un’anteprima comunica il tuo indirizzo IP al sito collegato e al sito che ospita la sua immagine."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra o título e a imagem dos links nas conversas. Carregar uma pré-visualização informa o seu endereço IP ao site vinculado e ao site que hospeda a imagem."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает заголовок и изображение ссылок в чатах. При загрузке превью связанный сайт и сайт, на котором размещено изображение, узнают ваш IP-адрес."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbetlerdeki bağlantıların başlığını ve görselini gösterir. Önizleme yüklemek, bağlantılı web sitesine ve görselini barındıran siteye IP adresinizi bildirir."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示聊天中链接的标题和图片。加载预览会让链接的网站以及托管其图片的网站得知你的 IP 地址。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示聊天中連結的標題與圖片。載入預覽會讓連結的網站以及託管其圖片的網站得知你的 IP 位址。"
           }
         }
       }
@@ -75427,6 +75722,65 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的簽署器無法使用。"
+          }
+        }
+      }
+    },
+    "Zoom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Масштаб"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yakınlaştırma"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缩放"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "縮放"
           }
         }
       }

@@ -60,7 +60,7 @@ nonisolated enum GiphyRemoteMediaLoader {
     }
 
     /// The first frame's aspect ratio, or `invalidResponse` unless `data` is a multi-frame GIF.
-    /// Checking the container here is what lets the view hand the bytes to `NSImage` without
+    /// Checking the container here is what lets the view hand the bytes to ImageIO's animator without
     /// trusting the CDN's content type.
     static func animatedImageAspectRatio(from data: Data) throws -> CGFloat {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),

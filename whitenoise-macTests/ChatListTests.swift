@@ -2605,39 +2605,79 @@ struct ChatListTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func pinnedChatStateIsAccountScopedForSharedGroupIds() throws {
+    @Test func pinnedChatStateIsAccountScopedForSharedGroupIds() async throws {
         let accounts = Array(AccountItem.samples.prefix(2))
         let firstAccount = try #require(accounts.first)
         let secondAccount = try #require(accounts.last)
-        let firstChat = chatListOrderingTestItem(id: "shared-group", title: "First account", updatedAt: 100)
-        let secondChat = chatListOrderingTestItem(id: "shared-group", title: "Second account", updatedAt: 100)
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("whitenoise-pinned-account-scope-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = PinnedChatFileStore(directoryURL: directory)
         let state = WorkspaceState(
             accounts: accounts,
-            chatsByAccount: [
-                firstAccount.id: [firstChat],
-                secondAccount.id: [secondChat],
-            ],
-            pinnedChatStore: store,
+            chatsByAccount: [:],
             clientFactory: { FakeMarmotRuntime(accounts: []) }
         )
+        let sharedRow = { (pinned: Bool) in
+            chatListRow(
+                groupIdHex: "shared-group",
+                title: "Shared",
+                preview: "hello",
+                sender: "alice",
+                timelineAt: 100,
+                pinned: pinned,
+                pinnedPosition: pinned ? 0 : nil
+            )
+        }
 
         state.activeAccountId = firstAccount.id
-        state.setChatPinned(firstChat, pinned: true)
-
-        #expect(state.isChatPinned(accountId: firstAccount.id, groupIdHex: firstChat.id))
-        #expect(!state.isChatPinned(accountId: secondAccount.id, groupIdHex: secondChat.id))
-
+        await state.applyChatRows([sharedRow(true)], account: firstAccount)
         state.activeAccountId = secondAccount.id
-        state.setChatPinned(secondChat, pinned: true)
-        state.setChatPinned(secondChat, pinned: false)
+        await state.applyChatRows([sharedRow(false)], account: secondAccount)
 
-        #expect(state.isChatPinned(accountId: firstAccount.id, groupIdHex: firstChat.id))
-        #expect(!state.isChatPinned(accountId: secondAccount.id, groupIdHex: secondChat.id))
-        #expect(try store.loadAll() == [firstAccount.id: [firstChat.id]])
+        #expect(state.isChatPinned(accountId: firstAccount.id, groupIdHex: "shared-group"))
+        #expect(!state.isChatPinned(accountId: secondAccount.id, groupIdHex: "shared-group"))
+    }
+
+    /// Regression: pins were written only to a host-side file the core never read, so the
+    /// prepared chat list the sidebar renders kept the chat where it was. The pin has to reach
+    /// MarmotKit, which owns the pinned section's order.
+    @MainActor
+    @Test func pinningRoutesThroughMarmotKitAndMovesTheChatToTheTop() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let accountRef = try #require(state.activeAccount?.accountRef)
+        let last = try #require(state.activeChats.last)
+        #expect(state.activeChats.count == 2)
+        #expect(state.activeChats.first?.id != last.id)
+
+        await state.setChatPinned(last, pinned: true)
+
+        #expect(runtime.setChatPinnedCalls.map(\.accountRef) == [accountRef])
+        #expect(runtime.setChatPinnedCalls.map(\.groupIdHex) == [last.id])
+        #expect(runtime.setChatPinnedCalls.map(\.pinned) == [true])
+        #expect(state.isChatPinned(last))
+        #expect(state.activeChats.first?.id == last.id)
+
+        await state.setChatPinned(last, pinned: false)
+
+        #expect(runtime.setChatPinnedCalls.map(\.pinned) == [true, false])
+        #expect(!state.isChatPinned(last))
+    }
+
+    @MainActor
+    @Test func aRefusedPinLeavesThePinnedSetAlone() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        runtime.setChatPinnedError = FakeMarmotRuntimeError.unused
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.last)
+
+        await state.setChatPinned(chat, pinned: true)
+
+        #expect(!state.isChatPinned(chat))
+        #expect(state.lastError != nil)
     }
 
     @MainActor
@@ -2645,17 +2685,12 @@ struct ChatListTests: WorkspaceTestSupport {
         let account = AccountItem.samples[0]
         let pinned = chatListOrderingTestItem(id: "pinned", title: "Pinned", updatedAt: 100)
         let unpinned = chatListOrderingTestItem(id: "unpinned", title: "Unpinned", updatedAt: 200)
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("whitenoise-pinned-projection-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
         let state = WorkspaceState(
             accounts: [account],
             chatsByAccount: [account.id: [unpinned, pinned]],
-            pinnedChatStore: PinnedChatFileStore(directoryURL: directory),
             clientFactory: { FakeMarmotRuntime(accounts: []) }
         )
         state.activeAccountId = account.id
-        state.setChatPinned(pinned, pinned: true)
 
         await state.applyChatRows(
             [
@@ -2671,7 +2706,9 @@ struct ChatListTests: WorkspaceTestSupport {
                     title: pinned.title,
                     preview: "older pinned snapshot",
                     sender: "bob",
-                    timelineAt: 300
+                    timelineAt: 300,
+                    pinned: true,
+                    pinnedPosition: 0
                 ),
             ],
             account: account
@@ -3218,16 +3255,12 @@ struct ChatListTests: WorkspaceTestSupport {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("whitenoise-pinned-archive-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let pinnedChatStore = PinnedChatFileStore(directoryURL: directory)
-        let state = WorkspaceState(pinnedChatStore: pinnedChatStore, clientFactory: { runtime })
+        let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         let chat = try #require(state.activeChats.first { $0.id == "group" })
         let accountId = try #require(state.activeAccountId)
-        state.setChatPinned(chat, pinned: true)
+        await state.setChatPinned(chat, pinned: true)
         #expect(state.activeChats.first?.id == chat.id)
 
         await state.setChatArchived(chat, archived: true)
@@ -3238,7 +3271,7 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(state.archivedChats.first?.id == chat.id)
         #expect(state.archivedChats.first?.subtitle == L10n.string("Archived"))
         #expect(state.isChatPinned(accountId: accountId, groupIdHex: chat.id))
-        #expect(try pinnedChatStore.loadAll()[accountId] == [chat.id])
+        #expect(runtime.pinnedGroupIdsByAccountRef.values.contains([chat.id]))
 
         let archivedChat = try #require(state.archivedChats.first)
         await state.setChatArchived(archivedChat, archived: false)

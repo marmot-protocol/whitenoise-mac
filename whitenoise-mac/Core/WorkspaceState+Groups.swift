@@ -25,16 +25,10 @@ private struct GroupImageUpdateContext {
 }
 
 private enum GroupImageSelectionError: LocalizedError {
-    case invalidWebImage
-    case downloadFailed
     case notAnImage
 
     var errorDescription: String? {
         switch self {
-        case .invalidWebImage:
-            return L10n.string("That image URL is not allowed.")
-        case .downloadFailed:
-            return L10n.string("That image could not be downloaded.")
         case .notAnImage:
             return L10n.string("Please choose an image file.")
         }
@@ -170,6 +164,7 @@ extension WorkspaceState {
             npub: npub,
             displayName: nickname ?? displayName,
             publishedDisplayName: Self.publishedContactName(displayName, overriddenBy: nickname),
+            displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: displayName),
             pictureURL: pictureURL,
             imagePayload: imagePayload
         )
@@ -198,6 +193,9 @@ extension WorkspaceState {
             contactDetailsTarget?.accountIdHex == accountIdHex
         else { return }
 
+        // Read again rather than reuse the one the pane opened with: a nickname saved while the
+        // profile resolved has already relabelled the pane, and this write must not undo it.
+        let currentNickname = activeContactNicknames.nickname(forContactAccountIdHex: accountIdHex)
         let published = firstNonBlank([
             PeerDisplayText.sanitize(resolved?.profileDisplayName),
             PeerDisplayText.sanitize(resolved?.profileName),
@@ -209,8 +207,9 @@ extension WorkspaceState {
             memberRef: npub.isEmpty ? accountIdHex : npub,
             accountIdHex: accountIdHex,
             npub: canonicalNpub ?? "",
-            displayName: nickname ?? published,
-            publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
+            displayName: currentNickname ?? published,
+            publishedDisplayName: Self.publishedContactName(published, overriddenBy: currentNickname),
+            displayNameIsPrivate: Self.nicknameIsPrivate(currentNickname, over: published),
             pictureURL: resolved?.profilePicture?.nilIfBlank ?? pictureURL,
             imagePayload: imagePayload,
             about: resolved?.profileAbout
@@ -229,11 +228,17 @@ extension WorkspaceState {
         return published
     }
 
+    /// The nickname is the only label, with no published name behind it, so it must never be
+    /// offered as what the contact calls themselves. Paired with `publishedContactName`.
+    nonisolated static func nicknameIsPrivate(_ nickname: String?, over published: String?) -> Bool {
+        nickname != nil && published?.nilIfBlank == nil
+    }
+
     func showContactDetails(for member: GroupMemberItem) async {
         await showContactDetails(
             accountIdHex: member.id,
             npub: member.npub,
-            displayName: member.publishedDisplayName ?? member.displayName,
+            displayName: member.profileName,
             pictureURL: nil,
             // A member row is only reachable from the open conversation's details, so that
             // conversation is the one group the viewer already knows they share.
@@ -242,9 +247,13 @@ extension WorkspaceState {
     }
 
     func showContactDetails(for message: MessageItem) async {
+        // `senderName` is nickname-first: with a nickname set it is not a published name, and a
+        // nickname over a nameless profile leaves `publishedSenderName` nil too.
+        let hasNickname =
+            activeContactNicknames.nickname(forContactAccountIdHex: message.senderAccountIdHex) != nil
         await showContactDetails(
             accountIdHex: message.senderAccountIdHex,
-            displayName: message.publishedSenderName ?? message.senderName,
+            displayName: message.publishedSenderName ?? (hasNickname ? nil : message.senderName),
             pictureURL: message.senderPictureURL,
             imagePayload: message.senderImagePayload,
             excludingGroupIdHex: message.groupIdHex
@@ -441,7 +450,10 @@ extension WorkspaceState {
         else { return }
         let trimmedName = groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDescription = groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
+        // An unnamed group's editor starts empty, and saving only its description must leave it
+        // unnamed: `nil` tells MDK to keep the name as it is. Sending the "Unnamed group"
+        // placeholder instead would publish it, localized, as the group's real name to everyone.
+        guard !trimmedName.isEmpty || snapshot.customName == nil else {
             lastError = L10n.string("Group name cannot be empty.")
             return
         }
@@ -454,7 +466,7 @@ extension WorkspaceState {
             _ = try await client.updateGroupProfile(
                 accountRef: activeAccount.accountRef,
                 groupIdHex: snapshot.groupIdHex,
-                name: trimmedName,
+                name: trimmedName.isEmpty ? nil : trimmedName,
                 description: trimmedDescription
             )
             await reloadChats(forceFreshSnapshot: true)
@@ -1280,50 +1292,25 @@ extension WorkspaceState {
         }
     }
 
-    func setGroupImage(_ result: GroupImageSearchResult) async {
+    /// Commit a picture that has already been through `AvatarCropSheet`, file or web alike.
+    ///
+    /// Throws what went wrong so the crop editor can show it beside the picture; an update that
+    /// no longer targets the selected group returns quietly.
+    func setGroupImage(croppedImageData data: Data) async throws {
         guard let context = beginGroupImageUpdate() else { return }
         defer { isSavingGroupImage = false }
 
         do {
-            guard let sourceURL = RemoteImageURLPolicy.sanitizedURL(from: result.imageURL) else {
-                throw GroupImageSelectionError.invalidWebImage
-            }
-            guard let data = await groupImageSourceLoader.data(for: sourceURL) else {
-                throw GroupImageSelectionError.downloadFailed
-            }
             let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(
                 fromPastedImageData: data,
-                typeIdentifier: nil
+                typeIdentifier: AvatarImageCropper.outputTypeIdentifier
             )
-            try await commitSelectedGroupImage(attachment, context: context)
-        } catch is CancellationError {
-            return
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    func setGroupImage(fileURL: URL) async {
-        guard let context = beginGroupImageUpdate() else { return }
-        defer { isSavingGroupImage = false }
-
-        let isSecurityScoped = fileURL.startAccessingSecurityScopedResource()
-        defer {
-            if isSecurityScoped {
-                fileURL.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        do {
-            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: fileURL)
             guard attachment.kind == .image else {
                 throw GroupImageSelectionError.notAnImage
             }
             try await commitSelectedGroupImage(attachment, context: context)
         } catch is CancellationError {
             return
-        } catch {
-            lastError = error.localizedDescription
         }
     }
 
@@ -1720,7 +1707,7 @@ extension WorkspaceState {
         )
         let snapshot = groupDetailsSnapshot(from: details, managementState: managementState)
         groupDetailsSnapshot = snapshot
-        groupProfileDraftName = snapshot.name
+        groupProfileDraftName = snapshot.customName ?? ""
         groupProfileDraftDescription = snapshot.description
     }
 

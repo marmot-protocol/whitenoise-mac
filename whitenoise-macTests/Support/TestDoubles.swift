@@ -384,6 +384,11 @@ final class AtomicMax: @unchecked Sendable {
 }
 
 struct TranscriptPerformanceRows: View {
+    /// The transcript width the rows are laid out in, and the inset each row sits at inside it.
+    /// Render tests that probe a pixel column read these instead of restating the layout.
+    static let width: CGFloat = 760
+    static let horizontalPadding: CGFloat = 28
+
     let messages: [MessageItem]
     let safetyModel = GroupSafetyViewModel(
         accountRef: "performance-account",
@@ -409,8 +414,8 @@ struct TranscriptPerformanceRows: View {
                 }
             }
         }
-        .padding(.horizontal, 28)
+        .padding(.horizontal, Self.horizontalPadding)
         .padding(.vertical, 18)
-        .frame(width: 760)
+        .frame(width: Self.width)
     }
 }
