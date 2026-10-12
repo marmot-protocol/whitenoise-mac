@@ -433,6 +433,12 @@ nonisolated enum MarkdownDisplayInlineBuilder {
             return styled(content, intent: intent.union(.code), link: link)
         case .nostrMention(let entity), .nostrUri(let entity):
             return nostrEntity(entity, intent: intent, mentionNames: mentionNames)
+        case .timestamp(let unixSeconds, let style):
+            return styled(
+                MarkdownTimestampFormatter.text(unixSeconds: unixSeconds, style: style),
+                intent: intent,
+                link: link
+            )
         @unknown default:
             return AttributedString()
         }

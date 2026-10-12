@@ -94,6 +94,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var attachmentPermissionGeneration = "test-attachment-permission"
     private(set) var attachmentPermissionUpdates: [AttachmentAutomaticPermissionFfi] = []
     var attachmentHistoryPageResult: AttachmentPageReadFfi = .restartRequired
+    /// Served in order before falling back to `attachmentHistoryPageResult`, for multi-page reads.
+    var attachmentHistoryPageQueue: [AttachmentPageReadFfi] = []
+    private(set) var attachmentHistoryPageReadCount = 0
     var attachmentLocalAssetResults: [AttachmentLocalAssetFfi] = []
     var attachmentTransferSnapshots: [AttachmentTransferSnapshotFfi] = []
     var attachmentTransferDelayNanoseconds: UInt64 = 0
@@ -1532,7 +1535,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     func attachmentHistoryPage(
         accountRef: String, groupIdHex: String, limit: UInt32, cursor: AttachmentHistoryCursor?
     ) async throws -> AttachmentPageReadFfi {
-        attachmentHistoryPageResult
+        attachmentHistoryPageReadCount += 1
+        if !attachmentHistoryPageQueue.isEmpty { return attachmentHistoryPageQueue.removeFirst() }
+        return attachmentHistoryPageResult
     }
 
     func attachmentLocalAssets(
@@ -2540,6 +2545,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
                     .remoteImage(url: $0, cacheKey: row.groupIdHex)
                 } ?? .placeholder(stableSeed: row.groupIdHex, source: source)
             return PresentedChatRowFfi(
+                draftVersion: nil,
                 preview: preview,
                 actions: ChatListRowActionsFfi(
                     canMarkRead: row.hasUnread,

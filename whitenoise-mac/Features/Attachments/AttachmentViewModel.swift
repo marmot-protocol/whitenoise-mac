@@ -230,23 +230,39 @@ final class AttachmentViewModel {
         return result
     }
 
+    /// Bounds how many custom-emoji-only pages one load skips past before handing control back,
+    /// so a conversation full of inline emoji cannot turn a single load into an unbounded walk.
+    private static let maxSkippedEmojiOnlyPages = 8
+
     private func loadPage(limit: UInt32, restarting: Bool) async {
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            let read = try await runtime.attachmentHistoryPage(
-                accountRef: accountRef,
-                groupIdHex: groupIdHex,
-                limit: limit,
-                cursor: restarting ? nil : cursor
-            )
+            var restarting = restarting
+            var skippedPages = 0
+            var read = try await readPage(limit: limit, restarting: restarting)
+            // Custom-emoji artwork (MarmotKit 0.13 `AttachmentRoleFfi.inlineEmoji`) is not shared
+            // media; a page holding only emoji would otherwise look like the end of the gallery.
+            while case .page(let page) = read,
+                page.hasMore,
+                !page.entries.contains(where: { $0.role != .inlineEmoji }),
+                skippedPages < Self.maxSkippedEmojiOnlyPages
+            {
+                if restarting { entries = [] }
+                restarting = false
+                version = page.version
+                cursor = page.nextCursor
+                skippedPages += 1
+                read = try await readPage(limit: limit, restarting: false)
+            }
             switch read {
             case .page(let page):
+                let shared = page.entries.filter { $0.role != .inlineEmoji }
                 if restarting {
-                    entries = page.entries
+                    entries = shared
                 } else {
-                    entries.append(contentsOf: page.entries)
+                    entries.append(contentsOf: shared)
                 }
                 version = page.version
                 cursor = page.nextCursor
@@ -273,6 +289,15 @@ final class AttachmentViewModel {
         } catch {
             self.error = .unavailable(error.localizedDescription)
         }
+    }
+
+    private func readPage(limit: UInt32, restarting: Bool) async throws -> AttachmentPageReadFfi {
+        try await runtime.attachmentHistoryPage(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            limit: limit,
+            cursor: restarting ? nil : cursor
+        )
     }
 
     private func runTransferSubscription(targets: [AttachmentLocalTargetFfi]) async {

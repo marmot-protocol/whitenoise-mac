@@ -140,6 +140,7 @@ struct ProjectionMigrationTests {
                         receivedAt: 10,
                         sourceEpoch: 4,
                         category: .image,
+                        role: .shared,
                         attachment: .accepted(attachmentIndex: 0, reference: reference)
                     )
                 ],
@@ -188,6 +189,7 @@ struct ProjectionMigrationTests {
                         receivedAt: 10,
                         sourceEpoch: 3,
                         category: .file,
+                        role: .shared,
                         attachment: .accepted(attachmentIndex: 0, reference: reference)
                     )
                 ],
@@ -468,6 +470,7 @@ struct ProjectionMigrationTests {
                         receivedAt: 10,
                         sourceEpoch: 4,
                         category: .image,
+                        role: .shared,
                         attachment: .accepted(attachmentIndex: 0, reference: reference)
                     ),
                     AttachmentEntryFfi(
@@ -478,6 +481,7 @@ struct ProjectionMigrationTests {
                         receivedAt: 10,
                         sourceEpoch: 4,
                         category: .rejected,
+                        role: .shared,
                         attachment: .rejected(
                             attachmentIndex: 1,
                             rejection: MediaAttachmentRejectionFfi(
@@ -494,6 +498,7 @@ struct ProjectionMigrationTests {
                         receivedAt: 10,
                         sourceEpoch: 4,
                         category: .file,
+                        role: .shared,
                         attachment: .accepted(attachmentIndex: 2, reference: reference)
                     ),
                 ],
@@ -1908,6 +1913,7 @@ struct ProjectionMigrationTests {
         peerID: String? = nil
     ) -> PresentedChatRowFfi {
         PresentedChatRowFfi(
+            draftVersion: nil,
             preview: .message,
             actions: ChatListRowActionsFfi(
                 canMarkRead: row.hasUnread,
@@ -1940,13 +1946,13 @@ struct ProjectionMigrationTests {
 
 struct MarmotKitReleaseProvenanceTests {
     @Test func generatedReleaseProvenancePinsTheAuditedBuild() throws {
-        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.12.0")
-        #expect(MarmotKitVersion.mdkSHA == "122bd90ffac60bb6311346e228d0f609a18521ee")
+        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.13.0")
+        #expect(MarmotKitVersion.mdkSHA == "891ab34980ee9dc2ef45bf690733a6e31d3e6778")
         #expect(MarmotKitVersion.uniffiVersion == "0.29.4")
         #expect(MarmotKitVersion.features == "otlp-export,product-analytics-export")
-        #expect(MarmotKitVersion.swiftPMChecksum == "344251a65ec7afcdcce8b7bb0cbf26bfcf398983a99a11bfc93181a0069621a5")
+        #expect(MarmotKitVersion.swiftPMChecksum == "a5b74c4ad8b5da6bd00b24173fa6628cc6aba1dfb9a13ee4d5ff0af1d2081366")
         #expect(
-            MarmotKitVersion.vendoredSwiftSHA256 == "14546a0a018b423457ab23df43819bdf8d876069a6866ffe9052a3cce628036b")
+            MarmotKitVersion.vendoredSwiftSHA256 == "c4218e90a1a94d9d8834f589db504660669e1a2a42a72d78c5f64e41a6e04d3a")
         #expect(MarmotKitVersion.distribution == "static-library-and-privacy-v1")
         #expect(MarmotKitVersion.privacySHA256 == "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7")
         let privacyData = try #require(MarmotKitVersion.privacyManifestData())

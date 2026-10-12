@@ -98,6 +98,7 @@ struct SharedMediaViewerPresentationTests {
                 receivedAt: 10,
                 sourceEpoch: 0,
                 category: category,
+                role: .shared,
                 attachment: outcome
             )
         )

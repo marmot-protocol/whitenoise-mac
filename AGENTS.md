@@ -161,8 +161,8 @@ build.
   onboarding snapshots are complete replacements; do not merge them with an
   older snapshot or restart per-row enrichment.
 - MarmotKit 0.10.4 upgrades account databases through migrations 57–89, 0.11.0
-  through 90–98, and 0.12.0 through 99–101. An older app must not reopen an upgraded
-  database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
+  through 90–98, 0.12.0 through 99–101, and 0.13.0 through 102–107. An older app must not
+  reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch); see
   `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md` and
   `docs/MarmotKit-0.12.0-migration.md`.

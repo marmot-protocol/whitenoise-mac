@@ -110,6 +110,7 @@ struct AvatarAssetTests {
 
     private static func presentedRow(_ row: ChatListRowFfi, peerID: String) -> PresentedChatRowFfi {
         PresentedChatRowFfi(
+            draftVersion: nil,
             preview: .message,
             actions: ChatListRowActionsFfi(
                 canMarkRead: false, canMarkUnread: true, canPin: true, canUnpin: false,
