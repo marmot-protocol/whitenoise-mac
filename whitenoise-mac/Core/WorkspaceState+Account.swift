@@ -46,7 +46,6 @@ extension WorkspaceState {
                 directPeerMemoryStore = DirectPeerMemoryFileStore(storageRootPath: storageRootPath)
             }
             loadHiddenMessages()
-            loadPinnedChats()
             loadContactNicknames()
             loadRememberedDirectPeers()
             let summaries = try await FFIExecutor.run {
@@ -75,6 +74,7 @@ extension WorkspaceState {
             try await bringRuntimeOnline(runtime)
             accounts = try await accountItemsFromRuntime(client: runtime)
             restoreOrSelectFirstAccount()
+            await migrateLegacyPinnedChats(runtime: runtime)
             await activateReadyState()
             runtime.recordHostPerformance(
                 operation: .splashReady,
@@ -1059,6 +1059,8 @@ extension WorkspaceState {
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
         RemoteImageLoader.shared.clearCache()
         RemoteGIFLoadingPreference.shared.reset()
+        LinkPreviewPreference.shared.reset()
+        LinkPreviewLoader.shared.clearCache()
         settingsLoadTask?.cancel()
         settingsLoadTask = nil
         settingsLoadAccountId = nil

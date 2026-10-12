@@ -358,6 +358,7 @@ private func member(
         id: id,
         displayName: displayName,
         publishedDisplayName: publishedDisplayName,
+        profileName: publishedDisplayName ?? displayName,
         npub: npub ?? "npub1\(id)",
         accountLabel: nil,
         isLocal: false,

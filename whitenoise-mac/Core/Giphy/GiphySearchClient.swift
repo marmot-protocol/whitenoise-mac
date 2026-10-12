@@ -152,7 +152,7 @@ nonisolated struct GiphySearchClient: Sendable {
     }
 
     /// The largest GIF rendition under the preferred byte budget, or the smallest one when every
-    /// rendition is over it. Only `.gif` URLs are considered: `NSImageView` animates GIF data
+    /// rendition is over it. Only `.gif` URLs are considered: ImageIO animates GIF data
     /// natively, and the MP4 renditions would need a video player per bubble.
     private static func mediaRendition(from images: Images) -> (url: URL, width: Int, height: Int)? {
         let renditions = [

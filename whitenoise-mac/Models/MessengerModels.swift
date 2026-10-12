@@ -244,6 +244,18 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         return avatarSeed
     }
 
+    /// The person a direct chat is titled after, or nil when its title names nobody.
+    ///
+    /// Nil for a group, for a direct chat whose peer never resolved, and while the title is still
+    /// only that peer's account hex (which `ChatItem.init(row:…)` shortens), so a key is never
+    /// offered as a name.
+    var rememberedDirectPeerTitle: String? {
+        guard let peer = directPeerAccountIdHex, title != peer, title != DisplayText.short(peer) else {
+            return nil
+        }
+        return title
+    }
+
     /// A chat row's last-message line with the sender it is attributed to, or the line alone when
     /// nobody's name precedes it.
     ///
@@ -620,6 +632,10 @@ struct GroupMemberItem: Identifiable, Hashable {
     let displayName: String
     /// The published name `displayName` overrides; nil when no nickname applies.
     let publishedDisplayName: String?
+    /// What the member calls themselves, nickname or not; nil when they published nothing. Not
+    /// a label: a nameless member's `displayName` falls back to their shortened npub, which is
+    /// no more their name than a nickname is.
+    let profileName: String?
     let npub: String
     let accountLabel: String?
     let isLocal: Bool
@@ -649,7 +665,7 @@ struct GroupDetailsSnapshot: Hashable {
     let endpoint: String
     /// The group's name as the inspector header draws it, falling back to a localized "Unnamed
     /// group" so the header is never blank. A display label, not a name — read `customName` for
-    /// anything that has to put the group's own name into a sentence.
+    /// anything that has to put the group's own name into a sentence or seed an editor with it.
     let name: String
     /// The name the group actually carries, or `nil` when it has none. Kept alongside `name`
     /// because the placeholder above is both localized and indistinguishable from a group somebody
@@ -732,6 +748,29 @@ struct GroupDetailsSnapshot: Hashable {
     }
 
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
+
+    /// What the inspector header calls this conversation.
+    ///
+    /// A conversation with no name of its own and a single other member is a direct chat — the
+    /// same rule MDK's `conversation_kind` applies — so it is titled with that member, not with the
+    /// "Unnamed group" placeholder `name` falls back to. The peer comes from this snapshot's own
+    /// roster, which already carries the private nickname when there is one.
+    ///
+    /// The app goes one step past MDK for an unnamed direct chat the other person has left: MDK
+    /// then reports `.group` and the roster has nobody else in it, but the chat list keeps the
+    /// remembered peer as the title (see `ChatItem.init(row:…)`). `rememberedPeerName` carries that
+    /// title, so the header keeps naming the conversation the way the sidebar does.
+    func headerTitle(rememberedPeerName: String?) -> String {
+        if let customName { return customName }
+        let others = members.filter { !$0.isSelf }
+        if others.count == 1, let peerName = PeerDisplayText.sanitize(others[0].displayName) {
+            return peerName
+        }
+        if others.isEmpty, let rememberedPeerName = PeerDisplayText.sanitize(rememberedPeerName) {
+            return rememberedPeerName
+        }
+        return name
+    }
 }
 
 struct ConversationMetadata: Hashable {
@@ -3556,6 +3595,10 @@ struct NewChatRecipient: Equatable {
     /// The published bio. Line breaks are kept — it is prose, not a label — but bidi controls are
     /// stripped so a peer cannot reorder the text around it.
     let about: String?
+    /// `displayName` is a nickname standing in for a published name that never resolved. Only the
+    /// site that built the label knows: a nickname equal to the published name also leaves
+    /// `publishedDisplayName` nil, and there `displayName` *is* public.
+    let displayNameIsPrivate: Bool
 
     init(
         sourceQuery: String,
@@ -3564,6 +3607,7 @@ struct NewChatRecipient: Equatable {
         npub: String,
         displayName: String?,
         publishedDisplayName: String? = nil,
+        displayNameIsPrivate: Bool = false,
         pictureURL: String?,
         imagePayload: DownloadedMediaPayload? = nil,
         about: String? = nil
@@ -3580,11 +3624,14 @@ struct NewChatRecipient: Equatable {
         self.about = about.flatMap {
             PeerDisplayText.strippingBidiControls($0).trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
         }
+        self.displayNameIsPrivate = displayNameIsPrivate
     }
 
     /// The same person under a new label, every other field kept. Rebuilding through `init` at
     /// the call site silently drops whatever was added to the type after that site was written.
-    func relabeled(displayName: String?, publishedDisplayName: String?) -> NewChatRecipient {
+    func relabeled(
+        displayName: String?, publishedDisplayName: String?, displayNameIsPrivate: Bool
+    ) -> NewChatRecipient {
         NewChatRecipient(
             sourceQuery: sourceQuery,
             memberRef: memberRef,
@@ -3592,6 +3639,7 @@ struct NewChatRecipient: Equatable {
             npub: npub,
             displayName: displayName,
             publishedDisplayName: publishedDisplayName,
+            displayNameIsPrivate: displayNameIsPrivate,
             pictureURL: pictureURL,
             imagePayload: imagePayload,
             about: about
@@ -3600,6 +3648,13 @@ struct NewChatRecipient: Equatable {
 
     var title: String {
         displayName ?? DisplayText.short(accountIdHex)
+    }
+
+    /// What the contact calls themselves, nickname or not. `publishedDisplayName` is set only
+    /// while a nickname overrides it; until then `displayName` *is* the published name, unless it
+    /// is a nickname with no published name behind it.
+    var profileName: String? {
+        publishedDisplayName ?? (displayNameIsPrivate ? nil : displayName)
     }
 
     var subtitle: String {
@@ -3625,6 +3680,8 @@ struct ComposeContact: Identifiable, Equatable {
     let npub: String
     let displayName: String?
     let publishedDisplayName: String?
+    /// `displayName` is a nickname with no published name behind it; see `NewChatRecipient`.
+    let displayNameIsPrivate: Bool
     let pictureURL: String?
     let sanitizedPictureURL: URL?
     let lastActivity: Date?
@@ -3636,6 +3693,7 @@ struct ComposeContact: Identifiable, Equatable {
         npub: String,
         displayName: String?,
         publishedDisplayName: String? = nil,
+        displayNameIsPrivate: Bool = false,
         pictureURL: String?,
         lastActivity: Date?
     ) {
@@ -3643,6 +3701,7 @@ struct ComposeContact: Identifiable, Equatable {
         self.npub = npub
         self.displayName = PeerDisplayText.sanitize(displayName)
         self.publishedDisplayName = PeerDisplayText.sanitize(publishedDisplayName)
+        self.displayNameIsPrivate = displayNameIsPrivate
         self.pictureURL = pictureURL
         self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
         self.lastActivity = lastActivity
@@ -3650,6 +3709,11 @@ struct ComposeContact: Identifiable, Equatable {
 
     var title: String {
         displayName ?? DisplayText.short(npub.isEmpty ? accountIdHex : npub)
+    }
+
+    /// What the contact calls themselves, nickname or not; the same rule as `NewChatRecipient`.
+    var profileName: String? {
+        publishedDisplayName ?? (displayNameIsPrivate ? nil : displayName)
     }
 
     var searchableNames: [String] {
@@ -3672,6 +3736,7 @@ struct ComposeContact: Identifiable, Equatable {
             npub: npub,
             displayName: displayName,
             publishedDisplayName: publishedDisplayName,
+            displayNameIsPrivate: displayNameIsPrivate,
             pictureURL: pictureURL
         )
     }

@@ -64,6 +64,7 @@ struct ProfileImageSourceMenu<Label: View>: View {
 
     @State private var isSourceListPresented = false
     @State private var isFileImporterPresented = false
+    @State private var cropModel: AvatarCropViewModel?
 
     var body: some View {
         control
@@ -79,11 +80,12 @@ struct ProfileImageSourceMenu<Label: View>: View {
                 switch result {
                 case .success(let urls):
                     guard let url = urls.first else { return }
-                    Task { await workspace.setProfileImage(fileURL: url) }
+                    cropFile(at: url)
                 case .failure(let error):
                     workspace.reportUserActionError(error.localizedDescription)
                 }
             }
+            .avatarCropSheet($cropModel)
     }
 
     /// The button, wearing whichever of the two appearances was asked for.
@@ -117,6 +119,19 @@ struct ProfileImageSourceMenu<Label: View>: View {
         isSourceListPresented = false
         guard workspace.prepareProfileImageDestination(destination) else { return }
         isFileImporterPresented = true
+    }
+
+    /// Opens the picked file in the crop editor. The destination is claimed again at commit time,
+    /// because the web picker can point the shared machinery elsewhere while this sheet is open.
+    private func cropFile(at url: URL) {
+        let destination = destination
+        cropModel = AvatarCropViewModel(
+            loadData: { try await AvatarImageCropSource.data(fromFileURL: url) },
+            commit: { [workspace] data in
+                guard workspace.prepareProfileImageDestination(destination) else { return }
+                try await workspace.setProfileImage(croppedImageData: data)
+            }
+        )
     }
 
     private func showWebPicker() {

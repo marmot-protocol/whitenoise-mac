@@ -15,16 +15,10 @@ import SwiftUI
 import UserNotifications
 
 private enum ProfileImageSelectionError: LocalizedError {
-    case invalidWebImage
-    case downloadFailed
     case notAnImage
 
     var errorDescription: String? {
         switch self {
-        case .invalidWebImage:
-            L10n.string("The selected web image URL is not safe to download.")
-        case .downloadFailed:
-            L10n.string("The selected web image could not be downloaded.")
         case .notAnImage:
             L10n.string("Choose an image file.")
         }
@@ -618,12 +612,6 @@ extension WorkspaceState {
         selectedProfileImageResult = selectedProfileImageResult == result ? nil : result
     }
 
-    /// The web picker's confirmation: commit whatever tile is wearing the badge.
-    func useSelectedProfileImage() async {
-        guard let selectedProfileImageResult else { return }
-        await setProfileImage(selectedProfileImageResult)
-    }
-
     func searchProfileImages() async {
         let query = profileImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
@@ -662,50 +650,24 @@ extension WorkspaceState {
         }
     }
 
-    func setProfileImage(_ result: GroupImageSearchResult) async {
+    /// Commit a picture that has already been through `AvatarCropSheet`.
+    ///
+    /// Every source — a file, a web search result — reaches this as the cropped JPEG the editor
+    /// rendered, so the only thing left to do is re-encode it for upload and send it where
+    /// `profileImagePickerDestination` says. Throws what went wrong so the crop editor can show it
+    /// beside the picture; a selection superseded by a newer one returns quietly.
+    func setProfileImage(croppedImageData data: Data) async throws {
         guard let context = beginProfileImageSelection() else { return }
         defer { finishProfileImageSelection(context) }
-
-        guard let sourceURL = RemoteImageURLPolicy.sanitizedURL(from: result.imageURL) else {
-            lastError = ProfileImageSelectionError.invalidWebImage.localizedDescription
-            return
-        }
-        guard let data = await groupImageSourceLoader.data(for: sourceURL) else {
-            lastError = ProfileImageSelectionError.downloadFailed.localizedDescription
-            return
-        }
 
         do {
             let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(
                 fromPastedImageData: data,
-                typeIdentifier: nil
+                typeIdentifier: AvatarImageCropper.outputTypeIdentifier
             )
             try await commitSelectedProfileImage(attachment, context: context)
         } catch is CancellationError {
             return
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    func setProfileImage(fileURL: URL) async {
-        guard let context = beginProfileImageSelection() else { return }
-        defer { finishProfileImageSelection(context) }
-
-        let isSecurityScoped = fileURL.startAccessingSecurityScopedResource()
-        defer {
-            if isSecurityScoped {
-                fileURL.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        do {
-            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: fileURL)
-            try await commitSelectedProfileImage(attachment, context: context)
-        } catch is CancellationError {
-            return
-        } catch {
-            lastError = error.localizedDescription
         }
     }
 

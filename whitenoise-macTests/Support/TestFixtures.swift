@@ -1291,7 +1291,9 @@ func chatListRow(
     unreadCount: UInt64 = 0,
     hasUnread: Bool = false,
     archived: Bool = false,
-    pendingConfirmation: Bool = false
+    pendingConfirmation: Bool = false,
+    pinned: Bool = false,
+    pinnedPosition: UInt32? = nil
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
@@ -1322,7 +1324,9 @@ func chatListRow(
         lastReadMessageIdHex: nil,
         lastReadTimelineAt: nil,
         updatedAt: timelineAt,
-        selfMembership: selfMembership
+        selfMembership: selfMembership,
+        pinned: pinned,
+        pinnedPosition: pinnedPosition
     )
 }
 

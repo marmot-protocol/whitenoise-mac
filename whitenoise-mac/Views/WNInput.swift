@@ -46,6 +46,9 @@ struct WNInput<Accessory: View>: View {
     var accessibilityValue: String?
     /// A complaint about what is currently typed, under the box. Present means invalid.
     var validationMessage: String?
+    /// Take keyboard focus when the field appears, for a sheet whose only job is this field — the
+    /// way `AddRelaySheet` focuses its own, so typing starts without a click first.
+    var focusOnAppear = false
     /// Drawn inside the box, at its trailing edge.
     @ViewBuilder var accessory: Accessory
 
@@ -85,6 +88,9 @@ struct WNInput<Accessory: View>: View {
             .textFieldStyle(.plain)
             .wnFont(.medium14)
             .focused($isFocused)
+            .onAppear {
+                if focusOnAppear { isFocused = true }
+            }
             .autocorrectionDisabled(disablesAutocorrection)
             .accessibilityValue(Text(accessibilityValue ?? text))
             .disabled(!isEnabled)
@@ -126,7 +132,8 @@ extension WNInput where Accessory == EmptyView {
         isEnabled: Bool = true,
         disablesAutocorrection: Bool = false,
         accessibilityValue: String? = nil,
-        validationMessage: String? = nil
+        validationMessage: String? = nil,
+        focusOnAppear: Bool = false
     ) {
         self.init(
             label: label,
@@ -136,7 +143,8 @@ extension WNInput where Accessory == EmptyView {
             isEnabled: isEnabled,
             disablesAutocorrection: disablesAutocorrection,
             accessibilityValue: accessibilityValue,
-            validationMessage: validationMessage
+            validationMessage: validationMessage,
+            focusOnAppear: focusOnAppear
         ) {
             EmptyView()
         }

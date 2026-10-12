@@ -266,6 +266,7 @@ extension WorkspaceState {
         for groupId in removedChatIds {
             teardownRemovedChatPerChatState(groupIdHex: groupId, accountId: account.id)
         }
+        mirrorPinnedChatIds(from: rows, forAccountId: account.id)
         let sortedActiveItems = sortedActiveChatItems(activeItems, forAccountId: account.id)
         setChats(sortedActiveItems, forAccountId: account.id)
         setArchivedChats(sortedChatItems(archivedItems), forAccountId: account.id)
@@ -371,6 +372,7 @@ extension WorkspaceState {
         shouldEnrich: Bool = true
     ) async {
         guard activeAccountId == account.id else { return }
+        mirrorPinnedChatId(from: row, forAccountId: account.id)
 
         if row.archived {
             moveChatToArchived(row: row, account: account)

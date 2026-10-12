@@ -640,13 +640,14 @@ private struct ChatSidebarRowMenuItems: View {
             } else {
                 let isPinned = workspace.isChatPinned(chat)
                 Button {
-                    workspace.setChatPinned(chat, pinned: !isPinned)
+                    Task { await workspace.setChatPinned(chat, pinned: !isPinned) }
                 } label: {
                     Label(
                         isPinned ? L10n.string("Unpin") : L10n.string("Pin to Top"),
                         systemImage: isPinned ? "pin.slash" : "pin"
                     )
                 }
+                .disabled(workspace.isMutatingChatPreferences(chat))
 
                 Divider()
 
