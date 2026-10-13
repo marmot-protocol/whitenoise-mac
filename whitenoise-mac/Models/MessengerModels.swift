@@ -660,6 +660,17 @@ struct GroupMemberItem: Identifiable, Hashable {
     }
 }
 
+/// The picture a group-info member row draws. Kept apart from `GroupMemberItem` because the roster
+/// is a snapshot taken when the pane loads, while avatars keep arriving after it — a profile
+/// resolves, a message brings a sender's bytes — and the row should pick them up in place.
+struct GroupMemberAvatar: Hashable {
+    /// Bytes MDK already holds for this member, drawn ahead of the URL; see `ContactAvatarPayload`.
+    var imagePayload: DownloadedMediaPayload?
+    /// The kind:0 picture, fetched when there are no retained bytes. The viewer's own row takes
+    /// the active account's URL rather than the roster's.
+    var sanitizedPictureURL: URL?
+}
+
 struct GroupDetailsSnapshot: Hashable {
     let groupIdHex: String
     let endpoint: String

@@ -10,6 +10,8 @@ import SwiftUI
 
 struct GroupMembersSection: View {
     let members: [GroupMemberItem]
+    /// Keyed by member id; a member without an entry draws initials.
+    var avatars: [String: GroupMemberAvatar] = [:]
     let canInvite: Bool
     /// Whether to say why there is no Add row. Only a member who can't invite is owed it; a former
     /// member or a direct chat has no Add row for a different reason.
@@ -51,7 +53,7 @@ struct GroupMembersSection: View {
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             } else {
                 ForEach(list.visible) { member in
-                    GroupMemberRow(member: member)
+                    GroupMemberRow(member: member, avatar: avatars[member.id] ?? GroupMemberAvatar())
                 }
                 if list.isTruncated {
                     Button {

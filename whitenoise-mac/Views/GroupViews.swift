@@ -55,6 +55,7 @@ struct GroupMemberRow: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showRemoveConfirmation = false
     let member: GroupMemberItem
+    var avatar = GroupMemberAvatar()
 
     private var isMutating: Bool {
         workspace.mutatingGroupMemberId == member.id
@@ -70,7 +71,14 @@ struct GroupMemberRow: View {
                 Task { await workspace.showContactDetails(for: member) }
             } label: {
                 HStack(spacing: 10) {
-                    AvatarView(seed: member.id, initials: member.initials, size: 36, isSelected: false)
+                    ProfileImageAvatarView(
+                        seed: member.id,
+                        initials: member.initials,
+                        sanitizedPictureURL: avatar.sanitizedPictureURL,
+                        localImagePayload: avatar.imagePayload,
+                        size: 36,
+                        isSelected: false
+                    )
 
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {

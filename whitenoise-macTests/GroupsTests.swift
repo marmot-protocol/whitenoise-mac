@@ -947,6 +947,17 @@ struct GroupsTests: WorkspaceTestSupport {
         // Nothing in the transcript: the direct chat's avatar, never a group's.
         #expect(ContactAvatarPayload.find(accountIdHex: aliceIdHex, messages: [], chats: chats) == direct)
         #expect(ContactAvatarPayload.find(accountIdHex: aliceIdHex, messages: [], chats: [chats[0]]) == nil)
+
+        // Group info resolves its whole roster in one pass with the same precedence, so each member
+        // row draws the picture its profile will. Someone with no bytes on screen is absent rather
+        // than mapped to nil, and a sender outside the roster is not indexed at all.
+        let roster = ContactAvatarPayload.index(
+            for: [aliceIdHex, "carol"],
+            messages: transcript,
+            chats: chats
+        )
+        #expect(roster == [aliceIdHex: newer])
+        #expect(ContactAvatarPayload.index(for: [aliceIdHex], messages: [], chats: chats) == [aliceIdHex: direct])
     }
 
     @MainActor

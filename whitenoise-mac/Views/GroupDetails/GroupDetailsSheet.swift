@@ -27,6 +27,31 @@ struct GroupDetailsSheet: View {
         !chat.isDirect && conversationModel.snapshot?.header.capabilities.isSelfAdmin == true
     }
 
+    /// Each member's picture from what the app already holds: MDK's retained bytes from this
+    /// conversation's transcript or a direct chat, then the profile URL resolved since the roster
+    /// loaded. Read here rather than baked into the snapshot so pictures fill in while the pane is open.
+    private func memberAvatars(for members: [GroupMemberItem]) -> [String: GroupMemberAvatar] {
+        let payloads = ContactAvatarPayload.index(
+            for: Set(members.map(\.id)),
+            messages: workspace.messageTimelineStores[chat.id]?.messages ?? [],
+            chats: workspace.activeChats
+        )
+        return Dictionary(
+            members.map { member in
+                let sanitizedPictureURL =
+                    member.isSelf
+                    ? workspace.activeAccount?.sanitizedPictureURL
+                    : RemoteImageURLPolicy.sanitizedURL(
+                        from: workspace.peerProfileFFICache[member.id]?.resolved.profilePicture)
+                return (
+                    member.id,
+                    GroupMemberAvatar(imagePayload: payloads[member.id], sanitizedPictureURL: sanitizedPictureURL)
+                )
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
     private func permissions(for snapshot: GroupDetailsSnapshot) -> GroupDetailsPermissions {
         GroupDetailsPermissions(
             snapshot: snapshot,
@@ -113,6 +138,7 @@ struct GroupDetailsSheet: View {
 
                         GroupMembersSection(
                             members: snapshot.members,
+                            avatars: memberAvatars(for: snapshot.members),
                             canInvite: permissions.canInvite,
                             showsAdminOnlyNote: permissions.showsAdminOnlyNote,
                             onAddMembers: { isAddMembersPresented = true }

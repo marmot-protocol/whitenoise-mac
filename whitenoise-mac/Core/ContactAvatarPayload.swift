@@ -22,8 +22,30 @@ enum ContactAvatarPayload {
         messages: [MessageItem],
         chats: [ChatItem]
     ) -> DownloadedMediaPayload? {
-        messages.last { $0.senderAccountIdHex == accountIdHex && $0.senderImagePayload != nil }?
-            .senderImagePayload
-            ?? chats.first { $0.directPeerAccountIdHex == accountIdHex }?.groupImagePayload
+        index(for: [accountIdHex], messages: messages, chats: chats)[accountIdHex]
+    }
+
+    /// `find` for a whole roster in one pass over each source, keyed by account id; ids with no
+    /// bytes on screen are absent. Sharing the precedence is what makes a group-info member row
+    /// draw the picture the profile it opens will.
+    static func index(
+        for accountIdHexes: Set<String>,
+        messages: [MessageItem],
+        chats: [ChatItem]
+    ) -> [String: DownloadedMediaPayload] {
+        var result: [String: DownloadedMediaPayload] = [:]
+        for message in messages.reversed() where accountIdHexes.contains(message.senderAccountIdHex) {
+            if result[message.senderAccountIdHex] == nil, let payload = message.senderImagePayload {
+                result[message.senderAccountIdHex] = payload
+            }
+        }
+        for chat in chats {
+            if let peer = chat.directPeerAccountIdHex, accountIdHexes.contains(peer), result[peer] == nil,
+                let payload = chat.groupImagePayload
+            {
+                result[peer] = payload
+            }
+        }
+        return result
     }
 }
