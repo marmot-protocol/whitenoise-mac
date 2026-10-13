@@ -135,7 +135,8 @@ struct ConversationMessageRow: View {
             PollMessageRow(
                 poll: conversationModel.displayedPoll(poll, messageIdHex: message.id),
                 isOutgoing: message.isOutgoing,
-                senderName: message.isOutgoing ? nil : message.senderName,
+                senderName: MessageBubble.showsSenderIdentity(for: message, in: workspace.selectedChat)
+                    ? message.senderName : nil,
                 timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
                 onVote: canVoteInPolls && message.invalidationStatus == nil ? vote(for: poll) : nil,
                 onViewVotes: poll.participants > 0 ? viewVotes(for: poll) : nil
@@ -265,7 +266,7 @@ struct MessageBubble: View {
         // single deterministic pass with the same result: bubble pinned to its side, ≥72pt
         // gutter opposite. See whitenoise-mac#205 (scroll-layout hangs).
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: Self.contentSpacing) {
-            if !message.isOutgoing {
+            if showsSenderIdentity {
                 if showsSenderContactLink {
                     Button {
                         Task { await workspace.showContactDetails(for: message) }
@@ -356,9 +357,9 @@ struct MessageBubble: View {
         .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
         .padding(message.isOutgoing ? .leading : .trailing, 72)
         // Sender avatar in a leading gutter for incoming group messages (never DMs or own).
-        .padding(.leading, showsSenderAvatar ? 36 : 0)
+        .padding(.leading, showsSenderIdentity ? 36 : 0)
         .overlay(alignment: .bottomLeading) {
-            if showsSenderAvatar {
+            if showsSenderIdentity {
                 Button {
                     Task { await workspace.showContactDetails(for: message) }
                 } label: {
@@ -502,14 +503,19 @@ struct MessageBubble: View {
         )
     }
 
-    /// Incoming messages in a group carry the sender's avatar in a leading gutter; DMs and the
-    /// local account's own messages do not (the peer/self is unambiguous there).
-    private var showsSenderAvatar: Bool {
-        !message.isOutgoing && !(workspace.selectedChat?.isDirect ?? true)
+    /// Incoming messages in a group carry the sender's name above the bubble and their avatar in a
+    /// leading gutter; DMs and the local account's own messages carry neither, since there is only
+    /// one person the message can be from. Shared with poll rows so the two never disagree.
+    static func showsSenderIdentity(for message: MessageItem, in chat: ChatItem?) -> Bool {
+        !message.isOutgoing && !(chat?.isDirect ?? true)
+    }
+
+    private var showsSenderIdentity: Bool {
+        Self.showsSenderIdentity(for: message, in: workspace.selectedChat)
     }
 
     private var showsSenderContactLink: Bool {
-        showsSenderAvatar && !workspace.isTimelineSelectionMode
+        showsSenderIdentity && !workspace.isTimelineSelectionMode
     }
 
     @ViewBuilder

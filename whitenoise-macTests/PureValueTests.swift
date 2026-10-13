@@ -20,6 +20,29 @@ import UserNotifications
 @Suite(.serialized)
 struct PureValueTests {
     @MainActor
+    @Test func senderIdentityShowsOnlyOnIncomingGroupMessages() throws {
+        // A DM has one possible sender, so naming them above every bubble is noise; a group needs
+        // the name (and avatar) to tell members apart. Own messages never carry either.
+        let messages = performanceMessageItems(count: 2)
+        let outgoing = messages[0]
+        let incoming = messages[1]
+        try #require(outgoing.isOutgoing && !incoming.isOutgoing)
+
+        let group = chatListOrderingTestItem(id: "group", title: "Group", date: nil)
+        let direct = ChatItem(
+            id: "dm", title: "Alice", subtitle: "", preview: "", updatedAt: nil, avatarSeed: "alice",
+            pictureURL: nil, unreadCount: 0, isDirect: true, pendingConfirmation: false,
+            selfMembership: .member
+        )
+
+        #expect(MessageBubble.showsSenderIdentity(for: incoming, in: group))
+        #expect(!MessageBubble.showsSenderIdentity(for: outgoing, in: group))
+        #expect(!MessageBubble.showsSenderIdentity(for: incoming, in: direct))
+        #expect(!MessageBubble.showsSenderIdentity(for: outgoing, in: direct))
+        #expect(!MessageBubble.showsSenderIdentity(for: incoming, in: nil))
+    }
+
+    @MainActor
     @Test func primaryButtonSizesGrowMonotonicallyAcrossTheWholeScale() {
         // `small` was added after `medium`/`large` were already in use, so the risk is not that it
         // is wrong on its own but that it is wrong *relative* to its neighbours — a rung that
