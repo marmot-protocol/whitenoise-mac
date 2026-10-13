@@ -134,9 +134,16 @@ struct AttachmentGIFPlayback<Content: View>: View {
                 guard prepared?.contentID != contentID else { return }
                 prepared = nil
                 guard let data = gifData else { return }
-                let animation = await Task.detached(priority: .utility) {
+                let validation = Task.detached(priority: .utility) {
                     AttachmentGIF.animation(from: data)
-                }.value
+                }
+                // A detached task does not inherit this one's cancellation; forward it, so a tile
+                // scrolled past stops validating its GIF.
+                let animation = await withTaskCancellationHandler {
+                    await validation.value
+                } onCancel: {
+                    validation.cancel()
+                }
                 guard !Task.isCancelled, let animation else { return }
                 prepared = Prepared(contentID: contentID, animation: animation)
             }

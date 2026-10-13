@@ -115,6 +115,20 @@ struct AttachmentGIFTests {
         #expect(AttachmentGIF.validatedSource(from: wide) == nil)
     }
 
+    @Test func animationValidationStopsOnceItsTaskIsCancelled() async throws {
+        let gif = try Self.gif(width: 4, height: 4, frames: 2, loopCount: 0)
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return (animation: AttachmentGIF.animation(from: gif), source: AttachmentGIF.validatedSource(from: gif))
+        }
+
+        let result = await task.value
+
+        #expect(result.animation == nil)
+        // Import validation is not cancellable: a draft is never silently flattened to a still.
+        #expect(result.source != nil)
+    }
+
     @Test func aStillGIFHasNoAnimationAndAMissingLoopExtensionPlaysOnce() throws {
         #expect(AttachmentGIF.animation(from: try Self.gif(width: 4, height: 4, frames: 1, loopCount: 0)) == nil)
         #expect(

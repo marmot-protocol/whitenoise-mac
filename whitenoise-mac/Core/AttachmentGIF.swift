@@ -31,10 +31,13 @@ nonisolated enum AttachmentGIF {
 
     /// An image source for `data` when it is a complete GIF inside every bound, otherwise nil.
     /// Validates both the logical screen in the header and every frame, since a frame may be
-    /// declared larger than the canvas it is drawn on.
-    static func validatedSource(from data: Data, maxBytes: Int = OutgoingMediaDraftProcessor.maxImageAttachmentBytes)
-        -> CGImageSource?
-    {
+    /// declared larger than the canvas it is drawn on. With `stopsWhenCancelled`, a cancelled
+    /// task gets nil between frames instead of finishing work nobody is waiting for.
+    static func validatedSource(
+        from data: Data,
+        maxBytes: Int = OutgoingMediaDraftProcessor.maxImageAttachmentBytes,
+        stopsWhenCancelled: Bool = false
+    ) -> CGImageSource? {
         guard hasSignature(data), data.count <= maxBytes,
             let source = CGImageSourceCreateWithData(
                 data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
@@ -52,7 +55,8 @@ nonisolated enum AttachmentGIF {
         else { return nil }
         var remainingPixels = maxTotalPixels
         for index in 0..<count {
-            guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+            guard !(stopsWhenCancelled && Task.isCancelled),
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
                 let frameWidth = properties[kCGImagePropertyPixelWidth] as? Int,
                 let frameHeight = properties[kCGImagePropertyPixelHeight] as? Int,
                 (1...maxPixelEdge).contains(frameWidth), (1...maxPixelEdge).contains(frameHeight),
@@ -74,8 +78,9 @@ nonisolated enum AttachmentGIF {
         var totalFrames: Int? { loopCount.map { $0 * frameCount } }
     }
 
+    /// Stops early when its task is cancelled — the tile that asked has scrolled away.
     static func animation(from data: Data) -> Animation? {
-        guard let source = validatedSource(from: data) else { return nil }
+        guard let source = validatedSource(from: data, stopsWhenCancelled: true) else { return nil }
         let count = CGImageSourceGetCount(source)
         guard count > 1 else { return nil }
         let properties = CGImageSourceCopyProperties(source, nil) as? [CFString: Any]
