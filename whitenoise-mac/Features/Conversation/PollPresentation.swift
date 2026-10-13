@@ -120,6 +120,22 @@ nonisolated struct PollDraft: Equatable {
         options.remove(at: index)
     }
 
+    /// The composer's text fields, in Tab order.
+    enum Field: Hashable {
+        case question
+        case option(Int)
+    }
+
+    /// Where Return moves focus instead of sending, or `nil` to send. Validation drops blank rows,
+    /// so a habitual Return before an empty option would otherwise ship a poll short of the
+    /// options the author meant to add — and a sent poll can't be edited.
+    func focusAfterReturn(from field: Field?) -> Field? {
+        guard case .option(let index) = field else { return nil }
+        let next = index + 1
+        guard options.indices.contains(next), Self.normalized(options[next]).isEmpty else { return nil }
+        return .option(next)
+    }
+
     /// Blank option rows are ignored so an unused trailing row never blocks Send.
     func validated(now: Date) -> Result<Submission, Issue> {
         let question = Self.normalized(question)

@@ -233,12 +233,7 @@ struct PollComposerSheet: View {
     @State private var sendError: String?
     @State private var isSending = false
     @State private var operation: Task<Void, Never>?
-    @FocusState private var focusedField: Field?
-
-    private enum Field: Hashable {
-        case question
-        case option(Int)
-    }
+    @FocusState private var focusedField: PollDraft.Field?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -314,7 +309,7 @@ struct PollComposerSheet: View {
         .disabled(isSending)
         // A focused field swallows Return before the Send button's default-action shortcut sees
         // it, so every field submits the poll itself; Tab moves between fields.
-        .onSubmit(send)
+        .onSubmit(submit)
         .padding(24)
         .frame(width: 440)
         .interactiveDismissDisabled(isSending)
@@ -326,6 +321,14 @@ struct PollComposerSheet: View {
         .onDisappear {
             operation?.cancel()
             operation = nil
+        }
+    }
+
+    private func submit() {
+        if let next = draft.focusAfterReturn(from: focusedField) {
+            focusedField = next
+        } else {
+            send()
         }
     }
 

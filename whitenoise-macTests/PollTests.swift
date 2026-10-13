@@ -251,6 +251,18 @@ struct PollTests {
         #expect(draft.options.count == PollDraft.maximumOptions - 1)
     }
 
+    @Test func returnInAnOptionMovesToTheNextBlankRowInsteadOfSending() {
+        var draft = PollDraft()
+        draft.question = "Lunch?"
+        draft.options = ["Pizza", "Sushi", "  "]
+        #expect(draft.focusAfterReturn(from: .option(1)) == .option(2))
+        #expect(draft.focusAfterReturn(from: .option(0)) == nil, "the next row is filled")
+        #expect(draft.focusAfterReturn(from: .option(2)) == nil, "the last row sends")
+        draft.options[2] = "Tacos"
+        #expect(draft.focusAfterReturn(from: .option(1)) == nil)
+        #expect(draft.focusAfterReturn(from: nil) == nil)
+    }
+
     // MARK: Composer menu
 
     @Test func pollAppearsInTheAttachmentMenuOnlyWhenAvailable() {
