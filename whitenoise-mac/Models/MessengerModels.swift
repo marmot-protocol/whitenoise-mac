@@ -1711,11 +1711,13 @@ nonisolated struct OutgoingMediaPasteboardAttachment: Equatable, Sendable {
 
 @MainActor
 enum OutgoingMediaPasteboardReader {
+    /// GIF first: a copied GIF usually also offers a TIFF or PNG of its first frame, and taking
+    /// that one would send a still.
     private static let preferredImagePasteboardTypes: [NSPasteboard.PasteboardType] = [
+        NSPasteboard.PasteboardType(UTType.gif.identifier),
         NSPasteboard.PasteboardType(UTType.png.identifier),
         NSPasteboard.PasteboardType(UTType.jpeg.identifier),
         NSPasteboard.PasteboardType(UTType.tiff.identifier),
-        NSPasteboard.PasteboardType(UTType.gif.identifier),
     ]
     private static let legacyFilenamesPasteboardType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
 
@@ -1985,6 +1987,9 @@ nonisolated enum OutgoingMediaDraftProcessor {
     }
 
     private static func imageAttachment(from data: Data, fileName: String?) throws -> PendingMediaAttachment {
+        if let gif = gifAttachment(from: data, fileName: fileName) {
+            return gif
+        }
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             throw Failure.unsupportedImage
         }
@@ -2005,6 +2010,30 @@ nonisolated enum OutgoingMediaDraftProcessor {
             mediaType: "image/jpeg",
             data: encoded,
             dim: "\(image.width)x\(image.height)"
+        )
+    }
+
+    /// A GIF stays a GIF: flattening it to a JPEG kept only its first frame. One that is
+    /// malformed, out of bounds, or still over the byte cap once re-encoded falls back to the
+    /// still-image path, so the user gets a photo rather than an error.
+    private static func gifAttachment(from data: Data, fileName: String?) -> PendingMediaAttachment? {
+        guard AttachmentGIF.hasSignature(data),
+            let encoded = AttachmentGIF.reencoded(data, maxPixelEdge: Int(maxLongEdge)),
+            encoded.data.count <= maxImageAttachmentBytes
+        else { return nil }
+        var name = sanitizedFileName(
+            fileName,
+            fallbackStem: "animation-\(Int(Date().timeIntervalSince1970))",
+            fallbackExtension: "gif"
+        )
+        if !name.lowercased().hasSuffix(".gif") {
+            name = "\((name as NSString).deletingPathExtension).gif"
+        }
+        return PendingMediaAttachment(
+            fileName: name,
+            mediaType: AttachmentGIF.mediaType,
+            data: encoded.data,
+            dim: "\(encoded.width)x\(encoded.height)"
         )
     }
 

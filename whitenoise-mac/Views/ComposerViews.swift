@@ -967,10 +967,16 @@ struct PendingMediaDraftTile: View {
     @ViewBuilder
     private var imagePreview: some View {
         if let image = decodedImagePreview {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFill()
-                .accessibilityLabel(attachment.fileName)
+            AttachmentGIFPlayback(
+                contentID: attachment.id.uuidString,
+                data: AttachmentGIF.isGIF(mediaType: attachment.mediaType) ? attachment.data : nil,
+                isActive: true
+            ) { frame in
+                (frame ?? Image(nsImage: image))
+                    .resizable()
+                    .scaledToFill()
+                    .accessibilityLabel(attachment.fileName)
+            }
         } else {
             iconPreview(systemName: attachment.kind.systemImageName)
         }

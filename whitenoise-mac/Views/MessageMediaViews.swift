@@ -1144,6 +1144,9 @@ struct MessageVisualMediaTile: View {
     let hiddenCount: Int
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
+    /// Only a GIF reads this: an off-screen tile stops animating.
+    @State private var isVisible = false
+
     var body: some View {
         let tapAction = MessageVisualMediaTileInteraction.tapAction(
             downloadState: downloadState.state,
@@ -1163,6 +1166,7 @@ struct MessageVisualMediaTile: View {
             }
         }
         .accessibilityIdentifier("message.media.visualTile.\(attachment.id)")
+        .onTranscriptVisibilityChange(threshold: 0.01) { isVisible = $0 }
     }
 
     private var tileBody: some View {
@@ -1222,12 +1226,18 @@ struct MessageVisualMediaTile: View {
                     payload: download.payload,
                     maxPixelSize: sideLength * max(1, displayScale) * mediaThumbnailOversample
                 ) { image in
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: sideLength, height: sideLength)
-                        .clipped()
-                        .accessibilityLabel(attachment.fileName)
+                    AttachmentGIFPlayback(
+                        contentID: download.payload.id,
+                        data: AttachmentGIF.isGIF(mediaType: attachment.mediaType) ? download.payload.data : nil,
+                        isActive: isVisible
+                    ) { frame in
+                        (frame ?? image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: sideLength, height: sideLength)
+                            .clipped()
+                            .accessibilityLabel(attachment.fileName)
+                    }
                 } placeholder: {
                     placeholder(systemImage: "photo", isLoading: false)
                 }

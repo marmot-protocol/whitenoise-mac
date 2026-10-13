@@ -55,27 +55,31 @@ struct ZoomableMediaImage<Placeholder: View>: View {
                     zoomScale: zoom.scale
                 )
             ) { image in
-                labelled(
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .onGeometryChange(for: CGSize.self) {
-                            $0.size
-                        } action: {
-                            fittedSize = $0
-                        }
-                        .scaleEffect(zoom.scale)
-                        .offset(zoom.offset)
-                )
-                .pointerStyle(zoom.isZoomed ? .grabIdle : .zoomIn)
-                // Pinch runs alongside the click/drag pair rather than competing with it:
-                // a trackpad magnify and a pointer drag are separate inputs and either may
-                // arrive first.
-                .simultaneousGesture(magnifyGesture(viewport: viewport))
-                .gesture(
-                    doubleClickGesture(viewport: viewport)
-                        .exclusively(before: panGesture(viewport: viewport))
-                )
+                // A GIF animates in place of its still, under the same zoom and pan. The viewer
+                // only builds the page it is showing, so the page is always the active one.
+                AttachmentGIFPlayback(contentID: payload.id, data: payload.data, isActive: true) { frame in
+                    labelled(
+                        (frame ?? image)
+                            .resizable()
+                            .scaledToFit()
+                            .onGeometryChange(for: CGSize.self) {
+                                $0.size
+                            } action: {
+                                fittedSize = $0
+                            }
+                            .scaleEffect(zoom.scale)
+                            .offset(zoom.offset)
+                    )
+                    .pointerStyle(zoom.isZoomed ? .grabIdle : .zoomIn)
+                    // Pinch runs alongside the click/drag pair rather than competing with it:
+                    // a trackpad magnify and a pointer drag are separate inputs and either may
+                    // arrive first.
+                    .simultaneousGesture(magnifyGesture(viewport: viewport))
+                    .gesture(
+                        doubleClickGesture(viewport: viewport)
+                            .exclusively(before: panGesture(viewport: viewport))
+                    )
+                }
             } placeholder: {
                 placeholder()
             }
