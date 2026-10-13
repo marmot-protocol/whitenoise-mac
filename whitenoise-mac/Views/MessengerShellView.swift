@@ -152,7 +152,8 @@ private struct DetailPaneView: View {
                                 chatListModel: scope.chatListModel,
                                 attachmentModel: scope.attachmentModel(groupIdHex: chat.id),
                                 safetyModel: scope.safetyModel(groupIdHex: chat.id),
-                                blockedUsersModel: scope.blockedUsers
+                                blockedUsersModel: scope.blockedUsers,
+                                avatarAssets: scope.avatarAssets
                             )
                         } else {
                             EmptyDetailView()
@@ -443,6 +444,9 @@ private struct ConversationView: View {
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
     let blockedUsersModel: BlockedUsersViewModel
+    /// Avatar bytes for the snapshot's identities, so the mention picker draws the same pictures
+    /// the transcript does.
+    let avatarAssets: AvatarAssetStore
 
     private var isBlockedDirectPeer: Bool {
         chat.directPeerAccountIdHex.map {
@@ -769,7 +773,8 @@ private struct ConversationView: View {
     private func mentionCandidates(for context: ComposerMentionContext) -> [ComposerMentionCandidate] {
         workspace.mentionCandidates(
             matching: context.query,
-            projectedIdentities: model.snapshot?.identities ?? []
+            projectedIdentities: model.snapshot?.identities ?? [],
+            avatarBytesByReference: avatarAssets.bytesByReference
         )
     }
 

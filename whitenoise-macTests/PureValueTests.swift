@@ -846,6 +846,86 @@ struct PureValueTests {
         #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Alice")
     }
 
+    /// The picker draws a member with the avatar the transcript already holds for them: the
+    /// snapshot identity's retained bytes and remote URL first, then the resolved profile picture
+    /// for a member who has not spoken inside the loaded window.
+    @MainActor
+    @Test func mentionRosterCarriesProjectedAndResolvedProfilePictures() {
+        let account = AccountItem.samples[0]
+        let group = ChatItem.samples[0]
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [group]],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(group.id)
+        state.storeGroupMembers(
+            [
+                mentionMember(id: "alice", displayName: "Alice", npub: "npub1alice"),
+                mentionMember(id: "bob", displayName: "Bob", npub: "npub1bob"),
+                mentionMember(id: "carol", displayName: "Carol", npub: "npub1carol"),
+            ],
+            welcomerAccountIdHex: nil,
+            for: group.id
+        )
+        state.peerProfileFFICache["bob"] = WorkspaceState.CachedPeerProfile(
+            resolved: WorkspaceState.ResolvedPeerFFI(
+                profileDisplayName: "Bob",
+                profileName: nil,
+                profilePicture: "https://example.com/bob.png",
+                directoryDisplayName: nil
+            ),
+            resolvedAt: Date()
+        )
+        let bytes = Data([0x89, 0x50, 0x4e, 0x47])
+        let identities = [
+            ConversationIdentityFfi(
+                accountIdHex: "alice",
+                displayName: "Alice",
+                avatar: .remoteImage(url: "https://example.com/alice.png", cacheKey: "alice"),
+                hasCachedProfile: true,
+                avatarAsset: AvatarAssetFfi(
+                    target: "alice",
+                    reference: "alice-ref",
+                    availability: .ready,
+                    acquisition: nil,
+                    contentRevision: 1,
+                    byteCount: UInt64(bytes.count)
+                )
+            )
+        ]
+        let avatarBytes = [
+            "alice-ref": AvatarBytesFfi(
+                reference: "alice-ref",
+                availability: .ready,
+                contentRevision: 1,
+                byteCount: UInt64(bytes.count),
+                deferred: false,
+                bytes: bytes,
+                mediaType: "image/png",
+                width: 1,
+                height: 1
+            )
+        ]
+
+        let roster = Dictionary(
+            uniqueKeysWithValues: state.mentionRoster(
+                projectedIdentities: identities,
+                avatarBytesByReference: avatarBytes
+            ).map { ($0.id, $0) }
+        )
+
+        #expect(roster["alice"]?.imagePayload?.data == bytes)
+        #expect(roster["alice"]?.sanitizedPictureURL == URL(string: "https://example.com/alice.png"))
+        #expect(roster["bob"]?.imagePayload == nil)
+        #expect(roster["bob"]?.sanitizedPictureURL == URL(string: "https://example.com/bob.png"))
+        #expect(roster["carol"]?.imagePayload == nil)
+        #expect(roster["carol"]?.sanitizedPictureURL == nil)
+    }
+
     /// Mention projections fold nicknames in, so they must notice a nickname write — but noticing
     /// it may not cost anything on the read path, which the timeline hits on every window and
     /// every keystroke. Exactly one rebuild per write, and none at all for a write that changed

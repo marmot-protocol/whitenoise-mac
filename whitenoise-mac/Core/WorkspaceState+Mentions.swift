@@ -17,7 +17,10 @@ import MarmotKit
 
 @MainActor
 extension WorkspaceState {
-    func mentionRoster(projectedIdentities: [ConversationIdentityFfi] = []) -> [ComposerMentionCandidate] {
+    func mentionRoster(
+        projectedIdentities: [ConversationIdentityFfi] = [],
+        avatarBytesByReference: [String: AvatarBytesFfi] = [:]
+    ) -> [ComposerMentionCandidate] {
         guard let selectedChat,
             let members = groupMemberDetailsCache[selectedChat.id]
         else { return [] }
@@ -32,25 +35,33 @@ extension WorkspaceState {
         }
 
         let nicknames = activeContactNicknames
-        let preparedNames = Dictionary(
-            projectedIdentities.compactMap { identity -> (String, String)? in
-                guard let name = PeerDisplayText.sanitize(identity.displayName) else { return nil }
-                return (identity.accountIdHex, name)
-            },
+        let identities = Dictionary(
+            projectedIdentities.map { ($0.accountIdHex, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
         let roster = members.filter { !$0.isSelf }.map { member in
+            let identity = identities[member.memberIdHex]
             let resolved = peerProfileFFICache[member.memberIdHex]?.resolved
+            // The snapshot's identity is what the transcript draws this member with; the resolved
+            // profile covers members who have not spoken inside the loaded window.
+            let projectedPictureURL: String? =
+                if case .remoteImage(let url, _) = identity?.avatar { url.nilIfBlank } else { nil }
             return ComposerMentionCandidate(
                 details: member,
                 nickname: member.nickname(from: nicknames),
-                projectedDisplayName: preparedNames[member.memberIdHex]
+                projectedDisplayName: PeerDisplayText.sanitize(identity?.displayName)
                     ?? MentionPublishedName.resolve(
                         profileDisplayName: resolved?.profileDisplayName,
                         profileName: resolved?.profileName,
                         rosterDisplayName: member.displayName,
                         directoryDisplayName: resolved?.directoryDisplayName
-                    )
+                    ),
+                sanitizedPictureURL: RemoteImageURLPolicy.sanitizedURL(
+                    from: projectedPictureURL ?? resolved?.profilePicture
+                ),
+                imagePayload: AvatarAssetReads.drawablePayload(
+                    identity?.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] }
+                )
             )
         }
         if projectedIdentities.isEmpty {
@@ -65,10 +76,14 @@ extension WorkspaceState {
     /// The candidates the picker should show for an active `@query`, capped and boundary-filtered.
     func mentionCandidates(
         matching query: String,
-        projectedIdentities: [ConversationIdentityFfi] = []
+        projectedIdentities: [ConversationIdentityFfi] = [],
+        avatarBytesByReference: [String: AvatarBytesFfi] = [:]
     ) -> [ComposerMentionCandidate] {
         ComposerMentionQuery.filter(
-            mentionRoster(projectedIdentities: projectedIdentities),
+            mentionRoster(
+                projectedIdentities: projectedIdentities,
+                avatarBytesByReference: avatarBytesByReference
+            ),
             matching: query
         )
     }

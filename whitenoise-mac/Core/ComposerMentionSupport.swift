@@ -28,6 +28,11 @@ nonisolated struct ComposerMentionCandidate: Identifiable, Equatable, Sendable {
     let memberIdHex: String
     /// Avatar/profile seed — the member's account id (falls back to the member id).
     let accountIdHex: String
+    /// The member's published picture, already passed through `RemoteImageURLPolicy`.
+    let sanitizedPictureURL: URL?
+    /// The core's retained avatar bytes, when the conversation snapshot carries them. Drawn in
+    /// preference to `sanitizedPictureURL`, exactly as a sender's avatar in the transcript is.
+    let imagePayload: DownloadedMediaPayload?
     /// What the picker inserts and the row shows: the viewer's private nickname when one is set,
     /// else the published name, else a shortened reference.
     let displayName: String
@@ -47,10 +52,14 @@ nonisolated struct ComposerMentionCandidate: Identifiable, Equatable, Sendable {
     init(
         details: GroupMemberDetailsFfi,
         nickname: String? = nil,
-        projectedDisplayName: String? = nil
+        projectedDisplayName: String? = nil,
+        sanitizedPictureURL: URL? = nil,
+        imagePayload: DownloadedMediaPayload? = nil
     ) {
         memberIdHex = details.memberIdHex
         accountIdHex = details.memberIdHex
+        self.sanitizedPictureURL = sanitizedPictureURL
+        self.imagePayload = imagePayload
         npub = details.npub
         let reference = details.npub.isEmpty ? memberIdHex : details.npub
         let published =

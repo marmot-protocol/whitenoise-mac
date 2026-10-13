@@ -213,7 +213,8 @@ private struct ComposerMentionRow: View {
                 ProfileImageAvatarView(
                     seed: candidate.accountIdHex,
                     initials: candidate.displayName,
-                    sanitizedPictureURL: nil,
+                    sanitizedPictureURL: candidate.sanitizedPictureURL,
+                    localImagePayload: candidate.imagePayload,
                     size: 26,
                     isSelected: false
                 )
