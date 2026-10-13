@@ -264,9 +264,6 @@ struct PollComposerSheet: View {
                             text: $draft.options[index]
                         )
                         .focused($focusedField, equals: .option(index))
-                        .onSubmit {
-                            if index + 1 < draft.options.count { focusedField = .option(index + 1) }
-                        }
                         Button {
                             draft.removeOption(at: index)
                         } label: {
@@ -315,6 +312,9 @@ struct PollComposerSheet: View {
             }
         }
         .disabled(isSending)
+        // A focused field swallows Return before the Send button's default-action shortcut sees
+        // it, so every field submits the poll itself; Tab moves between fields.
+        .onSubmit(send)
         .padding(24)
         .frame(width: 440)
         .interactiveDismissDisabled(isSending)
