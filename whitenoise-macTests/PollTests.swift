@@ -263,6 +263,15 @@ struct PollTests {
         #expect(draft.focusAfterReturn(from: nil) == nil)
     }
 
+    @Test func returnInTheQuestionMovesToTheFirstOptionUntilOneIsTyped() {
+        var draft = PollDraft()
+        draft.question = "Lunch?"
+        draft.options = ["", " "]
+        #expect(draft.focusAfterReturn(from: .question) == .option(0))
+        draft.options[1] = "Sushi"
+        #expect(draft.focusAfterReturn(from: .question) == nil, "an option exists, so Return sends")
+    }
+
     // MARK: Composer menu
 
     @Test func pollAppearsInTheAttachmentMenuOnlyWhenAvailable() {

@@ -128,12 +128,21 @@ nonisolated struct PollDraft: Equatable {
 
     /// Where Return moves focus instead of sending, or `nil` to send. Validation drops blank rows,
     /// so a habitual Return before an empty option would otherwise ship a poll short of the
-    /// options the author meant to add — and a sent poll can't be edited.
+    /// options the author meant to add — and a sent poll can't be edited. Return in the question
+    /// before any option is typed moves on rather than flagging options nobody has had a chance
+    /// to fill.
     func focusAfterReturn(from field: Field?) -> Field? {
-        guard case .option(let index) = field else { return nil }
-        let next = index + 1
-        guard options.indices.contains(next), Self.normalized(options[next]).isEmpty else { return nil }
-        return .option(next)
+        switch field {
+        case .question:
+            guard !options.isEmpty, options.allSatisfy({ Self.normalized($0).isEmpty }) else { return nil }
+            return .option(0)
+        case .option(let index):
+            let next = index + 1
+            guard options.indices.contains(next), Self.normalized(options[next]).isEmpty else { return nil }
+            return .option(next)
+        case nil:
+            return nil
+        }
     }
 
     /// Blank option rows are ignored so an unused trailing row never blocks Send.
