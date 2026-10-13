@@ -364,7 +364,6 @@ struct ProfileIdentityHeaderView: View {
                 seed: account.accountIdHex,
                 initials: displayName,
                 sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
-                isOwnAccountImage: true,
                 size: avatarSize,
                 isSelected: false
             )

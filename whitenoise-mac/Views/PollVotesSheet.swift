@@ -175,7 +175,6 @@ private struct PollVoterRow: View {
                 seed: display.accountIdHex,
                 initials: display.name,
                 sanitizedPictureURL: display.sanitizedPictureURL,
-                isOwnAccountImage: display.isSelf,
                 size: 28,
                 isSelected: false
             )

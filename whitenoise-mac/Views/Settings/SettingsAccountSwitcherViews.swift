@@ -56,7 +56,6 @@ struct SettingsAccountSwitcherCard: View {
                         seed: account.accountIdHex,
                         initials: account.initials,
                         sanitizedPictureURL: account.sanitizedPictureURL,
-                        isOwnAccountImage: true,
                         size: MessagesLayout.settingsProfileAvatarSize,
                         isSelected: false
                     )

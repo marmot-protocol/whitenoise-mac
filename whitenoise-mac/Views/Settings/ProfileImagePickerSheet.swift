@@ -130,7 +130,6 @@ struct ProfileImagePickerSheet: View {
                         seed: account.accountIdHex,
                         initials: account.displayName,
                         sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
-                        isOwnAccountImage: true,
                         size: 46,
                         isSelected: false
                     )

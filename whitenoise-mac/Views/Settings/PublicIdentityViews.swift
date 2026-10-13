@@ -125,7 +125,6 @@ struct PublicIdentityQRCodeSheet: View {
                 seed: account.accountIdHex,
                 initials: displayName,
                 sanitizedPictureURL: account.sanitizedPictureURL,
-                isOwnAccountImage: true,
                 size: avatarSize,
                 isSelected: false
             )

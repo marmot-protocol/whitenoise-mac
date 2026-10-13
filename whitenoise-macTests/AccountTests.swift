@@ -2691,24 +2691,6 @@ struct AccountTests: WorkspaceTestSupport {
         }
     }
 
-    @Test func accountRailAvatarExemptsSignedInAccountsFromRemoteImagePreference() throws {
-        // The rail lists the *viewer's own* identities, so it belongs with the profile editor
-        // and the account switcher on the exempt side of `RemoteImageDisplayPolicy`: leaving it
-        // on the default made the sidebar draw initials for the picture the viewer had just set
-        // and could see in Settings, which reads as "my avatar is broken" rather than as privacy.
-        // Unconditional now that the rail draws signed-in accounts only — the narrower
-        // `!account.signedOut` this used to carry has nothing left to exclude. The switcher's
-        // rows are fed the same filtered list and are unconditional for the same reason; the chat
-        // rows next to it are peers and must keep the default.
-        let railSource = try SourceContract.declaration("AccountRailAvatar")
-        #expect(railSource.contains("isOwnAccountImage: true"))
-
-        for row in ["ChatRowContent", "CollapsedChatRowContent"] {
-            let rowSource = try SourceContract.declaration(row)
-            #expect(!rowSource.contains("isOwnAccountImage"), "\(row) draws peers and must stay gated")
-        }
-    }
-
     @Test func accountRailAvatarCarriesNoAccountManagement() throws {
         // The rail switches identities and does nothing else to them. It used to carry a
         // Sign In / Sign Out context menu, whose Sign Out fired `signOutAccount` straight from a

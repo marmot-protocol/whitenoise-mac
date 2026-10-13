@@ -128,14 +128,6 @@ private struct AccountRailAvatar: View {
                 seed: account.accountIdHex,
                 initials: account.initials,
                 sanitizedPictureURL: account.sanitizedPictureURL,
-                // These are the viewer's *own* identities, so the rail sits with the profile
-                // editor and Settings' profile card on the exempt side of the "Load Remote
-                // Profile Images" preference — see `RemoteImageDisplayPolicy`. Left on the
-                // default, the rail drew initials for a picture the viewer had just set and could
-                // see in Settings, which reads as a broken avatar rather than as privacy.
-                // Unconditional because the rail is fed `signedInAccounts`; a deactivated
-                // identity never reaches an avatar here.
-                isOwnAccountImage: true,
                 size: MessagesLayout.accountRailAvatarSize,
                 isSelected: isActive
             )

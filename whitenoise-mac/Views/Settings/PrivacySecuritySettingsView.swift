@@ -2,8 +2,8 @@
 //  PrivacySecuritySettingsView.swift
 //  whitenoise-mac
 //
-//  The Privacy & Security page: the three things this Mac can be asked to give up — profile
-//  pictures fetched from strangers' servers, optional diagnostics sent to White Noise, and
+//  The Privacy & Security page: the things this Mac can be asked to give up — remote GIFs and
+//  link previews fetched from strangers' servers, optional diagnostics sent to White Noise, and
 //  the local data itself.
 //
 //  Laid out after `wn-ios-prototype`'s Privacy & Security (`docs/screens/settings.md` and
@@ -33,22 +33,6 @@ struct PrivacySecuritySettingsView: View {
         SettingsScaffold(title: L10n.string("Privacy & Security")) {
             SettingsSection {
                 SettingsNavigationRow(page: .blockedUsers)
-            }
-
-            SettingsSection(
-                title: L10n.string("Remote Content"),
-                footer: L10n.string(
-                    "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Only secure (https) images are ever loaded."
-                )
-            ) {
-                WNToggle(
-                    L10n.string("Load Remote Profile Images"),
-                    systemImage: "person.crop.circle.badge.exclamationmark",
-                    isOn: Binding(
-                        get: { workspace.loadRemoteImages },
-                        set: { workspace.loadRemoteImages = $0 }
-                    )
-                )
             }
 
             RemoteGIFLoadingSection(preference: .shared)
@@ -119,9 +103,8 @@ struct PrivacySecuritySettingsView: View {
     }
 }
 
-/// Whether a received GIF loads from GIPHY without a click. Its own group rather than a second row
-/// under Remote Content, because that group's footer is about profile pictures and this one needs a
-/// footer of its own saying what it gives away.
+/// Whether a received GIF loads from GIPHY without a click, with a footer saying what it gives
+/// away.
 struct RemoteGIFLoadingSection: View {
     let preference: RemoteGIFLoadingPreference
 

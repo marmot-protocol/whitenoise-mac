@@ -28,7 +28,7 @@ extension WorkspaceState {
         /// Empty until the roster resolves; the contact pane falls back to the hex key.
         let npub: String
         let pictureURL: String?
-        /// Already through `RemoteImageURLPolicy`; the view still applies `loadRemoteImages`.
+        /// Already through `RemoteImageURLPolicy`.
         let sanitizedPictureURL: URL?
     }
 

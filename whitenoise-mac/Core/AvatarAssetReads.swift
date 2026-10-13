@@ -14,8 +14,8 @@ import MarmotKit
 /// 16 references or a byte budget above 16 MiB (`MAX_AVATAR_BATCH_ITEMS` /
 /// `MAX_AVATAR_BATCH_BYTES` in mdk's `runtime/avatar_access.rs`). Every call site used to ask for
 /// 32 MiB, so every read threw, each site swallowed the error as "fall back to the URL", and the
-/// "Load Remote Profile Images" preference then blanked the URL: no peer avatar drew anywhere, with
-/// nothing logged. Keeping the arithmetic here is what stops a call site from getting it wrong again.
+/// since-removed "Load Remote Profile Images" preference then blanked the URL: no peer avatar drew
+/// anywhere, with nothing logged. Keeping the arithmetic here is what stops a call site from getting it wrong again.
 nonisolated enum AvatarAssetReads {
     static let maxBatchItems = 16
     static let maxBatchBytes: UInt64 = 16 * 1_024 * 1_024

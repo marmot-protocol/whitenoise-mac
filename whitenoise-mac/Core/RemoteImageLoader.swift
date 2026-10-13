@@ -14,10 +14,9 @@ nonisolated struct LoadedImage: @unchecked Sendable {
 /// (a tracking-pixel vector) and, for `http://` URLs, exposes the request to network observers.
 /// This policy is the single place that decides whether a remote image URL is allowed to be
 /// fetched at all: it requires `https`, a non-empty host, and a host that is not an
-/// internal/private/loopback/link-local address (SSRF protection). The *decision to load
-/// remote images at all* is gated separately behind a user preference
-/// (`WorkspaceState.loadRemoteImages`, default off); this policy is the defense-in-depth check
-/// that runs even once the user has opted in.
+/// internal/private/loopback/link-local address (SSRF protection). Profile pictures have no
+/// opt-in switch — MDK fetches peer avatars itself regardless — so this policy is the check
+/// every avatar URL passes before the app fetches it.
 ///
 /// SSRF context: profile/avatar `picture` URLs are attacker-controlled (untrusted peer Nostr
 /// metadata). Without the address check below, a peer could put `https://192.168.1.1/x.png`,
@@ -767,9 +766,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// because a wrong pairing here shows one image under another's URL for the whole session.
     ///
     /// Priming widens neither what may be fetched nor what may be drawn. `image(for:)` still
-    /// applies `RemoteImageURLPolicy` before it looks here, so a disallowed URL stays unloadable,
-    /// and the consent half of the decision stays with `RemoteImageDisplayPolicy` at the call
-    /// site. Oversized bodies are rejected so `primedSourceLimit` bounds memory and not just a
+    /// applies `RemoteImageURLPolicy` before it looks here, so a disallowed URL stays unloadable.
+    /// Oversized bodies are rejected so `primedSourceLimit` bounds memory and not just a
     /// count, and `clearCache()` drops these bytes along with the decoded images.
     func primeRemoteImage(url: URL, data: Data) {
         guard RemoteImageURLPolicy.isAllowed(url), !data.isEmpty,

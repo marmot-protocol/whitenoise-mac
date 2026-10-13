@@ -36577,65 +36577,6 @@
         }
       }
     },
-    "Load Remote Profile Images" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Externe Profilbilder laden"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cargar imágenes de perfil remotas"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Charger les images de profil distantes"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Carica immagini profilo remote"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Carregar imagens de perfil remotas"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Загружать удалённые изображения профиля"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uzak profil görsellerini yükle"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "加载远程头像"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "載入遠端個人頭像"
-          }
-        }
-      }
-    },
     "Loading key packages" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -46419,65 +46360,6 @@
         }
       }
     },
-    "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Only secure (https) images are ever loaded." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Standardmäßig deaktiviert. Profilbilder stammen von URLs, die andere kontrollieren. Beim Laden geben sie dem Absender deine IP-Adresse preis und verraten, wann du online bist. Es werden ausschließlich sichere Bilder (https) geladen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Desactivado de forma predeterminada. Las fotos de perfil provienen de URL que controlan otras personas, por lo que cargarlas revela tu dirección IP y cuándo estás en línea a quien las envió. Solo se cargan imágenes seguras (https)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Désactivé par défaut. Les photos de profil proviennent d'URL contrôlées par d'autres personnes ; les charger révèle donc votre adresse IP et vos heures de connexion à ceux qui les ont envoyées. Seules les images sécurisées (https) sont chargées."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Disattivato per impostazione predefinita. Le immagini del profilo provengono da URL controllati da altri, quindi caricarle rivela il tuo indirizzo IP e quando sei online a chi le ha inviate. Vengono caricate solo immagini sicure (https)."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Desativado por padrão. As fotos de perfil vêm de URLs controlados por outras pessoas, então carregá-las revela o seu endereço IP e quando você está on-line a quem as enviou. Apenas imagens seguras (https) são carregadas."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "По умолчанию отключено. Изображения профиля загружаются по URL-адресам, которые контролируют другие люди, поэтому их загрузка раскрывает ваш IP-адрес и время, когда вы в сети, тому, кто их отправил. Загружаются только безопасные изображения (https)."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Varsayılan olarak kapalı. Profil resimleri başkalarının denetlediği URL'lerden gelir; bu nedenle bunları yüklemek, IP adresinizi ve çevrimiçi olduğunuz zamanları gönderen kişiye açık eder. Yalnızca güvenli (https) görseller yüklenir."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "默认关闭。头像来自他人控制的 URL，因此加载头像会向发送者暴露你的 IP 地址以及你在线的时间。仅加载安全（https）图片。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "預設關閉。個人頭像來自他人控制的 URL，因此載入頭像會向傳送者洩露你的 IP 位址以及你上線的時間。僅會載入安全（https）的圖片。"
-          }
-        }
-      }
-    },
     "OK" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -53459,65 +53341,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "中繼需要注意"
-          }
-        }
-      }
-    },
-    "Remote Content" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Externe Inhalte"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Contenido remoto"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Contenu distant"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Contenuto remoto"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Conteúdo remoto"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удалённый контент"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uzak içerik"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "远程内容"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "遠端內容"
           }
         }
       }

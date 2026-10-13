@@ -857,24 +857,6 @@ struct SettingsTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func loadRemoteImagesDefaultsOffAndPersists() async throws {
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: "whitenoise.mac.loadRemoteImages")
-        defer { restoreDefault(previous, forKey: "whitenoise.mac.loadRemoteImages") }
-
-        // Privacy-preserving default: off when no preference has been stored.
-        defaults.removeObject(forKey: "whitenoise.mac.loadRemoteImages")
-        let state = WorkspaceState.preview()
-        #expect(!state.loadRemoteImages)
-
-        // Opting in persists to UserDefaults so a fresh instance honours it.
-        state.loadRemoteImages = true
-        #expect(defaults.bool(forKey: "whitenoise.mac.loadRemoteImages"))
-        let reloaded = WorkspaceState.preview()
-        #expect(reloaded.loadRemoteImages)
-    }
-
-    @MainActor
     @Test func defaultRelaysUseWhiteNoiseEuAndUsOnly() async throws {
         let defaults = [
             "wss://relay.eu.whitenoise.chat",

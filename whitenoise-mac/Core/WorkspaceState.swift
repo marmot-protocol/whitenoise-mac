@@ -389,16 +389,6 @@ final class WorkspaceState {
     var streamingDebugEnabled: Bool {
         developerMode && streamingDebugMode
     }
-    /// When false (the default), profile/avatar pictures from untrusted peer metadata are NOT
-    /// fetched from their remote URLs; a generated avatar is shown instead. This prevents an
-    /// arbitrary sender from learning the viewer's IP address / online status simply by putting
-    /// a `picture` URL in front of them (a tracking-pixel vector). The user opts in explicitly
-    /// in Privacy & Security settings.
-    var loadRemoteImages: Bool {
-        didSet {
-            UserDefaults.standard.set(loadRemoteImages, forKey: Self.loadRemoteImagesKey)
-        }
-    }
     var appearancePreference: AppearancePreference {
         didSet {
             UserDefaults.standard.set(appearancePreference.rawValue, forKey: Self.appearancePreferenceKey)
@@ -997,7 +987,6 @@ final class WorkspaceState {
     static let streamingDebugModeKey = "whitenoise.mac.streamingDebugMode"
     static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
     static let notificationPreviewModeKey = "whitenoise.mac.notificationPreviewMode"
-    static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
     static let chatListWidthKey = "whitenoise.mac.chatListWidth"
     static let deliveredNotificationKeyLimit = 256
     static let timelinePageLimit: UInt32 = 100
@@ -1272,9 +1261,6 @@ final class WorkspaceState {
         self.relayHostProbe = relayHostProbe
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
-        // Defaults to false: bool(forKey:) returns false when the key is absent, which is the
-        // privacy-preserving default (remote peer images are not fetched until the user opts in).
-        self.loadRemoteImages = UserDefaults.standard.bool(forKey: Self.loadRemoteImagesKey)
         self.chatListWidth = ChatListWidthPolicy.restored(
             storedWidth: UserDefaults.standard.object(forKey: Self.chatListWidthKey) as? Double
         )
