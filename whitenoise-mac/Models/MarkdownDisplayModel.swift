@@ -15,6 +15,9 @@ typealias MarkdownMentionNames = [String: String]
 nonisolated struct MarkdownDisplayDocument {
     let blocks: [MarkdownDisplayBlockNode]
     let truncated: Bool
+    /// Whether any run is a MarmotKit 0.13 `<t:…>` timestamp, so views only re-format documents
+    /// that have one. See `MarkdownTimestampRefresh.swift`.
+    let timestamps: MarkdownTimestampContent
 
     /// A single paragraph can share its final line with compact message metadata.
     /// More elaborate block layouts keep their own independent flow so lists,
@@ -46,9 +49,10 @@ nonisolated struct MarkdownDisplayDocument {
     /// relabel (`MarkdownMentionRelabeling`), which rewrites runs of an existing document rather
     /// than re-deriving one from the AST — there is no budget or depth to re-apply, both having
     /// been enforced when this document was first built.
-    init(blocks: [MarkdownDisplayBlockNode], truncated: Bool) {
+    init(blocks: [MarkdownDisplayBlockNode], truncated: Bool, timestamps: MarkdownTimestampContent = .none) {
         self.blocks = blocks
         self.truncated = truncated
+        self.timestamps = timestamps
     }
 
     init(
@@ -65,6 +69,7 @@ nonisolated struct MarkdownDisplayDocument {
             truncated: &swiftTruncated
         )
         self.truncated = document.truncated || swiftTruncated || budget.didTruncate
+        self.timestamps = MarkdownTimestampContent(scanning: blocks)
     }
 
     fileprivate static func makeBlocks(
@@ -434,11 +439,14 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         case .nostrMention(let entity), .nostrUri(let entity):
             return nostrEntity(entity, intent: intent, mentionNames: mentionNames)
         case .timestamp(let unixSeconds, let style):
-            return styled(
+            var text = styled(
                 MarkdownTimestampFormatter.text(unixSeconds: unixSeconds, style: style),
                 intent: intent,
                 link: link
             )
+            // Tagged so a view can re-format it for the current clock, locale and time zone.
+            text[MarkdownTimestampAttribute.self] = MarkdownTimestampValue(unixSeconds: unixSeconds, style: style)
+            return text
         @unknown default:
             return AttributedString()
         }

@@ -443,10 +443,19 @@ struct SettingsTests: WorkspaceTestSupport {
         try await state.setProfileImage(croppedImageData: AvatarImageCropSource.data(fromFileURL: imageURL))
         let staged = try #require(state.signUpDraft.image)
         state.signUpDraft.displayName = "Pepi"
+        state.signUpDraft.about = "Hola"
 
         await state.completeSignUp()
 
         #expect(state.lastError == nil)
+        // The photo is the one reason a sign-up publishes after creating the identity: its URL
+        // only exists once the account key can sign the upload.
+        #expect(runtime.initialProfileArguments.map(\.displayName) == ["Pepi"])
+        #expect(runtime.initialProfileArguments.map(\.about) == ["Hola"])
+        #expect(runtime.publishUserProfileCallCount == 1)
+        #expect(runtime.lastPublishedProfile?.displayName == "Pepi")
+        #expect(runtime.lastPublishedProfile?.about == "Hola")
+        #expect(runtime.lastPublishedProfile?.picture == runtime.uploadedProfileImageURL)
         let published = try #require(RemoteImageURLPolicy.sanitizedURL(from: runtime.uploadedProfileImageURL))
         #expect(RemoteImageLoader.shared.primedSourceByteCount(for: published) == staged.data.count)
     }

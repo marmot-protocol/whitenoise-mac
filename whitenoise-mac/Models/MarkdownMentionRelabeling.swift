@@ -59,7 +59,7 @@ nonisolated extension MarkdownDisplayDocument {
             )
         }
         guard didChange else { return nil }
-        return MarkdownDisplayDocument(blocks: relabeled, truncated: truncated)
+        return MarkdownDisplayDocument(blocks: relabeled, truncated: truncated, timestamps: timestamps)
     }
 }
 

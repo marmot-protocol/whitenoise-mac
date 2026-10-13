@@ -59,12 +59,15 @@ extension WorkspaceState {
 
     // MARK: - Committing
 
-    /// Create the durable identity and Marmot-owned generated profile, upload the staged photo
-    /// under it, publish the user's optional edits, and go in.
+    /// Create the durable identity with the typed name and about as its first profile, upload the
+    /// staged photo under it, publish once more only if needed, and go in.
     ///
-    /// The order is `whitenoise`'s (`use_signup.dart`), and it is forced: a Blossom upload is
-    /// signed by an account key, so the picture cannot become a URL before the identity exists,
-    /// and the profile event cannot be published before the picture has a URL to carry.
+    /// `createIdentityWithInitialProfile` (MarmotKit 0.13) makes the chosen name the account's
+    /// first kind 0, so contacts never see the key-derived default that a create-then-publish
+    /// sign-up exposed first. A second publish happens only when the profile still has to change:
+    /// a photo was staged (a Blossom upload is signed by the account key, so the picture cannot
+    /// become a URL before the identity exists), MDK resumed a setup that ignored the supplied
+    /// profile, or this is a retry after the identity was already created.
     ///
     /// Every failure keeps the pane up with `lastError` under the fields, and the button retries.
     /// What makes a retry safe is `signUpCreatedAccountRef`: without it the second press would
@@ -80,10 +83,21 @@ extension WorkspaceState {
 
         guard let client = await clientForAuthentication() else { return }
 
+        let requestedProfile = ProfileDraft(
+            displayName: signUpDraft.trimmedDisplayName,
+            about: signUpDraft.trimmedAbout
+        )
+
         do {
+            // The profile identity creation published, when it is exactly what the user typed.
+            var publishedInitialProfile: UserProfileMetadataFfi?
+            // The minted identity still to bring online: just created, or left behind by an attempt
+            // whose `start()` or account refresh threw after `signUpCreatedAccountRef` was set.
+            var accountToBringOnline: AccountSummaryFfi?
             if signUpCreatedAccountRef == nil {
                 let existingAccountLabels = Set(accounts.map(\.accountRef))
-                let creation = try await client.createIdentityWithProfile(
+                let creation = try await client.createIdentityWithInitialProfile(
+                    profile: requestedProfile.metadata,
                     defaultRelays: MarmotClient.accountRelays,
                     bootstrapRelays: MarmotClient.seedRelays,
                     inboxRelays: MarmotClient.seedRelays
@@ -97,10 +111,23 @@ extension WorkspaceState {
                 // account refresh that fails leaves an identity on disk either way, and a retry
                 // that had not recorded it would mint a second one and abandon the first.
                 signUpCreatedAccountRef = AccountItem(summary: creation.account).accountRef
+                // MDK returns the profile its setup stamped; a resumed setup ignores the one
+                // supplied, so only the fields sign-up sets decide whether it was kept.
+                if creation.profile.displayName == requestedProfile.metadata.displayName,
+                    creation.profile.about == requestedProfile.metadata.about
+                {
+                    publishedInitialProfile = creation.profile
+                }
+                accountToBringOnline = creation.account
+            } else if let createdAccountRef = signUpCreatedAccountRef, activeAccount?.accountRef != createdAccountRef {
+                accountToBringOnline = try await FFIExecutor.run { try client.listAccounts() }
+                    .first { AccountItem(summary: $0).accountRef == createdAccountRef }
+            }
+            if let accountToBringOnline {
                 // Same ordering rule as `signUp()` / `login()`: wait until `start()` succeeds so a
                 // failure leaves the previously ready account intact (#333).
                 try await bringRuntimeOnline(client)
-                try await refreshAccounts(preferred: creation.account)
+                try await refreshAccounts(preferred: accountToBringOnline)
             }
 
             guard let account = activeAccount, let accountRef = signUpCreatedAccountRef else {
@@ -108,33 +135,32 @@ extension WorkspaceState {
                 return
             }
 
-            var picture = ""
-            if let image = signUpDraft.image {
-                picture = try await client.uploadProfileImage(
+            let published: UserProfileMetadataFfi
+            if let publishedInitialProfile, signUpDraft.image == nil {
+                published = publishedInitialProfile
+            } else {
+                // Built here rather than by mutating `profileDraft`, so a failed publish leaves the
+                // settings page's own draft untouched — it is loaded from the core on first visit
+                // and has no business carrying half of an abandoned sign-up.
+                var draft = requestedProfile
+                if let image = signUpDraft.image {
+                    draft.picture = try await client.uploadProfileImage(
+                        accountRef: accountRef,
+                        data: image.data,
+                        mediaType: image.mediaType,
+                        blossomServer: nil
+                    )
+                    // The staged bytes have been drawing the sign-up avatar all along; keep them
+                    // drawing it once the account rail switches to the published URL.
+                    primeUploadedProfileImage(url: draft.picture, data: image.data)
+                }
+                published = try await client.publishUserProfile(
                     accountRef: accountRef,
-                    data: image.data,
-                    mediaType: image.mediaType,
-                    blossomServer: nil
+                    profile: draft.metadata,
+                    defaultRelays: relaySettings.publishRelays,
+                    bootstrapRelays: relaySettings.networkBootstrapRelays
                 )
-                // The staged bytes have been drawing the sign-up avatar all along; keep them
-                // drawing it once the account rail switches to the published URL.
-                primeUploadedProfileImage(url: picture, data: image.data)
             }
-
-            // Built here rather than by mutating `profileDraft`, so a failed publish leaves the
-            // settings page's own draft untouched — it is loaded from the core on first visit and
-            // has no business carrying half of an abandoned sign-up.
-            let draft = ProfileDraft(
-                displayName: signUpDraft.trimmedDisplayName,
-                about: signUpDraft.trimmedAbout,
-                picture: picture
-            )
-            let published = try await client.publishUserProfile(
-                accountRef: accountRef,
-                profile: draft.metadata,
-                defaultRelays: relaySettings.publishRelays,
-                bootstrapRelays: relaySettings.networkBootstrapRelays
-            )
 
             profileDraft = ProfileDraft(profile: published, fallbackName: account.displayName)
             // What sign-up just published is the baseline Settings → Profile compares against, so

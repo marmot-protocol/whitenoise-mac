@@ -7,10 +7,10 @@
 //  keeping SwiftUI body/layout passes cheap while the transcript scrolls.
 //
 
+import MarmotKit
 import SwiftUI
 
 struct MarkdownMessageView: View {
-    @Environment(\.customEmojiGlyphs) private var customEmoji
     let message: MessageItem
     var trailingMetadata: Text?
 
@@ -20,13 +20,32 @@ struct MarkdownMessageView: View {
     }
 
     var body: some View {
-        if let inlineParagraph = message.contentMarkdown?.inlineParagraph {
+        // Only documents with a `<t:…>` timestamp pay for re-formatting at draw time.
+        if let document = message.contentMarkdown, document.timestamps != .none {
+            MarkdownTimestampRefresher(document: document) { refreshed in
+                MarkdownMessageContent(message: message, document: refreshed, trailingMetadata: trailingMetadata)
+            }
+        } else {
+            MarkdownMessageContent(
+                message: message, document: message.contentMarkdown, trailingMetadata: trailingMetadata)
+        }
+    }
+}
+
+private struct MarkdownMessageContent: View {
+    @Environment(\.customEmojiGlyphs) private var customEmoji
+    let message: MessageItem
+    let document: MarkdownDisplayDocument?
+    let trailingMetadata: Text?
+
+    var body: some View {
+        if let inlineParagraph = document?.inlineParagraph {
             MessageLinkText(
                 text: inlineParagraph, layoutID: "inline", trailing: trailingMetadata, glyphs: customEmoji
             )
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
-        } else if let document = message.contentMarkdown {
+        } else if let document {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(document.blocks) { block in
                     MarkdownBlockView(block: block.block, layoutID: "\(block.id)")
@@ -235,4 +254,27 @@ private struct MarkdownTableView: View {
                 .stroke(WNColor.borderTertiary, lineWidth: 1)
         }
     }
+}
+
+#Preview {
+    let now = Int64(Date().timeIntervalSince1970)
+    let document = MarkdownDocumentFfi(
+        blocks: [
+            .paragraph(inlines: [
+                .text(content: "Standup moved to "),
+                .timestamp(unixSeconds: now + 5_400, style: .shortTime),
+                .text(content: ", "),
+                .timestamp(unixSeconds: now + 5_400, style: .relative),
+            ])
+        ],
+        truncated: false,
+        blankLinesBefore: Data([0])
+    )
+    MarkdownMessageView(
+        message: MessageItem(
+            id: "preview", senderName: "Avery", body: "", contentMarkdown: document, sentAt: Date(),
+            isOutgoing: false)
+    )
+    .padding()
+    .frame(width: 360)
 }
