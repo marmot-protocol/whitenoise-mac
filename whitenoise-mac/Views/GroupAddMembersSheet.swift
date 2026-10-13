@@ -123,6 +123,7 @@ struct GroupAddMembersSheet: View {
                 seed: recipient.accountIdHex,
                 initials: recipient.title,
                 sanitizedPictureURL: recipient.sanitizedPictureURL,
+                localImagePayload: recipient.imagePayload,
                 size: 32,
                 isSelected: false
             )

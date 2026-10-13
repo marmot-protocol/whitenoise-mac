@@ -3712,6 +3712,9 @@ struct ComposeContact: Identifiable, Equatable {
     let displayNameIsPrivate: Bool
     let pictureURL: String?
     let sanitizedPictureURL: URL?
+    /// MDK's retained copy of the avatar, borrowed from a chat row or transcript; see
+    /// `NewChatRecipient.imagePayload`.
+    let imagePayload: DownloadedMediaPayload?
     let lastActivity: Date?
 
     var id: String { accountIdHex }
@@ -3723,6 +3726,7 @@ struct ComposeContact: Identifiable, Equatable {
         publishedDisplayName: String? = nil,
         displayNameIsPrivate: Bool = false,
         pictureURL: String?,
+        imagePayload: DownloadedMediaPayload? = nil,
         lastActivity: Date?
     ) {
         self.accountIdHex = accountIdHex
@@ -3732,7 +3736,24 @@ struct ComposeContact: Identifiable, Equatable {
         self.displayNameIsPrivate = displayNameIsPrivate
         self.pictureURL = pictureURL
         self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
+        self.imagePayload = imagePayload
         self.lastActivity = lastActivity
+    }
+
+    /// The same person under a new label, every other field kept; see `NewChatRecipient.relabeled`.
+    func relabeled(
+        displayName: String?, publishedDisplayName: String?, displayNameIsPrivate: Bool
+    ) -> ComposeContact {
+        ComposeContact(
+            accountIdHex: accountIdHex,
+            npub: npub,
+            displayName: displayName,
+            publishedDisplayName: publishedDisplayName,
+            displayNameIsPrivate: displayNameIsPrivate,
+            pictureURL: pictureURL,
+            imagePayload: imagePayload,
+            lastActivity: lastActivity
+        )
     }
 
     var title: String {
@@ -3765,7 +3786,8 @@ struct ComposeContact: Identifiable, Equatable {
             displayName: displayName,
             publishedDisplayName: publishedDisplayName,
             displayNameIsPrivate: displayNameIsPrivate,
-            pictureURL: pictureURL
+            pictureURL: pictureURL,
+            imagePayload: imagePayload
         )
     }
 }

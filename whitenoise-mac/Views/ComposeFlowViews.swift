@@ -123,6 +123,7 @@ struct NewChatPanelView: View {
                 subtitle: contact.subtitle,
                 avatarSeed: contact.accountIdHex,
                 sanitizedPictureURL: contact.sanitizedPictureURL,
+                imagePayload: contact.imagePayload,
                 isBusy: workspace.creatingDirectChatIdHex == contact.accountIdHex
             ) {
                 Task { await workspace.startDirectChat(with: contact.recipient) }
@@ -286,6 +287,7 @@ struct ChooseMembersPanelView: View {
                 subtitle: contact.subtitle,
                 avatarSeed: contact.accountIdHex,
                 sanitizedPictureURL: contact.sanitizedPictureURL,
+                imagePayload: contact.imagePayload,
                 selection: isSelected(accountIdHex: contact.accountIdHex)
             ) {
                 workspace.toggleComposeMember(contact.recipient)
@@ -516,6 +518,7 @@ private struct GroupDraftMemberRow: View {
                 seed: member.accountIdHex,
                 initials: member.title,
                 sanitizedPictureURL: member.sanitizedPictureURL,
+                localImagePayload: member.imagePayload,
                 size: 32,
                 isSelected: false
             )
@@ -714,6 +717,7 @@ private struct ComposeIdentifierResults: View {
                 subtitle: shortKey(npub: recipient.npub, hex: recipient.accountIdHex),
                 avatarSeed: recipient.accountIdHex,
                 sanitizedPictureURL: recipient.sanitizedPictureURL,
+                imagePayload: recipient.imagePayload,
                 isBusy: isBusy(recipient),
                 selection: selection(recipient)
             ) {
@@ -799,6 +803,7 @@ private struct ComposeContactRow: View {
     let subtitle: String
     let avatarSeed: String
     let sanitizedPictureURL: URL?
+    var imagePayload: DownloadedMediaPayload?
     /// Third line describing where this person came from. Only discovery rows set it.
     var provenance: String?
     var isBusy = false
@@ -813,6 +818,7 @@ private struct ComposeContactRow: View {
                     seed: avatarSeed,
                     initials: title,
                     sanitizedPictureURL: sanitizedPictureURL,
+                    localImagePayload: imagePayload,
                     size: 36,
                     isSelected: false
                 )
@@ -964,6 +970,7 @@ private struct MemberChip: View {
                     seed: member.accountIdHex,
                     initials: member.title,
                     sanitizedPictureURL: member.sanitizedPictureURL,
+                    localImagePayload: member.imagePayload,
                     size: 18,
                     isSelected: false
                 )

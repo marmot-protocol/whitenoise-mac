@@ -300,14 +300,10 @@ extension WorkspaceState {
         else { return }
         let existing = composeContacts[index]
         let published = existing.profileName
-        composeContacts[index] = ComposeContact(
-            accountIdHex: existing.accountIdHex,
-            npub: existing.npub,
+        composeContacts[index] = existing.relabeled(
             displayName: nickname ?? published,
             publishedDisplayName: nickname == nil ? nil : published,
-            displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published),
-            pictureURL: existing.pictureURL,
-            lastActivity: existing.lastActivity
+            displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published)
         )
     }
 

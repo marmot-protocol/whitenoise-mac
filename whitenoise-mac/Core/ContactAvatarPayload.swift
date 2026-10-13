@@ -26,4 +26,22 @@ enum ContactAvatarPayload {
             .senderImagePayload
             ?? chats.first { $0.directPeerAccountIdHex == accountIdHex }?.groupImagePayload
     }
+
+    /// `find` for every account at once, with the same precedence: one pass for a list of rows
+    /// instead of a scan per row.
+    static func index(
+        messages: some Sequence<MessageItem>,
+        chats: [ChatItem]
+    ) -> [String: DownloadedMediaPayload] {
+        var payloads: [String: DownloadedMediaPayload] = [:]
+        for chat in chats {
+            guard let hex = chat.directPeerAccountIdHex, let payload = chat.groupImagePayload else { continue }
+            if payloads[hex] == nil { payloads[hex] = payload }
+        }
+        // Later messages overwrite earlier ones, so the newest transcript bytes win.
+        for message in messages {
+            if let payload = message.senderImagePayload { payloads[message.senderAccountIdHex] = payload }
+        }
+        return payloads
+    }
 }

@@ -96,7 +96,12 @@ extension WorkspaceState {
             displayName: nickname ?? published,
             publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
             displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published),
-            pictureURL: resolved?.profilePicture
+            pictureURL: resolved?.profilePicture,
+            imagePayload: ContactAvatarPayload.find(
+                accountIdHex: member.accountIdHex,
+                messages: selectedChat.flatMap { messageTimelineStores[$0.id]?.messages } ?? [],
+                chats: activeChats
+            )
         )
     }
 
@@ -401,6 +406,12 @@ extension WorkspaceState {
 
         var byHex: [String: ComposeContact] = [:]
         let chats = (chatsByAccount[accountId] ?? []) + (archivedChatsByAccount[accountId] ?? [])
+        // Roster and follow entries carry no picture of their own; MDK's bytes for anyone on
+        // screen fill that in, and draw ahead of a URL without starting a second fetch.
+        let avatars = ContactAvatarPayload.index(
+            messages: messageTimelineStores.values.lazy.flatMap(\.messages),
+            chats: chats
+        )
         for chat in chats where chat.isDirect {
             let hex = chat.avatarSeed
             guard hex != selfHex, hex.count == 64 else { continue }
@@ -413,6 +424,7 @@ extension WorkspaceState {
                 displayNameIsPrivate: Self.nicknameIsPrivate(
                     nicknames.nickname(forContactAccountIdHex: hex), over: chat.publishedTitle),
                 pictureURL: chat.pictureURL ?? existing?.pictureURL,
+                imagePayload: avatars[hex],
                 lastActivity: latestDate(existing?.lastActivity, chat.updatedAt)
             )
         }
@@ -437,6 +449,7 @@ extension WorkspaceState {
                 accountId: accountId,
                 selfHex: selfHex,
                 nicknames: nicknames,
+                avatars: avatars,
                 client: client
             )
             return
@@ -474,6 +487,7 @@ extension WorkspaceState {
                     publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
                     displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published),
                     pictureURL: existing?.pictureURL,
+                    imagePayload: avatars[hex],
                     lastActivity: latestDate(existing?.lastActivity, group.updatedAt)
                 )
             }
@@ -485,6 +499,7 @@ extension WorkspaceState {
             accountId: accountId,
             selfHex: selfHex,
             nicknames: nicknames,
+            avatars: avatars,
             client: client
         )
     }
@@ -500,6 +515,7 @@ extension WorkspaceState {
         accountId: String,
         selfHex: String,
         nicknames: ContactNicknames,
+        avatars: [String: DownloadedMediaPayload],
         client: any MarmotRuntime
     ) async {
         let selfKey = selfHex.lowercased()
@@ -534,6 +550,7 @@ extension WorkspaceState {
                 publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
                 displayNameIsPrivate: Self.nicknameIsPrivate(nickname, over: published),
                 pictureURL: nil,
+                imagePayload: avatars[contact.accountIdHex],
                 lastActivity: nil
             )
         }

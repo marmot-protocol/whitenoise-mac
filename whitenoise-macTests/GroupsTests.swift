@@ -947,6 +947,13 @@ struct GroupsTests: WorkspaceTestSupport {
         // Nothing in the transcript: the direct chat's avatar, never a group's.
         #expect(ContactAvatarPayload.find(accountIdHex: aliceIdHex, messages: [], chats: chats) == direct)
         #expect(ContactAvatarPayload.find(accountIdHex: aliceIdHex, messages: [], chats: [chats[0]]) == nil)
+
+        // `index` answers `find` for every account at once, under the same precedence.
+        let index = ContactAvatarPayload.index(messages: transcript, chats: chats)
+        #expect(index[aliceIdHex] == newer)
+        #expect(index["bob"]?.id == "bob")
+        #expect(ContactAvatarPayload.index(messages: [], chats: chats) == [aliceIdHex: direct])
+        #expect(ContactAvatarPayload.index(messages: [], chats: [chats[0]]).isEmpty)
     }
 
     @MainActor
@@ -1474,6 +1481,44 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(carol.lastActivity == nil)
         // No `lastActivity` files a followed stranger below every real conversation.
         #expect(state.composeContacts.last?.accountIdHex == carolHex)
+    }
+
+    /// Group creation drew initials for anyone without a kind:0 URL (roster and follow entries),
+    /// because the compose rows, chips and draft roster only had that URL. MDK's bytes from the DM
+    /// row now ride along to every one of them.
+    @MainActor
+    @Test func composeContactsCarryRetainedAvatarBytesIntoTheGroupDraft() async throws {
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let accountId = try #require(state.activeAccountId)
+        let avatar = DownloadedMediaPayload(id: "alice-ref#1", data: Data([0x89, 0x50]))
+        state.chatsByAccount[accountId] = [
+            ChatItem(
+                id: "dm",
+                title: "Alice",
+                subtitle: "",
+                preview: "",
+                updatedAt: nil,
+                avatarSeed: aliceHex,
+                pictureURL: "https://example.com/alice.png",
+                groupImagePayload: avatar,
+                unreadCount: 0,
+                isDirect: true
+            )
+        ]
+
+        await state.refreshComposeContacts()
+
+        let alice = try #require(state.composeContacts.first { $0.accountIdHex == aliceHex })
+        #expect(alice.imagePayload == avatar)
+        // Selecting the contact is what puts it in the chips and the name-group roster.
+        #expect(alice.recipient.imagePayload == avatar)
+        #expect(
+            alice.relabeled(displayName: "Ali", publishedDisplayName: "Alice", displayNameIsPrivate: false)
+                .imagePayload == avatar)
     }
 
     @MainActor
