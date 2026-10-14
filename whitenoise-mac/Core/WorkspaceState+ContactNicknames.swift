@@ -196,7 +196,7 @@ extension WorkspaceState {
     ///
     /// Both in one pass over each list: a rename touches the title of the DM with that person and
     /// the "Name: message" line of every chat they last spoke in, and splitting them would walk the
-    /// chat list twice and bump its generation twice. The title match is on `avatarSeed`, which
+    /// chat list twice and bump its generation twice. The title match is on `directPeerAccountIdHex`, which
     /// carries the peer's account hex for a direct chat, so it never catches a group; the preview
     /// match is on the last sender, which can be any row.
     private func relabelChatRows(forAccountId accountId: String, contactAccountIdHex: String, nickname: String?) {
@@ -207,8 +207,8 @@ extension WorkspaceState {
             var didChange = false
             for index in next.indices {
                 var candidate = next[index]
-                if candidate.isDirect,
-                    ContactNicknames.normalizedHex(candidate.avatarSeed) == contactAccountIdHex
+                if let peer = candidate.directPeerAccountIdHex,
+                    ContactNicknames.normalizedHex(peer) == contactAccountIdHex
                 {
                     candidate = candidate.applyingNickname(nickname)
                 }

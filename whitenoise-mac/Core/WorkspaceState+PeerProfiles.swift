@@ -440,10 +440,9 @@ extension WorkspaceState {
         for chats in [chatsByAccount[account.id] ?? [], archivedChatsByAccount[account.id] ?? []] {
             for chat in chats {
                 guard !Task.isCancelled, activeAccountId == account.id else { return }
-                // `avatarSeed` is the peer's account id for an enriched direct chat; the
-                // roster check also catches a row whose first enrichment ran before the
+                // The roster check also catches a row whose first enrichment ran before the
                 // roster was cached.
-                guard affectedGroupIds.contains(chat.id) || ids.contains(chat.avatarSeed),
+                guard affectedGroupIds.contains(chat.id) || chat.directPeerAccountIdHex.map(ids.contains) == true,
                     let members = groupMemberDetailsCache[chat.id]
                 else { continue }
 

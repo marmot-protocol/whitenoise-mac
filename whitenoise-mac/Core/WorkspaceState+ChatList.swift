@@ -659,6 +659,7 @@ extension WorkspaceState {
             previewAttribution: current.previewAttribution,
             updatedAt: current.updatedAt,
             avatarSeed: enrichedItem.avatarSeed,
+            directPeerAccountIdHex: enrichedItem.directPeerAccountIdHex,
             pictureURL: enrichedItem.pictureURL ?? current.pictureURL,
             groupImagePayload:
                 enrichedItem.groupImagePayload

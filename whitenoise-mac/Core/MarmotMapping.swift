@@ -233,6 +233,7 @@ extension ChatItem {
             previewAttribution: preview?.attribution,
             updatedAt: updatedAt,
             avatarSeed: peer?.accountIdHex ?? row.groupIdHex,
+            directPeerAccountIdHex: peer?.accountIdHex,
             pictureURL: peer?.pictureURL ?? groupAvatarURL,
             // MDK's own retained bytes for the avatar it selected apply to direct chats as well:
             // for a DM they are the peer's picture. Only the legacy encrypted-group payload is

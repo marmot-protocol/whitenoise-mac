@@ -401,9 +401,8 @@ extension WorkspaceState {
 
         var byHex: [String: ComposeContact] = [:]
         let chats = (chatsByAccount[accountId] ?? []) + (archivedChatsByAccount[accountId] ?? [])
-        for chat in chats where chat.isDirect {
-            let hex = chat.avatarSeed
-            guard hex != selfHex, hex.count == 64 else { continue }
+        for chat in chats {
+            guard let hex = chat.directPeerAccountIdHex, hex != selfHex, hex.count == 64 else { continue }
             let existing = byHex[hex]
             byHex[hex] = ComposeContact(
                 accountIdHex: hex,
@@ -431,8 +430,8 @@ extension WorkspaceState {
             // A superseded refresh may no longer clear the spinner it set (the generation
             // bump above orphaned its defer), so this early return must clear it.
             isLoadingComposeContacts = false
-            await mergeFollowedComposeContacts(
-                into: byHex,
+            await finishComposeContacts(
+                byHex,
                 generation: generation,
                 accountId: accountId,
                 selfHex: selfHex,
@@ -479,8 +478,8 @@ extension WorkspaceState {
             }
             composeContacts = sortedComposeContacts(byHex)
         }
-        await mergeFollowedComposeContacts(
-            into: byHex,
+        await finishComposeContacts(
+            byHex,
             generation: generation,
             accountId: accountId,
             selfHex: selfHex,
@@ -489,8 +488,85 @@ extension WorkspaceState {
         )
     }
 
+    /// The last two passes of a compose refresh: fold in follows, then fill in npubs and pictures.
+    private func finishComposeContacts(
+        _ byHex: [String: ComposeContact],
+        generation: UInt64,
+        accountId: String,
+        selfHex: String,
+        nicknames: ContactNicknames,
+        client: any MarmotRuntime
+    ) async {
+        guard
+            let merged = await mergeFollowedComposeContacts(
+                into: byHex,
+                generation: generation,
+                accountId: accountId,
+                selfHex: selfHex,
+                nicknames: nicknames,
+                client: client
+            )
+        else { return }
+        await fillComposeContactGaps(merged, generation: generation, accountId: accountId, client: client)
+    }
+
+    /// A direct chat hands its contact a picture but no npub; a group roster entry or a follow is
+    /// the reverse. Without this pass the list shows hex under a DM peer and initials for
+    /// someone you only share groups with. Fill both from the core's local caches — a fresh
+    /// peer-cache entry for free, the rest in one network-free hop off the main thread.
+    private func fillComposeContactGaps(
+        _ byHex: [String: ComposeContact],
+        generation: UInt64,
+        accountId: String,
+        client: any MarmotRuntime
+    ) async {
+        let now = nowProvider()
+        var cachedPictures: [String: String] = [:]
+        var needsPicture: [String] = []
+        var needsNpub: [String] = []
+        for contact in byHex.values {
+            if contact.npub.isEmpty {
+                needsNpub.append(contact.accountIdHex)
+            }
+            guard contact.pictureURL == nil else { continue }
+            if let cached = peerProfileFFICache[contact.accountIdHex],
+                cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL)
+            {
+                cachedPictures[contact.accountIdHex] = cached.resolved.profilePicture?.nilIfBlank
+            } else {
+                needsPicture.append(contact.accountIdHex)
+            }
+        }
+        guard !cachedPictures.isEmpty || !needsPicture.isEmpty || !needsNpub.isEmpty else { return }
+
+        let fetched =
+            (try? await FFIExecutor.run {
+                (
+                    pictures: needsPicture.reduce(into: [String: String]()) { result, hex in
+                        result[hex] = (try? client.userProfile(accountIdHex: hex))?.picture?.nilIfBlank
+                    },
+                    npubs: needsNpub.reduce(into: [String: String]()) { result, hex in
+                        result[hex] = client.npub(accountIdHex: hex)?.nilIfBlank
+                    }
+                )
+            }) ?? (pictures: [:], npubs: [:])
+        let pictures = cachedPictures.merging(fetched.pictures) { cached, _ in cached }
+        guard !pictures.isEmpty || !fetched.npubs.isEmpty else { return }
+        guard composeContactsGeneration == generation, activeAccountId == accountId else { return }
+
+        var byHex = byHex
+        for (hex, contact) in byHex {
+            let picture = pictures[hex]
+            let npub = fetched.npubs[hex]
+            guard picture != nil || npub != nil else { continue }
+            byHex[hex] = contact.filling(npub: npub, pictureURL: picture)
+        }
+        composeContacts = sortedComposeContacts(byHex)
+    }
+
     /// Fold the accounts this identity follows into a compose refresh, keeping only the keys
-    /// no chat or group roster already supplied. Someone you follow but have never messaged
+    /// no chat or group roster already supplied. Returns the merged directory, or nil when a
+    /// newer refresh or an account switch superseded this one. Someone you follow but have never messaged
     /// is otherwise absent from this list entirely, which makes a first DM a paste-an-npub
     /// exercise. They carry no `lastActivity`, so `sortedComposeContacts` files them below
     /// every real conversation.
@@ -501,13 +577,13 @@ extension WorkspaceState {
         selfHex: String,
         nicknames: ContactNicknames,
         client: any MarmotRuntime
-    ) async {
+    ) async -> [String: ComposeContact]? {
         let selfKey = selfHex.lowercased()
         let missing =
             followedAccountIdsHex
             .filter { $0.count == 64 && $0 != selfKey && byHex[$0] == nil && !isLocalAccount(accountIdHex: $0) }
             .sorted()
-        guard !missing.isEmpty else { return }
+        guard !missing.isEmpty else { return byHex }
 
         // `displayName` and `npub` are cached, network-free lookups, so the whole batch
         // fits in one hop off the main thread.
@@ -521,7 +597,7 @@ extension WorkspaceState {
                     )
                 }
             }) ?? missing.map { ResolvedFollowContact(accountIdHex: $0, displayName: nil, npub: nil) }
-        guard composeContactsGeneration == generation, activeAccountId == accountId else { return }
+        guard composeContactsGeneration == generation, activeAccountId == accountId else { return nil }
 
         var byHex = byHex
         for contact in resolved where byHex[contact.accountIdHex] == nil {
@@ -538,6 +614,7 @@ extension WorkspaceState {
             )
         }
         composeContacts = sortedComposeContacts(byHex)
+        return byHex
     }
 
     func filteredComposeContacts(matching query: String) -> [ComposeContact] {
@@ -567,7 +644,7 @@ extension WorkspaceState {
 
     func existingDirectChat(peerAccountIdHex: String) -> ChatItem? {
         guard let activeAccountId else { return nil }
-        let match: (ChatItem) -> Bool = { $0.isDirect && $0.avatarSeed == peerAccountIdHex }
+        let match: (ChatItem) -> Bool = { $0.directPeerAccountIdHex == peerAccountIdHex }
         if let chat = (chatsByAccount[activeAccountId] ?? []).first(where: match) {
             return chat
         }

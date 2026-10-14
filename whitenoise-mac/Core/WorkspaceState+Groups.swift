@@ -105,7 +105,7 @@ extension WorkspaceState {
         if chat.isDirect {
             async let details: Void = loadGroupDetails(groupIdHex: chat.id)
             async let commonGroups: Void = loadCommonGroups(
-                forContactIdHex: chat.avatarSeed,
+                forContactIdHex: chat.directPeerAccountIdHex ?? chat.avatarSeed,
                 excludingGroupIdHex: chat.id
             )
             // Chat info doubles as the peer's profile for a 1:1 conversation, so it carries the

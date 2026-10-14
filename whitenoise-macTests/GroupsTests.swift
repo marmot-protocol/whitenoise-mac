@@ -1487,6 +1487,110 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.composeContacts.last?.accountIdHex == carolHex)
     }
 
+    /// A prepared DM row seeds its avatar with MDK's cache key, not the peer. Keying compose
+    /// contacts on that seed listed the same person twice: once under the group id with their
+    /// picture, once from a shared group's roster under their npub with none.
+    @MainActor
+    @Test func composeContactsListADirectPeerOnceWithTheirNpubAndPicture() async throws {
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let bobHex = String(repeating: "b", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var dm = directGroup()
+        dm.groupIdHex = String(repeating: "d", count: 64)
+        var shared = messageGroup()
+        shared.groupIdHex = String(repeating: "e", count: 64)
+        shared.name = "Book club"
+        runtime.installDirectGroup(
+            dm,
+            alongside: [shared],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: bobHex,
+            profile: UserProfileMetadataFfi(
+                name: "bob",
+                displayName: "Bob",
+                about: nil,
+                picture: "https://example.com/bob.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installGroupDetailsRecord(
+            GroupDetailsFfi(
+                group: shared,
+                members: [
+                    GroupMemberDetailsFfi(
+                        memberIdHex: account.accountIdHex, account: "Desktop Account", local: true,
+                        isAdmin: true, isSelf: true, npub: "npub1self", displayName: "Desktop Account"),
+                    GroupMemberDetailsFfi(
+                        memberIdHex: aliceHex, account: nil, local: false,
+                        isAdmin: false, isSelf: false, npub: "npub1alyce", displayName: "Alice"),
+                    GroupMemberDetailsFfi(
+                        memberIdHex: bobHex, account: nil, local: false,
+                        isAdmin: false, isSelf: false, npub: "npub1p0p", displayName: "Bob"),
+                ]
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let dmRow = try #require(state.activeChats.first { $0.id == dm.groupIdHex })
+        #expect(dmRow.directPeerAccountIdHex == aliceHex)
+
+        await state.refreshComposeContacts()
+
+        #expect(state.composeContacts.map(\.accountIdHex).sorted() == [aliceHex, bobHex])
+        let alice = try #require(state.composeContacts.first { $0.accountIdHex == aliceHex })
+        #expect(alice.npub == "npub1alyce")
+        #expect(alice.pictureURL == "https://example.com/alice.png")
+        // Bob is only ever in a group roster, which carries no picture of its own.
+        let bob = try #require(state.composeContacts.first { $0.accountIdHex == bobHex })
+        #expect(bob.npub == "npub1p0p")
+        #expect(bob.pictureURL == "https://example.com/bob.png")
+    }
+
+    /// A DM peer who shares no group has no roster entry to lend an npub, so without the fill
+    /// pass their row's subtitle is raw hex.
+    @MainActor
+    @Test func composeContactsResolveAnNpubForADirectOnlyPeer() async throws {
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var dm = directGroup()
+        dm.groupIdHex = String(repeating: "d", count: 64)
+        runtime.installDirectGroup(
+            dm,
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice", displayName: "Alice", about: nil,
+                picture: "https://example.com/alice.png", nip05: nil, lud16: nil)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        await state.refreshComposeContacts()
+
+        #expect(state.composeContacts.count == 1)
+        let alice = try #require(state.composeContacts.first)
+        #expect(alice.accountIdHex == aliceHex)
+        #expect(alice.npub == runtime.npub(accountIdHex: aliceHex))
+        #expect(alice.subtitle.hasPrefix("npub1"))
+        #expect(alice.pictureURL == "https://example.com/alice.png")
+    }
+
     @MainActor
     @Test func staleGroupDetailsLoadDoesNotClobberNewerSnapshotOrDropSpinner() async throws {
         // Issue #135: `loadGroupDetails` is reachable concurrently for the same group, and the FFI

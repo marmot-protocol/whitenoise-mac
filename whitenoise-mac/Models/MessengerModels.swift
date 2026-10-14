@@ -144,7 +144,15 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// account. Travels with `preview` for the same reason `previewAttachmentKind` does.
     let previewAttribution: ChatPreviewAttribution?
     let updatedAt: Date?
+    /// Only a seed for the placeholder avatar: a prepared row fills it with MDK's avatar cache
+    /// key, which is neither the peer nor the group. Never read a person's identity from it.
     private(set) var avatarSeed: String
+    /// The other party's account hex, for a direct chat whose peer has actually resolved.
+    ///
+    /// Nil for a group, before roster enrichment lands, and permanently for a note-to-self chat,
+    /// which has no other member. Contact affordances key off this so they never offer to act on
+    /// a group id or an avatar cache key as though it were a person.
+    let directPeerAccountIdHex: String?
     /// `private(set)` so the only in-place writer is `replacingPeerPresentation` below, which
     /// re-derives `sanitizedPictureURL` alongside it. The two must never disagree.
     private(set) var pictureURL: String?
@@ -231,17 +239,6 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         return isDirect
             ? L10n.string("Has invited you to a secure chat", locale: locale)
             : L10n.string("You have been invited to a secure chat", locale: locale)
-    }
-
-    /// The other party's account hex, for a direct chat whose peer has actually resolved.
-    ///
-    /// `avatarSeed` carries that hex, but falls back to the group id whenever no peer resolved —
-    /// before roster enrichment lands, and permanently for a note-to-self chat, which has no other
-    /// member. Contact affordances must key off this rather than the seed, so they never offer to
-    /// act on a group id as though it were a person.
-    var directPeerAccountIdHex: String? {
-        guard isDirect, avatarSeed != id else { return nil }
-        return avatarSeed
     }
 
     /// The person a direct chat is titled after, or nil when its title names nobody.
@@ -379,6 +376,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         previewAttribution: ChatPreviewAttribution? = nil,
         updatedAt: Date?,
         avatarSeed: String,
+        directPeerAccountIdHex: String? = nil,
         pictureURL: String?,
         sanitizedPictureURL: URL? = nil,
         groupImagePayload: DownloadedMediaPayload? = nil,
@@ -407,6 +405,10 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.previewAttribution = previewAttribution
         self.updatedAt = updatedAt
         self.avatarSeed = avatarSeed
+        // A hand-built direct row passes the peer's hex as its seed, so that is the fallback;
+        // the group id is what a peerless one passes, and names nobody.
+        self.directPeerAccountIdHex =
+            isDirect ? (directPeerAccountIdHex ?? (avatarSeed == id ? nil : avatarSeed)) : nil
         self.pictureURL = pictureURL
         self.sanitizedPictureURL =
             sanitizedPictureURL ?? RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
@@ -3761,6 +3763,19 @@ struct ComposeContact: Identifiable, Equatable {
 
     var subtitle: String {
         DisplayText.short(npub.isEmpty ? accountIdHex : npub, head: 12, tail: 8)
+    }
+
+    /// A copy with an empty npub or a missing picture filled in; values already present win.
+    func filling(npub: String?, pictureURL: String?) -> ComposeContact {
+        ComposeContact(
+            accountIdHex: accountIdHex,
+            npub: self.npub.isEmpty ? (npub ?? "") : self.npub,
+            displayName: displayName,
+            publishedDisplayName: publishedDisplayName,
+            displayNameIsPrivate: displayNameIsPrivate,
+            pictureURL: self.pictureURL ?? pictureURL,
+            lastActivity: lastActivity
+        )
     }
 
     var memberRef: String {

@@ -38,6 +38,26 @@ struct AvatarAssetTests {
         model.stop()
     }
 
+    /// MDK seeds a prepared row's avatar with its cache key, which need not be the peer. Reading
+    /// the peer back out of the seed listed one person twice in the compose flow — once under
+    /// that key with their picture, once from a group roster under their npub without it.
+    @Test func directChatKeepsItsPeerWhenTheAvatarCacheKeyIsNotThePeer() {
+        let peerHex = String(repeating: "a", count: 64)
+        var row = chatListRow(
+            groupIdHex: String(repeating: "d", count: 64), title: "Alice", preview: "hi",
+            sender: peerHex, timelineAt: 1
+        )
+        row.conversationKind = .direct
+        var presented = Self.presentedRow(row, peerID: peerHex)
+        presented.presentation.avatar = .remoteImage(
+            url: "https://example.com/alice.png", cacheKey: "avatar-cache-key")
+
+        let chat = ChatItem(presented: presented, activeAccountIdHex: String(repeating: "f", count: 64))
+
+        #expect(chat.avatarSeed == "avatar-cache-key")
+        #expect(chat.directPeerAccountIdHex == peerHex)
+    }
+
     @Test func readsMoreAvatarsThanOneCoreBatchHolds() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let references = (0..<20).map { "ref-\($0)" }
