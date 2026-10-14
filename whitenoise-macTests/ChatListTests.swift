@@ -123,6 +123,59 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(state.contactNickname(forContactAccountIdHex: contact) == nil)
     }
 
+    /// MarmotKit seeds a prepared row's avatar with a presentation cache key — a SHA-256, never the
+    /// peer's id. Chat info keys its nickname row off `directPeerAccountIdHex`, so a seed-derived
+    /// peer stored the nickname against that hash and it labelled nobody, anywhere.
+    @MainActor
+    @Test func aPreparedDirectRowNamesItsPeerByIdNotByAvatarCacheKey() throws {
+        let account = desktopAccount()
+        let aliceIdHex = String(repeating: "a1", count: 32)
+        let cacheKey = String(repeating: "9f", count: 32)
+        let presented = PresentedChatRowFfi(
+            draftVersion: nil,
+            preview: .message,
+            actions: ChatListRowActionsFfi(
+                canMarkRead: false, canMarkUnread: true, canPin: true, canUnpin: false,
+                canMute: true, canUnmute: false, canArchive: true, canRestore: false,
+                canStartLeave: true, canDeleteLocal: false
+            ),
+            row: chatListRow(groupIdHex: "dm", title: "Alice", preview: "Hi", sender: aliceIdHex, timelineAt: 1),
+            presentation: ConversationPresentationFfi(
+                title: .literal(text: "Alice"),
+                avatar: .remoteImage(url: "https://example.com/alice.png", cacheKey: cacheKey),
+                titleSource: .peerProfile,
+                avatarSource: .peerProfile,
+                peerId: aliceIdHex,
+                resolution: .cached
+            ),
+            avatarAsset: nil
+        )
+        let chat = ChatItem(presented: presented, activeAccountIdHex: account.accountIdHex)
+        #expect(chat.avatarSeed == cacheKey)
+        #expect(chat.directPeerAccountIdHex == aliceIdHex)
+        // Carried through the row rebuild that keeps resolved metadata across a delta — and so is
+        // the published name behind a nickname, or clearing the nickname could never restore it.
+        let nicknamed = chat.applyingNickname("Ali")
+        let merged = ChatListOrdering.preservingResolvedMetadata(in: chat, from: nicknamed)
+        #expect(merged.directPeerAccountIdHex == aliceIdHex)
+        #expect(merged.title == "Ali")
+        #expect(merged.applyingNickname(nil).title == "Alice")
+
+        let state = WorkspaceState(
+            accounts: [AccountItem(summary: account)],
+            chatsByAccount: [account.label: [chat]],
+            clientFactory: { FakeMarmotRuntime(accounts: [account]) }
+        )
+        state.activeAccountId = account.label
+
+        state.setContactNickname("Ali", forContactAccountIdHex: try #require(chat.directPeerAccountIdHex))
+
+        #expect(state.contactNickname(forContactAccountIdHex: aliceIdHex) == "Ali")
+        #expect(state.contactNickname(forContactAccountIdHex: cacheKey) == nil)
+        #expect(state.chatItem(accountId: account.label, chatId: "dm")?.title == "Ali")
+        #expect(state.existingDirectChat(peerAccountIdHex: aliceIdHex)?.id == "dm")
+    }
+
     /// A rename has to reach the "Name: message" line of every chat that person last spoke in —
     /// including groups, which carry no nicknamed title to relabel — and it has to land on the
     /// gesture rather than waiting for that chat's next message.

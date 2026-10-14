@@ -149,6 +149,9 @@ extension WorkspaceState {
         relabelComposeContacts(accountIdHex: contact, nickname: nickname)
         relabelContactDetailsTarget(accountIdHex: contact, nickname: nickname)
         relabelTimelineMentions(ofContactAccountIdHex: contact)
+        if let relabeled = groupDetailsSnapshot?.relabelingMember(contact, nickname: nickname) {
+            groupDetailsSnapshot = relabeled
+        }
 
         if nickname == nil {
             // Clearing a nickname hands the label back to whatever the peer published, so this
@@ -196,8 +199,8 @@ extension WorkspaceState {
     ///
     /// Both in one pass over each list: a rename touches the title of the DM with that person and
     /// the "Name: message" line of every chat they last spoke in, and splitting them would walk the
-    /// chat list twice and bump its generation twice. The title match is on `directPeerAccountIdHex`, which
-    /// carries the peer's account hex for a direct chat, so it never catches a group; the preview
+    /// chat list twice and bump its generation twice. The title match is on
+    /// `directPeerAccountIdHex`, which is nil for a group, so it never catches one; the preview
     /// match is on the last sender, which can be any row.
     private func relabelChatRows(forAccountId accountId: String, contactAccountIdHex: String, nickname: String?) {
         // Returns nil when nothing moved, so an unrelated contact's nickname never churns the

@@ -1077,6 +1077,61 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(!state.followStatusReadFailed)
     }
 
+    /// A nickname set from a DM's chat info has to land on the pane it was set from — its header
+    /// and member roster — and on the sidebar row, exactly as one set from the contact profile.
+    @MainActor
+    @Test func aNicknameSetFromDirectChatInfoRelabelsTheOpenPaneAndTheChatRow() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let directChat = try #require(state.activeChats.first { $0.id == "direct-group" })
+        state.selectChat(directChat)
+        await state.showGroupDetails(for: directChat)
+        let opened = try #require(state.groupDetailsSnapshot)
+        #expect(opened.headerTitle(rememberedPeerName: nil) == "Alice")
+
+        state.setContactNickname("Ali", forContactAccountIdHex: aliceIdHex)
+
+        let nicknamed = try #require(state.groupDetailsSnapshot)
+        #expect(nicknamed.headerTitle(rememberedPeerName: nil) == "Ali")
+        let peer = try #require(nicknamed.members.first { $0.id == aliceIdHex })
+        #expect(peer.displayName == "Ali")
+        #expect(peer.publishedDisplayName == "Alice")
+        #expect(state.activeChats.first { $0.id == "direct-group" }?.title == "Ali")
+
+        // The next reload of the pane must not hand the published name back.
+        await state.showGroupDetails(for: try #require(state.activeChats.first { $0.id == "direct-group" }))
+        #expect(state.groupDetailsSnapshot?.headerTitle(rememberedPeerName: nil) == "Ali")
+        #expect(state.activeChats.first { $0.id == "direct-group" }?.title == "Ali")
+
+        state.setContactNickname(nil, forContactAccountIdHex: aliceIdHex)
+
+        let cleared = try #require(state.groupDetailsSnapshot)
+        #expect(cleared.headerTitle(rememberedPeerName: nil) == "Alice")
+        let restored = try #require(cleared.members.first { $0.id == aliceIdHex })
+        #expect(restored.displayName == "Alice")
+        #expect(restored.publishedDisplayName == nil)
+        #expect(state.activeChats.first { $0.id == "direct-group" }?.title == "Alice")
+    }
+
     @MainActor
     @Test func directChatInfoResolvesThePeerFollowState() async throws {
         // Chat info is the profile a 1:1 conversation opens, so it carries the follow control

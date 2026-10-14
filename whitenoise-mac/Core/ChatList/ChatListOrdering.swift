@@ -67,6 +67,9 @@ nonisolated enum ChatListOrdering {
         ChatItem(
             id: chat.id,
             title: current.title,
+            // A nicknamed title only reverts through `publishedTitle`; dropping it here left the
+            // nickname stuck on the row once it was cleared.
+            publishedTitle: current.publishedTitle,
             subtitle: current.subtitle,
             preview: chat.preview,
             previewAttachmentKind: chat.previewAttachmentKind,

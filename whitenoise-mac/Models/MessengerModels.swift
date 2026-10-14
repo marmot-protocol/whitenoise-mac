@@ -631,9 +631,10 @@ nonisolated struct ChatPeerProfile: Hashable, Sendable {
 struct GroupMemberItem: Identifiable, Hashable {
     let id: String
     /// The viewer's private nickname for this member when one is set, else the published name.
-    let displayName: String
+    /// `private(set)` so the only in-place writer is `applyingNickname`.
+    private(set) var displayName: String
     /// The published name `displayName` overrides; nil when no nickname applies.
-    let publishedDisplayName: String?
+    private(set) var publishedDisplayName: String?
     /// What the member calls themselves, nickname or not; nil when they published nothing. Not
     /// a label: a nameless member's `displayName` falls back to their shortened npub, which is
     /// no more their name than a nickname is.
@@ -659,6 +660,23 @@ struct GroupMemberItem: Identifiable, Hashable {
             return accountLabel
         }
         return DisplayText.short(npub, head: 12, tail: 8)
+    }
+
+    /// A copy labelled with `nickname`, or with the published name again when it is nil. The
+    /// published name survives either way, so a rename followed by a clear restores it exactly.
+    func applyingNickname(_ nickname: String?) -> GroupMemberItem {
+        let published = publishedDisplayName ?? displayName
+        var copy = self
+        copy.displayName = nickname ?? published
+        copy.publishedDisplayName = nickname == nil ? nil : published
+        return copy
+    }
+
+    /// The roster's order: you first, then admins, then everyone else by the name shown.
+    static func areInRosterOrder(_ lhs: GroupMemberItem, _ rhs: GroupMemberItem) -> Bool {
+        if lhs.isSelf != rhs.isSelf { return lhs.isSelf }
+        if lhs.isAdmin != rhs.isAdmin { return lhs.isAdmin }
+        return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
     }
 }
 
@@ -695,7 +713,8 @@ struct GroupDetailsSnapshot: Hashable {
     let archived: Bool
     let pendingConfirmation: Bool
     let selfMembership: ChatSelfMembership
-    let members: [GroupMemberItem]
+    /// `private(set)` so the only in-place writer is `relabelingMember`.
+    private(set) var members: [GroupMemberItem]
     let isSelfAdmin: Bool
     let isLastAdmin: Bool
     let canInvite: Bool
@@ -758,6 +777,27 @@ struct GroupDetailsSnapshot: Hashable {
 
     var memberCountLabel: String {
         L10n.plural("%lld members", Int64(members.count))
+    }
+
+    /// A copy whose roster labels `memberIdHex` with `nickname` (or with their published name
+    /// again when it is nil), or nil when that member is not on the roster or already reads so.
+    ///
+    /// The snapshot bakes nicknames in when it is loaded, so the open pane — whose header a direct
+    /// chat names after its one other member — would otherwise keep the old label until reopened.
+    /// Your own row never takes a nickname, matching `GroupMemberDetailsFfi.nickname(from:)`.
+    func relabelingMember(_ memberIdHex: String, nickname: String?) -> GroupDetailsSnapshot? {
+        let target = ContactNicknames.normalizedHex(memberIdHex)
+        guard
+            let index = members.firstIndex(where: {
+                !$0.isSelf && ContactNicknames.normalizedHex($0.id) == target
+            })
+        else { return nil }
+        let relabeled = members[index].applyingNickname(nickname)
+        guard relabeled != members[index] else { return nil }
+        var copy = self
+        copy.members[index] = relabeled
+        copy.members.sort(by: GroupMemberItem.areInRosterOrder)
+        return copy
     }
 
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
