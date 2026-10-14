@@ -181,7 +181,8 @@ struct ChatListDrawerView: View {
             } else {
                 let filter = workspace.chatListFilter
                 let isShowingArchived = filter == .archived
-                let visibleChats = visibleChats(for: filter)
+                let listing = visibleChats(for: filter)
+                let visibleChats = listing.chats
                 let isCollapsed = workspace.isChatListCollapsed
 
                 if isCollapsed {
@@ -201,7 +202,7 @@ struct ChatListDrawerView: View {
                         ForEach(visibleChats) { chat in
                             ChatSidebarRow(
                                 chat: chat,
-                                isArchived: isShowingArchived,
+                                isArchived: listing.archivedIds.contains(chat.id),
                                 isCollapsed: isCollapsed,
                                 searchResult: workspace.sidebarMessageSearchResult(for: chat)
                             )
@@ -267,7 +268,11 @@ struct ChatListDrawerView: View {
 }
 
 extension ChatListDrawerView {
-    fileprivate func visibleChats(for filter: ChatListFilter) -> [ChatItem] {
+    /// The drawer's rows, and which of them are archived. `ChatItem` carries no archive flag, and
+    /// the drawer's filter is not one either: the Left drawer lists archived chats beside active
+    /// ones, and an archived row there must offer Unarchive rather than Pin — mdk refuses to pin
+    /// an archived chat.
+    fileprivate func visibleChats(for filter: ChatListFilter) -> (chats: [ChatItem], archivedIds: Set<String>) {
         let chats: [ChatItem]
         let useBoundedWindow = workspace.searchText
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -309,7 +314,14 @@ extension ChatListDrawerView {
                 )
                 ?? (activeChats + archivedChats).filter(\.isNoLongerMember)
         }
-        return workspace.sidebarSearchFilteredChats(chats)
+        let archivedIds: Set<String>
+        switch filter {
+        case .archived, .left:
+            archivedIds = Set(archivedChats.map(\.id))
+        case .active, .unread:
+            archivedIds = []
+        }
+        return (workspace.sidebarSearchFilteredChats(chats), archivedIds)
     }
 }
 
@@ -562,8 +574,10 @@ private struct ChatSidebarRowMenuItems: View {
     let chat: ChatItem
     let isArchived: Bool
 
+    /// Any archive in flight, not just this chat's: `setChatArchived` refuses every call while one
+    /// is running, so an enabled item on another row would be a click that does nothing.
     private var isArchiving: Bool {
-        workspace.archivingChatId == chat.id
+        workspace.archivingChatId != nil
     }
 
     var body: some View {
@@ -576,12 +590,7 @@ private struct ChatSidebarRowMenuItems: View {
                     )
                 }
             } label: {
-                Label(
-                    chat.manuallyMarkedUnread
-                        ? L10n.string("Clear Unread Reminder")
-                        : L10n.string("Mark as Unread"),
-                    systemImage: chat.manuallyMarkedUnread ? "envelope.open" : "envelope.badge"
-                )
+                ChatRowMenuLabel(action: chat.manuallyMarkedUnread ? .clearUnread : .markUnread)
             }
             .disabled(workspace.isMutatingChatPreferences(chat))
 
@@ -589,7 +598,7 @@ private struct ChatSidebarRowMenuItems: View {
                 Button {
                     Task { await workspace.clearChatMuted(chat) }
                 } label: {
-                    Label(L10n.string("Unmute"), systemImage: "bell")
+                    ChatRowMenuLabel(action: .unmute)
                 }
                 .disabled(workspace.isMutatingChatPreferences(chat))
             } else {
@@ -615,7 +624,7 @@ private struct ChatSidebarRowMenuItems: View {
                         Label(L10n.string("Until I Turn It Back On"), systemImage: "infinity")
                     }
                 } label: {
-                    Label(L10n.string("Mute"), systemImage: "bell.slash")
+                    ChatRowMenuLabel(action: .mute)
                 }
                 .disabled(workspace.isMutatingChatPreferences(chat))
             }
@@ -626,7 +635,7 @@ private struct ChatSidebarRowMenuItems: View {
                 Button {
                     Task { await workspace.setChatArchived(chat, archived: false) }
                 } label: {
-                    Label(L10n.string("Unarchive"), systemImage: "tray.and.arrow.up")
+                    ChatRowMenuLabel(action: .unarchive)
                 }
                 .disabled(isArchiving)
             } else {
@@ -634,10 +643,7 @@ private struct ChatSidebarRowMenuItems: View {
                 Button {
                     Task { await workspace.setChatPinned(chat, pinned: !isPinned) }
                 } label: {
-                    Label(
-                        isPinned ? L10n.string("Unpin") : L10n.string("Pin to Top"),
-                        systemImage: isPinned ? "pin.slash" : "pin"
-                    )
+                    ChatRowMenuLabel(action: isPinned ? .unpin : .pin)
                 }
                 .disabled(workspace.isMutatingChatPreferences(chat))
 
@@ -646,7 +652,7 @@ private struct ChatSidebarRowMenuItems: View {
                 Button {
                     Task { await workspace.setChatArchived(chat, archived: true) }
                 } label: {
-                    Label(L10n.string("Archive"), systemImage: "archivebox")
+                    ChatRowMenuLabel(action: .archive)
                 }
                 .disabled(isArchiving)
             }
@@ -669,10 +675,7 @@ private struct ChatSidebarRowMenuItems: View {
                 Button(role: .destructive) {
                     Task { await workspace.prepareChatLeave(for: chat) }
                 } label: {
-                    Label(
-                        L10n.string("Leave Chat"),
-                        systemImage: "rectangle.portrait.and.arrow.right"
-                    )
+                    ChatRowMenuLabel(action: .leave)
                 }
                 .disabled(
                     workspace.leavingChatId != nil
@@ -683,7 +686,7 @@ private struct ChatSidebarRowMenuItems: View {
                 Button(role: .destructive) {
                     workspace.requestChatLocalDelete(for: chat)
                 } label: {
-                    Label(L10n.string("Delete From This Device"), systemImage: "trash.slash")
+                    ChatRowMenuLabel(action: .deleteLocally)
                 }
                 .disabled(workspace.isDeletingGroupLocally)
             }
