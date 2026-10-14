@@ -12,6 +12,11 @@ final class OnboardingCoordinator {
     private(set) var isBusy = false
     private(set) var isObserving = false
     private(set) var error: String?
+    /// Set once this coordinator has installed a snapshot that was not ready, i.e. the user has
+    /// been walked through at least one check on this launch. Only then does entering the chats
+    /// wait for `openChats()`; an account whose checkpoint was already ready goes straight in.
+    private(set) var hasShownIncompleteSetup = false
+    private(set) var hasConfirmedOpenChats = false
 
     @ObservationIgnored private let accountRef: String
     @ObservationIgnored private let runtime: any MarmotRuntime
@@ -39,6 +44,18 @@ final class OnboardingCoordinator {
 
     var isDurablyReady: Bool {
         snapshot?.ready == true && snapshot?.cancellationPending == false
+    }
+
+    /// Whether the shell may leave onboarding for the chat list. A guided setup ends on its own
+    /// "You’re ready to chat" step, which the user leaves with Open Chats, instead of the chat list
+    /// replacing the checklist the moment the last check passes.
+    var canEnterChats: Bool {
+        isDurablyReady && (!hasShownIncompleteSetup || hasConfirmedOpenChats)
+    }
+
+    func openChats() {
+        guard isDurablyReady else { return }
+        hasConfirmedOpenChats = true
     }
 
     var currentStep: OnboardingStepStateFfi? {
@@ -174,6 +191,7 @@ final class OnboardingCoordinator {
     private func install(_ replacement: OnboardingSnapshotFfi) {
         guard snapshot == nil || replacement.revision >= snapshot!.revision else { return }
         snapshot = replacement
+        if !replacement.ready { hasShownIncompleteSetup = true }
         recoveryRequired = replacement.recoveryEpoch != nil
         error = nil
     }
