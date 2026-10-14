@@ -512,6 +512,37 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.commonGroupsForContact.isEmpty)
     }
 
+    /// A member's profile opened from group info offers Make Admin, and after the promotion the
+    /// same open profile reads the live roster and offers Remove Admin instead.
+    @MainActor
+    @Test func groupMemberProfileMakesThemAdminAndRelabelsInPlace() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(groupChat)
+        await state.showGroupDetails(for: groupChat)
+        let member = try #require(state.groupDetailsSnapshot?.members.first { !$0.isSelf })
+        await state.showContactDetails(for: member)
+        let accountIdHex = try #require(state.contactDetailsTarget?.accountIdHex)
+
+        let before = try #require(ContactGroupAction.member(accountIdHex: accountIdHex, in: state.groupDetailsSnapshot))
+        #expect(ContactGroupAction.actions(for: before).contains(.promote))
+        #expect(!ContactGroupAction.actions(for: before).contains(.demote))
+
+        await state.promoteGroupMember(before)
+
+        #expect(runtime.promoteAdminDetailedCallCount == 1)
+        #expect(state.contactDetailsTarget?.accountIdHex == accountIdHex)
+        let after = try #require(ContactGroupAction.member(accountIdHex: accountIdHex, in: state.groupDetailsSnapshot))
+        #expect(after.isAdmin)
+        #expect(ContactGroupAction.actions(for: after).contains(.demote))
+        #expect(!ContactGroupAction.actions(for: after).contains(.promote))
+    }
+
     @MainActor
     @Test func groupMemberContactDetailsListDirectChatButNotTheOpenGroup() async throws {
         let account = desktopAccount()

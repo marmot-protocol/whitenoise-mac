@@ -348,6 +348,92 @@ struct DisappearingCustomDurationTests {
     }
 }
 
+/// What a member's profile, opened from group info, offers under "Group Actions".
+@MainActor
+struct ContactGroupActionTests {
+    @Test func anAdminViewingAMemberIsOfferedMakeAdminAndRemoval() {
+        let bob = member(id: "bob", canRemove: true, canPromote: true)
+
+        #expect(ContactGroupAction.actions(for: bob) == [.promote, .remove])
+    }
+
+    @Test func anAdminViewingAnotherAdminIsOfferedRemoveAdminInstead() {
+        let alice = member(id: "alice", isAdmin: true, canRemove: true, canDemote: true)
+
+        #expect(ContactGroupAction.actions(for: alice) == [.demote, .remove])
+    }
+
+    @Test func anOrdinaryMemberIsOfferedNothing() {
+        #expect(ContactGroupAction.actions(for: member(id: "bob")).isEmpty)
+    }
+
+    /// The core reports `canDemote` on your own row while you are one of several admins, but
+    /// stepping down belongs with Leave in group info, never on a profile.
+    @Test func yourOwnProfileCarriesNoGroupCommands() {
+        let me = member(id: "me", isAdmin: true, isSelf: true, canDemote: true)
+
+        #expect(ContactGroupAction.actions(for: me).isEmpty)
+    }
+
+    @Test func theRosterEntryIsFoundWhateverTheHexCase() {
+        let roster = snapshot(members: [member(id: "abcdef"), member(id: "012345")])
+
+        #expect(ContactGroupAction.member(accountIdHex: "ABCDEF", in: roster)?.id == "abcdef")
+        #expect(ContactGroupAction.member(accountIdHex: "fedcba", in: roster) == nil)
+        #expect(ContactGroupAction.member(accountIdHex: "abcdef", in: nil) == nil)
+    }
+
+    private func member(
+        id: String,
+        isAdmin: Bool = false,
+        isSelf: Bool = false,
+        canRemove: Bool = false,
+        canPromote: Bool = false,
+        canDemote: Bool = false
+    ) -> GroupMemberItem {
+        GroupMemberItem(
+            id: id,
+            displayName: id,
+            publishedDisplayName: nil,
+            profileName: id,
+            npub: "npub1\(id)",
+            accountLabel: nil,
+            isLocal: isSelf,
+            isAdmin: isAdmin,
+            isSelf: isSelf,
+            canRemove: canRemove,
+            canPromote: canPromote,
+            canDemote: canDemote
+        )
+    }
+
+    private func snapshot(members: [GroupMemberItem]) -> GroupDetailsSnapshot {
+        GroupDetailsSnapshot(
+            groupIdHex: "group",
+            endpoint: "",
+            name: "Planning",
+            customName: "Planning",
+            description: "",
+            avatarURL: nil,
+            sanitizedAvatarURL: nil,
+            avatarDimension: nil,
+            nostrGroupIdHex: "",
+            relays: [],
+            adminIds: [],
+            archived: false,
+            pendingConfirmation: false,
+            selfMembership: .member,
+            members: members,
+            isSelfAdmin: true,
+            isLastAdmin: false,
+            canInvite: true,
+            canLeave: true,
+            requiresSelfDemoteBeforeLeave: false,
+            disappearingMessageSecs: 0
+        )
+    }
+}
+
 @MainActor
 private func member(
     id: String,
