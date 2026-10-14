@@ -125,6 +125,7 @@ struct ConversationMessageRow: View {
                 message: message,
                 safetyModel: safetyModel,
                 customEmojiImages: conversationModel.customEmojiImages,
+                conversationModel: conversationModel,
                 showsDebugMetadata: showsDebugMetadata,
                 timestampReferenceDate: timestampReferenceDate,
                 timestampLocale: timestampLocale,
@@ -246,6 +247,8 @@ struct MessageBubble: View {
     let message: MessageItem
     let safetyModel: GroupSafetyViewModel
     let customEmojiImages: CustomEmojiImageStore
+    /// Owns the reaction details popover's model, so its read follows the conversation's window.
+    let conversationModel: ConversationViewModel
     let showsDebugMetadata: Bool
     let timestampReferenceDate: Date
     let timestampLocale: Locale
@@ -316,6 +319,9 @@ struct MessageBubble: View {
                     emojiImages: reactionEmojiImages
                 ) { emoji in
                     reactionViewerEmoji = emoji
+                    // The read starts before the popover's first frame, so a truncated preview
+                    // shows the read in flight rather than an empty list.
+                    conversationModel.showReactionDetails(messageIdHex: message.id)
                     isReactionViewerPresented = true
                 }
                 .task(id: message.reactions) {
@@ -328,11 +334,19 @@ struct MessageBubble: View {
                 .padding(.horizontal, 10)
                 .padding(.top, reactionChipPlacement.topPadding(contentSpacing: Self.contentSpacing))
                 .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
-                    MessageReactionDetailsView(
-                        message: message,
-                        selectedEmoji: $reactionViewerEmoji,
-                        emojiImages: reactionEmojiImages
-                    )
+                    if let model = conversationModel.reactionDetails, model.messageIdHex == message.id {
+                        MessageReactionDetailsView(
+                            model: model,
+                            projected: MessageReactionDetails(projectedFrom: message),
+                            selectedEmoji: $reactionViewerEmoji,
+                            dependencies: reactionDetailsDependencies
+                        )
+                    }
+                }
+                .onChange(of: isReactionViewerPresented) { _, isPresented in
+                    if !isPresented {
+                        conversationModel.dismissReactionDetails(messageIdHex: message.id)
+                    }
                 }
             }
 
@@ -484,6 +498,18 @@ struct MessageBubble: View {
 
     private var usesStickerStyle: Bool {
         stickerEmoji != nil || customStickerEmoji != nil
+    }
+
+    private var reactionDetailsDependencies: MessageReactionDetailsDependencies {
+        MessageReactionDetailsDependencies(
+            reactor: { [workspace] in workspace.reactionReactorDisplay(accountIdHex: $0) },
+            emojiImage: { [customEmojiImages] in customEmojiImages.reactionImage(for: $0) },
+            loadEmojiImages: { [customEmojiImages] in customEmojiImages.loadReactions($0) },
+            requestProfiles: { [workspace] in workspace.requestPeerProfileRefresh($0) },
+            removeOwnReaction: { [workspace, message] reaction in
+                Task { await workspace.removeReaction(reaction, from: message) }
+            }
+        )
     }
 
     private var reactionEmojiImages: [String: NSImage] {

@@ -299,6 +299,36 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         set { recordedStateLock.withLock { _pollVotesGates = newValue } }
     }
     private var _pollVotesGates: [BlockingFfiGate] = []
+    /// Lists `messageReactions` returns, one per call in order; an exhausted queue repeats
+    /// `messageReactionsFallback`. Runs on `FFIExecutor`'s concurrent queue, so behind the lock.
+    var messageReactionsResults: [[TimelineUserReactionFfi]] {
+        get { recordedStateLock.withLock { _messageReactionsResults } }
+        set { recordedStateLock.withLock { _messageReactionsResults = newValue } }
+    }
+    private var _messageReactionsResults: [[TimelineUserReactionFfi]] = []
+    var messageReactionsFallback: [TimelineUserReactionFfi] {
+        get { recordedStateLock.withLock { _messageReactionsFallback } }
+        set { recordedStateLock.withLock { _messageReactionsFallback = newValue } }
+    }
+    private var _messageReactionsFallback: [TimelineUserReactionFfi] = []
+    /// Every `messageReactions` call, recorded before it blocks or throws.
+    var messageReactionsRequests: [MessageReactionsRequest] {
+        recordedStateLock.withLock { _messageReactionsRequests }
+    }
+    private var _messageReactionsRequests: [MessageReactionsRequest] = []
+    /// Thrown by `messageReactions` after recording the call.
+    var messageReactionsError: Error? {
+        get { recordedStateLock.withLock { _messageReactionsError } }
+        set { recordedStateLock.withLock { _messageReactionsError = newValue } }
+    }
+    private var _messageReactionsError: Error?
+    /// The Nth `messageReactions` call blocks at `messageReactionsGates[N]` while that gate is
+    /// armed. Its answer is taken *after* the gate releases.
+    var messageReactionsGates: [BlockingFfiGate] {
+        get { recordedStateLock.withLock { _messageReactionsGates } }
+        set { recordedStateLock.withLock { _messageReactionsGates = newValue } }
+    }
+    private var _messageReactionsGates: [BlockingFfiGate] = []
     private(set) var deletedMessage: DeletedMessage?
     private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
@@ -3340,6 +3370,25 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         }
     }
 
+    func messageReactions(accountRef: String, groupIdHex: String, messageIdHex: String) throws
+        -> [TimelineUserReactionFfi]
+    {
+        let gate = recordedStateLock.withLock { () -> BlockingFfiGate? in
+            let index = _messageReactionsRequests.count
+            _messageReactionsRequests.append(
+                MessageReactionsRequest(accountRef: accountRef, groupIdHex: groupIdHex, messageIdHex: messageIdHex))
+            return _messageReactionsGates.indices.contains(index) ? _messageReactionsGates[index] : nil
+        }
+        gate?.passIfArmed()
+        return try recordedStateLock.withLock {
+            if let error = _messageReactionsError {
+                throw error
+            }
+            guard !_messageReactionsResults.isEmpty else { return _messageReactionsFallback }
+            return _messageReactionsResults.removeFirst()
+        }
+    }
+
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi {
         deleteMessageCallCount += 1
         deletedMessage = DeletedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
@@ -3759,6 +3808,12 @@ struct CreatedPoll: Equatable {
     let options: [String]
     let pollType: PollTypeFfi
     let endsAt: UInt64?
+}
+
+struct MessageReactionsRequest: Equatable {
+    let accountRef: String
+    let groupIdHex: String
+    let messageIdHex: String
 }
 
 struct PollVotesRequest: Equatable {

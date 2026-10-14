@@ -6,6 +6,7 @@
 //  reacted (grouped by emoji), matching the sibling clients' reaction detail panel.
 //
 
+import MarmotKit
 import SwiftUI
 
 /// A tight row of reaction chips — **one pill per emoji**, each carrying that emoji's own count.
@@ -182,76 +183,172 @@ enum MessageReactionChipPlacement: Equatable {
     }
 }
 
-/// Reaction viewer: a horizontal "All / per-emoji" filter row over a list of reactors (avatar +
-/// name + their emoji). Your own row can be tapped to remove your reaction.
-struct MessageReactionDetailsView: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let message: MessageItem
-    @Binding var selectedEmoji: String?
-    /// Loaded images for custom-emoji reactions, keyed by the reaction's emoji text.
-    var emojiImages: [String: NSImage] = [:]
+/// What the reaction viewer needs from outside its own model: how to name a reactor, draw and load
+/// a custom emoji, and remove the viewer's reaction. Closures rather than the workspace, so the
+/// popover can be previewed and tested with plain values.
+struct MessageReactionDetailsDependencies {
+    var reactor: (String) -> WorkspaceState.ReactionReactorDisplay
+    var emojiImage: (MessageReaction) -> NSImage? = { _ in nil }
+    var loadEmojiImages: ([MessageReaction]) -> Void = { _ in }
+    /// Reactors the complete read named, so ones outside the window's identity preview get a name
+    /// from the profile directory instead of a short key.
+    var requestProfiles: (Set<String>) -> Void = { _ in }
+    /// Nil where the viewer cannot act on the message.
+    var removeOwnReaction: ((MessageReaction) -> Void)?
+}
 
-    private struct ReactorRow: Identifiable {
-        let reactor: WorkspaceState.ReactionReactorDisplay
-        let emoji: String
-        let reaction: MessageReaction
-        var id: String { "\(reactor.accountIdHex)|\(emoji)" }
+/// Reaction viewer: a horizontal "All / per-emoji" filter row over a list of reactors (avatar +
+/// name + their emoji). Your own row can be clicked to remove your reaction.
+///
+/// It lists MDK's complete `messageReactions` read, not only the conversation window's bounded
+/// preview. A preview that is already complete shows at once, so a small tally opens with no wait;
+/// a truncated one waits for the read, with a spinner only once the read is slower than
+/// `MessageReactionDetailsPresentation.loadingIndicatorDelay`.
+struct MessageReactionDetailsView: View {
+    let model: MessageReactionsViewModel
+    /// The window's preview for the message, which carries the viewer's own react or un-react
+    /// before the complete read catches up.
+    let projected: MessageReactionDetails
+    @Binding var selectedEmoji: String?
+    let dependencies: MessageReactionDetailsDependencies
+
+    init(
+        model: MessageReactionsViewModel,
+        projected: MessageReactionDetails,
+        selectedEmoji: Binding<String?>,
+        dependencies: MessageReactionDetailsDependencies
+    ) {
+        self.model = model
+        self.projected = projected
+        self._selectedEmoji = selectedEmoji
+        self.dependencies = dependencies
     }
 
     var body: some View {
+        let content = model.content(projected: projected)
         VStack(spacing: 0) {
-            filters
-            Divider()
-            reactorList
+            switch content {
+            case .details(let details, let refreshFailed):
+                let selection = MessageReactionDetailsPresentation.selection(
+                    selectedEmoji, availableEmojis: details.reactions.map(\.emoji))
+                MessageReactionFilterRow(
+                    details: details,
+                    selectedEmoji: selection,
+                    emojiImage: dependencies.emojiImage
+                ) { selectedEmoji = $0 }
+                Divider()
+                if refreshFailed {
+                    MessageReactionRefreshFailedRow { model.retry() }
+                }
+                MessageReactionReactorList(
+                    details: details,
+                    selectedEmoji: selection,
+                    removesSeveralReactions: projected.omittedKinds > 0
+                        || details.unreactMayRemoveSeveralReactions,
+                    dependencies: dependencies
+                )
                 .frame(maxHeight: .infinity)
+                .task(id: details.reactions) {
+                    dependencies.loadEmojiImages(details.reactions)
+                }
+            case .loading:
+                MessageReactionDetailsLoadingView(showsIndicator: model.showsLoadingIndicator)
+            case .failed(let message):
+                ContentUnavailableView {
+                    Label(L10n.string("Couldn’t load reactions"), systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button(L10n.string("Retry")) { model.retry() }
+                        .buttonStyle(.wnSecondary)
+                }
+            case .empty:
+                ContentUnavailableView {
+                    Label(L10n.string("No reactions"), systemImage: "face.smiling")
+                } description: {
+                    Text(L10n.string("This message has no reactions, or it’s no longer available."))
+                }
+            }
         }
         // A definite height so the reactor list fills the popover and shows several rows at once,
         // rather than collapsing to a single intrinsic row.
-        .frame(width: 320, height: 420)
+        .frame(width: 320, height: 420, alignment: .top)
+        .task(id: model.reactorAccountIds) {
+            dependencies.requestProfiles(model.reactorAccountIds)
+        }
     }
+}
 
-    private var totalCount: Int {
-        message.reactionTotalCount
+private struct MessageReactionDetailsLoadingView: View {
+    let showsIndicator: Bool
+
+    var body: some View {
+        Group {
+            if showsIndicator {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
 
-    private var removesSeveralReactions: Bool {
-        message.unreactMayRemoveSeveralReactions
+private struct MessageReactionRefreshFailedRow: View {
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(L10n.string("Couldn’t refresh reactions."))
+                .wnFont(.medium10)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+            Spacer(minLength: 8)
+            Button(L10n.string("Retry"), action: onRetry)
+                .buttonStyle(.link)
+                .wnFont(.semiBold10)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
     }
+}
 
-    private var filters: some View {
+private struct MessageReactionFilterRow: View {
+    let details: MessageReactionDetails
+    let selectedEmoji: String?
+    let emojiImage: (MessageReaction) -> NSImage?
+    let onSelect: (String?) -> Void
+
+    var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                filterButton(emoji: nil, label: L10n.string("All"), count: totalCount)
-                ForEach(message.reactions) { reaction in
-                    filterButton(emoji: reaction.emoji, label: reaction.emoji, count: reaction.count)
+                MessageReactionFilterPill(isSelected: selectedEmoji == nil, count: details.totalCount) {
+                    onSelect(nil)
+                } label: {
+                    Text(L10n.string("All"))
+                }
+                ForEach(details.reactions) { reaction in
+                    MessageReactionFilterPill(isSelected: selectedEmoji == reaction.emoji, count: reaction.count) {
+                        onSelect(reaction.emoji)
+                    } label: {
+                        ReactionEmojiGlyph(emoji: reaction.emoji, image: emojiImage(reaction))
+                    }
                 }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         }
     }
+}
 
-    /// The active filter, but only while its emoji still has reactions — so removing your last
-    /// reaction of an emoji falls the viewer back to "All" instead of showing an empty list with
-    /// no pill highlighted.
-    private var effectiveEmoji: String? {
-        guard let selectedEmoji, message.reactions.contains(where: { $0.emoji == selectedEmoji }) else {
-            return nil
-        }
-        return selectedEmoji
-    }
+private struct MessageReactionFilterPill<Label: View>: View {
+    let isSelected: Bool
+    let count: Int
+    let action: () -> Void
+    @ViewBuilder let label: Label
 
-    private func filterButton(emoji: String?, label: String, count: Int) -> some View {
-        let isSelected = effectiveEmoji == emoji
-        return Button {
-            selectedEmoji = emoji
-        } label: {
+    var body: some View {
+        Button(action: action) {
             HStack(spacing: 5) {
-                if let emoji {
-                    ReactionEmojiGlyph(emoji: emoji, image: emojiImages[emoji])
-                } else {
-                    Text(label)
-                }
+                label
                 Text(verbatim: "\(count)")
                     .wnFont(.semiBold10)
             }
@@ -266,19 +363,46 @@ struct MessageReactionDetailsView: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
+}
 
-    private var rows: [ReactorRow] {
-        let filtered =
-            effectiveEmoji.map { emoji in message.reactions.filter { $0.emoji == emoji } }
-            ?? message.reactions
-        let unsorted = filtered.flatMap { reaction in
-            reaction.senders.map { sender in
-                ReactorRow(
-                    reactor: workspace.reactionReactorDisplay(accountIdHex: sender),
-                    emoji: reaction.emoji,
-                    reaction: reaction
-                )
+private struct MessageReactionReactorList: View {
+    let details: MessageReactionDetails
+    let selectedEmoji: String?
+    let removesSeveralReactions: Bool
+    let dependencies: MessageReactionDetailsDependencies
+
+    fileprivate struct Row: Identifiable {
+        let reactor: WorkspaceState.ReactionReactorDisplay
+        let reaction: MessageReaction
+        var id: String { "\(reactor.accountIdHex)|\(reaction.emoji)" }
+    }
+
+    var body: some View {
+        let rows = rows
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(rows) { row in
+                    MessageReactionReactorRow(
+                        row: row,
+                        emojiImage: dependencies.emojiImage(row.reaction),
+                        removesSeveralReactions: removesSeveralReactions,
+                        onRemove: row.reactor.isSelf && row.reaction.canRemoveOwnReaction
+                            ? dependencies.removeOwnReaction : nil
+                    )
+                    if row.id != rows.last?.id {
+                        Divider().padding(.leading, 54)
+                    }
+                }
             }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var rows: [Row] {
+        let filtered =
+            selectedEmoji.map { emoji in details.reactions.filter { $0.emoji == emoji } } ?? details.reactions
+        let unsorted = filtered.flatMap { reaction in
+            reaction.senders.map { Row(reactor: dependencies.reactor($0), reaction: reaction) }
         }
         // Local account first, then by display name.
         return unsorted.sorted { lhs, rhs in
@@ -289,40 +413,42 @@ struct MessageReactionDetailsView: View {
                 : comparison == .orderedAscending
         }
     }
+}
 
-    private var reactorList: some View {
-        let reactorRows = rows
-        return ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(reactorRows) { row in
-                    reactorRow(row)
-                    if row.id != reactorRows.last?.id {
-                        Divider().padding(.leading, 54)
-                    }
-                }
-            }
-            .padding(.vertical, 4)
-        }
-    }
+private struct MessageReactionReactorRow: View {
+    let row: MessageReactionReactorList.Row
+    let emojiImage: NSImage?
+    let removesSeveralReactions: Bool
+    let onRemove: ((MessageReaction) -> Void)?
 
-    @ViewBuilder
-    private func reactorRow(_ row: ReactorRow) -> some View {
-        let canRemove = row.reactor.isSelf && row.reaction.canRemoveOwnReaction
-        if canRemove {
+    var body: some View {
+        if let onRemove {
             // A `Button` (not a tap gesture) so removing your reaction is keyboard/VoiceOver
             // reachable.
             Button {
-                Task { await workspace.removeReaction(row.reaction, from: message) }
+                onRemove(row.reaction)
             } label: {
-                reactorRowContent(row, canRemove: true)
+                MessageReactionReactorRowContent(
+                    row: row, emojiImage: emojiImage, removeHint: removeHint)
             }
             .buttonStyle(.plain)
         } else {
-            reactorRowContent(row, canRemove: false)
+            MessageReactionReactorRowContent(row: row, emojiImage: emojiImage, removeHint: nil)
         }
     }
 
-    private func reactorRowContent(_ row: ReactorRow, canRemove: Bool) -> some View {
+    private var removeHint: String {
+        removesSeveralReactions
+            ? L10n.string("Tap to remove all your reactions") : L10n.string("Tap to remove")
+    }
+}
+
+private struct MessageReactionReactorRowContent: View {
+    let row: MessageReactionReactorList.Row
+    let emojiImage: NSImage?
+    let removeHint: String?
+
+    var body: some View {
         HStack(spacing: 10) {
             ProfileImageAvatarView(
                 seed: row.reactor.accountIdHex,
@@ -335,17 +461,14 @@ struct MessageReactionDetailsView: View {
                 Text(row.reactor.isSelf ? L10n.string("You") : row.reactor.name)
                     .wnFont(.medium12)
                     .lineLimit(1)
-                if canRemove {
-                    Text(
-                        removesSeveralReactions
-                            ? L10n.string("Tap to remove all your reactions") : L10n.string("Tap to remove")
-                    )
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                if let removeHint {
+                    Text(removeHint)
+                        .wnFont(.medium10)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
             Spacer(minLength: 8)
-            ReactionEmojiGlyph(emoji: row.emoji, image: emojiImages[row.emoji], size: 20)
+            ReactionEmojiGlyph(emoji: row.reaction.emoji, image: emojiImage, size: 20)
                 .wnFont(.medium16)
         }
         .padding(.horizontal, 12)
@@ -353,3 +476,62 @@ struct MessageReactionDetailsView: View {
         .contentShape(Rectangle())
     }
 }
+
+#if DEBUG
+    private enum MessageReactionDetailsPreviewData {
+        static let me = String(repeating: "11", count: 32)
+        static let names = [
+            me: "Pepi", String(repeating: "22", count: 32): "Ana", String(repeating: "33", count: 32): "Bruno",
+        ]
+
+        static let projected = MessageReactionDetails(
+            reactions: [
+                MessageReaction(emoji: "👍", count: 3, isOwn: true, senders: [me, String(repeating: "22", count: 32)]),
+                MessageReaction(emoji: "🔥", count: 1, isOwn: false, senders: [String(repeating: "33", count: 32)]),
+            ],
+            omittedKinds: 1,
+            totalCount: 5
+        )
+
+        static func model(_ reactions: [TimelineUserReactionFfi]) -> MessageReactionsViewModel {
+            let model = MessageReactionsViewModel(messageIdHex: "message", viewerAccountIdHex: me) { reactions }
+            model.start()
+            return model
+        }
+
+        static let complete =
+            names.keys.sorted().enumerated().map { index, sender in
+                TimelineUserReactionFfi(
+                    reactionMessageIdHex: "r\(index)", targetMessageIdHex: "message", sender: sender, emoji: "👍",
+                    reactedAt: UInt64(index))
+            } + [
+                TimelineUserReactionFfi(
+                    reactionMessageIdHex: "r9", targetMessageIdHex: "message",
+                    sender: String(repeating: "33", count: 32),
+                    emoji: "🔥", reactedAt: 9),
+                TimelineUserReactionFfi(
+                    reactionMessageIdHex: "r10", targetMessageIdHex: "message",
+                    sender: String(repeating: "44", count: 32),
+                    emoji: "🎉", reactedAt: 10),
+            ]
+
+        static let dependencies = MessageReactionDetailsDependencies(
+            reactor: { id in
+                WorkspaceState.ReactionReactorDisplay(
+                    accountIdHex: id, name: names[id] ?? DisplayText.short(id), sanitizedPictureURL: nil,
+                    isSelf: id == me)
+            },
+            removeOwnReaction: { _ in }
+        )
+    }
+
+    #Preview("Reaction details") {
+        @Previewable @State var selected: String?
+        MessageReactionDetailsView(
+            model: MessageReactionDetailsPreviewData.model(MessageReactionDetailsPreviewData.complete),
+            projected: MessageReactionDetailsPreviewData.projected,
+            selectedEmoji: $selected,
+            dependencies: MessageReactionDetailsPreviewData.dependencies
+        )
+    }
+#endif

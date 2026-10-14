@@ -312,6 +312,10 @@ nonisolated protocol MarmotRuntime: Sendable {
         afterVoterAccountIdHex: String?,
         limit: UInt32
     ) throws -> PollVotePageFfi
+    /// Every effective reaction on one message, one entry per sender and emoji. A synchronous
+    /// local read: call it off the main thread.
+    func messageReactions(accountRef: String, groupIdHex: String, messageIdHex: String) throws
+        -> [TimelineUserReactionFfi]
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi
     func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws
         -> SendSummaryFfi
@@ -1402,6 +1406,12 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             afterVoterAccountIdHex: afterVoterAccountIdHex,
             limit: limit
         )
+    }
+
+    func messageReactions(accountRef: String, groupIdHex: String, messageIdHex: String) throws
+        -> [TimelineUserReactionFfi]
+    {
+        try marmot.messageReactions(accountRef: accountRef, groupIdHex: groupIdHex, messageIdHex: messageIdHex)
     }
 
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi {
