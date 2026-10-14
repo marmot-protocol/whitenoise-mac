@@ -372,12 +372,37 @@ struct TimelineTests: WorkspaceTestSupport {
             invalidationStatus: "forked",
             isOutgoing: true
         )
+        let incomingInvalidated = MessageItem(
+            id: "incoming-invalidated",
+            sourceMessageIdHex: "source-incoming",
+            senderName: "NVK",
+            body: "Lost the branch too",
+            sentAt: sentAt,
+            invalidationStatus: "losing_branch",
+            isOutgoing: false
+        )
+        let unpublished = MessageItem(
+            id: "unpublished",
+            sourceMessageIdHex: nil,
+            senderName: "Jeff",
+            body: "Never left",
+            sentAt: sentAt,
+            invalidationStatus: "local_publish_failed",
+            isOutgoing: true
+        )
 
         #expect(delivered.deliveryIndicator(at: sentAt) == .delivered)
         #expect(incoming.deliveryIndicator(at: sentAt) == .none)
-        // Convergence already decided this one lost, so it fails on sight rather than waiting.
-        #expect(invalidated.deliveryIndicator(at: sentAt) == .failed)
-        #expect(invalidated.statusLabel(for: .failed) == "Did not reach group")
+        // Convergence retired these after they went out: some members may still have them, so
+        // they warn on sight instead of reading as an unsent message.
+        #expect(invalidated.deliveryIndicator(at: sentAt) == .warning)
+        #expect(invalidated.statusLabel(for: .warning) == "May not have reached everyone")
+        #expect(invalidated.statusLabel == "May not have reached everyone")
+        #expect(incomingInvalidated.deliveryIndicator(at: sentAt) == .warning)
+        // Red is kept for the one invalidation that is a real send failure of our own.
+        #expect(unpublished.deliveryIndicator(at: sentAt) == .failed)
+        #expect(unpublished.statusLabel(for: .failed) == "Did not reach group")
+        #expect(unpublished.statusLabel == "Did not reach group")
     }
 
     @MainActor
@@ -666,9 +691,10 @@ struct TimelineTests: WorkspaceTestSupport {
     /// whitenoise-mac: a message that lost convergence used to be replaced by a
     /// "Message did not reach the group" tombstone, throwing away the one thing the reader
     /// needs — what it was that failed to send. It now renders like the iOS client: the real
-    /// content, marked failed by the footer's error glyph.
+    /// content, marked in the footer — with a warning, not the red failure glyph, because the
+    /// message did go out and only some of the group may lack it.
     @MainActor
-    @Test func invalidatedMessagesKeepTheirContentAndFailInTheFooter() async throws {
+    @Test func invalidatedMessagesKeepTheirContentAndWarnInTheFooter() async throws {
         let page = TimelinePageFfi(
             messages: [
                 timelineMessage(
@@ -696,13 +722,12 @@ struct TimelineTests: WorkspaceTestSupport {
         let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
 
         #expect(messages.map(\.body) == ["Meet at seven", "Bring the keys"])
-        // Both directions fail on sight: convergence has already decided, so neither waits out
-        // the pending-delivery grace window.
-        #expect(messages.allSatisfy { $0.deliveryIndicator(at: sentAt) == .failed })
-        #expect(messages.allSatisfy { $0.statusLabel(for: .failed) == "Did not reach group" })
-        // Convergence-lost content is still actionable: it carries the user's own words and a
-        // failure marker, so it gets the same menu every other row has rather than being a bubble
-        // nothing can be done about.
+        // Both directions warn on sight: convergence has already decided, so neither waits out
+        // the pending-delivery grace window — and neither reads as an unsent message.
+        #expect(messages.allSatisfy { $0.deliveryIndicator(at: sentAt) == .warning })
+        #expect(messages.allSatisfy { $0.statusLabel(for: .warning) == "May not have reached everyone" })
+        // Convergence-lost content is still actionable: it carries the user's own words, so it gets
+        // the same menu every other row has rather than being a bubble nothing can be done about.
         #expect(messages.allSatisfy { $0.supportsChatActions })
     }
 
@@ -1278,9 +1303,9 @@ struct TimelineTests: WorkspaceTestSupport {
         let failed = MessageItem(
             id: "failed",
             senderName: "Jeff",
-            body: "Lost the branch",
+            body: "Never left",
             sentAt: sentAt,
-            invalidationStatus: "signature-check-failed",
+            invalidationStatus: "local_publish_failed",
             isOutgoing: true
         )
         let systemNotice = MessageItem(
@@ -7225,17 +7250,16 @@ struct TimelineTests: WorkspaceTestSupport {
     @MainActor
     @Test func invalidatedRowGetsTheSameOverflowMenuAsALiveOne() async throws {
         // An invalidated row used to have no ⋯ at all — `supportsChatActions` refused everything,
-        // so a bubble wearing the same red failure marker as any other failed send offered nothing,
-        // not even Delete. It now carries the whole menu, retry included: it is drawn with the
-        // user's own words, and a failure the app declines to act on is a bubble they are stuck
-        // with.
+        // so a bubble wearing a failure marker offered nothing, not even Delete. It now carries the
+        // whole menu. Retry is earned only by a real publish failure: a convergence-invalidated
+        // row went out and wears the yellow warning, and the core's retry cannot revive it.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
 
-        func message(id: String, invalidated: Bool) -> MessageItem {
+        func message(id: String, invalidationStatus: String?) -> MessageItem {
             MessageItem(
                 id: id,
                 groupIdHex: "group",
@@ -7244,59 +7268,62 @@ struct TimelineTests: WorkspaceTestSupport {
                 senderName: "Desktop Account",
                 body: "Meet at seven",
                 sentAt: .now,
-                invalidationStatus: invalidated ? "LosingBranch" : nil,
+                invalidationStatus: invalidationStatus,
                 isOutgoing: true
             )
         }
 
-        let invalidated = message(id: "invalidated", invalidated: true)
-        let live = message(id: "live", invalidated: false)
+        let unpublished = message(id: "unpublished", invalidationStatus: "local_publish_failed")
+        let invalidated = message(id: "invalidated", invalidationStatus: "LosingBranch")
+        let live = message(id: "live", invalidationStatus: nil)
+        let liveKinds = MessageRowAction.all(for: live, workspace: state).map(\.kind)
 
-        #expect(invalidated.supportsChatActions)
-        #expect(invalidated.canRetryDelivery(at: .now))
-
-        let invalidatedKinds = MessageRowAction.all(for: invalidated, workspace: state).map(\.kind)
-        #expect(invalidatedKinds.first == .retry)
+        #expect(unpublished.supportsChatActions)
+        #expect(unpublished.canRetryDelivery(at: .now))
+        let unpublishedKinds = MessageRowAction.all(for: unpublished, workspace: state).map(\.kind)
+        #expect(unpublishedKinds.first == .retry)
         // Everything a delivered row offers, and nothing withheld: the only difference between the
         // two lists is the retry a failure earns.
-        #expect(
-            invalidatedKinds.filter { $0 != .retry }
-                == MessageRowAction.all(for: live, workspace: state).map(\.kind)
-        )
+        #expect(unpublishedKinds.filter { $0 != .retry } == liveKinds)
+
+        #expect(invalidated.supportsChatActions)
+        #expect(!invalidated.canRetryDelivery(at: .now))
+        #expect(MessageRowAction.all(for: invalidated, workspace: state).map(\.kind) == liveKinds)
 
         // The destructive action is a real one, not a local-only consolation.
+        #expect(state.messageDeletionCapability(unpublished).canDeleteForEveryone)
         #expect(state.messageDeletionCapability(invalidated).canDeleteForEveryone)
     }
 
     @MainActor
-    @Test func invalidatedRowRetryReDrivesConvergenceLikeAnyOtherFailedSend() async throws {
+    @Test func unpublishedRowRetryReDrivesConvergenceLikeAnyOtherFailedSend() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
 
-        let invalidated = MessageItem(
-            id: "invalidated",
+        let unpublished = MessageItem(
+            id: "unpublished",
             groupIdHex: "group",
-            sourceMessageIdHex: "source-event",
+            sourceMessageIdHex: nil,
             senderAccountIdHex: account.accountIdHex,
             senderName: "Desktop Account",
             body: "Meet at seven",
             sentAt: .now,
-            invalidationStatus: "LosingBranch",
+            invalidationStatus: "local_publish_failed",
             isOutgoing: true
         )
 
         let retry = try #require(
-            MessageRowAction.all(for: invalidated, workspace: state).first { $0.kind == .retry }
+            MessageRowAction.all(for: unpublished, workspace: state).first { $0.kind == .retry }
         )
         retry.run()
         await Self.waitUntil { runtime.retryGroupConvergenceCallCount == 1 }
 
         #expect(runtime.retryGroupConvergenceCallCount == 1)
 
-        // An *incoming* invalidated row wears the same marker but is nobody's send to re-drive.
+        // An *incoming* invalidated row is nobody's send to re-drive.
         let incoming = MessageItem(
             id: "incoming-invalidated",
             groupIdHex: "group",

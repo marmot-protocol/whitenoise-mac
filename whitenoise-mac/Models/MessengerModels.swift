@@ -583,10 +583,15 @@ nonisolated enum ChatPreviewAttachmentKind: Hashable, Sendable {
 /// before settling — most visibly for media, whose larger event spends longer in the publish
 /// round-trip. `.sending` covers the in-flight window; the bubble only escalates to `.failed`
 /// once the send has been outstanding past `MessageItem.pendingDeliveryGrace`.
+///
+/// `.warning` is a message convergence invalidated after the fact (a losing branch, beyond the
+/// anchor): it went out, but some of the group may not have it. Painting that red read as "unsent",
+/// so red is kept for `.failed` — an own send that really did not publish.
 nonisolated enum MessageDeliveryIndicator: Hashable, Sendable {
     case none
     case sending
     case delivered
+    case warning
     case failed
 }
 
@@ -2710,6 +2715,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             return L10n.string("Sending")
         case .delivered:
             return L10n.string("Sent")
+        case .warning:
+            return L10n.string("May not have reached everyone")
         case .failed:
             return invalidationStatus != nil
                 ? L10n.string("Did not reach group") : L10n.string("Not delivered")
@@ -2864,8 +2871,10 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.timeLabel = timeLabel
         let statusLabel: String?
         if presentation.isChatBubble {
-            if invalidationStatus != nil {
+            if isOutgoing && invalidationStatus == Self.localPublishFailedStatus {
                 statusLabel = L10n.string("Did not reach group")
+            } else if invalidationStatus != nil {
+                statusLabel = L10n.string("May not have reached everyone")
             } else if isOutgoing && Self.nonBlank(sourceMessageIdHex) == nil {
                 statusLabel = L10n.string("Not delivered")
             } else {
@@ -3027,13 +3036,23 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// telling the user is still going out invites a second click on a first attempt that has not
     /// finished.
     ///
-    /// Invalidated rows qualify too — they wear the same marker, so refusing them here would be the
-    /// app showing a failure and then declining to do the one thing a failure asks for. The retry
-    /// is `retryGroupConvergence`, which re-drives what the core is holding for the conversation.
+    /// A `local_publish_failed` row qualifies too — it wears the same marker, so refusing it here
+    /// would be the app showing a failure and then declining to do the one thing a failure asks
+    /// for. The retry is `retryGroupConvergence`, which re-drives what the core is holding for the
+    /// conversation. Convergence-invalidated rows wear `.warning` and offer no retry: the message
+    /// did go out, and offering to resend it would read as the failure the marker no longer claims.
     func canRetryDelivery(at now: Date) -> Bool {
         guard presentation.isChatBubble, isOutgoing, !isDeleted else { return false }
         return deliveryIndicator(at: now) == .failed
     }
+
+    /// The core's own verdict that this send never left the device — the one invalidation that is
+    /// a real send failure rather than convergence retiring a message some members may still have.
+    nonisolated var isLocalPublishFailure: Bool {
+        isOutgoing && invalidationStatus == Self.localPublishFailedStatus
+    }
+
+    nonisolated static let localPublishFailedStatus = "local_publish_failed"
 
     /// How long an own send may stay unconfirmed before its bubble stops reading as "Sending" and
     /// starts reading as an error. Publishing is a relay round-trip whose payload the composer has
@@ -3043,11 +3062,12 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// What the bubble's delivery footer should show at `now`.
     ///
     /// `.none` for the rows that never carried a marker (incoming, uninvalidated). Invalidation is
-    /// terminal — convergence already decided the message lost — so it fails immediately rather
-    /// than waiting out the grace window.
+    /// terminal, so it resolves immediately rather than waiting out the grace window: red only for
+    /// an own send the core says never published, yellow for anything convergence retired later.
     func deliveryIndicator(at now: Date) -> MessageDeliveryIndicator {
         guard presentation.isChatBubble else { return .none }
-        if invalidationStatus != nil { return .failed }
+        if isLocalPublishFailure { return .failed }
+        if invalidationStatus != nil { return .warning }
         guard isOutgoing else { return .none }
         guard isPendingDelivery else { return .delivered }
         return pendingDeliveryGraceRemaining(at: now) == nil ? .failed : .sending

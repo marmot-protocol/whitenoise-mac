@@ -768,8 +768,21 @@ struct MessageBubble: View {
             return "clock"
         case .delivered:
             return "checkmark"
+        case .warning:
+            return "exclamationmark.triangle.fill"
         case .failed:
             return "exclamationmark.circle.fill"
+        }
+    }
+
+    private static func deliveryMarkerColor(for indicator: MessageDeliveryIndicator, otherwise: Color) -> Color {
+        switch indicator {
+        case .failed:
+            WNColor.backgroundContentDestructiveSecondary
+        case .warning:
+            WNColor.intentionWarningContent
+        case .none, .sending, .delivered:
+            otherwise
         }
     }
 
@@ -782,8 +795,8 @@ struct MessageBubble: View {
     /// ("Did not reach group" vs. "Not delivered") that the old tombstone body spelled out.
     /// Empty in every other state, which shows no tooltip.
     private var deliveryFailureHelp: String {
-        guard deliveryIndicator == .failed else { return "" }
-        return message.statusLabel(for: .failed) ?? ""
+        guard deliveryIndicator == .failed || deliveryIndicator == .warning else { return "" }
+        return message.statusLabel(for: deliveryIndicator) ?? ""
     }
 
     /// The timestamp/delivery footer. One token in both directions, as on the other clients:
@@ -809,12 +822,9 @@ struct MessageBubble: View {
                 .monospacedDigit()
             if let systemImage = Self.deliveryMarkerSystemImage(for: deliveryIndicator) {
                 Image(systemName: systemImage)
-                    // Only a real failure earns the alarm color; an in-flight send stays in the
-                    // metadata's own tint next to the timestamp.
-                    .foregroundStyle(
-                        deliveryIndicator == .failed
-                            ? WNColor.backgroundContentDestructiveSecondary : metadataColor
-                    )
+                    // Only a real failure earns the alarm color, and a message some members may lack
+                    // the warning color; an in-flight send stays in the metadata's own tint.
+                    .foregroundStyle(Self.deliveryMarkerColor(for: deliveryIndicator, otherwise: metadataColor))
                     .help(deliveryFailureHelp)
             }
         }
