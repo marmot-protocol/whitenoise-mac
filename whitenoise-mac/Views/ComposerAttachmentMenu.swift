@@ -19,7 +19,8 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
     case gifs
     case poll
 
-    /// `pollsAvailable` is false in direct messages: MDK accepts polls only in groups.
+    /// `pollsAvailable` is false only where the menu has no poll composer behind it; MDK 0.13
+    /// accepts polls in direct conversations as well as groups.
     static func available(gifsAvailable: Bool, pollsAvailable: Bool = false) -> [Self] {
         allCases.filter { option in
             switch option {

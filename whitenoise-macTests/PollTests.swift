@@ -285,6 +285,37 @@ struct PollTests {
             ])
     }
 
+    /// MDK 0.13 accepts polls in direct conversations, so a DM's composer offers one and the poll
+    /// goes out under the DM's own group id, the same as a group's.
+    @Test func aDirectConversationCreatesPollsUnderItsOwnGroupID() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let directGroupIdHex = String(repeating: "d", count: 64)
+        let model = ConversationViewModel(
+            account: AccountItem.samples[0],
+            groupIdHex: directGroupIdHex,
+            runtime: runtime
+        )
+        let submission = PollDraft.Submission(
+            question: "Coffee?",
+            options: ["Yes", "No"],
+            pollType: .singleChoice,
+            endsAt: nil
+        )
+
+        try await model.createPoll(submission)
+
+        #expect(
+            runtime.createdPolls == [
+                CreatedPoll(
+                    groupIdHex: directGroupIdHex,
+                    question: "Coffee?",
+                    options: ["Yes", "No"],
+                    pollType: .singleChoice,
+                    endsAt: nil
+                )
+            ])
+    }
+
     @Test func aVoteShowsBeforeMDKConfirmsIt() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let gate = Self.armedGate()

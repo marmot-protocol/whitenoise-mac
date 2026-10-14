@@ -887,8 +887,8 @@ private struct ConversationView: View {
                             try await model.sendText(media.wireText)
                             Task { await jumpToNewest() }
                         },
-                        // MDK accepts polls only in group conversations, never direct messages.
-                        onCreatePoll: chat.isDirect ? nil : { isPollComposerPresented = true }
+                        // MDK 0.13 accepts polls in direct conversations as well as groups.
+                        onCreatePoll: { isPollComposerPresented = true }
                     )
                 }
 

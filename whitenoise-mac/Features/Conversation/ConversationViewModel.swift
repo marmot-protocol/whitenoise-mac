@@ -340,8 +340,7 @@ final class ConversationViewModel {
         }
     }
 
-    /// Sends a new poll. MDK accepts polls only in group conversations; the caller decides
-    /// whether this conversation is one.
+    /// Sends a new poll. MDK 0.13 accepts polls in direct conversations as well as groups.
     func createPoll(_ submission: PollDraft.Submission) async throws {
         _ = try await runtime.createPoll(
             accountRef: account.accountRef,
