@@ -14,7 +14,7 @@ struct GroupMembersSection: View {
     var avatars: [String: GroupMemberAvatar] = [:]
     let canInvite: Bool
     /// Whether to say why there is no Add row. Only a member who can't invite is owed it; a former
-    /// member or a direct chat has no Add row for a different reason.
+    /// member has no Add row for a different reason.
     var showsAdminOnlyNote = false
     let onAddMembers: () -> Void
 

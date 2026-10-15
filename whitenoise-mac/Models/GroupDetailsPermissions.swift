@@ -20,7 +20,9 @@ struct GroupDetailsPermissions: Equatable {
     let canEditProfile: Bool
     let canInvite: Bool
     /// Whether the roster should say why it has no Add row. Only a member who can't invite is
-    /// owed that; a former member and a direct chat lack the row for other reasons.
+    /// owed that; a former member lacks the row for another reason. A direct chat is included:
+    /// both people in it are meant to be admins, so the peer of a DM founded before that is
+    /// missing the row for exactly this reason.
     let showsAdminOnlyNote: Bool
 
     init(snapshot: GroupDetailsSnapshot, capabilities: ConversationCapabilitiesFfi?, isDirect: Bool) {
@@ -28,6 +30,6 @@ struct GroupDetailsPermissions: Equatable {
         canEditGroup = isMember && (capabilities?.canEditGroup ?? snapshot.isSelfAdmin)
         canEditProfile = !isDirect && canEditGroup
         canInvite = isMember && snapshot.canInvite
-        showsAdminOnlyNote = !isDirect && isMember && !snapshot.canInvite
+        showsAdminOnlyNote = isMember && !snapshot.canInvite
     }
 }

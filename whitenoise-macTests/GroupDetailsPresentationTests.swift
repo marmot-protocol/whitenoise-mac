@@ -231,11 +231,22 @@ struct GroupDetailsPermissionsTests {
     @Test func aDirectChatNeverOffersAProfileEdit() {
         // In mdk a name makes a conversation a group, so a renamed DM would stop being one.
         let permissions = GroupDetailsPermissions(
-            snapshot: snapshot(isSelfAdmin: true), capabilities: capabilities(canEditGroup: true), isDirect: true)
+            snapshot: snapshot(isSelfAdmin: true, canInvite: true), capabilities: capabilities(canEditGroup: true),
+            isDirect: true)
 
         #expect(permissions.canEditGroup)
         #expect(!permissions.canEditProfile)
         #expect(!permissions.showsAdminOnlyNote)
+    }
+
+    /// Both people in a DM are meant to be admins; the peer of one founded before that rule is
+    /// the one member who still can't add anyone, and is owed the same reason a group gives.
+    @Test func aDirectChatPeerWhoCannotInviteIsToldWhy() {
+        let permissions = GroupDetailsPermissions(
+            snapshot: snapshot(isSelfAdmin: false, canInvite: false), capabilities: nil, isDirect: true)
+
+        #expect(!permissions.canInvite)
+        #expect(permissions.showsAdminOnlyNote)
     }
 
     @Test func aFormerMemberCanChangeNothingAndIsToldNothingAboutAdmins() {
@@ -381,6 +392,19 @@ struct ContactGroupActionTests {
         #expect(ContactGroupAction.member(accountIdHex: "ABCDEF", in: roster)?.id == "abcdef")
         #expect(ContactGroupAction.member(accountIdHex: "fedcba", in: roster) == nil)
         #expect(ContactGroupAction.member(accountIdHex: "abcdef", in: nil) == nil)
+    }
+
+    @Test func theProfileClosesOnlyOnceItsMemberHasLeftTheRoster() {
+        let stillListed = snapshot(members: [member(id: "bob")])
+        let removed = snapshot(members: [])
+
+        #expect(ContactGroupAction.closesProfile(afterRemoving: "bob", openProfileAccountIdHex: "BOB", in: removed))
+        // Refused: they are still in the group, so the profile stays to show why.
+        #expect(
+            !ContactGroupAction.closesProfile(afterRemoving: "bob", openProfileAccountIdHex: "bob", in: stillListed))
+        // Someone else's profile replaced it while the removal ran; that one is not ours to close.
+        #expect(!ContactGroupAction.closesProfile(afterRemoving: "bob", openProfileAccountIdHex: "carol", in: removed))
+        #expect(!ContactGroupAction.closesProfile(afterRemoving: "bob", openProfileAccountIdHex: nil, in: removed))
     }
 
     private func member(

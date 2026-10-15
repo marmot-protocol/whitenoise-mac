@@ -27,16 +27,16 @@ struct ContactDetailsView: View {
         return ContactGroupAction.member(accountIdHex: contact.accountIdHex, in: workspace.groupDetailsSnapshot)
     }
 
-    /// The profile is of someone in the group, so once they are out of it there is nothing left
-    /// here to act on — back to group info, as iOS does. A refused removal leaves them listed,
-    /// and the profile stays open to show why.
+    /// See `ContactGroupAction.closesProfile` for when the profile goes back to group info.
     private func removeFromGroup(_ member: GroupMemberItem) async {
         await workspace.removeGroupMember(member)
-        let accountIdHex = contact.accountIdHex
-        guard workspace.contactDetailsTarget?.accountIdHex == accountIdHex,
-            ContactGroupAction.member(accountIdHex: accountIdHex, in: workspace.groupDetailsSnapshot) == nil
-        else { return }
-        workspace.closeContactDetails()
+        if ContactGroupAction.closesProfile(
+            afterRemoving: contact.accountIdHex,
+            openProfileAccountIdHex: workspace.contactDetailsTarget?.accountIdHex,
+            in: workspace.groupDetailsSnapshot
+        ) {
+            workspace.closeContactDetails()
+        }
     }
 
     var body: some View {

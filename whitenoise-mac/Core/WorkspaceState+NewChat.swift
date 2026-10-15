@@ -679,6 +679,16 @@ extension WorkspaceState {
                 memberRefs: [memberRef],
                 description: nil
             )
+            // Both people in a direct chat are its admins, so either can add someone or manage
+            // roles. MDK founds a group with its creator as the only admin and takes no admin list
+            // at creation, so the peer is promoted straight after. Best effort: the chat works
+            // without it and the creator can still make them an admin from chat info, so a
+            // refusal does not turn a created chat into a failed one.
+            _ = try? await client.promoteAdminDetailed(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex,
+                memberRef: memberRef
+            )
             await reloadChats(forceFreshSnapshot: true)
             guard activeAccountId == accountId else { return }
             insertCreatedChatIfNeeded(

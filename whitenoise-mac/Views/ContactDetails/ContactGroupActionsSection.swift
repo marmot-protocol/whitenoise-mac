@@ -8,32 +8,6 @@
 
 import SwiftUI
 
-/// The group commands a member's profile offers. Each one is the core's own verdict for this
-/// member (`canPromote` / `canDemote` / `canRemove`), so an ordinary member sees none of them.
-enum ContactGroupAction: Equatable {
-    case promote
-    case demote
-    case remove
-
-    /// Your own row has no commands here: stepping down as admin lives with Leave in group info,
-    /// as it does on iOS, so `canDemote` on yourself is not offered from a profile.
-    static func actions(for member: GroupMemberItem) -> [ContactGroupAction] {
-        guard !member.isSelf else { return [] }
-        var actions: [ContactGroupAction] = []
-        if member.canPromote { actions.append(.promote) }
-        if member.canDemote { actions.append(.demote) }
-        if member.canRemove { actions.append(.remove) }
-        return actions
-    }
-
-    /// The roster entry for the profile on screen, read from the live group details rather than
-    /// captured when the profile opened, so a promotion made from here relabels it in place.
-    static func member(accountIdHex: String, in snapshot: GroupDetailsSnapshot?) -> GroupMemberItem? {
-        let accountIdHex = accountIdHex.lowercased()
-        return snapshot?.members.first { $0.id.lowercased() == accountIdHex }
-    }
-}
-
 struct ContactGroupActionsSection: View {
     let member: GroupMemberItem
     let isBusy: Bool
@@ -43,6 +17,9 @@ struct ContactGroupActionsSection: View {
     let onRemove: () -> Void
 
     @State private var isConfirmingRemoval = false
+    /// The command this section started, so the spinner lands on its row: `isMutating` only says
+    /// that *some* commit for this member is running, and a removal sets it too.
+    @State private var pendingAction: ContactGroupAction?
 
     var body: some View {
         let actions = ContactGroupAction.actions(for: member)
@@ -55,8 +32,8 @@ struct ContactGroupActionsSection: View {
                     ContactGroupActionRow(
                         title: L10n.string("Make Admin"),
                         systemImage: "star",
-                        isInProgress: isMutating,
-                        action: onPromote
+                        isInProgress: isMutating && pendingAction == .promote,
+                        action: { start(.promote, onPromote) }
                     )
                     .disabled(isBusy)
                 }
@@ -65,8 +42,8 @@ struct ContactGroupActionsSection: View {
                     ContactGroupActionRow(
                         title: L10n.string("Remove Admin"),
                         systemImage: "star.slash",
-                        isInProgress: isMutating,
-                        action: onDemote
+                        isInProgress: isMutating && pendingAction == .demote,
+                        action: { start(.demote, onDemote) }
                     )
                     .disabled(isBusy)
                 }
@@ -74,7 +51,8 @@ struct ContactGroupActionsSection: View {
                 if actions.contains(.remove) {
                     DetailsDestructiveRow(
                         title: L10n.string("Remove from Group"),
-                        systemImage: "minus.circle"
+                        systemImage: "minus.circle",
+                        isInProgress: isMutating && pendingAction == .remove
                     ) {
                         isConfirmingRemoval = true
                     }
@@ -86,13 +64,26 @@ struct ContactGroupActionsSection: View {
                 isPresented: $isConfirmingRemoval,
                 titleVisibility: .visible
             ) {
-                Button(L10n.string("Remove from Group"), role: .destructive, action: onRemove)
-                    .disabled(isBusy)
+                Button(L10n.string("Remove from Group"), role: .destructive) {
+                    start(.remove, onRemove)
+                }
+                .disabled(isBusy)
                 Button(L10n.string("Cancel"), role: .cancel) {}
             } message: {
-                Text(L10n.string("They'll stop receiving new messages in this group."))
+                Text(
+                    String(
+                        format: L10n.string("This removes %@ from the group."),
+                        PeerDisplayText.templateFragment(member.displayName)))
+            }
+            .onChange(of: isMutating) { _, isMutating in
+                if !isMutating { pendingAction = nil }
             }
         }
+    }
+
+    private func start(_ action: ContactGroupAction, _ perform: () -> Void) {
+        pendingAction = action
+        perform()
     }
 }
 

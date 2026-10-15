@@ -143,7 +143,7 @@ struct GroupMemberRow: View {
                             Button(role: .destructive) {
                                 showRemoveConfirmation = true
                             } label: {
-                                Label(L10n.string("Remove Member"), systemImage: "person.badge.minus")
+                                Label(L10n.string("Remove from Group"), systemImage: "person.badge.minus")
                             }
                         }
                     }
@@ -161,7 +161,7 @@ struct GroupMemberRow: View {
             isPresented: $showRemoveConfirmation,
             titleVisibility: .visible
         ) {
-            Button(L10n.string("Remove Member"), role: .destructive) {
+            Button(L10n.string("Remove from Group"), role: .destructive) {
                 Task { await workspace.removeGroupMember(member) }
             }
             .disabled(workspace.hasInFlightGroupCommit)

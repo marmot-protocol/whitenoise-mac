@@ -694,6 +694,47 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(!ContactGroupAction.actions(for: after).contains(.promote))
     }
 
+    /// Removing a member from their profile takes them out of the roster, and the profile then
+    /// goes back to group info; a refused removal leaves both in place with the reason showing.
+    @MainActor
+    @Test func groupMemberProfileClosesAfterARemovalButNotAfterARefusal() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(groupChat)
+        await state.showGroupDetails(for: groupChat)
+        let member = try #require(state.groupDetailsSnapshot?.members.first { !$0.isSelf && $0.canRemove })
+        await state.showContactDetails(for: member)
+
+        runtime.removeMembersError = FakeMarmotRuntimeError.unused
+        await state.removeGroupMember(member)
+
+        #expect(state.lastError != nil)
+        #expect(state.groupDetailsSnapshot?.members.contains { $0.id == member.id } == true)
+        #expect(
+            !ContactGroupAction.closesProfile(
+                afterRemoving: member.id,
+                openProfileAccountIdHex: state.contactDetailsTarget?.accountIdHex,
+                in: state.groupDetailsSnapshot
+            ))
+
+        runtime.removeMembersError = nil
+        await state.removeGroupMember(member)
+
+        #expect(state.lastError == nil)
+        #expect(state.groupDetailsSnapshot?.members.contains { $0.id == member.id } == false)
+        #expect(
+            ContactGroupAction.closesProfile(
+                afterRemoving: member.id,
+                openProfileAccountIdHex: state.contactDetailsTarget?.accountIdHex,
+                in: state.groupDetailsSnapshot
+            ))
+    }
+
     @MainActor
     @Test func groupMemberContactDetailsListDirectChatButNotTheOpenGroup() async throws {
         let account = desktopAccount()
@@ -4606,6 +4647,43 @@ struct GroupsTests: WorkspaceTestSupport {
         // still unreachable, so showing it again is accurate rather than stale.
         state.newChatQuery = ""
         #expect(state.visibleStartChatInvitePrompt?.accountIdHex == Self.bobAccountIdHex)
+    }
+
+    /// Both people in a direct chat are its admins. MDK founds the chat with only its creator as
+    /// admin, so the creator promotes the peer straight after creating it.
+    @MainActor
+    @Test func startingADirectChatMakesThePeerAnAdminToo() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        await state.startDirectChat(with: Self.bobDraftRecipient())
+
+        #expect(runtime.createdGroupMemberRefs == ["npub1p0p"])
+        #expect(runtime.promoteAdminDetailedCallCount == 1)
+        #expect(runtime.promotedAdminRef == "npub1p0p")
+        #expect(state.selection == .chat("created-group"))
+    }
+
+    /// The promotion is a second commit after the chat already exists, so its refusal must not
+    /// read as a failure to start the chat: the creator can still promote from chat info.
+    @MainActor
+    @Test func aRefusedPeerPromotionStillOpensTheDirectChat() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.promoteAdminError = FakeMarmotRuntimeError.unused
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        await state.startDirectChat(with: Self.bobDraftRecipient())
+
+        #expect(runtime.promoteAdminDetailedCallCount == 1)
+        #expect(state.selection == .chat("created-group"))
+        #expect(state.lastError == nil)
+        #expect(state.visibleStartChatInvitePrompt == nil)
     }
 
     @MainActor
