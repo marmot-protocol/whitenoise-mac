@@ -31,6 +31,13 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
         }
     }
 
+    /// Whether `chat`'s composer offers a new poll: whenever it can send, and not mid-edit — the iOS
+    /// rule, `editSession == nil && canCreatePolls`. Direct and group conversations alike; MDK 0.13
+    /// accepts polls in both. It takes the whole chat so a test can prove a DM is not excluded.
+    static func pollsAvailable(in chat: ChatItem, isPeerBlocked: Bool, isEditing: Bool) -> Bool {
+        chat.canUseComposer && !isPeerBlocked && !isEditing
+    }
+
     var titleKey: String {
         switch self {
         case .files: "Files"

@@ -85,6 +85,28 @@ struct PollTests {
         ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
     }
 
+    /// A direct chat seeds its avatar with the resolved peer, which is what makes it a DM with a
+    /// known person rather than one still waiting on roster enrichment.
+    private static func chat(
+        isDirect: Bool = false,
+        pendingConfirmation: Bool = false,
+        selfMembership: ChatSelfMembership = .member
+    ) -> ChatItem {
+        ChatItem(
+            id: "group",
+            title: isDirect ? "Alice" : "Book club",
+            subtitle: isDirect ? "Direct message" : "Group message",
+            preview: "Hello",
+            updatedAt: nil,
+            avatarSeed: isDirect ? String(repeating: "a", count: 64) : "group",
+            pictureURL: nil,
+            unreadCount: 0,
+            isDirect: isDirect,
+            pendingConfirmation: pendingConfirmation,
+            selfMembership: selfMembership
+        )
+    }
+
     // MARK: Mapping
 
     @Test func aProjectedPollCarriesItsTallyAndALabelBody() throws {
@@ -260,6 +282,34 @@ struct PollTests {
         #expect(ComposerAttachmentOption.available(gifsAvailable: false, pollsAvailable: true) == [.files, .poll])
     }
 
+    /// MDK 0.13 accepts polls in direct conversations, so a DM's composer offers one exactly as a
+    /// group's does. The gate is handed the whole chat, so a check on `isDirect` would fail here.
+    @Test func aDirectConversationOffersAPoll() {
+        let direct = Self.chat(isDirect: true)
+        #expect(direct.directPeerAccountIdHex != nil)
+        #expect(direct.canUseComposer)
+
+        let pollsAvailable = ComposerAttachmentOption.pollsAvailable(in: direct, isPeerBlocked: false, isEditing: false)
+
+        #expect(pollsAvailable)
+        #expect(
+            ComposerAttachmentOption.available(gifsAvailable: false, pollsAvailable: pollsAvailable).contains(.poll))
+        #expect(ComposerAttachmentOption.pollsAvailable(in: Self.chat(), isPeerBlocked: false, isEditing: false))
+    }
+
+    @Test func pollsAreWithheldWhereTheComposerCannotSend() {
+        #expect(!ComposerAttachmentOption.pollsAvailable(in: Self.chat(), isPeerBlocked: false, isEditing: true))
+        #expect(
+            !ComposerAttachmentOption.pollsAvailable(
+                in: Self.chat(isDirect: true), isPeerBlocked: true, isEditing: false))
+        #expect(
+            !ComposerAttachmentOption.pollsAvailable(
+                in: Self.chat(pendingConfirmation: true), isPeerBlocked: false, isEditing: false))
+        #expect(
+            !ComposerAttachmentOption.pollsAvailable(
+                in: Self.chat(selfMembership: .removed), isPeerBlocked: false, isEditing: false))
+    }
+
     // MARK: View model
 
     @Test func createPollForwardsTheSubmissionToThisGroup() async throws {
@@ -281,37 +331,6 @@ struct PollTests {
                     options: ["Tacos", "Ramen"],
                     pollType: .multipleChoice,
                     endsAt: 42
-                )
-            ])
-    }
-
-    /// MDK 0.13 accepts polls in direct conversations, so a DM's composer offers one and the poll
-    /// goes out under the DM's own group id, the same as a group's.
-    @Test func aDirectConversationCreatesPollsUnderItsOwnGroupID() async throws {
-        let runtime = FakeMarmotRuntime(accounts: [])
-        let directGroupIdHex = String(repeating: "d", count: 64)
-        let model = ConversationViewModel(
-            account: AccountItem.samples[0],
-            groupIdHex: directGroupIdHex,
-            runtime: runtime
-        )
-        let submission = PollDraft.Submission(
-            question: "Coffee?",
-            options: ["Yes", "No"],
-            pollType: .singleChoice,
-            endsAt: nil
-        )
-
-        try await model.createPoll(submission)
-
-        #expect(
-            runtime.createdPolls == [
-                CreatedPoll(
-                    groupIdHex: directGroupIdHex,
-                    question: "Coffee?",
-                    options: ["Yes", "No"],
-                    pollType: .singleChoice,
-                    endsAt: nil
                 )
             ])
     }
