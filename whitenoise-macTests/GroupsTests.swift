@@ -543,6 +543,47 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(!ContactGroupAction.actions(for: after).contains(.promote))
     }
 
+    /// Removing a member from their profile takes them out of the roster, and the profile then
+    /// goes back to group info; a refused removal leaves both in place with the reason showing.
+    @MainActor
+    @Test func groupMemberProfileClosesAfterARemovalButNotAfterARefusal() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(groupChat)
+        await state.showGroupDetails(for: groupChat)
+        let member = try #require(state.groupDetailsSnapshot?.members.first { !$0.isSelf && $0.canRemove })
+        await state.showContactDetails(for: member)
+
+        runtime.removeMembersError = FakeMarmotRuntimeError.unused
+        await state.removeGroupMember(member)
+
+        #expect(state.lastError != nil)
+        #expect(state.groupDetailsSnapshot?.members.contains { $0.id == member.id } == true)
+        #expect(
+            !ContactGroupAction.closesProfile(
+                afterRemoving: member.id,
+                openProfileAccountIdHex: state.contactDetailsTarget?.accountIdHex,
+                in: state.groupDetailsSnapshot
+            ))
+
+        runtime.removeMembersError = nil
+        await state.removeGroupMember(member)
+
+        #expect(state.lastError == nil)
+        #expect(state.groupDetailsSnapshot?.members.contains { $0.id == member.id } == false)
+        #expect(
+            ContactGroupAction.closesProfile(
+                afterRemoving: member.id,
+                openProfileAccountIdHex: state.contactDetailsTarget?.accountIdHex,
+                in: state.groupDetailsSnapshot
+            ))
+    }
+
     @MainActor
     @Test func groupMemberContactDetailsListDirectChatButNotTheOpenGroup() async throws {
         let account = desktopAccount()

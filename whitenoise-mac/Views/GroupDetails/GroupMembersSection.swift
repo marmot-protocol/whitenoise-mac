@@ -16,6 +16,8 @@ struct GroupMembersSection: View {
     /// Whether to say why there is no Add row. Only a member who can't invite is owed it; a former
     /// member or a direct chat has no Add row for a different reason.
     var showsAdminOnlyNote = false
+    /// Whether rows offer Make Admin and Remove; false in a direct chat.
+    var allowsMemberManagement = true
     let onAddMembers: () -> Void
 
     @State private var query = ""
@@ -53,7 +55,11 @@ struct GroupMembersSection: View {
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             } else {
                 ForEach(list.visible) { member in
-                    GroupMemberRow(member: member, avatar: avatars[member.id] ?? GroupMemberAvatar())
+                    GroupMemberRow(
+                        member: member,
+                        avatar: avatars[member.id] ?? GroupMemberAvatar(),
+                        allowsManagement: allowsMemberManagement
+                    )
                 }
                 if list.isTruncated {
                     Button {

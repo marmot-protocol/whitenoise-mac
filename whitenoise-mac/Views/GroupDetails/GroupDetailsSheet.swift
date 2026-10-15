@@ -141,6 +141,7 @@ struct GroupDetailsSheet: View {
                             avatars: memberAvatars(for: snapshot.members),
                             canInvite: permissions.canInvite,
                             showsAdminOnlyNote: permissions.showsAdminOnlyNote,
+                            allowsMemberManagement: !chat.isDirect,
                             onAddMembers: { isAddMembersPresented = true }
                         )
                         .disabled(workspace.hasInFlightGroupCommit)

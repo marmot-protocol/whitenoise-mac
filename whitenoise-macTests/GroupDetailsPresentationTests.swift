@@ -383,6 +383,29 @@ struct ContactGroupActionTests {
         #expect(ContactGroupAction.member(accountIdHex: "abcdef", in: nil) == nil)
     }
 
+    /// MDK reports a DM's peer as promotable and removable by the DM's creator, so a direct
+    /// chat's profile must not trust those flags.
+    @Test func aDirectChatsPeerIsNeverManagedFromTheirProfile() {
+        let peer = member(id: "peer", canRemove: true, canPromote: true)
+        let roster = snapshot(members: [peer])
+
+        #expect(ContactGroupAction.managedMember(accountIdHex: "peer", in: roster, isDirect: true) == nil)
+        #expect(ContactGroupAction.managedMember(accountIdHex: "peer", in: roster, isDirect: false)?.id == "peer")
+    }
+
+    @Test func theProfileClosesOnlyOnceItsMemberHasLeftTheRoster() {
+        let stillListed = snapshot(members: [member(id: "bob")])
+        let removed = snapshot(members: [])
+
+        #expect(ContactGroupAction.closesProfile(afterRemoving: "bob", openProfileAccountIdHex: "BOB", in: removed))
+        // Refused: they are still in the group, so the profile stays to show why.
+        #expect(
+            !ContactGroupAction.closesProfile(afterRemoving: "bob", openProfileAccountIdHex: "bob", in: stillListed))
+        // Someone else's profile replaced it while the removal ran; that one is not ours to close.
+        #expect(!ContactGroupAction.closesProfile(afterRemoving: "bob", openProfileAccountIdHex: "carol", in: removed))
+        #expect(!ContactGroupAction.closesProfile(afterRemoving: "bob", openProfileAccountIdHex: nil, in: removed))
+    }
+
     private func member(
         id: String,
         isAdmin: Bool = false,

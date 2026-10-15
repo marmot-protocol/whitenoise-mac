@@ -56,13 +56,17 @@ struct GroupMemberRow: View {
     @State private var showRemoveConfirmation = false
     let member: GroupMemberItem
     var avatar = GroupMemberAvatar()
+    /// False in a direct chat: MDK reports the peer as promotable and removable by the DM's
+    /// creator, and a one-to-one chat has no admin roles to hand out. See
+    /// `ContactGroupAction.managedMember`.
+    var allowsManagement = true
 
     private var isMutating: Bool {
         workspace.mutatingGroupMemberId == member.id
     }
 
     private var hasActions: Bool {
-        member.canPromote || member.canDemote || member.canRemove
+        allowsManagement && (member.canPromote || member.canDemote || member.canRemove)
     }
 
     var body: some View {
@@ -143,7 +147,7 @@ struct GroupMemberRow: View {
                             Button(role: .destructive) {
                                 showRemoveConfirmation = true
                             } label: {
-                                Label(L10n.string("Remove Member"), systemImage: "person.badge.minus")
+                                Label(L10n.string("Remove from Group"), systemImage: "person.badge.minus")
                             }
                         }
                     }
@@ -161,7 +165,7 @@ struct GroupMemberRow: View {
             isPresented: $showRemoveConfirmation,
             titleVisibility: .visible
         ) {
-            Button(L10n.string("Remove Member"), role: .destructive) {
+            Button(L10n.string("Remove from Group"), role: .destructive) {
                 Task { await workspace.removeGroupMember(member) }
             }
             .disabled(workspace.hasInFlightGroupCommit)
