@@ -102,18 +102,15 @@ extension WorkspaceState {
         groupInviteMemberQuery = ""
         groupTranscriptExportStatus = nil
         isGroupDetailsPresented = true
+        // The chat info's groups in common belong to its own `GroupsInCommonViewModel`; the
+        // workspace's list is the contact profile's, which slides in over this pane.
         if chat.isDirect {
             async let details: Void = loadGroupDetails(groupIdHex: chat.id)
-            async let commonGroups: Void = loadCommonGroups(
-                forContactIdHex: chat.directPeerAccountIdHex ?? chat.avatarSeed,
-                excludingGroupIdHex: chat.id
-            )
             // Chat info doubles as the peer's profile for a 1:1 conversation, so it carries the
             // follow control and needs the relationship resolved alongside everything else.
             async let followStatus: Void = refreshDirectPeerFollowStatus(for: chat)
-            _ = await (details, commonGroups, followStatus)
+            _ = await (details, followStatus)
         } else {
-            clearCommonGroups()
             await loadGroupDetails(groupIdHex: chat.id)
         }
     }
@@ -299,20 +296,10 @@ extension WorkspaceState {
         }
 
         let normalizedContactId = contactIdHex.lowercased()
-        let excludedGroupId = excludingGroupIdHex?.nilIfBlank?.lowercased()
-        let chats =
-            ((chatsByAccount[accountId] ?? []) + (archivedChatsByAccount[accountId] ?? []))
-            .filter {
-                !$0.pendingConfirmation
-                    && $0.selfMembership == .member
-                    && $0.id.lowercased() != excludedGroupId
-            }
-            .sorted {
-                let lhsDate = $0.updatedAt ?? .distantPast
-                let rhsDate = $1.updatedAt ?? .distantPast
-                if lhsDate != rhsDate { return lhsDate > rhsDate }
-                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
+        let chats = GroupsInCommon.candidates(
+            from: (chatsByAccount[accountId] ?? []) + (archivedChatsByAccount[accountId] ?? []),
+            excludingGroupIdHex: excludingGroupIdHex
+        )
 
         for chat in chats {
             guard commonGroupsLoadGeneration == generation, activeAccountId == accountId else { return }

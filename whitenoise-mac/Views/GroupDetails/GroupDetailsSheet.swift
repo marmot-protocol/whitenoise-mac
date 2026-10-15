@@ -18,6 +18,9 @@ struct GroupDetailsSheet: View {
     @State private var isMediaLibraryPresented = false
     /// The full-pane photo/video viewer, over either the details or the library.
     @State private var mediaViewer: SharedMediaViewerPresentation?
+    /// A direct chat's groups in common. Kept apart from the contact profile's list, which a
+    /// member's profile sliding in over this pane clears again when it closes.
+    @State private var groupsInCommon = GroupsInCommonViewModel()
     let chat: ChatItem
     let conversationModel: ConversationViewModel
     let attachmentModel: AttachmentViewModel
@@ -57,6 +60,14 @@ struct GroupDetailsSheet: View {
             snapshot: snapshot,
             capabilities: conversationModel.snapshot?.header.capabilities,
             isDirect: chat.isDirect
+        )
+    }
+
+    private func directPeerAccountIdHex(in snapshot: GroupDetailsSnapshot) -> String? {
+        guard chat.isDirect else { return nil }
+        return GroupsInCommon.directPeerAccountIdHex(
+            resolvedPeerAccountIdHex: chat.directPeerAccountIdHex,
+            members: snapshot.members
         )
     }
 
@@ -125,8 +136,20 @@ struct GroupDetailsSheet: View {
                                 ContactFollowControl(accountIdHex: contactAccountIdHex)
                             }
                         }
-                        if chat.isDirect {
-                            GroupsInCommonSection()
+                        if let peerAccountIdHex = directPeerAccountIdHex(in: snapshot) {
+                            GroupsInCommonSection(
+                                groups: groupsInCommon.groups,
+                                isLoading: groupsInCommon.isLoading,
+                                hadFailures: groupsInCommon.hadFailures,
+                                onOpen: { workspace.openCommonGroup($0) }
+                            )
+                            .task(id: peerAccountIdHex) {
+                                await groupsInCommon.load(
+                                    contactIdHex: peerAccountIdHex,
+                                    excludingGroupIdHex: chat.id,
+                                    from: .workspace(workspace)
+                                )
+                            }
                         }
 
                         RetainedSharedMediaSection(

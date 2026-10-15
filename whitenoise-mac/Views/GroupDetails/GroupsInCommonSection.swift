@@ -9,26 +9,27 @@
 import SwiftUI
 
 struct GroupsInCommonSection: View {
-    @Environment(WorkspaceState.self) private var workspace
+    let groups: [ChatItem]
+    let isLoading: Bool
+    let hadFailures: Bool
+    let onOpen: (ChatItem) -> Void
 
     var body: some View {
         Section(L10n.string("Groups in Common")) {
-            if workspace.isLoadingCommonGroups
-                && workspace.commonGroupsForContact.isEmpty
-            {
+            if isLoading && groups.isEmpty {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
                     Text(L10n.string("Checking shared groups…"))
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
-            } else if workspace.commonGroupsForContact.isEmpty {
+            } else if groups.isEmpty {
                 Label(L10n.string("No groups in common"), systemImage: "person.2.slash")
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             } else {
-                ForEach(workspace.commonGroupsForContact) { commonGroup in
+                ForEach(groups) { commonGroup in
                     Button {
-                        workspace.openCommonGroup(commonGroup)
+                        onOpen(commonGroup)
                     } label: {
                         HStack(spacing: 10) {
                             ProfileImageAvatarView(
@@ -60,11 +61,36 @@ struct GroupsInCommonSection: View {
                 }
             }
 
-            if workspace.commonGroupsLoadHadFailures {
+            if hadFailures {
                 Text(L10n.string("Some groups could not be checked."))
                     .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         }
     }
+}
+
+#Preview {
+    Form {
+        GroupsInCommonSection(
+            groups: [
+                ChatItem(
+                    id: "book-club",
+                    title: "Book club",
+                    subtitle: "Book club",
+                    preview: "",
+                    updatedAt: nil,
+                    avatarSeed: "book-club",
+                    pictureURL: nil,
+                    unreadCount: 0
+                )
+            ],
+            isLoading: false,
+            hadFailures: true,
+            onOpen: { _ in }
+        )
+        GroupsInCommonSection(groups: [], isLoading: true, hadFailures: false, onOpen: { _ in })
+    }
+    .formStyle(.grouped)
+    .frame(width: 520, height: 320)
 }

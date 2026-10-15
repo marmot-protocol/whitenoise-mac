@@ -64,7 +64,12 @@ struct ContactDetailsView: View {
                     }
                 }
 
-                GroupsInCommonSection()
+                GroupsInCommonSection(
+                    groups: workspace.commonGroupsForContact,
+                    isLoading: workspace.isLoadingCommonGroups,
+                    hadFailures: workspace.commonGroupsLoadHadFailures,
+                    onOpen: { workspace.openCommonGroup($0) }
+                )
 
                 if !isLocalProfile {
                     ContactBlockingSection(model: blockedUsersModel, accountID: contact.accountIdHex)

@@ -454,18 +454,169 @@ struct GroupsTests: WorkspaceTestSupport {
         let directChat = try #require(state.activeChats.first { $0.id == "direct-group" })
         state.selectChat(directChat)
         await state.showGroupDetails(for: directChat)
+        let snapshot = try #require(state.groupDetailsSnapshot)
+        let peer = try #require(
+            GroupsInCommon.directPeerAccountIdHex(
+                resolvedPeerAccountIdHex: directChat.directPeerAccountIdHex,
+                members: snapshot.members
+            )
+        )
+        #expect(peer == aliceIdHex)
+
+        let model = GroupsInCommonViewModel()
+        await model.load(contactIdHex: peer, excludingGroupIdHex: directChat.id, from: .workspace(state))
 
         // The direct chat whose details are open is the conversation the viewer is already in,
         // so it must not be listed back to them as a group in common.
-        #expect(state.commonGroupsForContact.map(\.id) == ["group"])
-        #expect(!state.isLoadingCommonGroups)
-        #expect(!state.commonGroupsLoadHadFailures)
+        #expect(model.groups.map(\.id) == ["group"])
+        #expect(!model.isLoading)
+        #expect(!model.hadFailures)
 
-        let sharedGroup = try #require(state.commonGroupsForContact.first { $0.id == "group" })
+        let sharedGroup = try #require(model.groups.first { $0.id == "group" })
         state.openCommonGroup(sharedGroup)
         #expect(state.selection == .chat("group"))
         #expect(!state.isGroupDetailsPresented)
+    }
+
+    /// A member's profile slides in over a direct chat's info and clears the profile's list when
+    /// it closes. The chat info's own list must survive that round trip instead of falling back
+    /// to "No groups in common".
+    @MainActor
+    @Test func directChatGroupsInCommonSurviveClosingAMemberProfile() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installGroupDetailsRecord(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let directChat = try #require(state.activeChats.first { $0.id == "direct-group" })
+        state.selectChat(directChat)
+        await state.showGroupDetails(for: directChat)
+        let model = GroupsInCommonViewModel()
+        await model.load(contactIdHex: aliceIdHex, excludingGroupIdHex: directChat.id, from: .workspace(state))
+        #expect(model.groups.map(\.id) == ["group"])
+
+        let alice = try #require(state.groupDetailsSnapshot?.members.first { $0.id == aliceIdHex })
+        await state.showContactDetails(for: alice)
+        state.closeContactDetails()
+
+        #expect(state.isGroupDetailsPresented)
         #expect(state.commonGroupsForContact.isEmpty)
+        #expect(model.groups.map(\.id) == ["group"])
+        #expect(!model.isLoading)
+    }
+
+    /// The roster on screen names a direct chat's other member even when the row has not
+    /// resolved its peer yet, and outranks whatever the row carries. The fake's enrichment always
+    /// resolves the peer, so this is pinned here rather than through `WorkspaceState`.
+    @Test func directPeerComesFromTheRosterBeforeTheRowsAvatarSeed() {
+        func member(_ id: String, isSelf: Bool) -> GroupMemberItem {
+            GroupMemberItem(
+                id: id,
+                displayName: id,
+                publishedDisplayName: nil,
+                profileName: nil,
+                npub: "",
+                accountLabel: nil,
+                isLocal: isSelf,
+                isAdmin: false,
+                isSelf: isSelf,
+                canRemove: false,
+                canPromote: false,
+                canDemote: false
+            )
+        }
+        let pair = [member("me", isSelf: true), member("alice", isSelf: false)]
+
+        #expect(GroupsInCommon.directPeerAccountIdHex(resolvedPeerAccountIdHex: nil, members: pair) == "alice")
+        #expect(
+            GroupsInCommon.directPeerAccountIdHex(resolvedPeerAccountIdHex: "avatar-cache-key", members: pair)
+                == "alice"
+        )
+        // A roster that does not name exactly one other person defers to the row.
+        #expect(GroupsInCommon.directPeerAccountIdHex(resolvedPeerAccountIdHex: "bob", members: []) == "bob")
+        #expect(GroupsInCommon.directPeerAccountIdHex(resolvedPeerAccountIdHex: nil, members: []) == nil)
+        #expect(
+            GroupsInCommon.directPeerAccountIdHex(
+                resolvedPeerAccountIdHex: nil,
+                members: pair + [member("carol", isSelf: false)]
+            ) == nil
+        )
+    }
+
+    /// A conversation whose roster cannot be read is reported, and a finished lookup is not
+    /// redone (and blanked back to a spinner) when the same chat info is shown again.
+    @MainActor
+    @Test func groupsInCommonModelReportsUnreadableRostersAndKeepsAFinishedList() async {
+        func chat(_ id: String, minutesAgo: Double) -> ChatItem {
+            ChatItem(
+                id: id,
+                title: id,
+                subtitle: "",
+                preview: "",
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_000 - minutesAgo * 60),
+                avatarSeed: id,
+                pictureURL: nil,
+                unreadCount: 0
+            )
+        }
+        var rosterReads = 0
+        let rosters: [String: [String]?] = [
+            "older": ["ALICE"],
+            "newer": ["alice", "me"],
+            "unreadable": nil,
+            "without-alice": ["me"],
+        ]
+        let source = GroupsInCommonSource(
+            conversations: {
+                [
+                    chat("older", minutesAgo: 30), chat("newer", minutesAgo: 1),
+                    chat("unreadable", minutesAgo: 5), chat("without-alice", minutesAgo: 2),
+                    chat("open", minutesAgo: 0),
+                ]
+            },
+            memberIds: { groupIdHex in
+                rosterReads += 1
+                return rosters[groupIdHex] ?? ["alice"]
+            }
+        )
+        let model = GroupsInCommonViewModel()
+
+        await model.load(contactIdHex: "alice", excludingGroupIdHex: "open", from: source)
+        #expect(model.groups.map(\.id) == ["newer", "older"])
+        #expect(model.hadFailures)
+        #expect(rosterReads == 4)
+
+        // An incomplete answer is retried.
+        await model.load(contactIdHex: "alice", excludingGroupIdHex: "open", from: source)
+        #expect(rosterReads == 8)
+
+        // A complete one is kept as it is.
+        await model.load(contactIdHex: "alice", excludingGroupIdHex: "unreadable", from: source)
+        #expect(model.groups.map(\.id) == ["open", "newer", "older"])
+        #expect(!model.hadFailures)
+        #expect(rosterReads == 12)
+        await model.load(contactIdHex: "alice", excludingGroupIdHex: "unreadable", from: source)
+        #expect(model.groups.map(\.id) == ["open", "newer", "older"])
+        #expect(rosterReads == 12)
     }
 
     @MainActor
@@ -1266,7 +1417,7 @@ struct GroupsTests: WorkspaceTestSupport {
         let detailsBody = try SourceContract.viewBody("ContactDetailsView")
         #expect(!detailsBody.contains("ContactNicknameRow("))
         let identityIndex = try #require(detailsBody.range(of: "ContactIdentitySection(")?.lowerBound)
-        let groupsIndex = try #require(detailsBody.range(of: "GroupsInCommonSection()")?.lowerBound)
+        let groupsIndex = try #require(detailsBody.range(of: "GroupsInCommonSection(")?.lowerBound)
         #expect(identityIndex < groupsIndex)
 
         let rowBody = try SourceContract.declaration("ContactProfileActionsRow")
