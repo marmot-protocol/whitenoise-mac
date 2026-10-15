@@ -2771,8 +2771,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         case .warning:
             return L10n.string("May not have reached everyone")
         case .failed:
-            return invalidationStatus != nil
-                ? L10n.string("Did not reach group") : L10n.string("Not delivered")
+            // One wording for an own send that did not go out, however the core reports it — the
+            // sidebar says the same, and "group" would be wrong inside a DM.
+            return L10n.string("Not delivered")
         }
     }
 
@@ -2924,8 +2925,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.timeLabel = timeLabel
         let statusLabel: String?
         if presentation.isChatBubble {
-            if isOutgoing && invalidationStatus == Self.localPublishFailedStatus {
-                statusLabel = L10n.string("Did not reach group")
+            if Self.isLocalPublishFailure(isOutgoing: isOutgoing, invalidationStatus: invalidationStatus) {
+                statusLabel = L10n.string("Not delivered")
             } else if invalidationStatus != nil {
                 statusLabel = L10n.string("May not have reached everyone")
             } else if isOutgoing && Self.nonBlank(sourceMessageIdHex) == nil {
@@ -3089,11 +3090,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// telling the user is still going out invites a second click on a first attempt that has not
     /// finished.
     ///
-    /// A `local_publish_failed` row qualifies too — it wears the same marker, so refusing it here
-    /// would be the app showing a failure and then declining to do the one thing a failure asks
-    /// for. The retry is `retryGroupConvergence`, which re-drives what the core is holding for the
-    /// conversation. Convergence-invalidated rows wear `.warning` and offer no retry: the message
-    /// did go out, and offering to resend it would read as the failure the marker no longer claims.
+    /// A `local_publish_failed` row qualifies too, because it wears the same marker. The retry is
+    /// `retryGroupConvergence`, which only releases sends the core still holds as *pending*; it
+    /// does not revive a `local_publish_failed` retraction. In mdk only a fresh send intent or a
+    /// relay later accepting the row clears that (`clear_local_publish_failure`), and the binding
+    /// has no resend-by-id call yet — so for those rows Retry is offered but cannot succeed today.
+    /// Convergence-invalidated rows wear `.warning` and offer no retry: the message did go out,
+    /// and no retry the core offers can bring back a retired message.
     func canRetryDelivery(at now: Date) -> Bool {
         guard presentation.isChatBubble, isOutgoing, !isDeleted else { return false }
         return deliveryIndicator(at: now) == .failed
@@ -3102,7 +3105,12 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// The core's own verdict that this send never left the device — the one invalidation that is
     /// a real send failure rather than convergence retiring a message some members may still have.
     nonisolated var isLocalPublishFailure: Bool {
-        isOutgoing && invalidationStatus == Self.localPublishFailedStatus
+        Self.isLocalPublishFailure(isOutgoing: isOutgoing, invalidationStatus: invalidationStatus)
+    }
+
+    /// The same predicate for `init`, which has to decide its status label before `self` exists.
+    nonisolated static func isLocalPublishFailure(isOutgoing: Bool, invalidationStatus: String?) -> Bool {
+        isOutgoing && invalidationStatus == localPublishFailedStatus
     }
 
     nonisolated static let localPublishFailedStatus = "local_publish_failed"

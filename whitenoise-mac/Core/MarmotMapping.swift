@@ -1143,8 +1143,9 @@ nonisolated extension MessageItem {
 
     /// Invalidation deliberately has no say here. A message that lost convergence keeps its own
     /// text — replacing it with a tombstone threw away the one thing the reader wants, which was
-    /// *what* failed to send. The failure is carried by the bubble's delivery footer instead
-    /// (`deliveryIndicator(at:)` → `.failed`), matching the iOS client. Deletion still tombstones:
+    /// *what* failed to send. The state is carried by the bubble's delivery footer instead
+    /// (`deliveryIndicator(at:)` → `.warning`, or `.failed` for an own `local_publish_failed`
+    /// send), matching the iOS client. Deletion still tombstones:
     /// there the content is genuinely retracted rather than merely undelivered.
     static func displayText(
         presentation: MessagePresentation,

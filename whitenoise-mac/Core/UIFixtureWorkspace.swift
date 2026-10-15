@@ -105,21 +105,40 @@
                 let mediaAttachments = makeMediaAttachments(messageIndex: index)
                 let usesMarkdown = index % 7 == 0
                 let body = messageBody(index: index, usesMarkdown: usesMarkdown, hasMedia: !mediaAttachments.isEmpty)
+                let invalidationStatus = deliveryFixtureInvalidationStatus(index: index)
 
                 return MessageItem(
                     id: "ui-fixture-message-\(index)",
                     groupIdHex: heavyChatId,
+                    // Every ordinary row is relay-confirmed. Without a source id an old outgoing row
+                    // reads as an unconfirmed send past its grace window and shows the red marker,
+                    // which would hide the delivery fixtures below among 300 false failures.
+                    sourceMessageIdHex: invalidationStatus == MessageItem.localPublishFailedStatus
+                        ? nil : "ui-fixture-source-\(index)",
                     senderAccountIdHex: senderAccountId(index: index, isOutgoing: isOutgoing),
                     senderName: sender,
                     body: body,
                     contentMarkdown: usesMarkdown ? richMarkdownDocument(index: index) : nil,
                     sentAt: baseDate.addingTimeInterval(Double(index * 61)),
                     timelineAt: UInt64(1_787_000_000 + index),
+                    invalidationStatus: invalidationStatus,
                     isOutgoing: isOutgoing,
                     reactions: reactions(index: index),
                     replyContext: replyContext(index: index),
                     mediaAttachments: mediaAttachments
                 )
+            }
+        }
+
+        /// The delivery footer's three non-routine states, near the bottom of the chat so QA sees them
+        /// without scrolling: an own message convergence retired (orange warning), someone else's
+        /// (orange warning), and an own send the core retracted as unpublished (red, with Retry).
+        /// Outgoing is `index % 3 == 0`, so 897 and 894 are own rows and 898 is incoming.
+        private static func deliveryFixtureInvalidationStatus(index: Int) -> String? {
+            switch index {
+            case 897, 898: "losing_branch"
+            case 894: MessageItem.localPublishFailedStatus
+            default: nil
             }
         }
 

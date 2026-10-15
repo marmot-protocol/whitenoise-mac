@@ -113,6 +113,14 @@ struct SemanticPaletteTests {
             ("intentionSuccess", WNNSColor.intentionSuccessBackground, WNNSColor.intentionSuccessContent, 3.0),
             ("intentionWarning", WNNSColor.intentionWarningBackground, WNNSColor.intentionWarningContent, 3.0),
             ("intentionError", WNNSColor.intentionErrorBackground, WNNSColor.intentionErrorContent, 3.0),
+            // The delivery footer's warning glyph sits directly on a bubble, not on a wash, so it is
+            // held to the 3:1 non-text bar against both bubbles. The shared warning token measures
+            // 2.80 on the dark-mode sent bubble, which is why the sent side takes its own token.
+            ("warningGlyph/onSentBubble", WNNSColor.fillPrimary, WNNSColor.intentionWarningContentOnFill, 3.0),
+            (
+                "warningGlyph/onReceivedBubble", WNNSColor.backgroundMessageIncoming,
+                WNNSColor.intentionWarningContent, 3.0
+            ),
             // An intention wash is laid over the app's own surfaces, so it has to be told apart
             // from them too — a badge whose capsule matches the row behind it is not a badge.
             ("intentionInfo/onPrimary", WNNSColor.backgroundPrimary, WNNSColor.intentionInfoContent, 4.5),

@@ -171,6 +171,12 @@ nonisolated enum WNNSColor {
         "wn.intentionWarningBackground", light: WNColorRamp.orange50, dark: WNColorRamp.orange950)
     static let intentionWarningContent = NSColor.wnDynamic(
         "wn.intentionWarningContent", light: WNColorRamp.orange600, dark: WNColorRamp.orange500)
+    /// A warning glyph drawn on `fillPrimary` (the sent bubble). Mac-only: the shared palette has
+    /// one warning content step, and its dark `orange500` measures 2.80:1 on the white dark-mode
+    /// bubble. This crosses over the way `fillContentPrimary` does — the lighter step on the dark
+    /// fill, the darker step on the light one — so it clears 3:1 in both appearances.
+    static let intentionWarningContentOnFill = NSColor.wnDynamic(
+        "wn.intentionWarningContentOnFill", light: WNColorRamp.orange500, dark: WNColorRamp.orange600)
 
     static let intentionErrorBackground = NSColor.wnDynamic(
         "wn.intentionErrorBackground", light: WNColorRamp.red50, dark: WNColorRamp.red950)

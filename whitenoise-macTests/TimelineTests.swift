@@ -401,8 +401,8 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(incomingInvalidated.deliveryIndicator(at: sentAt) == .warning)
         // Red is kept for the one invalidation that is a real send failure of our own.
         #expect(unpublished.deliveryIndicator(at: sentAt) == .failed)
-        #expect(unpublished.statusLabel(for: .failed) == "Did not reach group")
-        #expect(unpublished.statusLabel == "Did not reach group")
+        #expect(unpublished.statusLabel(for: .failed) == "Not delivered")
+        #expect(unpublished.statusLabel == "Not delivered")
     }
 
     @MainActor
@@ -7296,7 +7296,7 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func unpublishedRowRetryReDrivesConvergenceLikeAnyOtherFailedSend() async throws {
+    @Test func unpublishedRowRetryCallsGroupConvergence() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())

@@ -807,12 +807,17 @@ struct MessageBubble: View {
         }
     }
 
-    private static func deliveryMarkerColor(for indicator: MessageDeliveryIndicator, otherwise: Color) -> Color {
+    private static func deliveryMarkerColor(
+        for indicator: MessageDeliveryIndicator,
+        isOutgoing: Bool,
+        otherwise: Color
+    ) -> Color {
         switch indicator {
         case .failed:
             WNColor.backgroundContentDestructiveSecondary
         case .warning:
-            WNColor.intentionWarningContent
+            // The sent bubble is `fillPrimary`, which the plain warning token does not clear in Dark.
+            isOutgoing ? WNColor.intentionWarningContentOnFill : WNColor.intentionWarningContent
         case .none, .sending, .delivered:
             otherwise
         }
@@ -822,11 +827,12 @@ struct MessageBubble: View {
         workspace.deliveryIndicator(for: message, at: deliveryClock)
     }
 
-    /// Hover text for the failure glyph. The bubble keeps the message's own text now, so this
-    /// glyph is the only visible thing saying the send failed — the tooltip carries the reason
-    /// ("Did not reach group" vs. "Not delivered") that the old tombstone body spelled out.
-    /// Empty in every other state, which shows no tooltip.
-    private var deliveryFailureHelp: String {
+    /// Hover text for the failure and warning glyphs. The bubble keeps the message's own text now,
+    /// so the glyph is the only visible thing saying something went wrong — the tooltip carries
+    /// the reason the old tombstone body spelled out: "Not delivered" (an own send that did not go
+    /// out) or "May not have reached everyone" (convergence retired it). Empty in every other
+    /// state, which shows no tooltip.
+    private var deliveryMarkerHelp: String {
         guard deliveryIndicator == .failed || deliveryIndicator == .warning else { return "" }
         return message.statusLabel(for: deliveryIndicator) ?? ""
     }
@@ -856,8 +862,14 @@ struct MessageBubble: View {
                 Image(systemName: systemImage)
                     // Only a real failure earns the alarm color, and a message some members may lack
                     // the warning color; an in-flight send stays in the metadata's own tint.
-                    .foregroundStyle(Self.deliveryMarkerColor(for: deliveryIndicator, otherwise: metadataColor))
-                    .help(deliveryFailureHelp)
+                    .foregroundStyle(
+                        Self.deliveryMarkerColor(
+                            for: deliveryIndicator,
+                            isOutgoing: message.isOutgoing,
+                            otherwise: metadataColor
+                        )
+                    )
+                    .help(deliveryMarkerHelp)
             }
         }
         .wnFont(.medium10)
