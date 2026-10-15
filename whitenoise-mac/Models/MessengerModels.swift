@@ -376,6 +376,8 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         previewAttribution: ChatPreviewAttribution? = nil,
         updatedAt: Date?,
         avatarSeed: String,
+        // Required whenever `avatarSeed` is not the peer's hex — a prepared row's cache key, say.
+        // Omitted, a direct row takes its seed as the peer unless the seed is the chat's own id.
         directPeerAccountIdHex: String? = nil,
         pictureURL: String?,
         sanitizedPictureURL: URL? = nil,
@@ -3795,13 +3797,15 @@ enum ComposePane: Equatable {
 /// peers and group rosters) because the core exposes no contact-enumeration call.
 struct ComposeContact: Identifiable, Equatable {
     let accountIdHex: String
-    let npub: String
+    private(set) var npub: String
     let displayName: String?
     let publishedDisplayName: String?
     /// `displayName` is a nickname with no published name behind it; see `NewChatRecipient`.
     let displayNameIsPrivate: Bool
-    let pictureURL: String?
-    let sanitizedPictureURL: URL?
+    /// `private(set)` so the only in-place writer is `filling`, which re-derives
+    /// `sanitizedPictureURL` alongside it. The two must never disagree.
+    private(set) var pictureURL: String?
+    private(set) var sanitizedPictureURL: URL?
     let lastActivity: Date?
 
     var id: String { accountIdHex }
@@ -3843,16 +3847,19 @@ struct ComposeContact: Identifiable, Equatable {
     }
 
     /// A copy with an empty npub or a missing picture filled in; values already present win.
+    ///
+    /// Mutates a copy rather than re-invoking the initializer, so a field added to
+    /// `ComposeContact` later is carried over instead of silently dropped.
     func filling(npub: String?, pictureURL: String?) -> ComposeContact {
-        ComposeContact(
-            accountIdHex: accountIdHex,
-            npub: self.npub.isEmpty ? (npub ?? "") : self.npub,
-            displayName: displayName,
-            publishedDisplayName: publishedDisplayName,
-            displayNameIsPrivate: displayNameIsPrivate,
-            pictureURL: self.pictureURL ?? pictureURL,
-            lastActivity: lastActivity
-        )
+        var copy = self
+        if copy.npub.isEmpty, let npub {
+            copy.npub = npub
+        }
+        if copy.pictureURL == nil, let pictureURL {
+            copy.pictureURL = pictureURL
+            copy.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
+        }
+        return copy
     }
 
     var memberRef: String {

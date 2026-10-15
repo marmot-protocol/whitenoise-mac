@@ -385,6 +385,25 @@ struct ContactNicknameValueTests {
         #expect(plain.searchableNames == ["Alice"])
     }
 
+    @Test func composeContactFillingOnlyFillsGapsAndKeepsEverythingElse() {
+        let seen = Date(timeIntervalSince1970: 1_000)
+        let blank = ComposeContact(
+            accountIdHex: String(repeating: "a", count: 64), npub: "", displayName: "Mum",
+            publishedDisplayName: "Alice", displayNameIsPrivate: false, pictureURL: nil, lastActivity: seen)
+
+        let filled = blank.filling(npub: "npub1alyce", pictureURL: "https://example.com/alice.png")
+        #expect(filled.npub == "npub1alyce")
+        #expect(filled.pictureURL == "https://example.com/alice.png")
+        #expect(filled.sanitizedPictureURL == URL(string: "https://example.com/alice.png"))
+        #expect(filled.displayName == "Mum")
+        #expect(filled.publishedDisplayName == "Alice")
+        #expect(filled.lastActivity == seen)
+
+        // What is already there wins: a DM's own picture is never swapped for a cached one.
+        let refilled = filled.filling(npub: "npub1other", pictureURL: "https://example.com/other.png")
+        #expect(refilled == filled)
+    }
+
     @MainActor
     @Test func publishedContactNameOnlyReportsAnActualOverride() {
         #expect(WorkspaceState.publishedContactName("Alice", overriddenBy: nil) == nil)

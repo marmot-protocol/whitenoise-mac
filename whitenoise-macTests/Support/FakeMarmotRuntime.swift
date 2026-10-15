@@ -2594,7 +2594,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             }
             let avatar: SelectedAvatarFfi =
                 avatarURL.map {
-                    .remoteImage(url: $0, cacheKey: row.groupIdHex)
+                    .remoteImage(url: $0, cacheKey: "avatar-cache-\(row.groupIdHex)")
                 } ?? .placeholder(stableSeed: row.groupIdHex, source: source)
             return PresentedChatRowFfi(
                 draftVersion: nil,

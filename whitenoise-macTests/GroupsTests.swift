@@ -1828,6 +1828,59 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(alice.pictureURL == "https://example.com/alice.png")
     }
 
+    /// The fill pass awaits an FFI hop, and a nickname edit relabels the visible row in place
+    /// without superseding the refresh. Writing the pre-hop directory back after the hop would
+    /// revert the nickname the user just typed.
+    @MainActor
+    @Test func composeContactFillKeepsANicknameSetWhileItRuns() async throws {
+        let account = desktopAccount()
+        let bobHex = String(repeating: "b", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var shared = messageGroup()
+        shared.groupIdHex = String(repeating: "e", count: 64)
+        shared.name = "Book club"
+        runtime.installGroupDetails(
+            GroupDetailsFfi(
+                group: shared,
+                members: [
+                    GroupMemberDetailsFfi(
+                        memberIdHex: account.accountIdHex, account: "Desktop Account", local: true,
+                        isAdmin: true, isSelf: true, npub: "npub1self", displayName: "Desktop Account"),
+                    GroupMemberDetailsFfi(
+                        memberIdHex: bobHex, account: nil, local: false,
+                        isAdmin: false, isSelf: false, npub: "npub1p0p", displayName: "Bob"),
+                ]
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: bobHex,
+            profile: UserProfileMetadataFfi(
+                name: "bob", displayName: "Bob", about: nil,
+                picture: "https://example.com/bob.png", nip05: nil, lud16: nil)
+        )
+        let clock = MutableClock(now: Date(timeIntervalSince1970: 1_000_000))
+        let state = WorkspaceState(nowProvider: { clock.now }, clientFactory: { runtime })
+        await state.bootstrap()
+        // Bootstrap's enrichment cached Bob's profile; age it out so his picture is the fill
+        // pass's own `userProfile` lookup, which the gate can hold.
+        clock.now = clock.now.addingTimeInterval(WorkspaceState.peerProfileCacheTTL + 1)
+        runtime.userProfileGateEnabled = true
+        let refresh = Task { await state.refreshComposeContacts() }
+        await Self.waitUntil { runtime.didReachUserProfileGate }
+        #expect(runtime.didReachUserProfileGate)
+        #expect(state.composeContacts.first { $0.accountIdHex == bobHex }?.pictureURL == nil)
+
+        state.setContactNickname("Bobby", forContactAccountIdHex: bobHex)
+        #expect(state.composeContacts.first { $0.accountIdHex == bobHex }?.displayName == "Bobby")
+
+        runtime.releaseUserProfileGate()
+        await refresh.value
+
+        let bob = try #require(state.composeContacts.first { $0.accountIdHex == bobHex })
+        #expect(bob.displayName == "Bobby")
+        #expect(bob.pictureURL == "https://example.com/bob.png")
+    }
+
     @MainActor
     @Test func staleGroupDetailsLoadDoesNotClobberNewerSnapshotOrDropSpinner() async throws {
         // Issue #135: `loadGroupDetails` is reachable concurrently for the same group, and the FFI
