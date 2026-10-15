@@ -184,8 +184,8 @@ enum MessageReactionChipPlacement: Equatable {
 }
 
 /// What the reaction viewer needs from outside its own model: how to name a reactor, draw and load
-/// a custom emoji, and remove the viewer's reaction. Closures rather than the workspace, so the
-/// popover can be previewed and tested with plain values.
+/// a custom emoji, and add or remove the viewer's reaction. Closures rather than the workspace, so
+/// the popover can be previewed and tested with plain values.
 struct MessageReactionDetailsDependencies {
     var reactor: (String) -> ReactionReactorDisplay
     var emojiImage: (MessageReaction) -> NSImage? = { _ in nil }
@@ -195,10 +195,16 @@ struct MessageReactionDetailsDependencies {
     var requestProfiles: (Set<String>) -> Void = { _ in }
     /// Nil where the viewer cannot act on the message.
     var removeOwnReaction: ((MessageReaction) -> Void)?
+    /// The configured quick reactions, offered by the viewer's React control.
+    var quickReactions: [String] = []
+    /// Reacts to the message with an emoji. Nil where the viewer cannot react, which hides the
+    /// React control.
+    var react: ((String) -> Void)?
 }
 
 /// Reaction viewer: a horizontal "All / per-emoji" filter row over a list of reactors (avatar +
-/// name + their emoji). Your own row can be clicked to remove your reaction.
+/// name + their emoji). Your own row can be clicked to remove your reaction, and the React control
+/// beside the filters adds one without leaving the popover.
 ///
 /// It lists MDK's complete `messageReactions` read, not only the conversation window's bounded
 /// preview. A preview that is already complete shows at once, so a small tally opens with no wait;
@@ -231,11 +237,17 @@ struct MessageReactionDetailsView: View {
             case .details(let details, let refreshFailed):
                 let selection = MessageReactionDetailsPresentation.selection(
                     selectedEmoji, availableEmojis: details.reactions.map(\.emoji))
-                MessageReactionFilterRow(
-                    details: details,
-                    selectedEmoji: selection,
-                    emojiImage: dependencies.emojiImage
-                ) { selectedEmoji = $0 }
+                HStack(spacing: 0) {
+                    MessageReactionFilterRow(
+                        details: details,
+                        selectedEmoji: selection,
+                        emojiImage: dependencies.emojiImage
+                    ) { selectedEmoji = $0 }
+                    if let react = dependencies.react {
+                        MessageReactionAddButton(quickReactions: dependencies.quickReactions, onPick: react)
+                            .padding(.trailing, 14)
+                    }
+                }
                 Divider()
                 if refreshFailed {
                     MessageReactionRefreshFailedRow { model.retry() }
@@ -336,6 +348,38 @@ private struct MessageReactionFilterRow: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
+        }
+    }
+}
+
+/// Opens the same quick-reaction picker as the hover React control. It sits outside the filters'
+/// scroll view so it stays reachable however many emoji kinds the message carries.
+private struct MessageReactionAddButton: View {
+    @State private var isPickerPresented = false
+    let quickReactions: [String]
+    let onPick: (String) -> Void
+
+    var body: some View {
+        Button {
+            isPickerPresented = true
+        } label: {
+            Image(systemName: "face.smiling")
+                .wnFont(.semiBold12)
+                // A filter pill at rest: a button on a `background*` surface takes the
+                // fill/fill-content pair.
+                .foregroundStyle(WNColor.fillContentSecondary)
+                .frame(width: 30, height: 30)
+                .background(WNColor.fillSecondary, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.string("React"))
+        .help(L10n.string("React"))
+        .popover(isPresented: $isPickerPresented, arrowEdge: .bottom) {
+            QuickReactionPicker(emojis: quickReactions) { emoji in
+                isPickerPresented = false
+                onPick(emoji)
+            }
         }
     }
 }
@@ -533,7 +577,9 @@ private struct MessageReactionReactorRowContent: View {
                     accountIdHex: id, name: names[id] ?? DisplayText.short(id), sanitizedPictureURL: nil,
                     isSelf: id == me)
             },
-            removeOwnReaction: { _ in }
+            removeOwnReaction: { _ in },
+            quickReactions: ChatReactionDefaults.quick,
+            react: { _ in }
         )
     }
 

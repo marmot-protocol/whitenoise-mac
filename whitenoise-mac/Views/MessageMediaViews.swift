@@ -534,7 +534,12 @@ struct MessageBubble: View {
             requestProfiles: { [workspace] in workspace.requestPeerProfileRefresh($0) },
             removeOwnReaction: { [workspace, message] reaction in
                 Task { await workspace.removeReaction(reaction, from: message) }
-            }
+            },
+            quickReactions: workspace.quickReactions,
+            react: message.canReact
+                ? { [workspace, message] emoji in
+                    Task { await workspace.react(to: message, emoji: emoji) }
+                } : nil
         )
     }
 
@@ -2539,12 +2544,24 @@ struct QuickReactionButtons<Label: View>: View {
 
 struct MessageEmojiPickerPopover: View {
     @Environment(WorkspaceState.self) private var workspace
+    let onPick: (String) -> Void
+
+    var body: some View {
+        QuickReactionPicker(emojis: workspace.quickReactions, onPick: onPick)
+    }
+}
+
+/// The quick-reaction strip with its "more emoji" control, taking the configured reactions as a
+/// value so a view that cannot read the workspace — the reaction details popover — can offer the
+/// same picker the hover React control does.
+struct QuickReactionPicker: View {
     @State private var isFullPickerPresented = false
+    let emojis: [String]
     let onPick: (String) -> Void
 
     var body: some View {
         HStack(spacing: 4) {
-            QuickReactionButtons(emojis: workspace.quickReactions, onPick: onPick) { emoji in
+            QuickReactionButtons(emojis: emojis, onPick: onPick) { emoji in
                 Text(emoji)
                     .wnFont(.medium24)
                     .frame(width: 40, height: 40)

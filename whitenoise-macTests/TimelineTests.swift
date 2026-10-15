@@ -119,11 +119,19 @@ struct TimelineTests: WorkspaceTestSupport {
 
     @Test func quickReactionMenuAndPopoverUseSameComponentAndPreference() throws {
         let popoverSource = try SourceContract.declaration("MessageEmojiPickerPopover")
+        let pickerSource = try SourceContract.declaration("QuickReactionPicker")
         let menuSource = try SourceContract.declaration("MessageContextMenuItems")
+        let bubbleSource = try SourceContract.declaration("MessageBubble")
 
-        for actionSource in [popoverSource, menuSource] {
-            #expect(actionSource.contains("QuickReactionButtons("))
-            #expect(actionSource.contains("emojis: workspace.quickReactions"))
+        // The hover popover and the reaction details' React control share one picker, which
+        // takes the configured reactions as a value; the bubble hands the details popover the
+        // same preference rather than the defaults.
+        #expect(popoverSource.contains("QuickReactionPicker(emojis: workspace.quickReactions"))
+        #expect(bubbleSource.contains("quickReactions: workspace.quickReactions"))
+        #expect(pickerSource.contains("QuickReactionButtons(emojis: emojis"))
+        #expect(menuSource.contains("QuickReactionButtons("))
+        #expect(menuSource.contains("emojis: workspace.quickReactions"))
+        for actionSource in [popoverSource, pickerSource, menuSource, bubbleSource] {
             #expect(!actionSource.contains("ChatReactionDefaults.quick"))
         }
     }
