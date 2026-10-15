@@ -231,16 +231,16 @@ struct MessageReactionsTests: WorkspaceTestSupport {
 
         #expect(
             Presentation.content(
-                phase: .failed("Nope"), hasLoaded: false, reactions: [], projected: projected, me: Self.me)
-                == .failed("Nope"))
+                phase: .failed, hasLoaded: false, reactions: [], projected: projected, me: Self.me)
+                == .failed)
         #expect(
-            Presentation.content(phase: .failed("Nope"), hasLoaded: true, reactions: [], projected: nil, me: Self.me)
-                == .failed("Nope"))
+            Presentation.content(phase: .failed, hasLoaded: true, reactions: [], projected: nil, me: Self.me)
+                == .failed)
     }
 
     @Test func aFailedRefreshKeepsTheLastCompleteList() {
         let content = Presentation.content(
-            phase: .failed("Nope"), hasLoaded: true, reactions: [Self.reaction(2, "👍", at: 1)], projected: nil,
+            phase: .failed, hasLoaded: true, reactions: [Self.reaction(2, "👍", at: 1)], projected: nil,
             me: Self.me)
 
         guard case .details(let details, let refreshFailed) = content else {
@@ -351,13 +351,12 @@ struct MessageReactionsTests: WorkspaceTestSupport {
         #expect(model.phase == .idle)
     }
 
-    @Test func aFailedReadSurfacesItsMessageKeepsTheLastListAndRetryRepeatsIt() async throws {
+    @Test func aFailedReadKeepsTheLastListAndRetryRepeatsIt() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.messageReactionsResults = [[Self.reaction(2, "👍", at: 1)], [Self.reaction(3, "🔥", at: 2)]]
         let model = MessageReactionsViewModel(
             messageIdHex: Self.target,
             viewerAccountIdHex: Self.me,
-            errorMessage: { _ in "Nope" },
             load: {
                 try runtime.messageReactions(accountRef: "alice", groupIdHex: "group", messageIdHex: Self.target)
             }
@@ -367,7 +366,7 @@ struct MessageReactionsTests: WorkspaceTestSupport {
 
         runtime.messageReactionsError = MessageReactionsReadFailure()
         await model.refresh()?.value
-        #expect(model.phase == .failed("Nope"))
+        #expect(model.phase == .failed)
         #expect(model.reactions.map(\.emoji) == ["👍"])
         guard case .details(_, refreshFailed: true) = model.content(projected: nil) else {
             Issue.record("Expected the last list with a refresh failure, got \(model.content(projected: nil))")
@@ -438,7 +437,7 @@ struct MessageReactionsTests: WorkspaceTestSupport {
         await Self.waitUntil { second.hasLoaded }
         gate.release()
         await Self.waitUntil { runtime.messageReactionsRequests.count == 2 }
-        try await Task.sleep(for: .milliseconds(50))
+        await (try #require(first.lastRead)).value
 
         #expect(!first.hasLoaded)
         #expect(first.reactions.isEmpty)
@@ -496,7 +495,7 @@ struct MessageReactionsTests: WorkspaceTestSupport {
         await Self.waitUntil { gate.didReach }
         conversation.stop()
         gate.release()
-        try await Task.sleep(for: .milliseconds(50))
+        await (try #require(details.lastRead)).value
 
         #expect(conversation.reactionDetails == nil)
         #expect(!details.hasLoaded)

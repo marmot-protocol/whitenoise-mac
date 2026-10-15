@@ -116,8 +116,8 @@ import Testing
             .environment(WorkspaceState.preview())
     }
 
-    private static func voterDisplay(_ accountIdHex: String) -> WorkspaceState.ReactionReactorDisplay {
-        WorkspaceState.ReactionReactorDisplay(
+    private static func voterDisplay(_ accountIdHex: String) -> ReactionReactorDisplay {
+        ReactionReactorDisplay(
             accountIdHex: accountIdHex,
             name: [alice: "You", bob: "Bob", carol: "Carol"][accountIdHex] ?? "Someone",
             sanitizedPictureURL: nil,

@@ -46,7 +46,9 @@ nonisolated enum MessageReactionDetailsPresentation {
     enum Content: Equatable {
         /// The first read is in flight and no complete list is known yet.
         case loading
-        case failed(String)
+        /// The read failed. The popover shows fixed copy: an FFI error's description is a Swift
+        /// debug dump, never user copy.
+        case failed
         /// No reactions, or MDK no longer exposes the message.
         case empty
         /// `refreshFailed` is set when a later re-read failed; the list is the last complete read.
@@ -67,9 +69,9 @@ nonisolated enum MessageReactionDetailsPresentation {
         projected: MessageReactionDetails?,
         me: String
     ) -> Content {
-        let failure: String? = if case .failed(let message) = phase { message } else { nil }
+        let failed = phase == .failed
         guard hasLoaded else {
-            if let failure { return .failed(failure) }
+            if failed { return .failed }
             if let projected, !projected.reactions.isEmpty, !projected.isTruncated {
                 return .details(projected, refreshFailed: false)
             }
@@ -77,10 +79,10 @@ nonisolated enum MessageReactionDetailsPresentation {
         }
         let details = completeDetails(reactions, projected: projected, me: me)
         if details.reactions.isEmpty {
-            if let failure { return .failed(failure) }
+            if failed { return .failed }
             return .empty
         }
-        return .details(details, refreshFailed: failure != nil)
+        return .details(details, refreshFailed: failed)
     }
 
     /// Groups MDK's complete per-sender reactions by emoji.
@@ -194,7 +196,7 @@ final class MessageReactionsViewModel: Identifiable {
         case idle
         case loading
         case loaded
-        case failed(String)
+        case failed
     }
 
     typealias Loader = @Sendable () throws -> [TimelineUserReactionFfi]
@@ -213,8 +215,10 @@ final class MessageReactionsViewModel: Identifiable {
 
     @ObservationIgnored private let load: Loader
     @ObservationIgnored private let loadingIndicatorDelay: Duration
-    @ObservationIgnored private let errorMessage: @MainActor (Error) -> String
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// The most recent read, kept after `cancel()` so a test can await a discarded read to its end
+    /// and prove it published nothing, rather than sleeping and hoping it already ran.
+    @ObservationIgnored private(set) var lastRead: Task<Void, Never>?
     @ObservationIgnored private var indicatorTask: Task<Void, Never>?
     @ObservationIgnored private var refreshRequested = false
 
@@ -222,13 +226,11 @@ final class MessageReactionsViewModel: Identifiable {
         messageIdHex: String,
         viewerAccountIdHex: String,
         loadingIndicatorDelay: Duration = MessageReactionDetailsPresentation.loadingIndicatorDelay,
-        errorMessage: @escaping @MainActor (Error) -> String = { $0.localizedDescription },
         load: @escaping Loader
     ) {
         self.messageIdHex = messageIdHex
         self.viewerAccountIdHex = viewerAccountIdHex
         self.loadingIndicatorDelay = loadingIndicatorDelay
-        self.errorMessage = errorMessage
         self.load = load
     }
 
@@ -313,6 +315,7 @@ final class MessageReactionsViewModel: Identifiable {
             self.apply(result)
         }
         self.task = task
+        lastRead = task
         return task
     }
 
@@ -323,8 +326,8 @@ final class MessageReactionsViewModel: Identifiable {
             self.reactions = reactions
             hasLoaded = true
             phase = .loaded
-        case .failure(let error):
-            phase = .failed(errorMessage(error))
+        case .failure:
+            phase = .failed
         }
         indicatorTask?.cancel()
         indicatorTask = nil

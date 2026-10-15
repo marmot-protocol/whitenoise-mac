@@ -13,7 +13,7 @@ import SwiftUI
 private struct PollVotesSheetModifier: ViewModifier {
     let conversationModel: ConversationViewModel
     let blockedUsersModel: BlockedUsersViewModel
-    let voterDisplay: (String) -> WorkspaceState.ReactionReactorDisplay
+    let voterDisplay: (String) -> ReactionReactorDisplay
 
     func body(content: Content) -> some View {
         // Read here rather than inside the sheet's builder, so a block or unblock while the sheet
@@ -39,7 +39,7 @@ extension View {
     func pollVotesSheet(
         model: ConversationViewModel,
         blockedUsersModel: BlockedUsersViewModel,
-        voterDisplay: @escaping (String) -> WorkspaceState.ReactionReactorDisplay
+        voterDisplay: @escaping (String) -> ReactionReactorDisplay
     ) -> some View {
         modifier(
             PollVotesSheetModifier(
@@ -55,7 +55,7 @@ extension View {
 struct PollVotesSheet: View {
     let model: PollVotesViewModel
     let blockedAccountIDs: Set<String>
-    let voterDisplay: (String) -> WorkspaceState.ReactionReactorDisplay
+    let voterDisplay: (String) -> ReactionReactorDisplay
     let onClose: () -> Void
 
     var body: some View {
@@ -83,7 +83,7 @@ struct PollVotesSheet: View {
 struct PollVotesList: View {
     let model: PollVotesViewModel
     let blockedAccountIDs: Set<String>
-    let voterDisplay: (String) -> WorkspaceState.ReactionReactorDisplay
+    let voterDisplay: (String) -> ReactionReactorDisplay
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 18) {
@@ -142,7 +142,7 @@ private struct PollVotesHeader: View {
 
 private struct PollVoteGroupSection: View {
     let group: PollVoteGroup
-    let voterDisplay: (String) -> WorkspaceState.ReactionReactorDisplay
+    let voterDisplay: (String) -> ReactionReactorDisplay
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -167,7 +167,7 @@ private struct PollVoteGroupSection: View {
 
 private struct PollVoterRow: View {
     let voter: PollVoter
-    let display: WorkspaceState.ReactionReactorDisplay
+    let display: ReactionReactorDisplay
 
     var body: some View {
         HStack(spacing: 10) {
@@ -267,7 +267,7 @@ private struct PollVotesPagingFooter: View {
         model: model,
         blockedAccountIDs: [String(repeating: "c", count: 64)],
         voterDisplay: { accountIdHex in
-            WorkspaceState.ReactionReactorDisplay(
+            ReactionReactorDisplay(
                 accountIdHex: accountIdHex,
                 name: names[accountIdHex] ?? DisplayText.short(accountIdHex),
                 sanitizedPictureURL: nil,
@@ -301,7 +301,7 @@ private struct PollVotesPagingFooter: View {
         model: model,
         blockedAccountIDs: [],
         voterDisplay: {
-            WorkspaceState.ReactionReactorDisplay(
+            ReactionReactorDisplay(
                 accountIdHex: $0, name: "Bob", sanitizedPictureURL: nil, isSelf: false)
         }
     )

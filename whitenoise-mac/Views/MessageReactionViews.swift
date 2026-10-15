@@ -187,7 +187,7 @@ enum MessageReactionChipPlacement: Equatable {
 /// a custom emoji, and remove the viewer's reaction. Closures rather than the workspace, so the
 /// popover can be previewed and tested with plain values.
 struct MessageReactionDetailsDependencies {
-    var reactor: (String) -> WorkspaceState.ReactionReactorDisplay
+    var reactor: (String) -> ReactionReactorDisplay
     var emojiImage: (MessageReaction) -> NSImage? = { _ in nil }
     var loadEmojiImages: ([MessageReaction]) -> Void = { _ in }
     /// Reactors the complete read named, so ones outside the window's identity preview get a name
@@ -253,11 +253,9 @@ struct MessageReactionDetailsView: View {
                 }
             case .loading:
                 MessageReactionDetailsLoadingView(showsIndicator: model.showsLoadingIndicator)
-            case .failed(let message):
+            case .failed:
                 ContentUnavailableView {
                     Label(L10n.string("Couldn’t load reactions"), systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
                 } actions: {
                     Button(L10n.string("Retry")) { model.retry() }
                         .buttonStyle(.wnSecondary)
@@ -302,8 +300,11 @@ private struct MessageReactionRefreshFailedRow: View {
                 .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             Spacer(minLength: 8)
+            // `.link` draws in AppKit's link color, system blue, and ignores `.tint`; only a
+            // foreground style overrides it.
             Button(L10n.string("Retry"), action: onRetry)
                 .buttonStyle(.link)
+                .foregroundStyle(WNColor.backgroundContentPrimary)
                 .wnFont(.semiBold10)
         }
         .padding(.horizontal, 14)
@@ -372,7 +373,7 @@ private struct MessageReactionReactorList: View {
     let dependencies: MessageReactionDetailsDependencies
 
     fileprivate struct Row: Identifiable {
-        let reactor: WorkspaceState.ReactionReactorDisplay
+        let reactor: ReactionReactorDisplay
         let reaction: MessageReaction
         var id: String { "\(reactor.accountIdHex)|\(reaction.emoji)" }
     }
@@ -493,10 +494,21 @@ private struct MessageReactionReactorRowContent: View {
             totalCount: 5
         )
 
-        static func model(_ reactions: [TimelineUserReactionFfi]) -> MessageReactionsViewModel {
-            let model = MessageReactionsViewModel(messageIdHex: "message", viewerAccountIdHex: me) { reactions }
+        struct ReadFailure: Error {}
+
+        static func model(
+            loadingIndicatorDelay: Duration = MessageReactionDetailsPresentation.loadingIndicatorDelay,
+            _ load: @escaping MessageReactionsViewModel.Loader
+        ) -> MessageReactionsViewModel {
+            let model = MessageReactionsViewModel(
+                messageIdHex: "message", viewerAccountIdHex: me, loadingIndicatorDelay: loadingIndicatorDelay,
+                load: load)
             model.start()
             return model
+        }
+
+        static func model(_ reactions: [TimelineUserReactionFfi]) -> MessageReactionsViewModel {
+            model { reactions }
         }
 
         static let complete =
@@ -517,7 +529,7 @@ private struct MessageReactionReactorRowContent: View {
 
         static let dependencies = MessageReactionDetailsDependencies(
             reactor: { id in
-                WorkspaceState.ReactionReactorDisplay(
+                ReactionReactorDisplay(
                     accountIdHex: id, name: names[id] ?? DisplayText.short(id), sanitizedPictureURL: nil,
                     isSelf: id == me)
             },
@@ -530,6 +542,41 @@ private struct MessageReactionReactorRowContent: View {
         MessageReactionDetailsView(
             model: MessageReactionDetailsPreviewData.model(MessageReactionDetailsPreviewData.complete),
             projected: MessageReactionDetailsPreviewData.projected,
+            selectedEmoji: $selected,
+            dependencies: MessageReactionDetailsPreviewData.dependencies
+        )
+    }
+
+    #Preview("Reaction details – loading") {
+        @Previewable @State var selected: String?
+        // The preview tally is truncated, so it waits on a read that never answers.
+        MessageReactionDetailsView(
+            model: MessageReactionDetailsPreviewData.model(loadingIndicatorDelay: .zero) {
+                Thread.sleep(forTimeInterval: 3600)
+                return []
+            },
+            projected: MessageReactionDetailsPreviewData.projected,
+            selectedEmoji: $selected,
+            dependencies: MessageReactionDetailsPreviewData.dependencies
+        )
+    }
+
+    #Preview("Reaction details – failed") {
+        @Previewable @State var selected: String?
+        MessageReactionDetailsView(
+            model: MessageReactionDetailsPreviewData.model { throw MessageReactionDetailsPreviewData.ReadFailure() },
+            projected: MessageReactionDetailsPreviewData.projected,
+            selectedEmoji: $selected,
+            dependencies: MessageReactionDetailsPreviewData.dependencies
+        )
+    }
+
+    #Preview("Reaction details – empty") {
+        @Previewable @State var selected: String?
+        MessageReactionDetailsView(
+            model: MessageReactionDetailsPreviewData.model([]),
+            // The viewer's own reactions follow the window, so an empty state needs an empty one.
+            projected: MessageReactionDetails(reactions: []),
             selectedEmoji: $selected,
             dependencies: MessageReactionDetailsPreviewData.dependencies
         )

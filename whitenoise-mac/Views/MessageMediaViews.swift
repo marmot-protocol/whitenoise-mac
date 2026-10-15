@@ -227,6 +227,27 @@ struct TimelineNoticeRow: View {
     }
 }
 
+/// The reaction details popover's body. It is the only view that reads
+/// `conversationModel.reactionDetails`, so opening or closing one message's popover cannot widen
+/// the observation of every bubble with reactions.
+private struct MessageReactionDetailsPopoverContent: View {
+    let conversationModel: ConversationViewModel
+    let message: MessageItem
+    @Binding var selectedEmoji: String?
+    let dependencies: MessageReactionDetailsDependencies
+
+    var body: some View {
+        if let model = conversationModel.reactionDetails, model.messageIdHex == message.id {
+            MessageReactionDetailsView(
+                model: model,
+                projected: MessageReactionDetails(projectedFrom: message),
+                selectedEmoji: $selectedEmoji,
+                dependencies: dependencies
+            )
+        }
+    }
+}
+
 struct MessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.conversationHoverSelectionCoordinator) private var hoverSelectionCoordinator
@@ -335,19 +356,23 @@ struct MessageBubble: View {
                 .padding(.horizontal, 10)
                 .padding(.top, reactionChipPlacement.topPadding(contentSpacing: Self.contentSpacing))
                 .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
-                    if let model = conversationModel.reactionDetails, model.messageIdHex == message.id {
-                        MessageReactionDetailsView(
-                            model: model,
-                            projected: MessageReactionDetails(projectedFrom: message),
-                            selectedEmoji: $reactionViewerEmoji,
-                            dependencies: reactionDetailsDependencies
-                        )
-                    }
+                    MessageReactionDetailsPopoverContent(
+                        conversationModel: conversationModel,
+                        message: message,
+                        selectedEmoji: $reactionViewerEmoji,
+                        dependencies: reactionDetailsDependencies
+                    )
                 }
                 .onChange(of: isReactionViewerPresented) { _, isPresented in
                     if !isPresented {
                         conversationModel.dismissReactionDetails(messageIdHex: message.id)
                     }
+                }
+                // A transcript cell can be recycled or torn down with its popover up, and then no
+                // `false` is ever observed; the model would keep re-reading on every revision.
+                // Dismissal is guarded by message id, so running it twice is harmless.
+                .onDisappear {
+                    conversationModel.dismissReactionDetails(messageIdHex: message.id)
                 }
             }
 

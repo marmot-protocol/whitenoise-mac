@@ -12,14 +12,6 @@ import MarmotKit
 
 @MainActor
 extension WorkspaceState {
-    struct ReactionReactorDisplay: Identifiable, Hashable {
-        let accountIdHex: String
-        let name: String
-        let sanitizedPictureURL: URL?
-        let isSelf: Bool
-        var id: String { accountIdHex }
-    }
-
     func reactionReactorDisplay(accountIdHex: String) -> ReactionReactorDisplay {
         if let active = activeAccount, active.accountIdHex == accountIdHex {
             return ReactionReactorDisplay(

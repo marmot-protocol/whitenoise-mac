@@ -611,6 +611,15 @@ nonisolated struct MessageDeliverySignature: Hashable, Sendable {
 // (whitenoise-mac#285). All stored properties are value types, so the conformance is
 // checked; `nonisolated` opts the value type out of the module's default main-actor
 // isolation (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`), a prerequisite for `Sendable`.
+/// A reactor or poll voter as a row shows them: display name and avatar resolved from cached data.
+nonisolated struct ReactionReactorDisplay: Identifiable, Hashable, Sendable {
+    let accountIdHex: String
+    let name: String
+    let sanitizedPictureURL: URL?
+    let isSelf: Bool
+    var id: String { accountIdHex }
+}
+
 nonisolated struct ChatPeerProfile: Hashable, Sendable {
     let accountIdHex: String
     let displayName: String?
