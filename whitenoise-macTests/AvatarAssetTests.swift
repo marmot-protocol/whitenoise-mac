@@ -54,8 +54,39 @@ struct AvatarAssetTests {
 
         let chat = ChatItem(presented: presented, activeAccountIdHex: String(repeating: "f", count: 64))
 
-        #expect(chat.avatarSeed == "avatar-cache-key")
+        #expect(chat.avatarSeed == peerHex)
         #expect(chat.directPeerAccountIdHex == peerHex)
+    }
+
+    /// MDK's placeholder seed for a DM hashes the conversation in with the peer, so a row seeded
+    /// by it drew the chat list, header and chat info in one color and the same person's member
+    /// row and contact card — seeded by their hex — in another. Both now agree on the peer.
+    @Test func directChatPlaceholderColorMatchesThePeerNotTheConversationHash() {
+        let peerHex = String(repeating: "a", count: 64)
+        let conversationHash = String(repeating: "9f", count: 32)
+        var row = chatListRow(
+            groupIdHex: String(repeating: "d", count: 64), title: "Alice", preview: "hi",
+            sender: peerHex, timelineAt: 1
+        )
+        row.conversationKind = .direct
+        var direct = Self.presentedRow(row, peerID: peerHex)
+        direct.presentation.avatar = .placeholder(stableSeed: conversationHash, source: .peerFallback)
+
+        let chat = ChatItem(presented: direct, activeAccountIdHex: String(repeating: "f", count: 64))
+
+        #expect(chat.avatarSeed == peerHex)
+        // The fixture only proves anything if the hash would have drawn a different accent.
+        #expect(AvatarPalette.accentIndex(for: conversationHash) != AvatarPalette.accentIndex(for: peerHex))
+
+        // A group has no single person to match, so it keeps MDK's seed.
+        var groupRow = row
+        groupRow.conversationKind = .group
+        var group = Self.presentedRow(groupRow, peerID: nil)
+        group.presentation.avatar = .placeholder(stableSeed: conversationHash, source: .groupFallback)
+
+        #expect(
+            ChatItem(presented: group, activeAccountIdHex: String(repeating: "f", count: 64)).avatarSeed
+                == conversationHash)
     }
 
     @Test func readsMoreAvatarsThanOneCoreBatchHolds() async throws {
@@ -128,7 +159,7 @@ struct AvatarAssetTests {
         )
     }
 
-    private static func presentedRow(_ row: ChatListRowFfi, peerID: String) -> PresentedChatRowFfi {
+    private static func presentedRow(_ row: ChatListRowFfi, peerID: String?) -> PresentedChatRowFfi {
         PresentedChatRowFfi(
             draftVersion: nil,
             preview: .message,
@@ -140,7 +171,7 @@ struct AvatarAssetTests {
             row: row,
             presentation: ConversationPresentationFfi(
                 title: .literal(text: row.title),
-                avatar: .remoteImage(url: "https://example.com/alice.png", cacheKey: peerID),
+                avatar: .remoteImage(url: "https://example.com/alice.png", cacheKey: peerID ?? row.groupIdHex),
                 titleSource: .peerProfile,
                 avatarSource: .peerProfile,
                 peerId: peerID,

@@ -151,7 +151,7 @@ struct ChatListTests: WorkspaceTestSupport {
             avatarAsset: nil
         )
         let chat = ChatItem(presented: presented, activeAccountIdHex: account.accountIdHex)
-        #expect(chat.avatarSeed == cacheKey)
+        #expect(chat.avatarSeed == aliceIdHex)
         #expect(chat.directPeerAccountIdHex == aliceIdHex)
         // Carried through the row rebuild that keeps resolved metadata across a delta — and so is
         // the published name behind a nickname, or clearing the nickname could never restore it.

@@ -144,8 +144,9 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// account. Travels with `preview` for the same reason `previewAttachmentKind` does.
     let previewAttribution: ChatPreviewAttribution?
     let updatedAt: Date?
-    /// Only a seed for the placeholder avatar: a prepared row fills it with MDK's avatar cache
-    /// key, which is neither the peer nor the group. Never read a person's identity from it.
+    /// Only a seed for the placeholder avatar's color and initials. A direct chat seeds it with the
+    /// peer's hex, so its color matches that person everywhere else they appear; a prepared group
+    /// row seeds it with MDK's avatar cache key. Never read a person's identity from it.
     private(set) var avatarSeed: String
     /// The other party's account hex, for a direct chat whose peer has actually resolved.
     ///
@@ -505,7 +506,7 @@ extension ChatItem {
 
         title = nickname ?? selectedTitle
         publishedTitle = nickname == nil ? nil : selectedTitle
-        self.avatarSeed = avatarSeed
+        self.avatarSeed = presented.presentation.peerId ?? avatarSeed
         self.pictureURL = pictureURL
         sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
 
