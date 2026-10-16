@@ -645,24 +645,49 @@ extension WorkspaceState {
         return prefixMatches + containedMatches
     }
 
-    func existingDirectChat(peerAccountIdHex: String) -> ChatItem? {
+    /// The direct chat "Message" reuses: the newest one with this person the viewer is still in.
+    /// Same rule as the New chat chooser (`DirectChatChoices.existing`), so the two never disagree
+    /// about which chats count. It can be archived when that is the newest one, so the choice says so.
+    func existingDirectChat(peerAccountIdHex: String) -> DirectChatChoice? {
         guard let activeAccountId else { return nil }
-        let match: (ChatItem) -> Bool = { $0.directPeerAccountIdHex == peerAccountIdHex }
-        if let chat = (chatsByAccount[activeAccountId] ?? []).first(where: match) {
-            return chat
-        }
-        return (archivedChatsByAccount[activeAccountId] ?? []).first(where: match)
+        return DirectChatChoices.existing(
+            withPeer: peerAccountIdHex,
+            active: chatsByAccount[activeAccountId] ?? [],
+            archived: archivedChatsByAccount[activeAccountId] ?? []
+        ).first
     }
 
     /// Open the existing direct chat with this person, or create one and select it. Direct
     /// chats are created with an empty group name; the chat list titles them from the peer
     /// profile.
-    func startDirectChat(with recipient: NewChatRecipient) async {
-        if let existing = existingDirectChat(peerAccountIdHex: recipient.accountIdHex) {
-            selectChat(existing)
+    ///
+    /// `reusingExisting: false` always creates a new chat: the New chat chooser
+    /// (`DirectChatChooserViewModel`) has already offered the existing ones and the user asked
+    /// for another.
+    ///
+    /// `expectedAccountId`, when given, is the account the request was made under: if another
+    /// account is active by the time this runs, nothing is created.
+    func startDirectChat(
+        with recipient: NewChatRecipient,
+        reusingExisting: Bool = true,
+        expectedAccountId: String? = nil
+    ) async {
+        if reusingExisting, let existing = existingDirectChat(peerAccountIdHex: recipient.accountIdHex) {
+            // An archived chat comes back into the chat list first, as the chooser's open path
+            // does, or the user lands in a chat the sidebar is not showing.
+            if existing.isArchived {
+                // Re-checked after the await so a mid-unarchive account switch cannot select this
+                // account's chat id under the next one.
+                let accountId = activeAccountId
+                guard await setChatArchived(existing.chat, archived: false), activeAccountId == accountId else {
+                    return
+                }
+            }
+            selectChat(existing.chat)
             return
         }
         guard let client, let activeAccount, !isCreatingChat else { return }
+        if let expectedAccountId, activeAccount.id != expectedAccountId { return }
         lastError = nil
         startChatInvitePrompt = nil
         isCreatingChat = true
