@@ -14,6 +14,9 @@ import SwiftUI
 struct NewChatPanelView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    @State private var directChatChooser = DirectChatChooserViewModel()
+
+    private var chooserSource: DirectChatChooserSource { .workspace(workspace) }
 
     private var trimmedQuery: String {
         workspace.newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,7 +76,7 @@ struct NewChatPanelView: View {
                             isDisabled: workspace.isCreatingChat,
                             onPaste: pasteIntoSearch
                         ) { recipient in
-                            Task { await workspace.startDirectChat(with: recipient) }
+                            Task { await directChatChooser.choose(recipient, from: chooserSource) }
                         }
                     } else {
                         let results = workspace.composeSearchResults(matching: trimmedQuery)
@@ -113,6 +116,16 @@ struct NewChatPanelView: View {
         .task {
             await workspace.refreshComposeContacts()
         }
+        .sheet(item: $directChatChooser.presentation) { presentation in
+            DirectChatChooserSheet(
+                presentation: presentation,
+                onOpen: { choice in Task { await directChatChooser.open(choice, from: chooserSource) } },
+                onStartNew: { Task { await directChatChooser.startNew(from: chooserSource) } },
+                onCancel: { directChatChooser.cancel() }
+            )
+            // A sheet does not inherit the injected locale.
+            .environment(\.locale, workspace.preferredLocale)
+        }
     }
 
     @ViewBuilder
@@ -125,7 +138,7 @@ struct NewChatPanelView: View {
                 sanitizedPictureURL: contact.sanitizedPictureURL,
                 isBusy: workspace.creatingDirectChatIdHex == contact.accountIdHex
             ) {
-                Task { await workspace.startDirectChat(with: contact.recipient) }
+                Task { await directChatChooser.choose(contact.recipient, from: chooserSource) }
             }
             .accessibilityIdentifier("compose.contact.\(contact.accountIdHex)")
             .disabled(workspace.isCreatingChat && workspace.creatingDirectChatIdHex != contact.accountIdHex)
@@ -139,7 +152,7 @@ struct NewChatPanelView: View {
                 person: person,
                 isBusy: workspace.creatingDirectChatIdHex == person.accountIdHex
             ) {
-                Task { await workspace.startDirectChat(with: person.recipient) }
+                Task { await directChatChooser.choose(person.recipient, from: chooserSource) }
             }
             .accessibilityIdentifier("compose.discovered.\(person.accountIdHex)")
             .disabled(workspace.isCreatingChat && workspace.creatingDirectChatIdHex != person.accountIdHex)
