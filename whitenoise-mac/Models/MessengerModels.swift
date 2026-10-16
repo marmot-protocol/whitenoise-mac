@@ -904,6 +904,37 @@ nonisolated struct MessageReaction: Identifiable, Hashable {
     }
 }
 
+/// What picking an emoji from a reaction menu does to a message: react with it, or — when the
+/// viewing account already reacted with that emoji — take the reaction back.
+///
+/// Re-sending an emoji the account already holds is an idempotent no-op in the core, so without
+/// this the second click on a selected emoji silently does nothing. Removal goes through
+/// `unreactFromMessage`, which retracts every reaction the account holds on the target; the FFI
+/// has no per-emoji retraction.
+nonisolated enum MessageReactionPick: Equatable {
+    case add(String)
+    case remove(MessageReaction)
+
+    static func resolve(emoji: String, reactions: [MessageReaction]) -> Self {
+        if let own = reactions.first(where: { $0.emoji == emoji && $0.canRemoveOwnReaction }) {
+            return .remove(own)
+        }
+        return .add(emoji)
+    }
+
+    /// Whether this pick has to be confirmed before it is sent: a removal that may take more than
+    /// the one emoji picked, since `unreactFromMessage` retracts all of the account's reactions.
+    func needsConfirmation(on message: MessageItem) -> Bool {
+        guard case .remove = self else { return false }
+        return message.unreactMayRemoveSeveralReactions
+    }
+
+    /// The emoji a reaction menu draws as selected.
+    static func selectedEmojis(in reactions: [MessageReaction]) -> Set<String> {
+        Set(reactions.lazy.filter(\.isOwn).map(\.emoji))
+    }
+}
+
 /// One message's reactions as a conversation window prepares them: the per-emoji tallies plus the
 /// exact aggregates for kinds the window left out.
 nonisolated struct PreparedMessageReactions: Hashable {

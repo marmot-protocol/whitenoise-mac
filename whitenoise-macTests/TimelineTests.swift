@@ -9241,6 +9241,121 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(state.conversationMetadataByChat[chat.id] == rejoinedMetadata)
     }
 
+    @Test func reactionPickAddsAnEmojiTheViewerDoesNotHold() {
+        let reactions = [
+            MessageReaction(emoji: "👍", count: 2, isOwn: false),
+            MessageReaction(emoji: "🎉", count: 1, isOwn: true),
+        ]
+
+        // Someone else's 👍 is not the viewer's: picking it reacts rather than retracting.
+        #expect(MessageReactionPick.resolve(emoji: "👍", reactions: reactions) == .add("👍"))
+        #expect(MessageReactionPick.resolve(emoji: "🔥", reactions: reactions) == .add("🔥"))
+        #expect(MessageReactionPick.resolve(emoji: "🔥", reactions: []) == .add("🔥"))
+    }
+
+    @Test func reactionPickRemovesAnEmojiTheViewerAlreadyHolds() {
+        let own = MessageReaction(emoji: "🎉", count: 3, isOwn: true)
+        let reactions = [MessageReaction(emoji: "👍", count: 1, isOwn: false), own]
+
+        #expect(MessageReactionPick.resolve(emoji: "🎉", reactions: reactions) == .remove(own))
+    }
+
+    /// `unreactFromMessage` retracts every reaction the account holds, so a pick that would take
+    /// more than the emoji picked is confirmed first; a lone own reaction still goes in one click.
+    @Test func reactionPickConfirmsOnlyARemovalThatMayTakeSeveralReactions() {
+        func message(_ reactions: [MessageReaction], omitted: Int = 0) -> MessageItem {
+            MessageItem(
+                id: "parent",
+                senderName: "Alice",
+                body: "Ship it",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false,
+                reactions: reactions,
+                omittedReactionKinds: omitted
+            )
+        }
+        let own = MessageReaction(emoji: "👍", count: 2, isOwn: true)
+        let ownToo = MessageReaction(emoji: "❤️", count: 1, isOwn: true)
+        let peer = MessageReaction(emoji: "🎉", count: 1, isOwn: false)
+
+        let twoOwn = message([own, ownToo])
+        #expect(MessageReactionPick.resolve(emoji: "👍", reactions: twoOwn.reactions).needsConfirmation(on: twoOwn))
+        // Adding never retracts anything, however many reactions the viewer already holds.
+        #expect(!MessageReactionPick.resolve(emoji: "🔥", reactions: twoOwn.reactions).needsConfirmation(on: twoOwn))
+
+        let oneOwn = message([own, peer])
+        #expect(!MessageReactionPick.resolve(emoji: "👍", reactions: oneOwn.reactions).needsConfirmation(on: oneOwn))
+
+        // An omitted kind may be another of the viewer's own, so the removal is confirmed.
+        let truncated = message([own, peer], omitted: 1)
+        #expect(
+            MessageReactionPick.resolve(emoji: "👍", reactions: truncated.reactions).needsConfirmation(on: truncated))
+    }
+
+    @Test func reactionMenusMarkOnlyTheViewersOwnEmojiSelected() {
+        let reactions = [
+            MessageReaction(emoji: "👍", count: 4, isOwn: false),
+            MessageReaction(emoji: "🎉", count: 1, isOwn: true),
+            MessageReaction(emoji: "❤️", count: 2, isOwn: true),
+        ]
+
+        #expect(MessageReactionPick.selectedEmojis(in: reactions) == ["🎉", "❤️"])
+        #expect(MessageReactionPick.selectedEmojis(in: []).isEmpty)
+    }
+
+    /// Re-sending an emoji the account already holds is an idempotent no-op in the core, so a
+    /// second click on a selected emoji has to retract instead of reacting again.
+    @MainActor
+    @Test func pickingAnAlreadySelectedReactionRetractsItInsteadOfReactingAgain() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let message = MessageItem(
+            id: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            reactions: [MessageReaction(emoji: "👍", count: 1, isOwn: true)]
+        )
+
+        await state.bootstrap()
+        await MessageReactionPick.resolve(emoji: "👍", reactions: message.reactions)
+            .perform(on: message, in: state)
+
+        #expect(runtime.unreactFromMessageCallCount == 1)
+        #expect(runtime.unreactedMessage == UnreactedMessage(groupIdHex: "direct-group", targetMessageId: "parent"))
+        #expect(runtime.reactToMessageCallCount == 0)
+
+        await MessageReactionPick.resolve(emoji: "🎉", reactions: message.reactions)
+            .perform(on: message, in: state)
+
+        #expect(runtime.reactToMessageCallCount == 1)
+        #expect(runtime.reactedMessage?.emoji == "🎉")
+        #expect(runtime.unreactFromMessageCallCount == 1)
+    }
+
     @MainActor
     @Test func messageActionsRemoveOwnReactionByUnreactingTargetMessage() async throws {
         let account = AccountSummaryFfi(

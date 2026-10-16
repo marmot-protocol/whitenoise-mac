@@ -266,6 +266,10 @@ struct MessageBubble: View {
     /// `timestampReferenceDate`, which only moves on calendar-day changes.
     @State private var deliveryClock = Date.now
     @State private var isReportPresented = false
+    /// A picked removal that would also retract the account's other reactions, held for
+    /// confirmation. Owned here because the context menu that picks it is gone by the time the
+    /// dialog shows.
+    @State private var reactionPendingRemoval: MessageReactionPick?
     let message: MessageItem
     let safetyModel: GroupSafetyViewModel
     let customEmojiImages: CustomEmojiImageStore
@@ -424,6 +428,7 @@ struct MessageBubble: View {
             if !workspace.isTimelineSelectionMode {
                 MessageContextMenuItems(
                     message: message,
+                    onReactionPick: pickReaction,
                     onReport: { isReportPresented = true }
                 )
             }
@@ -434,6 +439,24 @@ struct MessageBubble: View {
                 model: safetyModel,
                 dismiss: { isReportPresented = false }
             )
+        }
+        .confirmationDialog(
+            L10n.string("Remove all your reactions?"),
+            isPresented: Binding(
+                get: { reactionPendingRemoval != nil },
+                set: { presented in
+                    if !presented { reactionPendingRemoval = nil }
+                }
+            ),
+            titleVisibility: .visible,
+            presenting: reactionPendingRemoval
+        ) { pick in
+            Button(L10n.string("Remove all"), role: .destructive) {
+                Task { await pick.perform(on: message, in: workspace) }
+            }
+            Button(L10n.string("Cancel"), role: .cancel) {}
+        } message: { _ in
+            Text(L10n.string("Removing a reaction removes every reaction you added to this message."))
         }
         .onAppear {
             hoverSelectionCoordinator.register(messageID: message.id, isSelectable: $isSelectable)
@@ -462,6 +485,17 @@ struct MessageBubble: View {
 
     private var showsInlineActions: Bool {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+    }
+
+    /// Sends a reaction-menu pick, or holds it for confirmation when retracting the picked emoji
+    /// would retract the account's other reactions with it.
+    private func pickReaction(_ emoji: String) {
+        let pick = MessageReactionPick.resolve(emoji: emoji, reactions: message.reactions)
+        if pick.needsConfirmation(on: message) {
+            reactionPendingRemoval = pick
+        } else {
+            Task { await pick.perform(on: message, in: workspace) }
+        }
     }
 
     private var usesBubbleSurface: Bool {
@@ -580,6 +614,7 @@ struct MessageBubble: View {
             MessageInlineActions(
                 isPresentationActive: $isInlineActionPresentationActive,
                 message: message,
+                onReactionPick: pickReaction,
                 onReport: { isReportPresented = true }
             )
             // The strip is an overlay on the bubble's edge, pushed clear of it by the width
@@ -2413,6 +2448,8 @@ struct MessageInlineActions: View {
     @State private var isOverflowPresented = false
     @Binding var isPresentationActive: Bool
     let message: MessageItem
+    /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
+    let onReactionPick: (String) -> Void
     let onReport: () -> Void
 
     var body: some View {
@@ -2425,9 +2462,11 @@ struct MessageInlineActions: View {
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $isEmojiPickerPresented, arrowEdge: .bottom) {
-                    MessageEmojiPickerPopover { emoji in
+                    MessageEmojiPickerPopover(
+                        selectedEmojis: MessageReactionPick.selectedEmojis(in: message.reactions)
+                    ) { emoji in
                         isEmojiPickerPresented = false
-                        Task { await workspace.react(to: message, emoji: emoji) }
+                        onReactionPick(emoji)
                     }
                 }
                 .help(L10n.string("React"))
@@ -2515,39 +2554,89 @@ struct MessageInlineActionIcon: View {
     }
 }
 
+/// The quick reactions, with the ones the viewing account already holds marked as selected.
+/// Picking a selected emoji takes the reaction back (`MessageReactionPick`), so the mark is also
+/// what tells the user a second click removes it.
 struct QuickReactionButtons<Label: View>: View {
+    enum Presentation {
+        /// Plain buttons the caller styles; the label draws the selection.
+        case palette
+        /// Native menu items: a selected emoji carries the menu's own checkmark.
+        case menu
+    }
+
     let emojis: [String]
+    let selectedEmojis: Set<String>
+    let presentation: Presentation
     let onPick: (String) -> Void
-    let label: (String) -> Label
+    let label: (_ emoji: String, _ isSelected: Bool) -> Label
 
     init(
         emojis: [String],
+        selectedEmojis: Set<String>,
+        presentation: Presentation = .palette,
         onPick: @escaping (String) -> Void,
-        @ViewBuilder label: @escaping (String) -> Label
+        @ViewBuilder label: @escaping (_ emoji: String, _ isSelected: Bool) -> Label
     ) {
         self.emojis = emojis
+        self.selectedEmojis = selectedEmojis
+        self.presentation = presentation
         self.onPick = onPick
         self.label = label
     }
 
     var body: some View {
         ForEach(emojis, id: \.self) { emoji in
-            Button {
-                onPick(emoji)
-            } label: {
-                label(emoji)
+            let isSelected = selectedEmojis.contains(emoji)
+            Group {
+                switch presentation {
+                case .palette:
+                    Button {
+                        onPick(emoji)
+                    } label: {
+                        label(emoji, isSelected)
+                    }
+                case .menu:
+                    Toggle(
+                        isOn: Binding(get: { isSelected }, set: { _ in onPick(emoji) })
+                    ) {
+                        label(emoji, isSelected)
+                    }
+                }
             }
-            .accessibilityLabel(String(format: L10n.string("React with %@"), emoji))
+            // A selected emoji's control takes the reaction back, so it says so before activation.
+            .accessibilityLabel(
+                String(
+                    format: isSelected ? L10n.string("Remove %@ reaction") : L10n.string("React with %@"),
+                    emoji
+                )
+            )
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+        }
+    }
+}
+
+extension MessageReactionPick {
+    /// Sends the pick: a new reaction, or the retraction of one the account already holds.
+    @MainActor
+    func perform(on message: MessageItem, in workspace: WorkspaceState) async {
+        switch self {
+        case .add(let emoji):
+            await workspace.react(to: message, emoji: emoji)
+        case .remove(let reaction):
+            await workspace.removeReaction(reaction, from: message)
         }
     }
 }
 
 struct MessageEmojiPickerPopover: View {
     @Environment(WorkspaceState.self) private var workspace
+    /// The emoji the viewing account already reacted with, drawn selected.
+    let selectedEmojis: Set<String>
     let onPick: (String) -> Void
 
     var body: some View {
-        QuickReactionPicker(emojis: workspace.quickReactions, onPick: onPick)
+        QuickReactionPicker(emojis: workspace.quickReactions, selectedEmojis: selectedEmojis, onPick: onPick)
     }
 }
 
@@ -2557,14 +2646,27 @@ struct MessageEmojiPickerPopover: View {
 struct QuickReactionPicker: View {
     @State private var isFullPickerPresented = false
     let emojis: [String]
+    /// The emoji the viewing account already reacted with, drawn selected.
+    var selectedEmojis: Set<String> = []
     let onPick: (String) -> Void
 
     var body: some View {
         HStack(spacing: 4) {
-            QuickReactionButtons(emojis: emojis, onPick: onPick) { emoji in
+            QuickReactionButtons(emojis: emojis, selectedEmojis: selectedEmojis, onPick: onPick) { emoji, isSelected in
                 Text(emoji)
                     .wnFont(.medium24)
                     .frame(width: 40, height: 40)
+                    .background {
+                        if isSelected {
+                            // The same selected pair the reaction chip under the bubble uses, so
+                            // the menu and the chip agree about which emoji is yours.
+                            Circle()
+                                .fill(WNColor.fillSecondaryActive)
+                                .overlay {
+                                    Circle().strokeBorder(WNColor.borderPrimary, lineWidth: 1)
+                                }
+                        }
+                    }
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -2820,6 +2922,8 @@ struct MessageContextMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.composerFocusRequester) private var composerFocusRequester
     let message: MessageItem
+    /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
+    let onReactionPick: (String) -> Void
     let onReport: () -> Void
 
     var body: some View {
@@ -2841,10 +2945,10 @@ struct MessageContextMenuItems: View {
                 Menu {
                     QuickReactionButtons(
                         emojis: workspace.quickReactions,
-                        onPick: { emoji in
-                            Task { await workspace.react(to: message, emoji: emoji) }
-                        }
-                    ) { emoji in
+                        selectedEmojis: MessageReactionPick.selectedEmojis(in: message.reactions),
+                        presentation: .menu,
+                        onPick: onReactionPick
+                    ) { emoji, _ in
                         Text(emoji)
                     }
                 } label: {
