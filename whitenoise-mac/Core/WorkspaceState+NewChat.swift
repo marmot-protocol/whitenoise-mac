@@ -645,20 +645,27 @@ extension WorkspaceState {
         return prefixMatches + containedMatches
     }
 
+    /// The direct chat "Message" reuses: the newest one with this person the viewer is still in.
+    /// Same rule as the New chat chooser (`DirectChatChoices.existing`), so the two never disagree
+    /// about which chats count.
     func existingDirectChat(peerAccountIdHex: String) -> ChatItem? {
         guard let activeAccountId else { return nil }
-        let match: (ChatItem) -> Bool = { $0.directPeerAccountIdHex == peerAccountIdHex }
-        if let chat = (chatsByAccount[activeAccountId] ?? []).first(where: match) {
-            return chat
-        }
-        return (archivedChatsByAccount[activeAccountId] ?? []).first(where: match)
+        return DirectChatChoices.existing(
+            withPeer: peerAccountIdHex,
+            active: chatsByAccount[activeAccountId] ?? [],
+            archived: archivedChatsByAccount[activeAccountId] ?? []
+        ).first?.chat
     }
 
     /// Open the existing direct chat with this person, or create one and select it. Direct
     /// chats are created with an empty group name; the chat list titles them from the peer
     /// profile.
-    func startDirectChat(with recipient: NewChatRecipient) async {
-        if let existing = existingDirectChat(peerAccountIdHex: recipient.accountIdHex) {
+    ///
+    /// `reusingExisting: false` always creates a new chat: the New chat chooser
+    /// (`DirectChatChooserViewModel`) has already offered the existing ones and the user asked
+    /// for another.
+    func startDirectChat(with recipient: NewChatRecipient, reusingExisting: Bool = true) async {
+        if reusingExisting, let existing = existingDirectChat(peerAccountIdHex: recipient.accountIdHex) {
             selectChat(existing)
             return
         }

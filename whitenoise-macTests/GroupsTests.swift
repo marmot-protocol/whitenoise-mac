@@ -4720,6 +4720,78 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.selection == .chat("created-group"))
     }
 
+    /// "Start new conversation" in the New chat chooser: an existing direct chat with the person
+    /// must not swallow the request, or there is no way to have a second one.
+    @MainActor
+    @Test func startingANewDirectChatBypassesTheExistingOne() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let accountId = try #require(state.activeAccountId)
+        let existing = ChatItem(
+            id: "existing-dm",
+            title: "Bob",
+            subtitle: "",
+            preview: "",
+            updatedAt: .now,
+            avatarSeed: Self.bobAccountIdHex,
+            directPeerAccountIdHex: Self.bobAccountIdHex,
+            pictureURL: nil,
+            unreadCount: 0,
+            isDirect: true
+        )
+        state.chatsByAccount[accountId, default: []].append(existing)
+        #expect(state.existingDirectChat(peerAccountIdHex: Self.bobAccountIdHex)?.id == "existing-dm")
+
+        state.showNewChat()
+        await state.startDirectChat(with: Self.bobDraftRecipient(), reusingExisting: false)
+
+        #expect(runtime.createdGroupMemberRefs == ["npub1p0p"])
+        #expect(state.selection == .chat("created-group"))
+    }
+
+    /// "Message" on a contact reuses a direct chat by the chooser's rule: with several DMs per
+    /// person possible, one the viewer left is not one to land in when an active one exists.
+    @MainActor
+    @Test func messagingAContactOpensTheActiveDirectChatNotOneTheViewerLeft() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let accountId = try #require(state.activeAccountId)
+        func dm(_ id: String, updatedAt: Date, selfMembership: ChatSelfMembership) -> ChatItem {
+            ChatItem(
+                id: id,
+                title: "Bob",
+                subtitle: "",
+                preview: "",
+                updatedAt: updatedAt,
+                avatarSeed: Self.bobAccountIdHex,
+                directPeerAccountIdHex: Self.bobAccountIdHex,
+                pictureURL: nil,
+                unreadCount: 0,
+                isDirect: true,
+                selfMembership: selfMembership
+            )
+        }
+        // The left chat comes first and is newer, so neither list order nor recency picks the
+        // active one by accident.
+        state.chatsByAccount[accountId, default: []].append(
+            contentsOf: [
+                dm("left-dm", updatedAt: .now, selfMembership: .left),
+                dm("active-dm", updatedAt: .now.addingTimeInterval(-3_600), selfMembership: .member),
+            ]
+        )
+
+        await state.messageContact(Self.bobDraftRecipient())
+
+        #expect(state.selection == .chat("active-dm"))
+        #expect(runtime.createdGroupMemberRefs.isEmpty)
+    }
+
     /// The promotion is a second commit after the chat already exists, so its refusal must not
     /// read as a failure to start the chat: the creator can still promote from chat info.
     @MainActor
