@@ -2841,6 +2841,110 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func invitingAContactWithNoNpubSendsTheirAccountIdHex() async throws {
+        // The sheet stages contacts and discovered people, who can carry `npub: ""`. Sending refs
+        // by npub alone dropped them from the commit while the sheet dismissed as if they'd joined.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let contact = ComposeContact(
+            accountIdHex: Self.daveAccountIdHex, npub: "", displayName: "Dave", pictureURL: nil,
+            lastActivity: nil)
+
+        let invited = await state.inviteMembers([Self.aliceDraftRecipient(), contact.recipient])
+
+        #expect(invited)
+        #expect(runtime.inviteMemberRefAttempts.last == ["npub1alyce", Self.daveAccountIdHex])
+        #expect(runtime.invitedMemberRefs == ["npub1alyce", Self.daveAccountIdHex])
+    }
+
+    @MainActor
+    @Test func aRefusalReportedAgainstAHexRefNamesTheNpubLessContact() async throws {
+        // The core names a refused member by account id hex, so a contact staged without an npub
+        // still maps back to its chip instead of falling through to an unnamed refusal.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.missingKeyPackageAccountIdHexByMemberRef[Self.daveAccountIdHex] = Self.daveAccountIdHex
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let dave = ComposeContact(
+            accountIdHex: Self.daveAccountIdHex, npub: "", displayName: "Dave", pictureURL: nil,
+            lastActivity: nil
+        ).recipient
+        let staged = [Self.aliceDraftRecipient(), dave]
+
+        let invited = await state.inviteMembers(staged)
+
+        #expect(!invited)
+        #expect(state.unreachableInviteRecipients(staged).map(\.accountIdHex) == [Self.daveAccountIdHex])
+        #expect(!state.hasUnnamedInviteRefusal)
+        #expect(state.lastError == nil)
+        #expect(runtime.inviteMemberRefAttempts == [["npub1alyce", Self.daveAccountIdHex]])
+    }
+
+    @MainActor
+    @Test func aTypedIdentifierIsStagedAndInvitedInOnePress() async throws {
+        // The sheet's Invite folds in an npub still in the field, as it did before the search
+        // landed: paste, press Return, and they're invited without clicking the resolved row.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1carol", accountIdHex: Self.carolAccountIdHex, npub: "npub1carol")
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let locked = Set(state.groupDetailsSnapshot?.members.map { $0.id.lowercased() } ?? [])
+        state.newChatQuery = "npub1carol"
+        #expect(state.looksLikeMemberRef(state.newChatQuery))
+
+        let resolved = await state.resolveNewChatQuery()
+        let outcome = GroupInviteStaging.stage(
+            resolved, into: [Self.aliceDraftRecipient()], lockedMemberIds: locked)
+        guard case .staged(let roster) = outcome else {
+            Issue.record("expected the identifier to be staged, got \(outcome)")
+            return
+        }
+        #expect(roster.map(\.accountIdHex) == [Self.aliceAccountIdHex, Self.carolAccountIdHex])
+
+        let invited = await state.inviteMembers(roster)
+        #expect(invited)
+        #expect(runtime.invitedMemberRefs == ["npub1alyce", "npub1carol"])
+    }
+
+    @MainActor
+    @Test func aTypedIdentifierForAnExistingMemberIsRefusedBeforeInviting() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let locked = Set(state.groupDetailsSnapshot?.members.map { $0.id.lowercased() } ?? [])
+        // The fake resolves an unknown ref to the fixture's existing non-self member.
+        state.newChatQuery = "npub1alyce"
+
+        let resolved = await state.resolveNewChatQuery()
+        let outcome = GroupInviteStaging.stage(resolved, into: [], lockedMemberIds: locked)
+
+        #expect(outcome == .alreadyMember)
+        #expect(outcome.errorMessage == L10n.string("That person is already in this group."))
+        #expect(runtime.inviteMembersDetailedCallCount == 0)
+    }
+
+    @MainActor
+    @Test func stagingAnUnresolvedIdentifierIsInvalidAndARepeatIsNotDuplicated() {
+        let alice = Self.aliceDraftRecipient()
+
+        let unresolved = GroupInviteStaging.stage(nil, into: [alice], lockedMemberIds: [])
+        #expect(unresolved == .invalidIdentifier)
+        #expect(
+            unresolved.errorMessage
+                == L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key."))
+
+        let repeated = GroupInviteStaging.stage(alice, into: [alice], lockedMemberIds: [])
+        #expect(repeated == .staged([alice]))
+        #expect(repeated.errorMessage == nil)
+    }
+
+    @MainActor
     @Test func inviteMemberDropsWhileProfileSaveIsInFlight() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])

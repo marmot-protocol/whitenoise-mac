@@ -174,42 +174,20 @@ struct NewChatPanelView: View {
 
 struct ChooseMembersPanelView: View {
     @Environment(WorkspaceState.self) private var workspace
-    @Environment(SessionState.self) private var session
-
-    private var trimmedQuery: String {
-        workspace.newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 
     var body: some View {
-        @Bindable var workspace = workspace
-
         VStack(spacing: 0) {
             ComposePaneHeader(title: L10n.string("Choose members")) {
                 workspace.composeGoBack()
             }
 
             VStack(spacing: 10) {
-                MessagesSearchField(
-                    text: $workspace.newChatQuery,
-                    accessibilityIdentifier: "compose.members.search",
-                    placeholder: L10n.string("Name or npub"),
-                    autofocus: true
-                )
-                .debouncedNewChatQueryResolution(for: workspace.newChatQuery)
-                .userDiscovery(for: workspace.newChatQuery)
+                MemberSearchField(accessibilityIdentifier: "compose.members.search")
 
                 if !workspace.newChatRecipients.isEmpty {
-                    ScrollView {
-                        ChipFlowLayout(spacing: 6) {
-                            ForEach(workspace.newChatRecipients, id: \.accountIdHex) { member in
-                                MemberChip(member: member) {
-                                    workspace.removeNewChatRecipient(member)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    SelectedMemberChips(members: workspace.newChatRecipients) { member in
+                        workspace.removeNewChatRecipient(member)
                     }
-                    .frame(maxHeight: 88)
                 }
             }
             .padding(.horizontal, 12)
@@ -217,42 +195,12 @@ struct ChooseMembersPanelView: View {
 
             GlassSeparator(axis: .horizontal)
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    if trimmedQuery.isEmpty {
-                        if !workspace.composeContacts.isEmpty {
-                            ComposeSectionHeader(title: L10n.string("Contacts"))
-                            selectableRows(workspace.composeContacts)
-                        }
-                    } else if workspace.looksLikeMemberRef(trimmedQuery) {
-                        ComposeIdentifierResults(
-                            selection: { isSelected(accountIdHex: $0.accountIdHex) }
-                        ) { recipient in
-                            workspace.toggleComposeMember(recipient)
-                        }
-                    } else {
-                        let results = workspace.composeSearchResults(matching: trimmedQuery)
-                        if !results.known.isEmpty {
-                            ComposeSectionHeader(title: L10n.string("Contacts"))
-                            selectableRows(results.known)
-                        }
-                        if !results.discovered.isEmpty {
-                            ComposeSectionHeader(title: L10n.string("People"))
-                            selectableDiscoveredRows(results.discovered)
-                        }
-                        if UserDiscoveryPresentation.showsNoMatches(
-                            results: results,
-                            isSearching: workspace.isSearchingPeople
-                        ) {
-                            ComposeNoMatchesView()
-                        }
-                        ComposeDiscoveryStatusRow()
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+            MemberSearchResults(
+                listAccessibilityIdentifier: "compose.members.list",
+                isSelected: { hex in workspace.newChatRecipients.contains { $0.accountIdHex == hex } }
+            ) { recipient in
+                workspace.toggleComposeMember(recipient)
             }
-            .accessibilityIdentifier("compose.members.list")
 
             GlassSeparator(axis: .horizontal)
 
@@ -277,43 +225,162 @@ struct ChooseMembersPanelView: View {
             await workspace.refreshComposeContacts()
         }
     }
+}
+
+// MARK: - Member search
+
+// Choose members and the group add-members sheet run one people search: known contacts (direct-chat
+// peers, group rosters, follows) filtered by name, web-of-trust discovery for strangers, and the
+// identifier resolver for a pasted npub / NIP-05 / profile link. Both read the workspace's single
+// compose query. They never contend for it: group details belong to a selected chat, and selecting a
+// chat closes the composer.
+
+/// The compose search field, wired to identifier resolution and people discovery.
+struct MemberSearchField: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        @Bindable var workspace = workspace
+
+        MessagesSearchField(
+            text: $workspace.newChatQuery,
+            accessibilityIdentifier: accessibilityIdentifier,
+            placeholder: L10n.string("Name or npub"),
+            autofocus: true
+        )
+        .debouncedNewChatQueryResolution(for: workspace.newChatQuery)
+        .userDiscovery(for: workspace.newChatQuery)
+    }
+}
+
+/// Contacts while the query is empty; contacts, discovered people, or the resolved identifier once
+/// it isn't. Rows toggle selection. A locked row (someone already in the group) shows as selected
+/// and can't be toggled, so a search for them still finds them instead of reading "No matches".
+struct MemberSearchResults: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
+
+    let listAccessibilityIdentifier: String
+    let isSelected: (String) -> Bool
+    var isLocked: (String) -> Bool = { _ in false }
+    let onToggle: (NewChatRecipient) -> Void
+
+    private var trimmedQuery: String {
+        workspace.newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                if trimmedQuery.isEmpty {
+                    if !workspace.composeContacts.isEmpty {
+                        ComposeSectionHeader(title: L10n.string("Contacts"))
+                        contactRows(workspace.composeContacts)
+                    }
+                } else if workspace.looksLikeMemberRef(trimmedQuery) {
+                    ComposeIdentifierResults(
+                        selection: { isSelected($0.accountIdHex) || isLocked($0.accountIdHex) },
+                        isDisabled: workspace.resolvedNewChatRecipient.map { isLocked($0.accountIdHex) } ?? false,
+                        onSelect: toggle
+                    )
+                } else {
+                    let results = workspace.composeSearchResults(matching: trimmedQuery)
+                    if !results.known.isEmpty {
+                        ComposeSectionHeader(title: L10n.string("Contacts"))
+                        contactRows(results.known)
+                    }
+                    if !results.discovered.isEmpty {
+                        ComposeSectionHeader(title: L10n.string("People"))
+                        discoveredRows(results.discovered)
+                    }
+                    if UserDiscoveryPresentation.showsNoMatches(
+                        results: results,
+                        isSearching: workspace.isSearchingPeople
+                    ) {
+                        ComposeNoMatchesView()
+                    }
+                    ComposeDiscoveryStatusRow()
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+        .accessibilityIdentifier(listAccessibilityIdentifier)
+    }
 
     @ViewBuilder
-    private func selectableRows(_ contacts: [ComposeContact]) -> some View {
+    private func contactRows(_ contacts: [ComposeContact]) -> some View {
         ForEach(contacts.filter { isAllowed(accountID: $0.accountIdHex) }) { contact in
             ComposeContactRow(
                 title: contact.title,
                 subtitle: contact.subtitle,
                 avatarSeed: contact.accountIdHex,
                 sanitizedPictureURL: contact.sanitizedPictureURL,
-                selection: isSelected(accountIdHex: contact.accountIdHex)
+                selection: isSelected(contact.accountIdHex) || isLocked(contact.accountIdHex)
             ) {
-                workspace.toggleComposeMember(contact.recipient)
+                toggle(contact.recipient)
             }
+            .disabled(isLocked(contact.accountIdHex))
             .accessibilityIdentifier("compose.member.\(contact.accountIdHex)")
         }
     }
 
     @ViewBuilder
-    private func selectableDiscoveredRows(_ people: [DiscoveredPerson]) -> some View {
+    private func discoveredRows(_ people: [DiscoveredPerson]) -> some View {
         ForEach(people.filter { isAllowed(accountID: $0.accountIdHex) }) { person in
             DiscoveredPersonRow(
                 person: person,
-                selection: isSelected(accountIdHex: person.accountIdHex)
+                selection: isSelected(person.accountIdHex) || isLocked(person.accountIdHex)
             ) {
-                workspace.toggleComposeMember(person.recipient)
+                toggle(person.recipient)
             }
+            .disabled(isLocked(person.accountIdHex))
             .accessibilityIdentifier("compose.member.discovered.\(person.accountIdHex)")
         }
     }
 
-    private func isSelected(accountIdHex: String) -> Bool {
-        workspace.newChatRecipients.contains { $0.accountIdHex == accountIdHex }
+    private func toggle(_ recipient: NewChatRecipient) {
+        guard !isLocked(recipient.accountIdHex) else { return }
+        onToggle(recipient)
     }
 
     private func isAllowed(accountID: String) -> Bool {
         session.accountScope?.blockedUsers.isBlocked(accountID: accountID) != true
     }
+}
+
+/// The picked members as removable chips, wrapping and scrolling past a few rows.
+struct SelectedMemberChips: View {
+    let members: [NewChatRecipient]
+    /// Members to show dimmed — picked, but refused by the core.
+    var isDimmed: (NewChatRecipient) -> Bool = { _ in false }
+    let onRemove: (NewChatRecipient) -> Void
+
+    var body: some View {
+        ScrollView {
+            ChipFlowLayout(spacing: 6) {
+                ForEach(members, id: \.accountIdHex) { member in
+                    MemberChip(member: member, isDimmed: isDimmed(member)) {
+                        onRemove(member)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 88)
+    }
+}
+
+#Preview("Member search") {
+    VStack(spacing: 0) {
+        MemberSearchField(accessibilityIdentifier: "preview.search")
+            .padding(12)
+        MemberSearchResults(listAccessibilityIdentifier: "preview.list", isSelected: { _ in false }) { _ in }
+    }
+    .frame(width: 320, height: 420)
+    .environment(WorkspaceState.preview())
+    .environment(SessionState())
 }
 
 // MARK: - Name group
@@ -955,6 +1022,7 @@ private struct ComposeNoMatchesView: View {
 
 private struct MemberChip: View {
     let member: NewChatRecipient
+    var isDimmed = false
     let onRemove: () -> Void
 
     var body: some View {
@@ -981,7 +1049,13 @@ private struct MemberChip: View {
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(L10n.string("Remove member"))
+        // Dimmed rather than dropped, the way the group draft marks them: "who do I still need to
+        // invite" is the question the picker has to answer.
+        .opacity(isDimmed ? 0.55 : 1)
+        .help(
+            isDimmed
+                ? L10n.string("Not on White Noise yet — they won't be added to this group.")
+                : L10n.string("Remove member"))
     }
 }
 

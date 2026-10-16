@@ -47633,65 +47633,6 @@
         }
       }
     },
-    "NIP-05, npub, profile link, or hex public key" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05, npub, Profillink oder Hex-Public-Key"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05, npub, enlace de perfil o llave pública hexadecimal"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05, npub, lien de profil ou clé publique hexadécimale"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05, npub, link al profilo o chiave pubblica esadecimale"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05, npub, link de perfil ou chave pública hex"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05, npub, ссылка на профиль или шестнадцатеричный ключ"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05, npub, profil bağlantısı veya onaltılık genel anahtar"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05、npub、个人资料链接或十六进制公钥"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NIP-05、npub、個人資料連結或十六進位公開金鑰"
-          }
-        }
-      }
-    },
     "NIP-65" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -49293,65 +49234,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "尚無訊息"
-          }
-        }
-      }
-    },
-    "No one added yet" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Noch niemand hinzugefügt"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aún no has añadido a nadie"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Personne n’a encore été ajouté"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nessuno aggiunto finora"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ninguém adicionado ainda"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пока никто не добавлен"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Henüz kimse eklenmedi"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尚未添加任何人"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尚未新增任何人"
           }
         }
       }

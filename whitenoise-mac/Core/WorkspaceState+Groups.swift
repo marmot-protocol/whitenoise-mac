@@ -523,9 +523,6 @@ extension WorkspaceState {
         }
     }
 
-    /// Invite one or more already-resolved recipients in a single group commit. Recipients carry a
-    /// normalized `npub` from the new-chat resolver, so no per-entry re-normalization is needed.
-    /// Returns `true` when the commit succeeded so the caller can dismiss only on success.
     /// Staged recipients the core hasn't refused, in the order the sheet lists them.
     func reachableInviteRecipients(_ recipients: [NewChatRecipient]) -> [NewChatRecipient] {
         recipients.filter { !unreachableInviteMemberIdHexes.contains($0.accountIdHex.lowercased()) }
@@ -544,6 +541,11 @@ extension WorkspaceState {
         hasUnnamedInviteRefusal = false
     }
 
+    /// Invite one or more already-resolved recipients in a single group commit. Recipients come
+    /// from the identifier resolver, a contact, or a discovered person — the last two can carry no
+    /// npub — so each is sent by its member ref (falling back to the account id hex, as the compose
+    /// draft does), never by `npub` alone, which silently dropped npub-less people from the invite.
+    /// Returns `true` when the commit succeeded so the caller can dismiss only on success.
     @discardableResult
     func inviteMembers(_ recipients: [NewChatRecipient]) async -> Bool {
         guard let client,
@@ -584,7 +586,7 @@ extension WorkspaceState {
                 let result = try await client.inviteMembersDetailed(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: groupIdHex,
-                    memberRefs: attempt.map(\.npub).filter { !$0.isEmpty }
+                    memberRefs: attempt.map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef }
                 )
                 guard
                     isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
@@ -691,7 +693,7 @@ extension WorkspaceState {
                     let result = try await client.inviteMembersDetailed(
                         accountRef: activeAccount.accountRef,
                         groupIdHex: groupIdHex,
-                        memberRefs: [candidate, pin].map(\.npub).filter { !$0.isEmpty }
+                        memberRefs: [candidate, pin].map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef }
                     )
                     // The pin resolved between attempts, so this invited both — which is what the
                     // user staged them for.
