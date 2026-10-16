@@ -218,6 +218,7 @@ struct GroupDetailsSheet: View {
             GroupAddMembersSheet(
                 existingMemberIds: Set(workspace.groupDetailsSnapshot?.members.map(\.id) ?? [])
             )
+            .environment(\.locale, workspace.preferredLocale)
         }
         .sheet(isPresented: $isProfileEditorPresented) {
             GroupProfileEditorSheet(
