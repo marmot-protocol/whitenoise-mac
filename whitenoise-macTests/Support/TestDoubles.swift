@@ -226,6 +226,7 @@ final class AsyncFfiGate: @unchecked Sendable {
     private var reached = false
     private var released = false
     private var continuation: CheckedContinuation<Void, Never>?
+    private var reachWaiters: [CheckedContinuation<Void, Never>] = []
 
     var isEnabled: Bool {
         get { lock.withLock { enabled } }
@@ -242,18 +243,34 @@ final class AsyncFfiGate: @unchecked Sendable {
         }
         guard shouldSuspend else { return }
         await withCheckedContinuation { continuation in
-            let resumeImmediately = lock.withLock { () -> Bool in
+            let (resumeImmediately, waiters) = lock.withLock { () -> (Bool, [CheckedContinuation<Void, Never>]) in
                 self.continuation = continuation
                 reached = true
+                let waiters = reachWaiters
+                reachWaiters = []
                 if released {
                     self.continuation = nil
-                    return true
+                    return (true, waiters)
                 }
-                return false
+                return (false, waiters)
             }
+            waiters.forEach { $0.resume() }
             if resumeImmediately {
                 continuation.resume()
             }
+        }
+    }
+
+    /// Returns once an armed call has parked on the gate — a handle to await instead of polling
+    /// `didReach`.
+    func waitUntilReached() async {
+        await withCheckedContinuation { waiter in
+            let alreadyReached = lock.withLock { () -> Bool in
+                if reached { return true }
+                reachWaiters.append(waiter)
+                return false
+            }
+            if alreadyReached { waiter.resume() }
         }
     }
 

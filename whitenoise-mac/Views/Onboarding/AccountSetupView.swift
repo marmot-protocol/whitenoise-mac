@@ -1,383 +1,339 @@
 import MarmotKit
 import SwiftUI
 
-/// Renders the durable MarmotKit onboarding checkpoint for an imported identity.
-/// The snapshot is authoritative: every command operates on its advertised actions and
-/// the screen survives termination because no progress is held only in SwiftUI state.
+/// The guided account setup that follows Sign In: MarmotKit's durable onboarding checkpoint as a
+/// vertical checklist, on the same scaffold as the sign-in pane.
+///
+/// This is `whitenoise-ios`'s `AccountSetupView`: every step is a named row with its state, and
+/// the one step that needs the user — the first unfinished one — is a row with a chevron that
+/// opens that step's own screen, as does the pane's Review and Continue button. Each screen offers
+/// what the step actually needs rather than a bare retry: the profile step a name, description and
+/// photo form; the relay steps their defaults, an editor and a search; the single-device step its
+/// consent. See `AccountSetupStepSheet`.
+///
+/// The snapshot is authoritative: every button runs an action the step advertises, and the pane
+/// survives termination because no progress is held only in SwiftUI state. See
+/// `AccountSetupGuide` for what is derived from it.
 struct AccountSetupView: View {
     let model: OnboardingCoordinator
+    @Environment(\.locale) private var locale
     @State private var acknowledgesRecoveryRisk = false
+    @State private var reviewing: AccountSetupReview?
+
+    private var guide: AccountSetupGuide {
+        AccountSetupGuide(snapshot: model.snapshot, recoveryRequired: model.recoveryRequired)
+    }
 
     var body: some View {
-        @Bindable var model = model
+        let guide = guide
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                AccountSetupHeader(snapshot: model.snapshot)
+        OnboardingScaffold(
+            // Hidden, not disabled, while a command runs or the cancellation finishes: the header
+            // row keeps its height either way, and there is nothing for the control to do.
+            exit: model.canStartSessionCommand ? .cancel { Task { await model.cancel() } } : nil,
+            minimumEdgeSpacing: OnboardingLayout.signUpEdgePadding,
+            maximumHeroToContentSpacing: OnboardingLayout.accountSetupHeroToContentSpacing,
+            hero: { WhiteNoiseMarkView(width: OnboardingLayout.accountSetupMarkWidth) },
+            content: {
+                VStack(spacing: OnboardingLayout.accountSetupSectionSpacing) {
+                    AccountSetupHeader(guide: guide)
 
-                if let snapshot = model.snapshot {
-                    AccountSetupStepList(snapshot: snapshot, model: model)
+                    if guide.phase == .recovery {
+                        AccountSetupRecoveryCard(
+                            acknowledgesRisk: $acknowledgesRecoveryRisk, isEnabled: !model.isBusy
+                        )
+                    } else if !guide.steps.isEmpty {
+                        AccountSetupChecklist(
+                            guide: guide,
+                            isEnabled: !model.isBusy,
+                            review: { reviewing = AccountSetupReview(step: $0) }
+                        )
+                    }
+
+                    // Only errors that belong to no step's screen land here: a step's own screen
+                    // shows the error of the action pressed on it.
+                    if reviewing == nil, let message = model.error {
+                        Text(message)
+                            .wnFont(.medium12)
+                            .foregroundStyle(WNColor.backgroundContentDestructive)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-
-                if model.recoveryRequired {
-                    AccountSetupRecoveryControls(
-                        model: model,
-                        acknowledgesRisk: $acknowledgesRecoveryRisk
-                    )
-                }
-
-                if let error = model.error {
-                    Text(error)
-                        .foregroundStyle(WNColor.intentionErrorContent)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                AccountSetupCancellationControls(model: model)
+            },
+            actions: {
+                AccountSetupPaneActions(
+                    guide: guide,
+                    model: model,
+                    acknowledgesRecoveryRisk: acknowledgesRecoveryRisk,
+                    review: { reviewing = AccountSetupReview(step: $0) }
+                )
             }
-            .frame(maxWidth: 620, alignment: .leading)
-            .padding(40)
-            .frame(maxWidth: .infinity)
-        }
-        .disabled(model.isBusy)
-        .overlay {
-            if model.isBusy {
-                ProgressView()
-                    .controlSize(.large)
-                    .padding(18)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            }
+        )
+        .controlSize(.large)
+        .wnButtonShape(.capsule)
+        .animation(.smooth(duration: 0.2), value: guide)
+        .sheet(item: $reviewing) { review in
+            AccountSetupStepSheet(model: model, step: review.step)
+                // Sheets are hosted outside this view's hierarchy and inherit nothing from it, so
+                // the app-language locale has to be handed over again.
+                .environment(\.locale, locale)
         }
         .accessibilityIdentifier("onboarding.account-setup")
     }
 }
 
+/// The step whose review screen is open.
+private struct AccountSetupReview: Identifiable {
+    let step: OnboardingStepFfi
+    var id: OnboardingStepFfi { step }
+}
+
+// MARK: - Header
+
 private struct AccountSetupHeader: View {
-    let snapshot: OnboardingSnapshotFfi?
+    @Environment(\.locale) private var locale
+    let guide: AccountSetupGuide
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.string(snapshot?.ready == true ? "You’re ready" : "Getting you ready"))
-                .wnFont(.bold28)
-            if snapshot?.ready != true {
-                Text(L10n.string("Checking your profile before you start chatting."))
-                    .wnFont(.medium16)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
-            if snapshot?.cancellationPending == true {
-                Text(
-                    L10n.string(
-                        "Finishing cancellation. Your saved identity and completed changes will be kept."
-                    )
-                )
+        VStack(spacing: 6) {
+            Text(L10n.string(guide.titleKey, locale: locale))
+                .wnFont(.bold24)
+                .foregroundStyle(WNColor.backgroundContentPrimary)
+            Text(L10n.string(guide.subtitleKey, locale: locale))
+                .wnFont(.medium14)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
-private struct AccountSetupStepList: View {
-    let snapshot: OnboardingSnapshotFfi
-    let model: OnboardingCoordinator
+// MARK: - Checklist
+
+/// Every step, top to bottom, as a named row with its state — iOS's grouped list, drawn as one
+/// outlined card. The step to review is the only row that is a button.
+struct AccountSetupChecklist: View {
+    @Environment(\.locale) private var locale
+    let guide: AccountSetupGuide
+    var isEnabled = true
+    let review: (OnboardingStepFfi) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(snapshot.steps.enumerated()), id: \.element.step) { index, step in
-                AccountSetupStepRow(step: step, snapshot: snapshot, model: model)
-                if index < snapshot.steps.count - 1 {
-                    Divider()
+            ForEach(Array(guide.steps.enumerated()), id: \.element.step) { index, step in
+                if index > 0 {
+                    Divider().padding(.leading, 48)
+                }
+                if guide.reviewStep == step.step {
+                    Button {
+                        review(step.step)
+                    } label: {
+                        AccountSetupChecklistRow(step: step, isReviewable: true)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isEnabled)
+                    .accessibilityHint(L10n.string("Show options for this check", locale: locale))
+                } else {
+                    AccountSetupChecklistRow(step: step, isReviewable: false)
                 }
             }
         }
-        .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 16))
+        .modifier(AccountSetupCardChrome(padding: 0))
     }
 }
 
-private struct AccountSetupStepRow: View {
+private struct AccountSetupChecklistRow: View {
+    @Environment(\.locale) private var locale
     let step: OnboardingStepStateFfi
-    let snapshot: OnboardingSnapshotFfi
-    let model: OnboardingCoordinator
+    let isReviewable: Bool
+
+    private var state: AccountSetupGuide.CheckState { AccountSetupGuide.checkState(step) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                AccountSetupStatusIcon(status: step.status)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(AccountSetupPresentation.title(step.step))
-                        .wnFont(.semiBold14)
-                    Text(AccountSetupPresentation.status(step.status))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
-                }
-                Spacer(minLength: 0)
-            }
-
-            ForEach(AccountSetupPresentation.findings(step.findings), id: \.self) { finding in
-                Text(finding)
+        HStack(spacing: 12) {
+            AccountSetupCheckIcon(state: state)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.string(AccountSetupGuide.titleKey(step.step), locale: locale))
+                    .wnFont(.semiBold14)
+                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                Text(L10n.string(state.subtitleKey, locale: locale))
                     .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            AccountSetupStepActions(step: step, snapshot: snapshot, model: model)
+            Spacer(minLength: 0)
+            if isReviewable {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .accessibilityHidden(true)
+            }
         }
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
     }
 }
 
-private struct AccountSetupStatusIcon: View {
-    let status: OnboardingStatusFfi
+struct AccountSetupCheckIcon: View {
+    let state: AccountSetupGuide.CheckState
 
     var body: some View {
         Group {
-            if status == .checking {
-                ProgressView()
+            if state == .checking {
+                ProgressView().controlSize(.small)
             } else {
-                Image(systemName: AccountSetupPresentation.symbol(status))
-                    .foregroundStyle(AccountSetupPresentation.color(status))
+                Image(systemName: state.symbol)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(color)
             }
         }
-        .frame(width: 22, height: 22)
         .accessibilityHidden(true)
     }
-}
 
-private struct AccountSetupStepActions: View {
-    let step: OnboardingStepStateFfi
-    let snapshot: OnboardingSnapshotFfi
-    let model: OnboardingCoordinator
-
-    var body: some View {
-        if !step.actions.isEmpty {
-            HStack(spacing: 8) {
-                if step.actions.contains(.retry) {
-                    Button(L10n.string("Try again")) { Task { await model.retry(step.step) } }
-                }
-                if step.actions.contains(.useRecommendedRelays) {
-                    Button(L10n.string("Use Default Relays")) {
-                        Task { await model.proposeRecommendedRelays(step: step.step) }
-                    }
-                }
-                if step.actions.contains(.approveRepair) {
-                    Button(L10n.string("Continue")) { Task { await model.approveRepair() } }
-                }
-                if step.actions.contains(.cancelRepair) {
-                    Button(L10n.string("Back")) { Task { await model.cancelRepair() } }
-                }
-                if step.actions.contains(.continueWithout) {
-                    Button(L10n.string("Continue")) { Task { await model.skip(step.step) } }
-                }
-                if step.actions.contains(.continueAnyway), step.step == .singleDevice {
-                    Button(L10n.string("Continue anyway")) {
-                        Task { await model.acknowledgeSingleDevice() }
-                    }
-                }
-                if step.actions.contains(.editDiscoveryRelays) {
-                    AccountSetupDiscoveryRelayButton(model: model)
-                }
-            }
-            .buttonStyle(.bordered)
+    private var color: Color {
+        switch state {
+        case .passed: WNColor.intentionSuccessContent
+        case .optionalReview, .acknowledgment: WNColor.intentionWarningContent
+        case .requiredFix: WNColor.intentionErrorContent
+        case .pending, .checking, .skipped: WNColor.backgroundContentTertiary
         }
     }
 }
 
-private struct AccountSetupDiscoveryRelayButton: View {
-    let model: OnboardingCoordinator
-    @State private var isPresented = false
+/// The card chrome the checklist and the recovery card share: an outlined, softly filled rounded
+/// rectangle. The outline is what keeps it visible where `fillSecondary` and the pane's ground
+/// land close.
+struct AccountSetupCardChrome: ViewModifier {
+    var padding: CGFloat = 16
 
-    var body: some View {
-        Button(L10n.string("Look on Another Relay")) { isPresented = true }
-            .sheet(isPresented: $isPresented) {
-                AccountSetupDiscoveryRelaySheet(model: model)
-            }
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(WNColor.borderTertiary))
     }
 }
 
-private struct AccountSetupDiscoveryRelaySheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let model: OnboardingCoordinator
-    @State private var relay = ""
-    @State private var validationError: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(L10n.string("Find Your Settings"))
-                .wnFont(.bold20)
-            Text(
-                L10n.string(
-                    "Choose a relay you’ve used with this profile. We’ll look there for your existing settings without publishing anything."
-                )
-            )
-            .foregroundStyle(WNColor.backgroundContentSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-            TextField("wss://relay.example.com", text: $relay)
-                .textFieldStyle(.roundedBorder)
-            if let validationError {
-                Text(validationError)
-                    .foregroundStyle(WNColor.intentionErrorContent)
-            }
-            HStack {
-                Spacer()
-                Button(L10n.string("Cancel")) { dismiss() }
-                Button(L10n.string("Look for My Settings")) {
-                    let trimmed = relay.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard let url = URL(string: trimmed), url.scheme == "wss", url.host != nil else {
-                        validationError = L10n.string("Enter a valid relay URL, like wss://relay.example.com.")
-                        return
-                    }
-                    Task {
-                        await model.setDiscoveryRelays([trimmed])
-                        if model.error == nil { dismiss() }
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(24)
-        .frame(width: 520)
-    }
-}
-
-private struct AccountSetupRecoveryControls: View {
-    let model: OnboardingCoordinator
+private struct AccountSetupRecoveryCard: View {
+    @Environment(\.locale) private var locale
     @Binding var acknowledgesRisk: Bool
+    /// Off while the recovery runs, so the acknowledgment cannot be withdrawn under it.
+    var isEnabled = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.string("This profile’s saved sign-in setup needs recovery."))
-                .wnFont(.semiBold16)
             Text(
                 L10n.string(
-                    "Recovery signs this profile out and replaces its unreadable setup checkpoint. Only the latest recovery evidence is retained. It does not undo earlier relay publications. You will need the private key to start a new sign-in; no publication is approved by this action."
+                    "Recovery signs this profile out and replaces its unreadable setup checkpoint. Only the latest recovery evidence is retained. It does not undo earlier relay publications. You will need the private key to start a new sign-in; no publication is approved by this action.",
+                    locale: locale
                 )
             )
+            .wnFont(.medium12)
             .foregroundStyle(WNColor.backgroundContentSecondary)
-            Toggle(L10n.string("Recover Sign-In Setup?"), isOn: $acknowledgesRisk)
-            Button(L10n.string("Recover Sign-In Setup")) {
-                Task { await model.recover(acknowledgeLatestOnlyEvidence: true) }
+            .fixedSize(horizontal: false, vertical: true)
+            WNToggle(isOn: $acknowledgesRisk) {
+                Text(L10n.string("Recover Sign-In Setup?", locale: locale))
+                    .wnFont(.semiBold14)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!acknowledgesRisk)
+            .disabled(!isEnabled)
         }
-        .padding(16)
-        .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 16))
+        .modifier(AccountSetupCardChrome())
     }
 }
 
-private struct AccountSetupCancellationControls: View {
+// MARK: - Actions
+
+/// The pane's one button, as on iOS: Review and Continue while a step needs the user, Open Chats
+/// once setup is done, Try Again after the checkpoint stopped answering — and a disabled spinner
+/// while MarmotKit works, held in place so the column does not jump when a check finishes.
+private struct AccountSetupPaneActions: View {
+    @Environment(\.locale) private var locale
+    let guide: AccountSetupGuide
     let model: OnboardingCoordinator
+    let acknowledgesRecoveryRisk: Bool
+    let review: (OnboardingStepFfi) -> Void
 
     var body: some View {
-        Button(L10n.string("Cancel"), role: .destructive) {
-            Task { await model.cancel() }
-        }
-        .disabled(model.snapshot?.cancellationPending == true)
-    }
-}
-
-private enum AccountSetupPresentation {
-    static func title(_ step: OnboardingStepFfi) -> String {
-        switch step {
-        case .profile: L10n.string("Your profile")
-        case .follows: L10n.string("People you follow")
-        case .relays: L10n.string("Your relays")
-        case .inboxRelays: L10n.string("Message inbox")
-        case .singleDevice: L10n.string("Using one device")
-        case .keyPackage: L10n.string("Secure messaging")
-        }
-    }
-
-    static func status(_ status: OnboardingStatusFfi) -> String {
-        switch status {
-        case .pending: L10n.string("Waiting")
-        case .checking: L10n.string("Checking…")
-        case .passed: L10n.string("Done")
-        case .needsInput: L10n.string("Needs your attention")
-        case .retryableFailure: L10n.string("Couldn’t finish this check")
-        case .waitingForSigner: L10n.string("Couldn’t access your private key")
-        case .skipped: L10n.string("Skipped")
-        }
-    }
-
-    static func symbol(_ status: OnboardingStatusFfi) -> String {
-        switch status {
-        case .passed: "checkmark.circle.fill"
-        case .skipped: "minus.circle"
-        case .needsInput, .retryableFailure: "exclamationmark.circle"
-        case .waitingForSigner: "key"
-        case .checking, .pending: "circle"
-        }
-    }
-
-    static func color(_ status: OnboardingStatusFfi) -> Color {
-        switch status {
-        case .passed: WNColor.intentionSuccessContent
-        case .needsInput, .retryableFailure, .waitingForSigner: WNColor.intentionWarningContent
-        case .pending, .checking, .skipped: WNColor.backgroundContentSecondary
-        }
-    }
-
-    static func findings(_ findings: [OnboardingFindingFfi]) -> [String] {
-        findings.map { finding in
-            let endpoint = finding.endpoint.map { "\n\($0.prefix(200))" } ?? ""
-            return issue(finding.issue) + endpoint
-        }
-    }
-
-    static func issue(_ issue: OnboardingIssueFfi) -> String {
-        switch issue {
-        case .missing: L10n.string("No published settings were found.")
-        case .malformed: L10n.string("The published settings could not be read.")
-        case .futureDated: L10n.string("The published settings have a future date. Check your device clock and retry.")
-        case .invalidRelay: L10n.string("A relay address is invalid.")
-        case .retiredRelay: L10n.string("A relay is no longer supported.")
-        case .unsafeRelay: L10n.string("A relay address is not safe to connect to.")
-        case .unreachable: L10n.string("A relay could not be reached.")
-        case .timedOut: L10n.string("A relay did not respond in time. Your existing settings have not been replaced.")
-        case .authenticationRequired: L10n.string("A relay requires authentication.")
-        case .paymentRequired: L10n.string("A relay requires payment.")
-        case .accessRestricted: L10n.string("A relay restricted access.")
-        case .noUsableRoute: L10n.string("No usable relay route was found.")
-        case .publicationFailed: L10n.string("Publishing did not finish. Retry to continue from the saved progress.")
-        case .signerUnavailable: L10n.string("Your signer is unavailable.")
-        case .signerRejected: L10n.string("Your signer declined the request.")
-        case .recordChanged: L10n.string("The published settings changed. Check again before approving a repair.")
-        case .interrupted: L10n.string("This check was interrupted. Your progress is saved.")
-        case .tooManyRelays: L10n.string("The relay list is too large.")
-        case .multiDeviceUnsupported: L10n.string("Conversations do not sync across devices yet.")
-        case .otherInstallationPossible: L10n.string("Another installation may exist.")
-        case .discoveryIncomplete: L10n.string("Some discovery sources could not be checked.")
+        if guide.phase == .recovery {
+            OnboardingActionButton(
+                title: L10n.string("Recover Sign-In Setup", locale: locale),
+                isLoading: model.isBusy
+            ) {
+                Task { await model.recover(acknowledgeLatestOnlyEvidence: true) }
+            }
+            .disabled(!acknowledgesRecoveryRisk || model.isBusy)
+        } else if guide.phase == .ready {
+            OnboardingActionButton(
+                title: L10n.string(model.hasConfirmedOpenChats ? "Opening your chats…" : "Open Chats", locale: locale),
+                isLoading: model.hasConfirmedOpenChats
+            ) {
+                model.openChats()
+            }
+            .disabled(model.hasConfirmedOpenChats)
+            .accessibilityIdentifier("onboarding.open-chats")
+        } else if let step = guide.reviewStep {
+            OnboardingActionButton(title: L10n.string("Review and Continue", locale: locale)) {
+                review(step)
+            }
+            .disabled(model.isBusy)
+            .accessibilityIdentifier("onboarding.review-step")
+        } else if model.error != nil, guide.phase != .cancelling {
+            OnboardingActionButton(title: L10n.string("Try Again", locale: locale)) {
+                model.start()
+            }
+            .disabled(model.isBusy)
+        } else {
+            OnboardingActionButton(
+                title: L10n.string(guide.phase == .cancelling ? "Closing sign-in" : "Checking…", locale: locale),
+                isLoading: true
+            ) {}
+            .disabled(true)
         }
     }
 }
 
-#Preview("Account setup") {
-    AccountSetupHeader(
-        snapshot: OnboardingSnapshotFfi(
-            accountIdHex: "preview",
-            recoveryEpoch: nil,
-            revision: 1,
-            ready: false,
-            steps: [
-                OnboardingStepStateFfi(
-                    step: .profile,
-                    status: .passed,
-                    findings: [],
-                    actions: [],
-                    checkedAt: nil
-                ),
-                OnboardingStepStateFfi(
-                    step: .relays,
-                    status: .retryableFailure,
-                    findings: [.init(issue: .unreachable, endpoint: "wss://relay.example.com")],
-                    actions: [.retry, .useRecommendedRelays],
-                    checkedAt: nil
-                ),
-            ],
-            proposal: nil,
-            singleDeviceNotice: nil,
-            cancellationPending: false
-        )
+#Preview("Needs attention") {
+    let snapshot = OnboardingSnapshotFfi(
+        accountIdHex: "preview",
+        recoveryEpoch: nil,
+        revision: 1,
+        ready: false,
+        steps: [
+            OnboardingStepStateFfi(step: .profile, status: .passed, findings: [], actions: [], checkedAt: nil),
+            OnboardingStepStateFfi(step: .follows, status: .skipped, findings: [], actions: [], checkedAt: nil),
+            OnboardingStepStateFfi(
+                step: .relays,
+                status: .retryableFailure,
+                findings: [.init(issue: .unreachable, endpoint: "wss://relay.example.com")],
+                actions: [.retry, .useRecommendedRelays, .editDiscoveryRelays],
+                checkedAt: nil
+            ),
+            OnboardingStepStateFfi(step: .inboxRelays, status: .checking, findings: [], actions: [], checkedAt: nil),
+            OnboardingStepStateFfi(step: .singleDevice, status: .pending, findings: [], actions: [], checkedAt: nil),
+            OnboardingStepStateFfi(step: .keyPackage, status: .pending, findings: [], actions: [], checkedAt: nil),
+        ],
+        proposal: nil,
+        singleDeviceNotice: nil,
+        cancellationPending: false
     )
+    let guide = AccountSetupGuide(snapshot: snapshot, recoveryRequired: false)
+    VStack(spacing: 16) {
+        AccountSetupHeader(guide: guide)
+        AccountSetupChecklist(guide: guide, review: { _ in })
+    }
     .padding(40)
-    .frame(width: 620, alignment: .leading)
+    .frame(width: 440)
+}
+
+#Preview("Recovery") {
+    AccountSetupRecoveryCard(acknowledgesRisk: .constant(false))
+        .padding(40)
+        .frame(width: 440)
 }

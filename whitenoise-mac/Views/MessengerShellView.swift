@@ -170,16 +170,30 @@ private struct DetailPaneView: View {
                 }
             }
         }
-        .task(id: session.accountScope?.onboarding.snapshot?.revision) {
+        .task(
+            id: OnboardingEntryTrigger(
+                revision: session.accountScope?.onboarding.snapshot?.revision,
+                canEnterChats: session.accountScope?.onboarding.canEnterChats == true
+            )
+        ) {
             guard workspace.phase == .onboarding,
-                session.accountScope?.onboarding.isDurablyReady == true,
+                session.accountScope?.onboarding.canEnterChats == true,
                 workspace.activeAccount != nil
             else { return }
             let enteredAccountIdHex = workspace.activeAccount?.accountIdHex
+            let onboarding = session.accountScope?.onboarding
             await workspace.activateReadyState()
+            onboarding?.didEnterChats()
             workspace.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         }
     }
+}
+
+/// What re-runs the shell's leave-onboarding check: a new checkpoint revision, or the user
+/// pressing Open Chats on an already-ready one (which changes no revision).
+private struct OnboardingEntryTrigger: Equatable {
+    let revision: UInt64?
+    let canEnterChats: Bool
 }
 
 /// A history page the transcript should load for the messages on screen.

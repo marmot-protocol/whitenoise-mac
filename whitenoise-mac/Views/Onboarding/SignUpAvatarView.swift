@@ -41,12 +41,28 @@ struct SignUpAvatarView: View {
     @Environment(WorkspaceState.self) private var workspace
     let size: CGFloat
 
+    var body: some View {
+        ProfileDraftAvatarView(
+            image: workspace.signUpDraft.image,
+            displayName: workspace.signUpDraft.displayName,
+            size: size
+        )
+    }
+}
+
+/// The disc `SignUpAvatarView` draws, from plain values, so the post-sign-in profile step can draw
+/// the same face for its own draft.
+struct ProfileDraftAvatarView: View {
+    let image: SignUpProfileImage?
+    let displayName: String
+    let size: CGFloat
+
     /// The first frame: no photo and no name.
     ///
     /// Worth a branch of its own because initials of nothing are not initials. It picks *what* is
     /// drawn on the disc and no longer what the disc is — see the note on the ground above.
     private var hasNothingToShow: Bool {
-        workspace.signUpDraft.image == nil && workspace.signUpDraft.trimmedDisplayName.isEmpty
+        image == nil && displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -58,7 +74,7 @@ struct SignUpAvatarView: View {
 
     @ViewBuilder
     private var face: some View {
-        if let payload = workspace.signUpDraft.image?.preview {
+        if let payload = image?.preview {
             // Drawn here rather than through `ProfileImageAvatarView` so the placeholder shown
             // while the bytes decode is *this* view's disc. That wrapper's placeholder is
             // `AvatarView`, so routing the photo case through it would flash the palette accent
@@ -97,7 +113,7 @@ struct SignUpAvatarView: View {
             Image(systemName: "person.fill")
                 .wnFont(.custom(size: size * Self.glyphScale, weight: .medium))
         } else {
-            Text(DisplayText.initials(for: workspace.signUpDraft.displayName, fallback: ""))
+            Text(DisplayText.initials(for: displayName, fallback: ""))
                 // `AvatarView`'s monogram ratio, so the draft's letters are the size every other
                 // avatar in the app draws them at.
                 .wnFont(.custom(size: size * Self.monogramScale, weight: .bold))
@@ -111,4 +127,13 @@ struct SignUpAvatarView: View {
 
     /// `AvatarView`'s monogram ratio, restated because that one is a literal inside its body.
     private static let monogramScale: CGFloat = 0.34
+}
+
+#Preview("Draft avatar") {
+    HStack(spacing: 24) {
+        // Initials, then the empty first frame.
+        ProfileDraftAvatarView(image: nil, displayName: "Ada Lovelace", size: 96)
+        ProfileDraftAvatarView(image: nil, displayName: "", size: 96)
+    }
+    .padding(40)
 }

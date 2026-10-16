@@ -24,7 +24,7 @@ struct OnboardingView: View {
 
     var body: some View {
         Group {
-            if let model, model.snapshot != nil {
+            if let model, Self.showsAccountSetup(model) {
                 AccountSetupView(model: model)
             } else {
                 switch workspace.authenticationMode {
@@ -38,6 +38,21 @@ struct OnboardingView: View {
             }
         }
         .animation(.smooth(duration: 0.2), value: workspace.authenticationMode)
+    }
+
+    /// Whether the account-setup pane stands in for the sign-in panes: only for a checkpoint the
+    /// user is still being walked through.
+    ///
+    /// Not merely "there is a checkpoint". MarmotKit keeps a ready one, and Settings → Add
+    /// Account reopens onboarding with the current account's scope still active — so that test
+    /// put the current account's "You’re ready to chat" where Welcome belongs, with an Open Chats
+    /// that changes nothing the shell waits on and a ✕ that cancels *that* account's onboarding.
+    /// A checkpoint that was ready before anyone was walked through it, or whose chats were
+    /// already entered, is excluded. One that is ready and waiting on Open Chats, or on the shell
+    /// after it, still shows, so its spinner is not replaced by the sign-in pane mid-transition.
+    static func showsAccountSetup(_ model: OnboardingCoordinator?) -> Bool {
+        guard let model, model.snapshot != nil, !model.hasEnteredChats else { return false }
+        return !(model.isDurablyReady && !model.hasShownIncompleteSetup)
     }
 }
 

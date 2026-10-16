@@ -235,4 +235,17 @@ enum OnboardingLayout {
         let proportional = containerWidth * markWidthFraction
         return min(max(proportional, minimumMarkWidth), maximumMarkWidth)
     }
+
+    /// The mark on the account-setup pane. Smaller than the welcome and sign-in panes' mark: that
+    /// pane carries a header, the step tracker and a card above its buttons, and all of it has to
+    /// fit the 620pt window. Still the same mark in the same place, so moving from Sign In to the
+    /// setup reads as the same screen moving on rather than a new one opening.
+    static let accountSetupMarkWidth: CGFloat = 72
+
+    /// Between the account-setup mark and its header, capped for the same reason as the mark's
+    /// size: the column under it is tall.
+    static let accountSetupHeroToContentSpacing: CGFloat = 24
+
+    /// Between the account-setup pane's header, tracker, card and message line.
+    static let accountSetupSectionSpacing: CGFloat = 16
 }
