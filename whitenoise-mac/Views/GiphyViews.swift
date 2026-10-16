@@ -261,6 +261,8 @@ struct RemoteGiphyMediaView: View {
     }
 
     var body: some View {
+        let taskID = PlaybackTaskID(
+            url: media.url, isEligible: isVisible && shouldLoad, retryRequests: retryRequests)
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 Color.black
@@ -281,9 +283,12 @@ struct RemoteGiphyMediaView: View {
                 .frame(width: Self.width, alignment: .leading)
         }
         .onTranscriptVisibilityChange(threshold: 0.01) { isVisible = $0 }
-        .task(id: PlaybackTaskID(url: media.url, isEligible: isVisible && shouldLoad, retryRequests: retryRequests)) {
-            guard isVisible, shouldLoad else {
-                if state == .loading { state = .idle }
+        .task(id: taskID) {
+            guard !Task.isCancelled else { return }
+            // An old ineligible task can start after visibility changes. Its key,
+            // rather than the latest State alone, must authorize this download.
+            guard taskID.isEligible, isVisible, shouldLoad else {
+                if !isVisible || !shouldLoad, state == .loading { state = .idle }
                 return
             }
             // `.loading` is not "someone else is on it": a cancelled load can still be unwinding
