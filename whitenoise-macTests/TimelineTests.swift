@@ -134,6 +134,18 @@ struct TimelineTests: WorkspaceTestSupport {
         for actionSource in [popoverSource, pickerSource, menuSource, bubbleSource] {
             #expect(!actionSource.contains("ChatReactionDefaults.quick"))
         }
+
+        // Every reaction menu hands its pick to the bubble's `pickReaction`, which takes a selected
+        // emoji back (confirming when that retracts more); reacting straight through the workspace
+        // would re-send it as a no-op.
+        let inlineSource = try SourceContract.declaration("MessageInlineActions")
+        for pickerHost in [menuSource, inlineSource] {
+            #expect(pickerHost.contains("onReactionPick"))
+            #expect(!pickerHost.contains("workspace.react(to: message"))
+        }
+        #expect(bubbleSource.contains("onReactionPick: pickReaction"))
+        #expect(bubbleSource.contains("pickReaction(emoji)"))
+        #expect(!bubbleSource.contains("workspace.react(to: message"))
     }
 
     @Test func reactionChipRidesOnlyASurfaceWithAnEdge() {
