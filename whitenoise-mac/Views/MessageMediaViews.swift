@@ -570,10 +570,10 @@ struct MessageBubble: View {
                 Task { await workspace.removeReaction(reaction, from: message) }
             },
             quickReactions: workspace.quickReactions,
-            react: message.canReact
-                ? { [workspace, message] emoji in
-                    Task { await workspace.react(to: message, emoji: emoji) }
-                } : nil
+            selectedEmojis: MessageReactionPick.selectedEmojis(in: message.reactions),
+            // Through the bubble's pick, so a selected emoji is taken back — with the same
+            // confirmation — rather than re-sent as a no-op.
+            react: message.canReact ? { emoji in pickReaction(emoji) } : nil
         )
     }
 
@@ -2646,8 +2646,9 @@ struct MessageEmojiPickerPopover: View {
 struct QuickReactionPicker: View {
     @State private var isFullPickerPresented = false
     let emojis: [String]
-    /// The emoji the viewing account already reacted with, drawn selected.
-    var selectedEmojis: Set<String> = []
+    /// The emoji the viewing account already reacted with, drawn selected. Required, so no caller
+    /// can offer the picker without the mark that tells a second click takes the reaction back.
+    let selectedEmojis: Set<String>
     let onPick: (String) -> Void
 
     var body: some View {

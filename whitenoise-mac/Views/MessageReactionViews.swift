@@ -197,6 +197,8 @@ struct MessageReactionDetailsDependencies {
     var removeOwnReaction: ((MessageReaction) -> Void)?
     /// The configured quick reactions, offered by the viewer's React control.
     var quickReactions: [String] = []
+    /// The emoji the viewer already reacted with, which the React control's picker draws selected.
+    var selectedEmojis: Set<String> = []
     /// Reacts to the message with an emoji. Nil where the viewer cannot react, which hides the
     /// React control.
     var react: ((String) -> Void)?
@@ -244,8 +246,12 @@ struct MessageReactionDetailsView: View {
                         emojiImage: dependencies.emojiImage
                     ) { selectedEmoji = $0 }
                     if let react = dependencies.react {
-                        MessageReactionAddButton(quickReactions: dependencies.quickReactions, onPick: react)
-                            .padding(.trailing, 14)
+                        MessageReactionAddButton(
+                            quickReactions: dependencies.quickReactions,
+                            selectedEmojis: dependencies.selectedEmojis,
+                            onPick: react
+                        )
+                        .padding(.trailing, 14)
                     }
                 }
                 Divider()
@@ -357,6 +363,7 @@ private struct MessageReactionFilterRow: View {
 private struct MessageReactionAddButton: View {
     @State private var isPickerPresented = false
     let quickReactions: [String]
+    let selectedEmojis: Set<String>
     let onPick: (String) -> Void
 
     var body: some View {
@@ -376,7 +383,7 @@ private struct MessageReactionAddButton: View {
         .accessibilityLabel(L10n.string("React"))
         .help(L10n.string("React"))
         .popover(isPresented: $isPickerPresented, arrowEdge: .bottom) {
-            QuickReactionPicker(emojis: quickReactions) { emoji in
+            QuickReactionPicker(emojis: quickReactions, selectedEmojis: selectedEmojis) { emoji in
                 isPickerPresented = false
                 onPick(emoji)
             }
@@ -579,6 +586,7 @@ private struct MessageReactionReactorRowContent: View {
             },
             removeOwnReaction: { _ in },
             quickReactions: ChatReactionDefaults.quick,
+            selectedEmojis: ["👍"],
             react: { _ in }
         )
     }
