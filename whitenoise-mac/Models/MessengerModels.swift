@@ -929,6 +929,16 @@ nonisolated enum MessageReactionPick: Equatable {
         return message.unreactMayRemoveSeveralReactions
     }
 
+    /// The removal a confirmation should still send, re-resolved against the reactions as they are
+    /// now. Nil when the account no longer holds the emoji — it was taken back on another device —
+    /// and never an add: a confirmed removal must not turn into a reaction.
+    func confirmedRemoval(in reactions: [MessageReaction]) -> Self? {
+        guard case .remove(let held) = self,
+            case .remove(let current) = Self.resolve(emoji: held.emoji, reactions: reactions)
+        else { return nil }
+        return .remove(current)
+    }
+
     /// The emoji a reaction menu draws as selected.
     static func selectedEmojis(in reactions: [MessageReaction]) -> Set<String> {
         Set(reactions.lazy.filter(\.isOwn).map(\.emoji))

@@ -452,7 +452,9 @@ struct MessageBubble: View {
             presenting: reactionPendingRemoval
         ) { pick in
             Button(L10n.string("Remove all"), role: .destructive) {
-                Task { await pick.perform(on: message, in: workspace) }
+                // The reactions may have changed while the dialog was open.
+                guard let removal = pick.confirmedRemoval(in: message.reactions) else { return }
+                Task { await removal.perform(on: message, in: workspace) }
             }
             Button(L10n.string("Cancel"), role: .cancel) {}
         } message: { _ in

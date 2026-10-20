@@ -9292,6 +9292,23 @@ struct TimelineTests: WorkspaceTestSupport {
             MessageReactionPick.resolve(emoji: "👍", reactions: truncated.reactions).needsConfirmation(on: truncated))
     }
 
+    /// The dialog holds the pick from the moment of the click; by the time it is confirmed the
+    /// reaction may be gone, or have changed shape, so "Remove all" re-resolves it.
+    @Test func confirmedReactionRemovalReResolvesAgainstCurrentReactions() {
+        let held = MessageReaction(emoji: "👍", count: 2, isOwn: true)
+        let pick = MessageReactionPick.remove(held)
+
+        let grown = MessageReaction(emoji: "👍", count: 3, isOwn: true)
+        #expect(pick.confirmedRemoval(in: [grown]) == .remove(grown))
+
+        // Taken back elsewhere: only someone else's 👍 is left, and the dialog must not add one.
+        #expect(pick.confirmedRemoval(in: [MessageReaction(emoji: "👍", count: 1, isOwn: false)]) == nil)
+        #expect(pick.confirmedRemoval(in: []) == nil)
+
+        // An add is never a removal to confirm.
+        #expect(MessageReactionPick.add("👍").confirmedRemoval(in: [held]) == nil)
+    }
+
     @Test func reactionMenusMarkOnlyTheViewersOwnEmojiSelected() {
         let reactions = [
             MessageReaction(emoji: "👍", count: 4, isOwn: false),
