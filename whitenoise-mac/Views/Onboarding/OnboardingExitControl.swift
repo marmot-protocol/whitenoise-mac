@@ -23,10 +23,14 @@ enum OnboardingExitControl {
     case back(() -> Void)
     /// Leave the flow for the app it was opened from. The prototype's `Cancel` toolbar item.
     case cancel(() -> Void)
+    /// Return from an account-setup step's screen to the setup checklist it was opened from. A
+    /// back like `.back`, named for where it goes, because the step screen has a checklist behind
+    /// it the user may not remember is there.
+    case backToSetup(() -> Void)
 
     var symbol: String {
         switch self {
-        case .back: "chevron.left"
+        case .back, .backToSetup: "chevron.left"
         case .cancel: "xmark"
         }
     }
@@ -36,6 +40,7 @@ enum OnboardingExitControl {
         switch self {
         case .back: "Back"
         case .cancel: "Cancel"
+        case .backToSetup: "Back to setup"
         }
     }
 
@@ -43,12 +48,13 @@ enum OnboardingExitControl {
         switch self {
         case .back: "onboarding.back"
         case .cancel: "onboarding.cancel"
+        case .backToSetup: "onboarding.account-setup.back"
         }
     }
 
     var action: () -> Void {
         switch self {
-        case .back(let action), .cancel(let action): action
+        case .back(let action), .cancel(let action), .backToSetup(let action): action
         }
     }
 }

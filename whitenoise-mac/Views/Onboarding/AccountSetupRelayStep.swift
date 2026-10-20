@@ -6,7 +6,7 @@ import SwiftUI
 /// proposal under review, the defaults, or the relays a search would look on), and offers what
 /// MarmotKit allows — use the defaults, save or discard a proposal, edit the list, search another
 /// relay for existing settings, or retry. iOS opens the editor and the search as sheets of their
-/// own; here they replace the screen's body, with Cancel back to the overview.
+/// own; here they replace the screen's column, with Cancel back to the overview.
 struct AccountSetupRelayStep: View {
     let model: OnboardingCoordinator
     let step: OnboardingStepFfi
@@ -16,7 +16,7 @@ struct AccountSetupRelayStep: View {
     @State private var mode: Mode
     @State private var draft: AccountSetupRelayDraft
 
-    /// `initialMode` opens the editor or the search directly, for a preview; the sheet always
+    /// `initialMode` opens the editor or the search directly, for a preview; the screen always
     /// starts on the overview.
     init(model: OnboardingCoordinator, step: OnboardingStepFfi, initialMode: Mode = .overview) {
         self.model = model
@@ -62,7 +62,7 @@ private struct AccountSetupRelayOverview: View {
     var body: some View {
         let plan = AccountSetupRelayPlan(snapshot: model.snapshot, step: step)
 
-        AccountSetupStepLayout {
+        AccountSetupStepLayout(step: step) {
             AccountSetupCallout(
                 titleKey: plan.statusTitleKey,
                 symbol: "network",
@@ -145,7 +145,7 @@ private struct AccountSetupRelayEditorPane: View {
     @State private var active: String?
 
     var body: some View {
-        AccountSetupStepLayout {
+        AccountSetupStepLayout(step: step) {
             AccountSetupCallout(titleKey: "Choose your relay list", symbol: "network") {
                 Text(
                     L10n.string(
@@ -201,7 +201,7 @@ private struct AccountSetupRelaySearchPane: View {
     @State private var active: String?
 
     var body: some View {
-        AccountSetupStepLayout {
+        AccountSetupStepLayout(step: step) {
             AccountSetupCallout(
                 titleKey: searchError == nil
                     ? "Search a relay you’ve used before" : "Couldn’t find your relay settings",
@@ -368,7 +368,7 @@ struct AccountSetupRelayDraftEditor: View {
             actions: [.useRecommendedRelays, .editRelays, .editDiscoveryRelays, .retry], checkedAt: nil
         )
     ])
-    AccountSetupStepSheet(model: model, step: .relays)
+    AccountSetupStepScreen(model: model, step: .relays)
 }
 
 #Preview("Relays: review proposal") {
@@ -385,7 +385,7 @@ struct AccountSetupRelayDraftEditor: View {
             writeRelays: ["wss://relay.example.com"], profile: nil, follows: nil, relayRepair: nil
         )
     )
-    AccountSetupStepSheet(model: model, step: .relays)
+    AccountSetupStepScreen(model: model, step: .relays)
 }
 
 #Preview("Relays: edit") {
@@ -396,7 +396,7 @@ struct AccountSetupRelayDraftEditor: View {
         )
     ])
     AccountSetupRelayStep(model: model, step: .relays, initialMode: .editing)
-        .frame(width: AccountSetupStepLayoutMetrics.width, height: AccountSetupStepLayoutMetrics.height)
+        .frame(width: 940, height: 620)
         .background(WNColor.backgroundPrimary)
         .controlSize(.large)
         .wnButtonShape(.capsule)
@@ -410,7 +410,7 @@ struct AccountSetupRelayDraftEditor: View {
         )
     ])
     AccountSetupRelayStep(model: model, step: .inboxRelays, initialMode: .searching)
-        .frame(width: AccountSetupStepLayoutMetrics.width, height: AccountSetupStepLayoutMetrics.height)
+        .frame(width: 940, height: 620)
         .background(WNColor.backgroundPrimary)
         .controlSize(.large)
         .wnButtonShape(.capsule)

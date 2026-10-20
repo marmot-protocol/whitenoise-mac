@@ -21,6 +21,11 @@ final class OnboardingCoordinator {
     /// checkpoint is history: Settings → Add Account reopens onboarding with this scope still
     /// active, and must land on Welcome rather than on this account's finished checklist.
     private(set) var hasEnteredChats = false
+    /// The step whose own screen stands in place of the checklist, or nil while the checklist is
+    /// showing. Navigation only — no progress lives here, so losing it on relaunch just lands the
+    /// user back on the checklist, which reopens the same step. Cleared by `install` once the step
+    /// passes, is skipped, or a cancellation starts; see `closeFinishedReview()`.
+    private(set) var reviewingStep: OnboardingStepFfi?
 
     @ObservationIgnored private let accountRef: String
     /// Nil only for a preview, which renders a fixed snapshot and runs nothing.
@@ -48,9 +53,10 @@ final class OnboardingCoordinator {
     static func preview(
         steps: [OnboardingStepStateFfi],
         proposal: OnboardingRepairProposalFfi? = nil,
-        singleDeviceNotice: OnboardingSingleDeviceNoticeFfi? = nil
+        singleDeviceNotice: OnboardingSingleDeviceNoticeFfi? = nil,
+        reviewing: OnboardingStepFfi? = nil
     ) -> OnboardingCoordinator {
-        OnboardingCoordinator(
+        let model = OnboardingCoordinator(
             previewSnapshot: OnboardingSnapshotFfi(
                 accountIdHex: "preview",
                 recoveryEpoch: nil,
@@ -62,6 +68,8 @@ final class OnboardingCoordinator {
                 cancellationPending: false
             )
         )
+        if let reviewing { model.review(reviewing) }
+        return model
     }
 
     func start() {
@@ -98,6 +106,21 @@ final class OnboardingCoordinator {
     func didEnterChats() {
         guard canEnterChats else { return }
         hasEnteredChats = true
+    }
+
+    /// Opens `step`'s own screen. Refused for a step the checkpoint does not list or has already
+    /// finished, and while a cancellation is finishing.
+    func review(_ step: OnboardingStepFfi) {
+        guard let snapshot, !snapshot.cancellationPending,
+            let state = snapshot.steps.first(where: { $0.step == step }),
+            !AccountSetupGuide.isComplete(state.status)
+        else { return }
+        reviewingStep = step
+    }
+
+    /// Returns from a step's screen to the checklist.
+    func endReview() {
+        reviewingStep = nil
     }
 
     var currentStep: OnboardingStepStateFfi? {
@@ -265,6 +288,7 @@ final class OnboardingCoordinator {
             try Task.checkCancellation()
             guard let restoredSnapshot = restored.0 else {
                 snapshot = nil
+                reviewingStep = nil
                 recoveryRequired = restored.1
                 return
             }
@@ -319,6 +343,19 @@ final class OnboardingCoordinator {
         if !replacement.ready { hasShownIncompleteSetup = true }
         recoveryRequired = replacement.recoveryEpoch != nil
         error = nil
+        closeFinishedReview()
+    }
+
+    /// Sends a step's screen back to the checklist once there is nothing left to do on it: the
+    /// step passed or was skipped, dropped out of the checkpoint, or the sign-in is being
+    /// cancelled.
+    private func closeFinishedReview() {
+        guard let reviewingStep else { return }
+        let state = snapshot?.steps.first { $0.step == reviewingStep }
+        let finished = state.map { AccountSetupGuide.isComplete($0.status) } ?? true
+        if finished || snapshot?.cancellationPending == true || recoveryRequired {
+            self.reviewingStep = nil
+        }
     }
 
     /// Runs a pending check, and settles the follows step the way iOS does: nobody is asked to

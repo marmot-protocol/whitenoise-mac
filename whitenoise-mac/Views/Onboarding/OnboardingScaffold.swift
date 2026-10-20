@@ -141,8 +141,13 @@ extension OnboardingScaffold where Hero == OnboardingMarkHero {
 /// leading edge, because flush with the edge it lines up with the Name label under it and joins the
 /// form instead of standing beside it. The pane's margin stays on as a floor, for the case where
 /// the column and its gutter are wider than the pane has room for.
-private struct OnboardingHeaderRow: View {
+///
+/// An account-setup step screen also centres an `accessory` in the row — where it stands in the
+/// setup — so the row carries both the way back and what it goes back to without adding height.
+struct OnboardingHeaderRow<Accessory: View>: View {
     let exit: OnboardingExitControl?
+    var isExitEnabled = true
+    @ViewBuilder var accessory: Accessory
 
     var body: some View {
         HStack {
@@ -155,11 +160,13 @@ private struct OnboardingHeaderRow: View {
                 )
                 .accessibilityLabel(L10n.string(exit.helpKey))
                 .accessibilityIdentifier(exit.accessibilityIdentifier)
+                .disabled(!isExitEnabled)
             }
 
             Spacer(minLength: 0)
         }
         .frame(height: MessagesLayout.circleControlSize)
+        .overlay { accessory }
         // The column plus a gutter at each end, then the centring, then the floor — in that order,
         // so a pane too narrow for all three loses width from the gutters rather than from the
         // margin. Centred, a box this much wider than the column puts its leading edge exactly one
@@ -171,5 +178,11 @@ private struct OnboardingHeaderRow: View {
         // would otherwise land under the traffic lights — or under the offline band, when one is
         // up. See `WindowTitlebarClearance`.
         .sidebarTitlebarClearance()
+    }
+}
+
+extension OnboardingHeaderRow where Accessory == EmptyView {
+    init(exit: OnboardingExitControl?) {
+        self.init(exit: exit) { EmptyView() }
     }
 }

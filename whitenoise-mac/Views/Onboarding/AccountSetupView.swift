@@ -6,27 +6,46 @@ import SwiftUI
 ///
 /// This is `whitenoise-ios`'s `AccountSetupView`: every step is a named row with its state, and
 /// the one step that needs the user — the first unfinished one — is a row with a chevron that
-/// opens that step's own screen, as does the pane's Review and Continue button. Each screen offers
-/// what the step actually needs rather than a bare retry: the profile step a name, description and
-/// photo form; the relay steps their defaults, an editor and a search; the single-device step its
-/// consent. See `AccountSetupStepSheet`.
+/// opens that step's own screen, as does the pane's Review and Continue button. The screen takes
+/// the pane, as Sign In and Sign Up do, rather than opening as a sheet over it, and its header row
+/// keeps the way back to this checklist. Each screen offers what the step actually needs rather
+/// than a bare retry: the profile step Sign Up's photo, name and description form; the relay steps
+/// their defaults, an editor and a search; the single-device step its consent. See
+/// `AccountSetupStepScreen`.
 ///
 /// The snapshot is authoritative: every button runs an action the step advertises, and the pane
 /// survives termination because no progress is held only in SwiftUI state. See
 /// `AccountSetupGuide` for what is derived from it.
 struct AccountSetupView: View {
     let model: OnboardingCoordinator
-    @Environment(\.locale) private var locale
     @State private var acknowledgesRecoveryRisk = false
-    @State private var reviewing: AccountSetupReview?
 
     private var guide: AccountSetupGuide {
         AccountSetupGuide(snapshot: model.snapshot, recoveryRequired: model.recoveryRequired)
     }
 
     var body: some View {
-        let guide = guide
+        Group {
+            if let step = model.reviewingStep {
+                AccountSetupStepScreen(model: model, step: step)
+            } else {
+                AccountSetupChecklistPane(
+                    model: model, guide: guide, acknowledgesRecoveryRisk: $acknowledgesRecoveryRisk
+                )
+            }
+        }
+        .animation(.smooth(duration: 0.2), value: model.reviewingStep)
+        .accessibilityIdentifier("onboarding.account-setup")
+    }
+}
 
+/// The setup's checklist pane: the header, every step's row, and the pane's one button.
+private struct AccountSetupChecklistPane: View {
+    let model: OnboardingCoordinator
+    let guide: AccountSetupGuide
+    @Binding var acknowledgesRecoveryRisk: Bool
+
+    var body: some View {
         OnboardingScaffold(
             // Hidden, not disabled, while a command runs or the cancellation finishes: the header
             // row keeps its height either way, and there is nothing for the control to do.
@@ -46,13 +65,11 @@ struct AccountSetupView: View {
                         AccountSetupChecklist(
                             guide: guide,
                             isEnabled: !model.isBusy,
-                            review: { reviewing = AccountSetupReview(step: $0) }
+                            review: { model.review($0) }
                         )
                     }
 
-                    // Only errors that belong to no step's screen land here: a step's own screen
-                    // shows the error of the action pressed on it.
-                    if reviewing == nil, let message = model.error {
+                    if let message = model.error {
                         Text(message)
                             .wnFont(.medium12)
                             .foregroundStyle(WNColor.backgroundContentDestructive)
@@ -66,27 +83,14 @@ struct AccountSetupView: View {
                     guide: guide,
                     model: model,
                     acknowledgesRecoveryRisk: acknowledgesRecoveryRisk,
-                    review: { reviewing = AccountSetupReview(step: $0) }
+                    review: { model.review($0) }
                 )
             }
         )
         .controlSize(.large)
         .wnButtonShape(.capsule)
         .animation(.smooth(duration: 0.2), value: guide)
-        .sheet(item: $reviewing) { review in
-            AccountSetupStepSheet(model: model, step: review.step)
-                // Sheets are hosted outside this view's hierarchy and inherit nothing from it, so
-                // the app-language locale has to be handed over again.
-                .environment(\.locale, locale)
-        }
-        .accessibilityIdentifier("onboarding.account-setup")
     }
-}
-
-/// The step whose review screen is open.
-private struct AccountSetupReview: Identifiable {
-    let step: OnboardingStepFfi
-    var id: OnboardingStepFfi { step }
 }
 
 // MARK: - Header

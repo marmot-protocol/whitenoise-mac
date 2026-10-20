@@ -75,7 +75,7 @@ enum OnboardingFixtures {
     }
 
     /// Lays `view` out in a window-less hosting view and returns the size it settled on. Unlike
-    /// `ImageRenderer`, this evaluates the content of a `ScrollView`, which every step sheet has.
+    /// `ImageRenderer`, this evaluates the content of a `ScrollView`, which every step screen has.
     @MainActor
     static func hostedSize(_ view: some View) -> CGSize {
         let host = NSHostingView(rootView: AnyView(view.environment(WorkspaceState.preview())))

@@ -3,22 +3,27 @@ import SwiftUI
 
 /// One setup step's own screen, opened from its checklist row or from Review and Continue.
 ///
-/// `whitenoise-ios` opens these as sheets over the sign-in list — `AccountSetupActions` routes to a
-/// profile form, a relay screen, a device notice or a secure-messaging retry — and so does the mac:
-/// a sheet keeps the checklist behind it as the place the user returns to. It closes itself once
-/// the step passes or is skipped.
-struct AccountSetupStepSheet: View {
+/// `whitenoise-ios` opens these as sheets over the sign-in list, because on a phone a sheet is a
+/// screen. On the Mac a sheet is a modal dialog hovering over a pane that cannot be used while it
+/// is up, so the step takes the pane instead, the way Sign In and Sign Up do: the same header row,
+/// the same centred column, the same capsule actions. What the sheet gave for free — the checklist
+/// still visible behind it — is kept in the header row: a back control named for the setup it
+/// returns to, and the setup's progress with this step marked. See `AccountSetupStepProgress`.
+///
+/// The coordinator returns to the checklist once the step passes or is skipped; see
+/// `OnboardingCoordinator.reviewingStep`.
+struct AccountSetupStepScreen: View {
     let model: OnboardingCoordinator
     let step: OnboardingStepFfi
-    @Environment(\.dismiss) private var dismiss
-
-    private var stepState: OnboardingStepStateFfi? {
-        model.snapshot?.steps.first { $0.step == step }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
-            AccountSetupStepSheetHeader(step: step, isEnabled: !model.isBusy) { dismiss() }
+            OnboardingHeaderRow(exit: .backToSetup { model.endReview() }, isExitEnabled: !model.isBusy) {
+                AccountSetupStepProgress(
+                    guide: AccountSetupGuide(snapshot: model.snapshot, recoveryRequired: model.recoveryRequired),
+                    step: step
+                )
+            }
 
             switch step {
             case .profile:
@@ -33,71 +38,141 @@ struct AccountSetupStepSheet: View {
                 AccountSetupFollowsStep(model: model)
             }
         }
-        .frame(width: AccountSetupStepLayoutMetrics.width, height: AccountSetupStepLayoutMetrics.height)
-        .background(WNColor.backgroundPrimary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { MessagesTranscriptBackground() }
         .controlSize(.large)
         .wnButtonShape(.capsule)
-        .interactiveDismissDisabled(model.isBusy)
-        .onChange(of: model.snapshot) { _, snapshot in
-            let finished = stepState.map { AccountSetupGuide.isComplete($0.status) } ?? true
-            if finished || snapshot?.cancellationPending == true { dismiss() }
-        }
+        .onExitCommand(perform: model.isBusy ? nil : { model.endReview() })
         .accessibilityIdentifier("onboarding.account-setup.step")
     }
 }
 
-/// The sheet's title row: the step's name and Close.
-struct AccountSetupStepSheetHeader: View {
+/// Where the open step stands in the setup: one segment per step — finished, this one, still to
+/// come — and "Step 2 of 6" beside them. It is the part of the checklist a step screen keeps, so
+/// the screen reads as one stop on a list the back control returns to.
+struct AccountSetupStepProgress: View {
     @Environment(\.locale) private var locale
+    let guide: AccountSetupGuide
     let step: OnboardingStepFfi
-    var isEnabled = true
-    let close: () -> Void
 
     var body: some View {
-        HStack {
-            Text(L10n.string(AccountSetupGuide.titleKey(step), locale: locale))
-                .wnFont(.bold18)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 0)
-            GlassCircleCloseButton(help: "Close", appearance: .outline, action: close)
-                .accessibilityLabel(L10n.string("Close", locale: locale))
-                .disabled(!isEnabled)
+        if let index = guide.steps.firstIndex(where: { $0.step == step }) {
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    ForEach(Array(guide.steps.enumerated()), id: \.element.step) { offset, state in
+                        Capsule()
+                            .fill(Self.segmentColor(isCurrent: offset == index, state: state))
+                            .frame(width: offset == index ? 20 : 12, height: 4)
+                    }
+                }
+                .accessibilityHidden(true)
+
+                Text(
+                    String(
+                        format: L10n.string("Step %lld of %lld", locale: locale),
+                        locale: locale,
+                        Int64(index + 1),
+                        Int64(guide.steps.count)
+                    )
+                )
+                .wnFont(.medium12)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .monospacedDigit()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("onboarding.account-setup.progress")
         }
-        .padding(.horizontal, AccountSetupStepLayoutMetrics.padding)
-        .padding(.top, AccountSetupStepLayoutMetrics.padding)
-        .padding(.bottom, 8)
+    }
+
+    static func segmentColor(isCurrent: Bool, state: OnboardingStepStateFfi) -> Color {
+        if isCurrent { return WNColor.backgroundContentPrimary }
+        return AccountSetupGuide.isComplete(state.status) ? WNColor.backgroundContentTertiary : WNColor.borderTertiary
+    }
+}
+
+/// The title a step screen stands under, where Sign In has the mark and Sign Up the avatar.
+struct AccountSetupStepTitle: View {
+    @Environment(\.locale) private var locale
+    let step: OnboardingStepFfi
+
+    var body: some View {
+        Text(L10n.string(AccountSetupGuide.titleKey(step), locale: locale))
+            .wnFont(.bold24)
+            .foregroundStyle(WNColor.backgroundContentPrimary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
 enum AccountSetupStepLayoutMetrics {
-    static let width: CGFloat = 480
-    static let height: CGFloat = 600
-    static let padding: CGFloat = 24
+    /// Between the hero and the column under it — Sign Up's gap, since the profile screen's hero
+    /// is Sign Up's avatar.
+    static let heroToContentSpacing: CGFloat = 20
     static let sectionSpacing: CGFloat = 16
+    /// The floor above the hero and under the actions — Sign Up's, so the profile screen, which
+    /// is Sign Up's pane plus Not Now, still fits the smallest window. A taller column scrolls.
+    static let edgePadding: CGFloat = OnboardingLayout.signUpEdgePadding
 }
 
-/// A step screen's body: scrolling content over a pinned column of actions.
-struct AccountSetupStepLayout<Content: View, Actions: View>: View {
+/// A step screen's body: a hero, the step's content and its actions, in the onboarding column,
+/// centred in the pane — Sign Up's layout. A step that needs more height than the window has
+/// (a relay step can stack four buttons under its list) scrolls instead of pushing its actions
+/// off the bottom edge.
+struct AccountSetupStepLayout<Hero: View, Content: View, Actions: View>: View {
+    @ViewBuilder var hero: Hero
+    @ViewBuilder var content: Content
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        ScrollView {
+            AccountSetupStepColumn(hero: { hero }, content: { content }, actions: { actions })
+                .padding(.vertical, AccountSetupStepLayoutMetrics.edgePadding)
+                .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        // A column shorter than the pane sits in its middle, as Sign Up's does, rather than at
+        // the top of the scroll view.
+        .defaultScrollAnchor(.center, for: .alignment)
+    }
+}
+
+extension AccountSetupStepLayout where Hero == AccountSetupStepTitle {
+    /// The layout under the step's own title.
+    init(
+        step: OnboardingStepFfi,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder actions: () -> Actions
+    ) {
+        self.init(hero: { AccountSetupStepTitle(step: step) }, content: content, actions: actions)
+    }
+}
+
+/// The column itself, unscrolled, so a test can measure what a step asks of the window.
+struct AccountSetupStepColumn<Hero: View, Content: View, Actions: View>: View {
+    @ViewBuilder var hero: Hero
     @ViewBuilder var content: Content
     @ViewBuilder var actions: Actions
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
+            hero
+                .padding(.bottom, AccountSetupStepLayoutMetrics.heroToContentSpacing)
+
+            VStack(spacing: OnboardingLayout.contentToActionsSpacing) {
                 VStack(alignment: .leading, spacing: AccountSetupStepLayoutMetrics.sectionSpacing) {
                     content
                 }
-                .padding(.horizontal, AccountSetupStepLayoutMetrics.padding)
-                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                AccountSetupActionColumn { actions }
             }
-            AccountSetupActionColumn { actions }
         }
+        .frame(width: OnboardingLayout.contentWidth)
     }
 }
 
-/// A step screen's pinned actions, stacked under its scrolling content.
+/// A step screen's actions, stacked under its content as Sign Up stacks its one.
 struct AccountSetupActionColumn<Actions: View>: View {
     @ViewBuilder var actions: Actions
 
@@ -105,7 +180,6 @@ struct AccountSetupActionColumn<Actions: View>: View {
         VStack(spacing: OnboardingLayout.actionSpacing) {
             actions
         }
-        .padding(AccountSetupStepLayoutMetrics.padding)
     }
 }
 
@@ -296,7 +370,7 @@ struct AccountSetupDeviceStep: View {
         let hasFailure = failureFindings != nil
         let showsNotice = notice != nil && (!hasFailure || step?.actions.contains(.continueAnyway) == true)
 
-        AccountSetupStepLayout {
+        AccountSetupStepLayout(step: .singleDevice) {
             AccountSetupCallout(
                 titleKey: hasFailure ? "Couldn’t check for other devices" : "Using one device",
                 symbol: "laptopcomputer",
@@ -347,7 +421,7 @@ struct AccountSetupSecureMessagingStep: View {
     var body: some View {
         let failed = step.map { $0.status == .retryableFailure || $0.status == .waitingForSigner } ?? false
 
-        AccountSetupStepLayout {
+        AccountSetupStepLayout(step: .keyPackage) {
             AccountSetupCallout(
                 titleKey: failed && !model.isBusy ? "Couldn’t prepare secure messaging" : "Secure messaging",
                 symbol: "lock.shield",
@@ -388,7 +462,7 @@ struct AccountSetupFollowsStep: View {
     }
 
     var body: some View {
-        AccountSetupStepLayout {
+        AccountSetupStepLayout(step: .follows) {
             AccountSetupCallout(
                 titleKey: AccountSetupGuide.titleKey(.follows),
                 symbol: "person.2",
@@ -435,7 +509,7 @@ struct AccountSetupFollowsStep: View {
             discovery: .otherInstallationPossible, otherPackages: [], discoveryComplete: true, acknowledgedAt: nil
         )
     )
-    AccountSetupStepSheet(model: model, step: .singleDevice)
+    AccountSetupStepScreen(model: model, step: .singleDevice)
 }
 
 #Preview("Secure messaging") {
@@ -445,7 +519,7 @@ struct AccountSetupFollowsStep: View {
             findings: [.init(issue: .publicationFailed, endpoint: nil)], actions: [.retry], checkedAt: nil
         )
     ])
-    AccountSetupStepSheet(model: model, step: .keyPackage)
+    AccountSetupStepScreen(model: model, step: .keyPackage)
 }
 
 #Preview("Follows") {
@@ -456,5 +530,5 @@ struct AccountSetupFollowsStep: View {
             actions: [.retry, .continueWithout], checkedAt: nil
         )
     ])
-    AccountSetupStepSheet(model: model, step: .follows)
+    AccountSetupStepScreen(model: model, step: .follows)
 }
