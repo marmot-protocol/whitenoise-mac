@@ -606,8 +606,10 @@ struct MessageBubble: View {
             emojiImage: { [customEmojiImages] in customEmojiImages.reactionImage(for: $0) },
             loadEmojiImages: { [customEmojiImages] in customEmojiImages.loadReactions($0) },
             requestProfiles: { [workspace] in workspace.requestPeerProfileRefresh($0) },
-            removeOwnReaction: { [workspace, message] reaction in
-                Task { await workspace.removeReaction(reaction, from: message) }
+            // The same pick as the React control, so one popover has one removal rule: taking
+            // back a reaction that retracts the others too is confirmed either way.
+            removeOwnReaction: { reaction in
+                handleReactionPick(.remove(reaction), completeRead: reactionDetailsModel)
             },
             quickReactions: workspace.quickReactions,
             // The popover resolves the pick against its complete list; the bubble only confirms

@@ -193,7 +193,9 @@ struct MessageReactionDetailsDependencies {
     /// Reactors the complete read named, so ones outside the window's identity preview get a name
     /// from the profile directory instead of a short key.
     var requestProfiles: (Set<String>) -> Void = { _ in }
-    /// Nil where the viewer cannot act on the message.
+    /// Takes back the viewer's reaction from their own reactor row, confirming as the React
+    /// control does when that retracts their other reactions too. Nil where the viewer cannot act
+    /// on the message.
     var removeOwnReaction: ((MessageReaction) -> Void)?
     /// The configured quick reactions, offered by the viewer's React control.
     var quickReactions: [String] = []
