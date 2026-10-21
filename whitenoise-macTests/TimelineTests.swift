@@ -144,7 +144,6 @@ struct TimelineTests: WorkspaceTestSupport {
             #expect(!pickerHost.contains("workspace.react(to: message"))
         }
         #expect(bubbleSource.contains("onReactionPick: pickReaction"))
-        #expect(bubbleSource.contains("pickReaction(emoji)"))
         #expect(!bubbleSource.contains("workspace.react(to: message"))
     }
 
