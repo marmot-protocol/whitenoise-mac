@@ -35,7 +35,7 @@ struct DirectChatChooserSheet: View {
             .frame(maxHeight: 320)
             .fixedSize(horizontal: false, vertical: true)
 
-            DirectChatChooserFooter(onCancel: onCancel, onStartNew: onStartNew)
+            DirectChatChooserFooter(onStartNew: onStartNew)
         }
         .frame(width: 400)
         .wnButtonShape(.capsule)
@@ -63,7 +63,9 @@ private struct DirectChatChooserHeader: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
+            // The sheet's only dismissal, so it also answers Escape.
             GlassCircleCloseButton(appearance: .outline, action: onClose)
+                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 20)
         .padding(.top, 16)
@@ -123,22 +125,18 @@ private struct DirectChatChoiceRow: View {
     }
 }
 
+/// Dismissal lives on the header's close button alone; starting another chat is the secondary
+/// tier, since continuing an existing conversation is the pick this sheet leads with.
 private struct DirectChatChooserFooter: View {
-    let onCancel: () -> Void
     let onStartNew: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
             Spacer()
 
-            Button(L10n.string("Cancel"), action: onCancel)
+            Button(L10n.string("Start new conversation"), action: onStartNew)
                 .buttonStyle(.wnSecondary)
-                .keyboardShortcut(.cancelAction)
-
-            WNPrimaryButton(size: .small, action: onStartNew) {
-                Text(L10n.string("Start new conversation"))
-            }
-            .accessibilityIdentifier("compose.chooser.startNew")
+                .accessibilityIdentifier("compose.chooser.startNew")
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
