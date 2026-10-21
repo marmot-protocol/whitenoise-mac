@@ -197,11 +197,10 @@ struct MessageReactionDetailsDependencies {
     var removeOwnReaction: ((MessageReaction) -> Void)?
     /// The configured quick reactions, offered by the viewer's React control.
     var quickReactions: [String] = []
-    /// The emoji the viewer already reacted with, which the React control's picker draws selected.
-    var selectedEmojis: Set<String> = []
-    /// Reacts to the message with an emoji. Nil where the viewer cannot react, which hides the
-    /// React control.
-    var react: ((String) -> Void)?
+    /// Sends a React-control pick, already resolved against the complete list the popover shows:
+    /// an emoji the viewer holds is a removal. Nil where the viewer cannot react, which hides the
+    /// React control. The picker's selection marks come from the same list, never from the caller.
+    var react: ((MessageReactionPick) -> Void)?
 }
 
 /// Reaction viewer: a horizontal "All / per-emoji" filter row over a list of reactors (avatar +
@@ -248,9 +247,10 @@ struct MessageReactionDetailsView: View {
                     if let react = dependencies.react {
                         MessageReactionAddButton(
                             quickReactions: dependencies.quickReactions,
-                            selectedEmojis: dependencies.selectedEmojis,
-                            onPick: react
-                        )
+                            selectedEmojis: details.selectedEmojis
+                        ) { emoji in
+                            react(details.pick(emoji))
+                        }
                         .padding(.trailing, 14)
                     }
                 }
@@ -586,7 +586,6 @@ private struct MessageReactionReactorRowContent: View {
             },
             removeOwnReaction: { _ in },
             quickReactions: ChatReactionDefaults.quick,
-            selectedEmojis: ["👍"],
             react: { _ in }
         )
     }

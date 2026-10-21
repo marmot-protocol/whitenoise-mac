@@ -39,6 +39,18 @@ nonisolated struct MessageReactionDetails: Hashable {
     var unreactMayRemoveSeveralReactions: Bool {
         reactions.lazy.filter(\.isOwn).count > 1
     }
+
+    /// The emoji the viewer holds among these reactions. In the popover this is the complete read,
+    /// so it includes an own kind the window preview left out.
+    var selectedEmojis: Set<String> {
+        MessageReactionPick.selectedEmojis(in: reactions)
+    }
+
+    /// What picking `emoji` does, resolved against these reactions rather than the window preview,
+    /// so an own kind only the complete read lists is taken back instead of re-sent as a no-op.
+    func pick(_ emoji: String) -> MessageReactionPick {
+        MessageReactionPick.resolve(emoji: emoji, reactions: reactions)
+    }
 }
 
 /// Pure decisions for the reaction details popover.
@@ -53,6 +65,16 @@ nonisolated enum MessageReactionDetailsPresentation {
         case empty
         /// `refreshFailed` is set when a later re-read failed; the list is the last complete read.
         case details(MessageReactionDetails, refreshFailed: Bool)
+
+        /// The reactions this content lists, for re-validating a pick made from it: none once the
+        /// list is empty, and nil while nothing is known, so the caller falls back to the preview.
+        var listedReactions: [MessageReaction]? {
+            switch self {
+            case .details(let details, _): details.reactions
+            case .empty: []
+            case .loading, .failed: nil
+            }
+        }
     }
 
     /// A spinner appears only when the first read is slower than this, so a fast local read

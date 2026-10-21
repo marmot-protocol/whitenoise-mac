@@ -262,6 +262,55 @@ struct MessageReactionsTests: WorkspaceTestSupport {
         #expect(Presentation.availableEmojis(in: .details(details, refreshFailed: false)) == ["👍"])
     }
 
+    // MARK: Picking from the details
+
+    /// The window fills its slots by popularity, so the viewer's own kind can be one it left out.
+    /// The popover's React control marks and resolves against the complete list, which still has it.
+    private static let ownKindOnlyInTheRead = (
+        projected: MessageReactionDetails(
+            reactions: [preview("👍", count: 3, senders: [account(2), account(3)])],
+            omittedKinds: 1,
+            totalCount: 4
+        ),
+        reactions: [reaction(2, "👍", at: 1), reaction(3, "👍", at: 2), reaction(4, "👍", at: 3)]
+            + [reaction(0x11, "🎉", at: 4)]
+    )
+
+    @Test func theDetailsPickerMarksAnOwnKindOnlyTheCompleteReadLists() throws {
+        let fixture = Self.ownKindOnlyInTheRead
+        let details = Presentation.completeDetails(fixture.reactions, projected: fixture.projected, me: Self.me)
+        let own = try #require(details.reactions.first { $0.emoji == "🎉" })
+
+        #expect(MessageReactionPick.selectedEmojis(in: fixture.projected.reactions).isEmpty)
+        #expect(details.selectedEmojis == ["🎉"])
+        #expect(details.pick("🎉") == .remove(own))
+        #expect(details.pick("👍") == .add("👍"))
+        // Against the preview the same pick would re-send the reaction, a no-op in the core.
+        #expect(MessageReactionPick.resolve(emoji: "🎉", reactions: fixture.projected.reactions) == .add("🎉"))
+    }
+
+    @Test func aDetailsRemovalIsConfirmedAgainstTheCompleteRead() throws {
+        let fixture = Self.ownKindOnlyInTheRead
+        let content = Presentation.content(
+            phase: .loaded, hasLoaded: true, reactions: fixture.reactions, projected: fixture.projected, me: Self.me)
+        guard case .details(let details, _) = content else {
+            Issue.record("expected details, got \(content)")
+            return
+        }
+        let pick = details.pick("🎉")
+        let listed = try #require(content.listedReactions)
+
+        #expect(pick.confirmedRemoval(in: listed) == pick)
+        // The preview never listed 🎉, so checking it there would close the dialog sending nothing.
+        #expect(pick.confirmedRemoval(in: fixture.projected.reactions) == nil)
+        // Taken back elsewhere before the confirmation: the re-read no longer has it.
+        #expect(Presentation.Content.empty.listedReactions == [])
+        #expect(pick.confirmedRemoval(in: Presentation.Content.empty.listedReactions ?? []) == nil)
+        // Nothing known yet: the caller falls back to the preview.
+        #expect(Presentation.Content.loading.listedReactions == nil)
+        #expect(Presentation.Content.failed.listedReactions == nil)
+    }
+
     // MARK: Loading
 
     private static func model(
