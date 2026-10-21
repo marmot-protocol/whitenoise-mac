@@ -507,11 +507,20 @@ struct MessageBubble: View {
     /// the account's other reactions with it. `completeRead` is the details popover's model when
     /// the pick was resolved against its complete list.
     private func handleReactionPick(_ pick: MessageReactionPick, completeRead: MessageReactionsViewModel?) {
-        if pick.needsConfirmation(on: message) {
-            reactionPendingRemoval = PendingReactionRemoval(pick: pick, completeRead: completeRead)
-        } else {
+        guard pick.needsConfirmation(on: message) else {
             Task { await pick.perform(on: message, in: workspace) }
+            return
         }
+        let pending = PendingReactionRemoval(pick: pick, completeRead: completeRead)
+        guard completeRead != nil else {
+            reactionPendingRemoval = pending
+            return
+        }
+        // A pick from the details popover: a dialog presented while that transient popover is up
+        // may not show, or show behind it. Close the popover, then present on the next turn. The
+        // pending removal keeps the model, so its last complete read still re-validates the pick.
+        isReactionViewerPresented = false
+        Task { @MainActor in reactionPendingRemoval = pending }
     }
 
     /// The removal "Remove all" still sends, re-resolved against the same source the pick came
