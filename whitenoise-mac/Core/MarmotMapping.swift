@@ -886,19 +886,37 @@ nonisolated extension MessageItem {
             position: .subject
         )
 
+        // "You" is never spliced into a third-person template: Spanish, Italian, Portuguese,
+        // Russian and Turkish conjugate the verb for the subject, so "%@ made %@ an admin"
+        // with "You" reads "Tú nombró administrador a …". Each "you" case has its own key.
+        let actorIsYou = isActiveAccount(event.actorAccountIdHex, activeAccountIdHex)
+        let subjectIsYou = isActiveAccount(event.subjectAccountIdHex, activeAccountIdHex)
+
         if let actorName, let subjectName {
             if event.actorAccountIdHex == event.subjectAccountIdHex {
+                if actorIsYou {
+                    return L10n.string("You became an admin")
+                }
                 return String(format: L10n.string("%@ became an admin"), subjectStartName ?? actorName)
+            }
+            if actorIsYou {
+                return String(format: L10n.string("You made %@ an admin"), subjectName)
+            }
+            if subjectIsYou {
+                return String(format: L10n.string("%@ made you an admin"), actorName)
             }
             return String(format: L10n.string("%@ made %@ an admin"), actorName, subjectName)
         }
         if let subjectStartName {
-            if event.subjectAccountIdHex == activeAccountIdHex {
+            if subjectIsYou {
                 return L10n.string("You were made an admin")
             }
             return String(format: L10n.string("%@ was made an admin"), subjectStartName)
         }
         if let actorName {
+            if actorIsYou {
+                return L10n.string("You added an admin")
+            }
             return String(format: L10n.string("%@ added an admin"), actorName)
         }
         return nil
@@ -928,22 +946,35 @@ nonisolated extension MessageItem {
             position: .subject
         )
 
+        // See `adminAddedText`: every "you" case has its own key rather than splicing "You".
+        let actorIsYou = isActiveAccount(event.actorAccountIdHex, activeAccountIdHex)
+        let subjectIsYou = isActiveAccount(event.subjectAccountIdHex, activeAccountIdHex)
+
         if let actorName, let subjectName {
             if event.actorAccountIdHex == event.subjectAccountIdHex {
+                if actorIsYou {
+                    return L10n.string("You stepped down as admin")
+                }
                 return String(format: L10n.string("%@ stepped down as admin"), subjectStartName ?? actorName)
             }
-            if event.subjectAccountIdHex == activeAccountIdHex {
+            if actorIsYou {
+                return String(format: L10n.string("You removed %@ as admin"), subjectName)
+            }
+            if subjectIsYou {
                 return String(format: L10n.string("You were removed as admin by %@"), actorName)
             }
             return String(format: L10n.string("%@ removed %@ as admin"), actorName, subjectName)
         }
         if let subjectStartName {
-            if event.subjectAccountIdHex == activeAccountIdHex {
+            if subjectIsYou {
                 return L10n.string("You are no longer an admin")
             }
             return String(format: L10n.string("%@ is no longer an admin"), subjectStartName)
         }
         if let actorName {
+            if actorIsYou {
+                return L10n.string("You removed an admin")
+            }
             return String(format: L10n.string("%@ removed an admin"), actorName)
         }
         return nil
@@ -1057,6 +1088,11 @@ nonisolated extension MessageItem {
         return PeerDisplayText.templateFragment(
             displayName(for: accountIdHex, profile: senderProfiles[accountIdHex])
         )
+    }
+
+    private static func isActiveAccount(_ accountIdHex: String?, _ activeAccountIdHex: String?) -> Bool {
+        guard let accountIdHex = nonBlank(accountIdHex) else { return false }
+        return accountIdHex == activeAccountIdHex
     }
 
     private enum SystemAccountNamePosition {
