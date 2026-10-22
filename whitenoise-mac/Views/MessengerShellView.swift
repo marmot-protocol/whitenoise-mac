@@ -720,7 +720,8 @@ private struct ConversationView: View {
                     chat: chat,
                     conversationModel: model,
                     attachmentModel: attachmentModel,
-                    safetyModel: safetyModel
+                    safetyModel: safetyModel,
+                    blockedUsersModel: blockedUsersModel
                 )
                 .transition(.move(edge: .trailing))
                 .zIndex(3)
@@ -1222,13 +1223,15 @@ private struct GroupDetailsPane: View {
     let conversationModel: ConversationViewModel
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
+    let blockedUsersModel: BlockedUsersViewModel
 
     var body: some View {
         GroupDetailsSheet(
             chat: chat,
             conversationModel: conversationModel,
             attachmentModel: attachmentModel,
-            safetyModel: safetyModel
+            safetyModel: safetyModel,
+            isBlocked: { blockedUsersModel.isBlocked(accountID: $0) }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
