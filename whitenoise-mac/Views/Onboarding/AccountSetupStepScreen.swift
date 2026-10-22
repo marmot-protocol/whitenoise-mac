@@ -113,6 +113,8 @@ enum AccountSetupStepLayoutMetrics {
     /// The floor above the hero and under the actions — Sign Up's, so the profile screen, which
     /// is Sign Up's pane plus Not Now, still fits the smallest window. A taller column scrolls.
     static let edgePadding: CGFloat = OnboardingLayout.signUpEdgePadding
+    /// The smallest window (`ContentView`'s minimum), which every step screen's `#Preview` draws in.
+    static let previewSize = CGSize(width: 940, height: 620)
 }
 
 /// A step screen's body: a hero, the step's content and its actions, in the onboarding column,

@@ -72,8 +72,11 @@ final class OnboardingCoordinator {
         return model
     }
 
+    /// Starts a new session on the checkpoint, on the checklist: every caller — Try Again,
+    /// Cancel, Recover — begins again from the top, so no step's screen survives into it.
     func start() {
         stop()
+        reviewingStep = nil
         observationTask = Task { [weak self] in await self?.restoreAndObserve() }
     }
 
@@ -295,7 +298,10 @@ final class OnboardingCoordinator {
             // Through `install`, like every other checkpoint, so the restored one also counts
             // toward `hasShownIncompleteSetup` — not only the subscription snapshot after it.
             install(restoredSnapshot, restoring: true)
+            // MarmotKit's answer, not the snapshot's epoch that `install` read it from, so the
+            // screen check `install` ran has to see the final value too.
             recoveryRequired = restored.1
+            closeFinishedReview()
 
             let subscription = try await FFIExecutor.run { [runtime, accountRef] in
                 try runtime.subscribeOnboarding(accountRef: accountRef)

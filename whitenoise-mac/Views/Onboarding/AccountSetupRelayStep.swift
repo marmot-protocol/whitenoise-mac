@@ -396,7 +396,10 @@ struct AccountSetupRelayDraftEditor: View {
         )
     ])
     AccountSetupRelayStep(model: model, step: .relays, initialMode: .editing)
-        .frame(width: 940, height: 620)
+        .frame(
+            width: AccountSetupStepLayoutMetrics.previewSize.width,
+            height: AccountSetupStepLayoutMetrics.previewSize.height
+        )
         .background(WNColor.backgroundPrimary)
         .controlSize(.large)
         .wnButtonShape(.capsule)
@@ -410,7 +413,10 @@ struct AccountSetupRelayDraftEditor: View {
         )
     ])
     AccountSetupRelayStep(model: model, step: .inboxRelays, initialMode: .searching)
-        .frame(width: 940, height: 620)
+        .frame(
+            width: AccountSetupStepLayoutMetrics.previewSize.width,
+            height: AccountSetupStepLayoutMetrics.previewSize.height
+        )
         .background(WNColor.backgroundPrimary)
         .controlSize(.large)
         .wnButtonShape(.capsule)

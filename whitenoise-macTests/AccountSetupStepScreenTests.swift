@@ -196,7 +196,9 @@ import Testing
         let languages = Bundle.main.localizations.filter { $0 != "Base" }
         for language in languages {
             let column = AccountSetupStepColumn {
-                AccountSetupProfileAvatar(avatar: nil, displayName: "", choosePhoto: {}, removePhoto: {})
+                AccountSetupProfileAvatar(
+                    titleKey: "Add your profile", avatar: nil, displayName: "", choosePhoto: {}, removePhoto: {}
+                )
             } content: {
                 AccountSetupProfileForm(displayName: .constant(""), about: .constant(""))
             } actions: {
@@ -315,6 +317,26 @@ import Testing
         #expect(model.reviewingStep == nil)
         model.review(.relays)
         #expect(model.reviewingStep == nil)
+    }
+
+    /// Recovering restarts the session on the checklist, even when the step whose screen was open
+    /// is still unfinished in the checkpoint that comes back.
+    @Test func recoveringReturnsToTheChecklist() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = await F.coordinator(
+            F.snapshot(steps: [F.step(.relays, .needsInput, actions: [.retry])]), runtime: runtime
+        )
+        model.review(.relays)
+        #expect(model.reviewingStep == .relays)
+
+        var unreadable = F.snapshot(steps: [F.step(.relays, .needsInput, actions: [.retry])])
+        unreadable.recoveryEpoch = "epoch"
+        runtime.onboardingState = unreadable
+        await model.recover(acknowledgeLatestOnlyEvidence: true)
+
+        #expect(model.error == nil)
+        #expect(model.reviewingStep == nil)
+        model.stop()
     }
 
     /// Every finding MarmotKit can report has its own line of copy.

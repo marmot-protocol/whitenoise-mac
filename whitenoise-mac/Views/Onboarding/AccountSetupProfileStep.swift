@@ -45,6 +45,7 @@ struct AccountSetupProfileStep: View {
         AccountSetupStepLayout {
             if plan.canEdit {
                 AccountSetupProfileAvatar(
+                    titleKey: plan.titleKey,
                     avatar: avatar,
                     displayName: displayName,
                     isEnabled: isEnabled,
@@ -61,7 +62,7 @@ struct AccountSetupProfileStep: View {
             if plan.canEdit {
                 // Only a proposal under review says anything above the form: that its details are
                 // not shared yet. A fresh profile is Sign Up's pane, which needs no introduction.
-                if plan.profile != nil || model.isBusy && active == nil {
+                if plan.profile != nil || (model.isBusy && active == nil) {
                     AccountSetupProfileIntro(messageKeys: plan.messageKeys, isLoading: model.isBusy && active == nil)
                 }
                 AccountSetupProfileForm(displayName: $displayName, about: $about, isEnabled: isEnabled)
@@ -150,6 +151,9 @@ struct AccountSetupProfileStep: View {
 /// changes it, with Remove beside it once there is a photo. See `OnboardingSignUpAvatar`.
 struct AccountSetupProfileAvatar: View {
     @Environment(\.locale) private var locale
+    /// The step's title. Sign Up's pane draws none, so the editable screen keeps it visually, but
+    /// VoiceOver still needs the heading every other step screen has; the avatar carries it.
+    let titleKey: String
     let avatar: SignUpProfileImage?
     let displayName: String
     var isEnabled = true
@@ -159,6 +163,9 @@ struct AccountSetupProfileAvatar: View {
     var body: some View {
         VStack(spacing: OnboardingLayout.signUpAvatarToPickerSpacing) {
             ProfileDraftAvatarView(image: avatar, displayName: displayName, size: OnboardingLayout.signUpAvatarSize)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(L10n.string(titleKey, locale: locale))
+                .accessibilityAddTraits(.isHeader)
 
             HStack(spacing: 8) {
                 Button(action: choosePhoto) {
@@ -250,7 +257,7 @@ struct AccountSetupProfileForm: View {
         ]
     )
     AccountSetupStepScreen(model: model, step: .profile)
-        .frame(width: 940, height: 680)
+        .frame(width: AccountSetupStepLayoutMetrics.previewSize.width, height: 680)
 }
 
 #Preview("Couldn't load profile") {
@@ -262,5 +269,8 @@ struct AccountSetupProfileForm: View {
         )
     ])
     AccountSetupStepScreen(model: model, step: .profile)
-        .frame(width: 940, height: 620)
+        .frame(
+            width: AccountSetupStepLayoutMetrics.previewSize.width,
+            height: AccountSetupStepLayoutMetrics.previewSize.height
+        )
 }
