@@ -127,17 +127,23 @@ private struct DirectChatChoiceRow: View {
 
 /// Dismissal lives on the header's close button alone; starting another chat is the secondary
 /// tier, since continuing an existing conversation is the pick this sheet leads with.
+///
+/// Centred and drawn at `.large`, as the iOS chooser's lone pill is: with no second action to sit
+/// beside, a trailing small button read as an afterthought in the corner. The font is named here
+/// because `.wnSecondary` inherits whatever the column had rather than choosing one per size.
 private struct DirectChatChooserFooter: View {
     let onStartNew: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Spacer()
-
-            Button(L10n.string("Start new conversation"), action: onStartNew)
-                .buttonStyle(.wnSecondary)
-                .accessibilityIdentifier("compose.chooser.startNew")
+        Button(action: onStartNew) {
+            Text(L10n.string("Start new conversation"))
+                .wnFont(WNPrimaryButtonSize.medium.font)
+                .lineLimit(1)
         }
+        .buttonStyle(.wnSecondary)
+        .controlSize(.large)
+        .accessibilityIdentifier("compose.chooser.startNew")
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 20)
