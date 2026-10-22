@@ -9,7 +9,15 @@ import Observation
 final class OnboardingCoordinator {
     private(set) var snapshot: OnboardingSnapshotFfi?
     private(set) var recoveryRequired = false
-    private(set) var isBusy = false
+    private(set) var isBusy = false {
+        didSet {
+            guard isBusy != oldValue else { return }
+            snapshotBeforeCommand = isBusy ? snapshot : nil
+        }
+    }
+    /// The checkpoint the command in flight started from, held for `settledSnapshot`; nil while
+    /// nothing runs.
+    private var snapshotBeforeCommand: OnboardingSnapshotFfi?
     private(set) var isObserving = false
     private(set) var error: String?
     /// Set once this coordinator has installed a snapshot that was not ready, i.e. the user has
@@ -84,6 +92,19 @@ final class OnboardingCoordinator {
         operationTask = nil
         isBusy = false
         isObserving = false
+    }
+
+    /// The checkpoint a step's screen renders: `snapshot`, except while a command is in flight,
+    /// when it stays on the checkpoint the command started from until the command settles.
+    ///
+    /// MarmotKit reports every state a command passes through, and some of them read as failures
+    /// out of context: a publication that has started but not finished carries its proposal with
+    /// neither Approve nor Discard offered, which is exactly what an interrupted one looks like.
+    /// Redrawn as they arrive, they flash "didn’t finish" on a screen whose step then passes and
+    /// closes. The checklist keeps following `snapshot`, where a check's progress is the point.
+    /// `whitenoise-ios` holds its step sheets the same way (`AccountSetupRecoveryPresentation`).
+    var settledSnapshot: OnboardingSnapshotFfi? {
+        snapshotBeforeCommand ?? snapshot
     }
 
     var isDurablyReady: Bool {

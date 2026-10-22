@@ -10,7 +10,7 @@ import Testing
 
 /// What each of `OnboardingCoordinator`'s commands asks MarmotKit for, and what it does with the
 /// answer: install the returned checkpoint, or keep the error for the screen that pressed it.
-@Suite(.serialized) @MainActor struct OnboardingCoordinatorTests {
+@Suite(.serialized) @MainActor struct OnboardingCoordinatorTests: WorkspaceTestSupport {
     private typealias F = OnboardingFixtures
 
     /// Every command that returns a checkpoint installs it: the fake answers each one by moving
@@ -144,6 +144,84 @@ import Testing
         await model.recover(acknowledgeLatestOnlyEvidence: true)
 
         #expect(model.error == nil)
+        model.stop()
+    }
+
+    /// A step screen keeps showing the checkpoint its command started from while MarmotKit works
+    /// through it. Saving a profile passes through a publication in progress — the proposal with
+    /// neither Approve nor Discard offered — which read on its own is an interrupted one: drawn,
+    /// it flashed "Your profile update didn’t finish" just before the step passed and the screen
+    /// went back to the checklist.
+    @Test func aStepScreenDoesNotShowTheStatesACommandPassesThrough() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.onboardingState = F.snapshot(
+            steps: [F.step(.profile, .needsInput, actions: [.editProfile, .continueWithout])]
+        )
+        let model = OnboardingCoordinator(accountRef: "account", runtime: runtime)
+        model.start()
+        await Self.waitUntil { model.isObserving }
+        model.review(.profile)
+        #expect(model.reviewingStep == .profile)
+
+        runtime.onboardingRunGate.isEnabled = true
+        let command = Task { await model.run() }
+        await runtime.onboardingRunGate.waitUntilReached()
+        #expect(model.isBusy)
+
+        var publishing = F.snapshot(steps: [F.step(.profile, .checking)], revision: 2)
+        publishing.proposal = F.proposal(.profile, revision: 2, profile: F.profile(name: "Ada"))
+        runtime.onboardingSubscription?.deliver(publishing)
+        await Self.waitUntil { model.snapshot?.revision == 2 }
+
+        // The checkpoint itself moved on, and read alone it is an interrupted publication…
+        #expect(AccountSetupProfilePlan(snapshot: model.snapshot).isInterrupted)
+        // …but the screen still draws the one the save started from.
+        #expect(model.settledSnapshot?.revision == 1)
+        #expect(AccountSetupProfilePlan(snapshot: model.settledSnapshot).isInterrupted == false)
+        #expect(model.reviewingStep == .profile)
+
+        runtime.onboardingState = F.snapshot(steps: [F.step(.profile, .passed)], ready: true, revision: 2)
+        runtime.onboardingRunGate.release()
+        await command.value
+
+        #expect(model.isBusy == false)
+        #expect(model.settledSnapshot?.revision == 3)
+        #expect(model.settledSnapshot == model.snapshot)
+        #expect(model.reviewingStep == nil)
+        #expect(model.error == nil)
+        model.stop()
+    }
+
+    /// A command that fails releases the screen to the checkpoint MarmotKit actually ended on, so
+    /// a publication that really was interrupted is still reported as one.
+    @Test func aFailedCommandShowsTheCheckpointItEndedOn() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.onboardingState = F.snapshot(
+            steps: [F.step(.profile, .needsInput, actions: [.editProfile, .continueWithout])]
+        )
+        let model = OnboardingCoordinator(accountRef: "account", runtime: runtime)
+        model.start()
+        await Self.waitUntil { model.isObserving }
+        model.review(.profile)
+
+        runtime.onboardingRunGate.isEnabled = true
+        runtime.runOnboardingError = FakeMarmotRuntimeError.unused
+        let command = Task { await model.run() }
+        await runtime.onboardingRunGate.waitUntilReached()
+
+        var interrupted = F.snapshot(steps: [F.step(.profile, .retryableFailure, actions: [.retry])], revision: 2)
+        interrupted.proposal = F.proposal(.profile, revision: 2, profile: F.profile(name: "Ada"))
+        runtime.onboardingSubscription?.deliver(interrupted)
+        await Self.waitUntil { model.snapshot?.revision == 2 }
+        #expect(model.settledSnapshot?.revision == 1)
+
+        runtime.onboardingRunGate.release()
+        await command.value
+
+        #expect(model.error != nil)
+        #expect(model.settledSnapshot?.revision == 2)
+        #expect(AccountSetupProfilePlan(snapshot: model.settledSnapshot).isInterrupted)
+        #expect(model.reviewingStep == .profile)
         model.stop()
     }
 

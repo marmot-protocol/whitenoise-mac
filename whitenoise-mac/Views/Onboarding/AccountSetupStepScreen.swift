@@ -11,7 +11,9 @@ import SwiftUI
 /// returns to, and the setup's progress with this step marked. See `AccountSetupStepProgress`.
 ///
 /// The coordinator returns to the checklist once the step passes or is skipped; see
-/// `OnboardingCoordinator.reviewingStep`.
+/// `OnboardingCoordinator.reviewingStep`. Until then every step screen draws
+/// `OnboardingCoordinator.settledSnapshot`, never `snapshot`, so the states MarmotKit passes
+/// through while a command runs are not shown as the step's outcome.
 struct AccountSetupStepScreen: View {
     let model: OnboardingCoordinator
     let step: OnboardingStepFfi
@@ -20,7 +22,9 @@ struct AccountSetupStepScreen: View {
         VStack(spacing: 0) {
             OnboardingHeaderRow(exit: .backToSetup { model.endReview() }, isExitEnabled: !model.isBusy) {
                 AccountSetupStepProgress(
-                    guide: AccountSetupGuide(snapshot: model.snapshot, recoveryRequired: model.recoveryRequired),
+                    guide: AccountSetupGuide(
+                        snapshot: model.settledSnapshot, recoveryRequired: model.recoveryRequired
+                    ),
                     step: step
                 )
             }
@@ -357,7 +361,7 @@ struct AccountSetupDeviceStep: View {
     @State private var active: String?
 
     private var step: OnboardingStepStateFfi? {
-        model.snapshot?.steps.first { $0.step == .singleDevice }
+        model.settledSnapshot?.steps.first { $0.step == .singleDevice }
     }
 
     private var failureFindings: [OnboardingFindingFfi]? {
@@ -366,7 +370,7 @@ struct AccountSetupDeviceStep: View {
     }
 
     var body: some View {
-        let notice = model.snapshot?.singleDeviceNotice
+        let notice = model.settledSnapshot?.singleDeviceNotice
         let hasFailure = failureFindings != nil
         let showsNotice = notice != nil && (!hasFailure || step?.actions.contains(.continueAnyway) == true)
 
@@ -386,7 +390,7 @@ struct AccountSetupDeviceStep: View {
                 if hasFailure || showsNotice { Divider() }
                 Text(L10n.string(AccountSetupGuide.descriptionKey(.singleDevice), locale: locale))
             }
-            AccountSetupNoActionLines(step: .singleDevice, snapshot: model.snapshot)
+            AccountSetupNoActionLines(step: .singleDevice, snapshot: model.settledSnapshot)
             AccountSetupErrorLine(message: model.error)
         } actions: {
             if let step {
@@ -415,7 +419,7 @@ struct AccountSetupSecureMessagingStep: View {
     @State private var active: String?
 
     private var step: OnboardingStepStateFfi? {
-        model.snapshot?.steps.first { $0.step == .keyPackage }
+        model.settledSnapshot?.steps.first { $0.step == .keyPackage }
     }
 
     var body: some View {
@@ -436,7 +440,7 @@ struct AccountSetupSecureMessagingStep: View {
                 Divider()
                 Text(L10n.string(AccountSetupGuide.descriptionKey(.keyPackage), locale: locale))
             }
-            AccountSetupNoActionLines(step: .keyPackage, snapshot: model.snapshot)
+            AccountSetupNoActionLines(step: .keyPackage, snapshot: model.settledSnapshot)
             AccountSetupErrorLine(message: model.error)
         } actions: {
             if step?.actions.contains(.retry) == true {
@@ -458,7 +462,7 @@ struct AccountSetupFollowsStep: View {
     @State private var active: String?
 
     private var step: OnboardingStepStateFfi? {
-        model.snapshot?.steps.first { $0.step == .follows }
+        model.settledSnapshot?.steps.first { $0.step == .follows }
     }
 
     var body: some View {
@@ -471,7 +475,7 @@ struct AccountSetupFollowsStep: View {
                 Text(L10n.string(AccountSetupGuide.descriptionKey(.follows), locale: locale))
                 AccountSetupFindingLines(findings: step?.findings ?? [])
             }
-            AccountSetupNoActionLines(step: .follows, snapshot: model.snapshot)
+            AccountSetupNoActionLines(step: .follows, snapshot: model.settledSnapshot)
             AccountSetupErrorLine(message: model.error)
         } actions: {
             if let step {

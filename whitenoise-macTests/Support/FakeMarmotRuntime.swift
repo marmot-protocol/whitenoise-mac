@@ -143,6 +143,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private(set) var forgottenGroupIDs: [String] = []
     var onboardingState: OnboardingSnapshotFfi?
     var onboardingUpdates: [OnboardingSnapshotFfi] = []
+    /// The subscription `subscribeOnboarding` handed out last, for a test to `deliver` to.
+    private(set) var onboardingSubscription: FakeOnboardingSubscription?
     private(set) var begunOnboardingIdentities: [String] = []
     private(set) var onboardingDiscoveryRelayUpdates: [[String]] = []
     private(set) var cancelOnboardingCallCount = 0
@@ -1848,7 +1850,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func subscribeOnboarding(accountRef: String) throws -> OnboardingSubscription {
         guard let onboardingState else { throw FakeMarmotRuntimeError.unused }
-        return FakeOnboardingSubscription(initial: onboardingState, updates: onboardingUpdates)
+        let subscription = FakeOnboardingSubscription(initial: onboardingState, updates: onboardingUpdates)
+        onboardingSubscription = subscription
+        return subscription
     }
 
     func onboardingSubscriptionSnapshot(subscription: OnboardingSubscription) -> OnboardingSnapshotFfi {
