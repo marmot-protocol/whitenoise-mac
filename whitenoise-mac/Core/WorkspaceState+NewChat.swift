@@ -16,18 +16,23 @@ import UserNotifications
 
 @MainActor
 extension WorkspaceState {
+    /// `reportingErrors: false` leaves `lastError` alone, for a field that isn't the screen's own —
+    /// the add-members sheet, whose parent pane renders `lastError` behind it.
+    // TODO(arch): `reportingErrors` drops with `lastError` as a global channel.
     @discardableResult
-    func resolveNewChatQuery() async -> NewChatRecipient? {
+    func resolveNewChatQuery(reportingErrors: Bool = true) async -> NewChatRecipient? {
         let query = newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard client != nil else { return nil }
         guard !query.isEmpty else {
             invalidateNewChatLookup()
             newChatRecipient = nil
-            lastError = L10n.string("Enter a NIP-05, npub, profile link, or public key.")
+            if reportingErrors {
+                lastError = L10n.string("Enter a NIP-05, npub, profile link, or public key.")
+            }
             return nil
         }
 
-        lastError = nil
+        if reportingErrors { lastError = nil }
         let lookupGeneration = beginNewChatLookup()
         isResolvingNewChat = true
         defer {
@@ -55,7 +60,9 @@ extension WorkspaceState {
                 return nil
             }
             newChatRecipient = nil
-            lastError = L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key.")
+            if reportingErrors {
+                lastError = L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key.")
+            }
             return nil
         }
     }
@@ -100,12 +107,13 @@ extension WorkspaceState {
         )
     }
 
-    func resolveNewChatQueryIfReady() async {
+    // TODO(arch): `reportingErrors` drops with `lastError` as a global channel.
+    func resolveNewChatQueryIfReady(reportingErrors: Bool = true) async {
         let query = newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             invalidateNewChatLookup()
             newChatRecipient = nil
-            lastError = nil
+            if reportingErrors { lastError = nil }
             return
         }
         guard looksLikeMemberRef(query) else {
@@ -115,7 +123,7 @@ extension WorkspaceState {
         }
         guard resolvedNewChatRecipient == nil else { return }
 
-        await resolveNewChatQuery()
+        await resolveNewChatQuery(reportingErrors: reportingErrors)
     }
 
     /// Resolve the current query (if needed) and move that recipient into the
@@ -700,7 +708,7 @@ extension WorkspaceState {
         // chat onto another account's UI state (see whitenoise-mac#229).
         let accountId = activeAccount.id
         do {
-            let memberRef = recipient.memberRef.isEmpty ? recipient.accountIdHex : recipient.memberRef
+            let memberRef = recipient.inviteRef
             let groupIdHex = try await client.createGroup(
                 accountRef: activeAccount.accountRef,
                 name: "",
@@ -871,7 +879,7 @@ extension WorkspaceState {
                 let groupIdHex = try await client.createGroup(
                     accountRef: activeAccount.accountRef,
                     name: name,
-                    memberRefs: attempt.map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef },
+                    memberRefs: attempt.map(\.inviteRef),
                     description: nil
                 )
                 // Only the first attempt is expected to reach here. A later one can succeed only if
@@ -993,7 +1001,7 @@ extension WorkspaceState {
                 let groupIdHex = try await client.createGroup(
                     accountRef: activeAccount.accountRef,
                     name: name,
-                    memberRefs: [candidate, pin].map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef },
+                    memberRefs: [candidate, pin].map(\.inviteRef),
                     description: nil
                 )
                 // The pin resolved after all, so this asked the core to create a real group and it

@@ -2894,16 +2894,25 @@ struct GroupsTests: WorkspaceTestSupport {
             query: "npub1carol", accountIdHex: Self.carolAccountIdHex, npub: "npub1carol")
         let state = try await openInstalledGroupDetails(runtime: runtime)
         let locked = Set(state.groupDetailsSnapshot?.members.map { $0.id.lowercased() } ?? [])
-        state.newChatQuery = "npub1carol"
-        #expect(state.looksLikeMemberRef(state.newChatQuery))
+        var resolvedQueries: [String] = []
 
-        let resolved = await state.resolveNewChatQuery()
-        let outcome = GroupInviteStaging.stage(
-            resolved, into: [Self.aliceDraftRecipient()], lockedMemberIds: locked)
+        let outcome = await GroupInviteStaging.foldPending(
+            query: "npub1carol",
+            isIdentifier: state.looksLikeMemberRef("npub1carol"),
+            resolved: nil,
+            resolve: { query in
+                resolvedQueries.append(query)
+                return try? await state.resolveNewChatRecipient(for: query)
+            },
+            into: [Self.aliceDraftRecipient()],
+            lockedMemberIds: locked,
+            isBlocked: { _ in false }
+        )
         guard case .staged(let roster) = outcome else {
             Issue.record("expected the identifier to be staged, got \(outcome)")
             return
         }
+        #expect(resolvedQueries == ["npub1carol"])
         #expect(roster.map(\.accountIdHex) == [Self.aliceAccountIdHex, Self.carolAccountIdHex])
 
         let invited = await state.inviteMembers(roster)
@@ -2912,21 +2921,108 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func aTypedIdentifierForAnExistingMemberIsRefusedBeforeInviting() async throws {
+    @Test func anAlreadyResolvedIdentifierIsFoldedInWithoutResolvingAgain() async {
+        let carol = NewChatRecipient(
+            sourceQuery: "npub1carol", memberRef: "npub1carol", accountIdHex: Self.carolAccountIdHex,
+            npub: "npub1carol", displayName: "Carol", pictureURL: nil)
+        var resolveCalls = 0
+
+        let outcome = await GroupInviteStaging.foldPending(
+            query: "npub1carol",
+            isIdentifier: true,
+            resolved: carol,
+            resolve: { _ in
+                resolveCalls += 1
+                return nil
+            },
+            into: [Self.aliceDraftRecipient()],
+            lockedMemberIds: [],
+            isBlocked: { _ in false }
+        )
+
+        #expect(resolveCalls == 0)
+        #expect(outcome == .staged([Self.aliceDraftRecipient(), carol]))
+    }
+
+    @MainActor
+    @Test func aNameOrEmptyFieldFoldsNothingIn() async {
+        let alice = Self.aliceDraftRecipient()
+        var resolveCalls = 0
+        for (query, isIdentifier) in [("", false), ("bo", false)] {
+            let outcome = await GroupInviteStaging.foldPending(
+                query: query,
+                isIdentifier: isIdentifier,
+                resolved: nil,
+                resolve: { _ in
+                    resolveCalls += 1
+                    return nil
+                },
+                into: [alice],
+                lockedMemberIds: [],
+                isBlocked: { _ in false }
+            )
+            #expect(outcome == .staged([alice]))
+        }
+        #expect(resolveCalls == 0)
+    }
+
+    @MainActor
+    @Test func closingTheSheetWhileAnIdentifierResolvesInvitesNobody() async throws {
+        // Invite resolves the typed npub over the relays; Cancel stays enabled meanwhile. The group
+        // pane stays open under the sheet, so `inviteMembers` alone would still commit.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1carol", accountIdHex: Self.carolAccountIdHex, npub: "npub1carol")
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        var isPresented = true
+
+        let outcome = await GroupInviteStaging.foldPending(
+            query: "npub1carol",
+            isIdentifier: true,
+            resolved: nil,
+            resolve: { query in
+                let recipient = try? await state.resolveNewChatRecipient(for: query)
+                isPresented = false  // Cancel pressed before the relay answered.
+                return recipient
+            },
+            into: [Self.aliceDraftRecipient()],
+            lockedMemberIds: [],
+            isBlocked: { _ in false },
+            shouldCommit: { isPresented }
+        )
+
+        #expect(outcome == .cancelled)
+        #expect(outcome.errorMessage == nil)
+        // What the sheet does with the outcome: only a staged roster is ever invited.
+        if case .staged(let roster) = outcome {
+            await state.inviteMembers(roster)
+        }
+        #expect(runtime.inviteMembersDetailedCallCount == 0)
+    }
+
+    @MainActor
+    @Test func aTypedIdentifierForAnExistingMemberIsRefused() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
         let state = try await openInstalledGroupDetails(runtime: runtime)
         let locked = Set(state.groupDetailsSnapshot?.members.map { $0.id.lowercased() } ?? [])
-        // The fake resolves an unknown ref to the fixture's existing non-self member.
-        state.newChatQuery = "npub1alyce"
 
-        let resolved = await state.resolveNewChatQuery()
-        let outcome = GroupInviteStaging.stage(resolved, into: [], lockedMemberIds: locked)
+        // The fake resolves an unknown ref to the fixture's existing non-self member.
+        let outcome = await GroupInviteStaging.foldPending(
+            query: "npub1alyce",
+            isIdentifier: true,
+            resolved: nil,
+            resolve: { try? await state.resolveNewChatRecipient(for: $0) },
+            into: [],
+            lockedMemberIds: locked,
+            isBlocked: { _ in false }
+        )
 
         #expect(outcome == .alreadyMember)
         #expect(outcome.errorMessage == L10n.string("That person is already in this group."))
-        #expect(runtime.inviteMembersDetailedCallCount == 0)
     }
 
     @MainActor
@@ -2942,6 +3038,105 @@ struct GroupsTests: WorkspaceTestSupport {
         let repeated = GroupInviteStaging.stage(alice, into: [alice], lockedMemberIds: [])
         #expect(repeated == .staged([alice]))
         #expect(repeated.errorMessage == nil)
+    }
+
+    @MainActor
+    @Test func theAddMembersSearchLeavesTheGroupPanesErrorAlone() async throws {
+        // The group details pane renders `lastError` behind the sheet: a bad paste in the sheet must
+        // not paint a red line there, and opening or closing the sheet must not wipe its error.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(
+            nip05Resolver: StubNIP05Resolver(accountReferences: [:]), clientFactory: { runtime })
+        await state.bootstrap()
+        await state.showGroupDetails(for: try #require(state.activeChats.first))
+        state.lastError = "x"
+
+        state.clearComposeSearch(preservingLastError: true)
+        state.newChatQuery = "nobody@example.com"
+        #expect(state.looksLikeMemberRef(state.newChatQuery))
+        await state.resolveNewChatQueryIfReady(reportingErrors: false)
+        #expect(state.resolvedNewChatRecipient == nil)
+        #expect(state.lastError == "x")
+
+        let outcome = await GroupInviteStaging.foldPending(
+            query: "nobody@example.com",
+            isIdentifier: true,
+            resolved: state.resolvedNewChatRecipient,
+            resolve: { try? await state.resolveNewChatRecipient(for: $0) },
+            into: [Self.aliceDraftRecipient()],
+            lockedMemberIds: [],
+            isBlocked: { _ in false }
+        )
+        #expect(outcome == .invalidIdentifier)
+        #expect(state.lastError == "x")
+
+        state.clearComposeSearch(preservingLastError: true)
+        #expect(state.newChatQuery.isEmpty)
+        #expect(state.lastError == "x")
+
+        // Control: the compose flow's own field still reports the same failure.
+        state.newChatQuery = "nobody@example.com"
+        await state.resolveNewChatQueryIfReady()
+        #expect(state.lastError == L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key."))
+    }
+
+    @MainActor
+    @Test func returnDoesNotInviteWhileANameSearchIsInTheField() {
+        // Stage Alice, type "bo" for Bob, press Return: that must not invite Alice alone.
+        #expect(!GroupInviteStaging.returnInvites(query: "bo", isIdentifier: false))
+        #expect(GroupInviteStaging.returnInvites(query: "", isIdentifier: false))
+        #expect(GroupInviteStaging.returnInvites(query: "npub1carol", isIdentifier: true))
+    }
+
+    @MainActor
+    @Test func theInviteCountIncludesAPendingIdentifierOnlyWhenItWouldBeAdded() {
+        let alice = Self.aliceDraftRecipient()
+        let carol = NewChatRecipient(
+            sourceQuery: "npub1carol", memberRef: "npub1carol", accountIdHex: Self.carolAccountIdHex,
+            npub: "npub1carol", displayName: "Carol", pictureURL: nil)
+        func addsOne(
+            _ resolved: NewChatRecipient?, isIdentifier: Bool = true, locked: Set<String> = [],
+            blocked: Bool = false
+        ) -> Bool {
+            GroupInviteStaging.pendingIdentifierAddsOne(
+                isIdentifier: isIdentifier, resolved: resolved, to: [alice], lockedMemberIds: locked,
+                isBlocked: { _ in blocked })
+        }
+
+        #expect(addsOne(nil))
+        #expect(addsOne(carol))
+        #expect(!addsOne(carol, isIdentifier: false))
+        #expect(!addsOne(alice))
+        #expect(!addsOne(carol, locked: [Self.carolAccountIdHex.lowercased()]))
+        #expect(!addsOne(carol, blocked: true))
+    }
+
+    @MainActor
+    @Test func aBlockedIdentifierIsRefusedInsteadOfInvited() async {
+        // The search hides a blocked person ("No matches"), so Invite must not invite them either.
+        let carol = NewChatRecipient(
+            sourceQuery: "npub1carol", memberRef: "npub1carol", accountIdHex: Self.carolAccountIdHex,
+            npub: "npub1carol", displayName: "Carol", pictureURL: nil)
+        let alice = Self.aliceDraftRecipient()
+
+        let outcome = await GroupInviteStaging.foldPending(
+            query: "npub1carol",
+            isIdentifier: true,
+            resolved: nil,
+            resolve: { _ in carol },
+            into: [alice],
+            lockedMemberIds: [],
+            isBlocked: { $0 == Self.carolAccountIdHex }
+        )
+
+        #expect(outcome == .blocked)
+        #expect(outcome.errorMessage == L10n.string("You blocked this user"))
+        // Control: the same person, not blocked, is staged.
+        #expect(
+            GroupInviteStaging.stage(carol, into: [alice], lockedMemberIds: [], isBlocked: { _ in false })
+                == .staged([alice, carol]))
     }
 
     @MainActor

@@ -25,6 +25,8 @@ struct GroupDetailsSheet: View {
     let conversationModel: ConversationViewModel
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
+    /// Whether the account blocked this account id hex, for the add-members sheet.
+    let isBlocked: (String) -> Bool
 
     private var canModerate: Bool {
         !chat.isDirect && conversationModel.snapshot?.header.capabilities.isSelfAdmin == true
@@ -216,7 +218,8 @@ struct GroupDetailsSheet: View {
         }
         .sheet(isPresented: $isAddMembersPresented) {
             GroupAddMembersSheet(
-                existingMemberIds: Set(workspace.groupDetailsSnapshot?.members.map(\.id) ?? [])
+                existingMemberIds: Set(workspace.groupDetailsSnapshot?.members.map(\.id) ?? []),
+                isBlocked: isBlocked
             )
             .environment(\.locale, workspace.preferredLocale)
         }
