@@ -778,19 +778,35 @@ nonisolated extension MessageItem {
             position: .subject
         )
 
+        // See `adminAddedText`: every "you" case has its own key rather than splicing "You".
+        let actorIsYou = isActiveAccount(event.actorAccountIdHex, activeAccountIdHex)
+        let subjectIsYou = isActiveAccount(event.subjectAccountIdHex, activeAccountIdHex)
+
         if let actorName, let subjectName {
             if event.actorAccountIdHex == event.subjectAccountIdHex {
+                if subjectIsYou {
+                    return L10n.string("You joined")
+                }
                 return String(format: L10n.string("%@ joined"), subjectStartName ?? actorName)
+            }
+            if actorIsYou {
+                return String(format: L10n.string("You added %@"), subjectName)
+            }
+            if subjectIsYou {
+                return String(format: L10n.string("%@ added you"), actorName)
             }
             return String(format: L10n.string("%@ added %@"), actorName, subjectName)
         }
         if let subjectStartName {
-            if event.subjectAccountIdHex == activeAccountIdHex {
+            if subjectIsYou {
                 return L10n.string("You were added")
             }
             return String(format: L10n.string("%@ was added"), subjectStartName)
         }
         if let actorName {
+            if actorIsYou {
+                return L10n.string("You added a member")
+            }
             return String(format: L10n.string("%@ added a member"), actorName)
         }
         return nil
@@ -820,22 +836,35 @@ nonisolated extension MessageItem {
             position: .subject
         )
 
+        // See `adminAddedText`: every "you" case has its own key rather than splicing "You".
+        let actorIsYou = isActiveAccount(event.actorAccountIdHex, activeAccountIdHex)
+        let subjectIsYou = isActiveAccount(event.subjectAccountIdHex, activeAccountIdHex)
+
         if let actorName, let subjectName {
             if event.actorAccountIdHex == event.subjectAccountIdHex {
+                if subjectIsYou {
+                    return L10n.string("You left the group")
+                }
                 return String(format: L10n.string("%@ left the group"), subjectStartName ?? actorName)
             }
-            if event.subjectAccountIdHex == activeAccountIdHex {
+            if actorIsYou {
+                return String(format: L10n.string("You removed %@"), subjectName)
+            }
+            if subjectIsYou {
                 return String(format: L10n.string("You were removed from the group by %@"), actorName)
             }
             return String(format: L10n.string("%@ removed %@"), actorName, subjectName)
         }
         if let subjectStartName {
-            if event.subjectAccountIdHex == activeAccountIdHex {
+            if subjectIsYou {
                 return L10n.string("You were removed")
             }
             return String(format: L10n.string("%@ was removed"), subjectStartName)
         }
         if let actorName {
+            if actorIsYou {
+                return L10n.string("You removed a member")
+            }
             return String(format: L10n.string("%@ removed a member"), actorName)
         }
         return nil
@@ -846,20 +875,18 @@ nonisolated extension MessageItem {
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile]
     ) -> String? {
-        let subjectName =
-            systemAccountName(
-                event.subjectAccountIdHex,
-                activeAccountIdHex: activeAccountIdHex,
-                senderProfiles: senderProfiles,
-                position: .subject
-            )
-            ?? systemAccountName(
-                event.actorAccountIdHex,
-                activeAccountIdHex: activeAccountIdHex,
-                senderProfiles: senderProfiles,
-                position: .subject
-            )
-        return subjectName.map { String(format: L10n.string("%@ left"), $0) }
+        // The leaver is the subject, or the actor when the core recorded no subject.
+        let leaverIdHex = nonBlank(event.subjectAccountIdHex) ?? nonBlank(event.actorAccountIdHex)
+        if isActiveAccount(leaverIdHex, activeAccountIdHex) {
+            return L10n.string("You left")
+        }
+        let leaverName = systemAccountName(
+            leaverIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+        return leaverName.map { String(format: L10n.string("%@ left"), $0) }
     }
 
     private static func adminAddedText(
@@ -886,9 +913,10 @@ nonisolated extension MessageItem {
             position: .subject
         )
 
-        // "You" is never spliced into a third-person template: Spanish, Italian, Portuguese,
-        // Russian and Turkish conjugate the verb for the subject, so "%@ made %@ an admin"
-        // with "You" reads "Tú nombró administrador a …". Each "you" case has its own key.
+        // "You" is never spliced into a third-person template: every target language except
+        // Chinese conjugates the verb (or case-marks the pronoun) for the subject, so
+        // "%@ made %@ an admin" with "You" reads "Tú nombró administrador a …". Each "you" case
+        // has its own key.
         let actorIsYou = isActiveAccount(event.actorAccountIdHex, activeAccountIdHex)
         let subjectIsYou = isActiveAccount(event.subjectAccountIdHex, activeAccountIdHex)
 
@@ -994,8 +1022,17 @@ nonisolated extension MessageItem {
         )
         let oldName = PeerDisplayText.sanitize(event.oldName)
         let isolatedName = PeerDisplayText.templateFragment(name)
+        // See `adminAddedText`: every "you" case has its own key rather than splicing "You".
+        let actorIsYou = isActiveAccount(event.actorAccountIdHex, activeAccountIdHex)
 
         if let actorName, let oldName {
+            if actorIsYou {
+                return String(
+                    format: L10n.string("You renamed the group from \"%@\" to \"%@\""),
+                    PeerDisplayText.templateFragment(oldName),
+                    isolatedName
+                )
+            }
             return String(
                 format: L10n.string("%@ renamed the group from \"%@\" to \"%@\""),
                 actorName,
@@ -1004,6 +1041,9 @@ nonisolated extension MessageItem {
             )
         }
         if let actorName {
+            if actorIsYou {
+                return String(format: L10n.string("You renamed the group to \"%@\""), isolatedName)
+            }
             return String(format: L10n.string("%@ renamed the group to \"%@\""), actorName, isolatedName)
         }
         if let oldName {
@@ -1028,6 +1068,10 @@ nonisolated extension MessageItem {
             position: .subject
         )
         if let actorName {
+            // See `adminAddedText`: every "you" case has its own key rather than splicing "You".
+            if isActiveAccount(event.actorAccountIdHex, activeAccountIdHex) {
+                return L10n.string("You changed the group avatar")
+            }
             return String(format: L10n.string("%@ changed the group avatar"), actorName)
         }
         return L10n.string("The group avatar changed")
@@ -1046,8 +1090,17 @@ nonisolated extension MessageItem {
         )
         let newLabel = event.newRetentionSeconds.map(retentionDurationLabel)
         let oldLabel = event.oldRetentionSeconds.map(retentionDurationLabel)
+        // See `adminAddedText`: every "you" case has its own key rather than splicing "You".
+        let actorIsYou = isActiveAccount(event.actorAccountIdHex, activeAccountIdHex)
 
         if let actorName, let oldLabel, let newLabel {
+            if actorIsYou {
+                return String(
+                    format: L10n.string("You changed disappearing messages from %@ to %@"),
+                    oldLabel,
+                    newLabel
+                )
+            }
             return String(
                 format: L10n.string("%@ changed disappearing messages from %@ to %@"),
                 actorName,
@@ -1059,12 +1112,18 @@ nonisolated extension MessageItem {
             return String(format: L10n.string("Disappearing messages changed from %@ to %@"), oldLabel, newLabel)
         }
         if let actorName, let newLabel {
+            if actorIsYou {
+                return String(format: L10n.string("You set disappearing messages to %@"), newLabel)
+            }
             return String(format: L10n.string("%@ set disappearing messages to %@"), actorName, newLabel)
         }
         if let newLabel {
             return String(format: L10n.string("Disappearing messages set to %@"), newLabel)
         }
         if let actorName {
+            if actorIsYou {
+                return L10n.string("You changed disappearing messages")
+            }
             return String(format: L10n.string("%@ changed disappearing messages"), actorName)
         }
         return nil
@@ -1077,7 +1136,7 @@ nonisolated extension MessageItem {
         position: SystemAccountNamePosition
     ) -> String? {
         guard let accountIdHex = nonBlank(accountIdHex) else { return nil }
-        if accountIdHex == activeAccountIdHex {
+        if isActiveAccount(accountIdHex, activeAccountIdHex) {
             switch position {
             case .subject:
                 return L10n.string("You")

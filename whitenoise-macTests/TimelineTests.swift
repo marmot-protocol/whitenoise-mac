@@ -1763,14 +1763,140 @@ struct TimelineTests: WorkspaceTestSupport {
             ])
     }
 
+    @MainActor
+    @Test func timelineMappingGivesEveryYouMemberAndGroupEventItsOwnSentence() async throws {
+        let alice = String(repeating: "a", count: 64)
+        let bob = String(repeating: "b", count: 64)
+        let profiles = [
+            alice: ChatPeerProfile(accountIdHex: alice, displayName: "Alice", pictureURL: nil),
+            bob: ChatPeerProfile(accountIdHex: bob, displayName: "Bob", pictureURL: nil),
+        ]
+
+        func event(
+            _ id: String,
+            _ systemType: String,
+            actor: String?,
+            subject: String? = nil,
+            name: String? = nil,
+            oldName: String? = nil,
+            oldRetentionSeconds: UInt64? = nil,
+            newRetentionSeconds: UInt64? = nil,
+            at: UInt64
+        ) -> TimelineMessageRecordFfi {
+            timelineMessage(
+                id: id,
+                groupIdHex: "group",
+                sender: "",
+                plaintext: "",
+                kind: 1210,
+                recordedAt: at,
+                groupSystem: groupSystemEvent(
+                    systemType: systemType,
+                    text: "Group changed",
+                    actorAccountIdHex: actor,
+                    subjectAccountIdHex: subject,
+                    name: name,
+                    oldName: oldName,
+                    oldRetentionSeconds: oldRetentionSeconds,
+                    newRetentionSeconds: newRetentionSeconds
+                )
+            )
+        }
+
+        let page = TimelinePageFfi(
+            messages: [
+                event("added-other", "member_added", actor: alice, subject: bob, at: 1),
+                event("added-by-bob", "member_added", actor: bob, subject: alice, at: 2),
+                event("joined", "member_added", actor: alice, subject: alice, at: 3),
+                event("added-unknown", "member_added", actor: alice, at: 4),
+                event("removed-other", "member_removed", actor: alice, subject: bob, at: 5),
+                event("removed-self", "member_removed", actor: alice, subject: alice, at: 6),
+                event("removed-unknown", "member_removed", actor: alice, at: 7),
+                event("left-as-subject", "member_left", actor: nil, subject: alice, at: 8),
+                event("left-as-actor", "member_left", actor: alice, at: 9),
+                event("renamed-from", "group_renamed", actor: alice, name: "Team Two", oldName: "Team One", at: 10),
+                event("renamed-to", "group_renamed", actor: alice, name: "Team Two", at: 11),
+                event("avatar", "group_avatar_changed", actor: alice, at: 12),
+                event(
+                    "timer-from",
+                    "disappearing_timer_changed",
+                    actor: alice,
+                    oldRetentionSeconds: 0,
+                    newRetentionSeconds: 604_800,
+                    at: 13
+                ),
+                event("timer-set", "disappearing_timer_changed", actor: alice, newRetentionSeconds: 604_800, at: 14),
+                event("timer-changed", "disappearing_timer_changed", actor: alice, at: 15),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        // Same contract as the admin events: "You" is never spliced into a third-person
+        // template ("Tú añadió a Bob", "Du hat Bob hinzugefügt"). Asserting through the keys
+        // pins which sentence was chosen in whatever language the host runs.
+        let off = L10n.string("off")
+        let oneWeek = L10n.plural("%llu weeks", UInt64(1))
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: alice, senderProfiles: profiles)
+        #expect(
+            messages.map(\.body) == [
+                String(format: L10n.string("You added %@"), isolated("Bob")),
+                String(format: L10n.string("%@ added you"), isolated("Bob")),
+                L10n.string("You joined"),
+                L10n.string("You added a member"),
+                String(format: L10n.string("You removed %@"), isolated("Bob")),
+                L10n.string("You left the group"),
+                L10n.string("You removed a member"),
+                L10n.string("You left"),
+                L10n.string("You left"),
+                String(
+                    format: L10n.string("You renamed the group from \"%@\" to \"%@\""),
+                    isolated("Team One"),
+                    isolated("Team Two")
+                ),
+                String(format: L10n.string("You renamed the group to \"%@\""), isolated("Team Two")),
+                L10n.string("You changed the group avatar"),
+                String(format: L10n.string("You changed disappearing messages from %@ to %@"), off, oneWeek),
+                String(format: L10n.string("You set disappearing messages to %@"), oneWeek),
+                L10n.string("You changed disappearing messages"),
+            ])
+    }
+
+    @Test func spanishMemberAndGroupSentencesConjugateForYou() {
+        let spanish = Locale(identifier: "es")
+        #expect(L10n.string("You added %@", locale: spanish) == "Añadiste a %@")
+        #expect(L10n.string("%@ added you", locale: spanish) == "%@ te añadió")
+        #expect(L10n.string("You joined", locale: spanish) == "Te uniste")
+        #expect(L10n.string("You left", locale: spanish) == "Saliste")
+        #expect(L10n.string("You left the group", locale: spanish) == "Saliste del grupo")
+        #expect(L10n.string("You removed %@", locale: spanish) == "Eliminaste a %@")
+        #expect(L10n.string("You added a member", locale: spanish) == "Añadiste a un miembro")
+        #expect(L10n.string("You removed a member", locale: spanish) == "Eliminaste a un miembro")
+        #expect(
+            L10n.string("You renamed the group to \"%@\"", locale: spanish) == "Cambiaste el nombre del grupo a «%@»")
+        #expect(
+            L10n.string("You renamed the group from \"%@\" to \"%@\"", locale: spanish)
+                == "Cambiaste el nombre del grupo de «%@» a «%@»")
+        #expect(L10n.string("You changed the group avatar", locale: spanish) == "Cambiaste la imagen del grupo")
+        #expect(
+            L10n.string("You set disappearing messages to %@", locale: spanish)
+                == "Estableciste los mensajes temporales en %@")
+        #expect(
+            L10n.string("You changed disappearing messages from %@ to %@", locale: spanish)
+                == "Cambiaste los mensajes temporales de %@ a %@")
+        #expect(
+            L10n.string("You changed disappearing messages", locale: spanish) == "Cambiaste los mensajes temporales")
+    }
+
     @Test func spanishAdminSentencesConjugateForYou() {
         let spanish = Locale(identifier: "es")
         #expect(L10n.string("You made %@ an admin", locale: spanish) == "Nombraste administrador a %@")
         #expect(L10n.string("%@ made you an admin", locale: spanish) == "%@ te nombró administrador")
         #expect(L10n.string("You became an admin", locale: spanish) == "Ahora eres administrador")
         #expect(L10n.string("You added an admin", locale: spanish) == "Añadiste un administrador")
-        #expect(L10n.string("You removed %@ as admin", locale: spanish) == "Quitaste a %@ como administrador")
+        #expect(L10n.string("You removed %@ as admin", locale: spanish) == "Eliminaste a %@ como administrador")
         #expect(L10n.string("You removed an admin", locale: spanish) == "Eliminaste a un administrador")
+        #expect(L10n.string("%@ removed an admin", locale: spanish) == "%@ eliminó a un administrador")
     }
 
     @MainActor
