@@ -17,6 +17,7 @@ import SwiftUI
 
 private struct ChatDestructiveActionsConfirmationModifier: ViewModifier {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
 
     func body(content: Content) -> some View {
         @Bindable var workspace = workspace
@@ -34,7 +35,10 @@ private struct ChatDestructiveActionsConfirmationModifier: ViewModifier {
                 presenting: workspace.chatPendingLeave
             ) { target in
                 Button(L10n.string("Leave Chat"), role: .destructive) {
-                    Task { await workspace.confirmChatLeave(target) }
+                    Task {
+                        await workspace.confirmChatLeave(
+                            target, advisory: session.accountScope?.groupChangeAdvisory)
+                    }
                 }
                 .disabled(workspace.leavingChatId != nil)
                 Button(L10n.string("Cancel"), role: .cancel) {}

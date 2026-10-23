@@ -94,6 +94,11 @@ struct whitenoise_macApp: App {
             relayListsDidChange: { [weak workspace] in
                 guard let workspace, let accountID = activatingAccountID else { return }
                 workspace.peerProfileLookupRelaysByAccountId[accountID] = nil
+            },
+            // Manage Storage removed attachments MDK holds; the host's decrypted copies of them
+            // would otherwise keep showing as downloaded. Open conversations re-read through MDK.
+            attachmentsDidChange: { [weak workspace] in
+                await workspace?.clearMediaCache()
             }
         )
         guard let scope = session.accountScope else { return }

@@ -53,6 +53,7 @@ struct GroupDiagnosticsValueRow: View {
 
 struct GroupMemberRow: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     @State private var showRemoveConfirmation = false
     let member: GroupMemberItem
     var avatar = GroupMemberAvatar()
@@ -122,7 +123,10 @@ struct GroupMemberRow: View {
                     Group {
                         if member.canPromote {
                             Button {
-                                Task { await workspace.promoteGroupMember(member) }
+                                Task {
+                                    await workspace.promoteGroupMember(
+                                        member, advisory: session.accountScope?.groupChangeAdvisory)
+                                }
                             } label: {
                                 Label(L10n.string("Make Admin"), systemImage: "star")
                             }
@@ -130,7 +134,10 @@ struct GroupMemberRow: View {
 
                         if member.canDemote {
                             Button {
-                                Task { await workspace.demoteGroupMember(member) }
+                                Task {
+                                    await workspace.demoteGroupMember(
+                                        member, advisory: session.accountScope?.groupChangeAdvisory)
+                                }
                             } label: {
                                 Label(
                                     member.isSelf ? L10n.string("Demote Myself") : L10n.string("Remove Admin"),
@@ -162,7 +169,9 @@ struct GroupMemberRow: View {
             titleVisibility: .visible
         ) {
             Button(L10n.string("Remove from Group"), role: .destructive) {
-                Task { await workspace.removeGroupMember(member) }
+                Task {
+                    await workspace.removeGroupMember(member, advisory: session.accountScope?.groupChangeAdvisory)
+                }
             }
             .disabled(workspace.hasInFlightGroupCommit)
             Button(L10n.string("Cancel"), role: .cancel) {}
@@ -241,6 +250,9 @@ struct GroupImagePickerSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var isFileImporterPresented = false
     @State private var cropModel: AvatarCropViewModel?
+    /// One prompter per host: Clear asks from this sheet, a crop commit from the crop sheet over it.
+    @State private var clearAdvisory = GroupChangeAdvisoryPrompter()
+    @State private var cropAdvisory = GroupChangeAdvisoryPrompter()
 
     private let columns = [
         GridItem(.adaptive(minimum: 132, maximum: 168), spacing: 12)
@@ -333,7 +345,7 @@ struct GroupImagePickerSheet: View {
 
                         if chat.pictureURL != nil || chat.groupImageHashHex != nil {
                             Button {
-                                Task { await workspace.clearGroupImage() }
+                                Task { await workspace.clearGroupImage(advisory: clearAdvisory) }
                             } label: {
                                 Label(L10n.string("Clear"), systemImage: "xmark.circle")
                             }
@@ -394,7 +406,12 @@ struct GroupImagePickerSheet: View {
                 workspace.reportUserActionError(error.localizedDescription)
             }
         }
-        .avatarCropSheet($cropModel)
+        .avatarCropSheet($cropModel, advisory: cropAdvisory)
+        .groupChangeAdvisoryAlert(clearAdvisory)
+        .onDisappear {
+            clearAdvisory.cancelPending()
+            cropAdvisory.cancelPending()
+        }
     }
 
     /// Opens the crop editor on whichever source was picked. Committing the crop closes this sheet
@@ -402,8 +419,8 @@ struct GroupImagePickerSheet: View {
     private func crop(loadData: @escaping @MainActor () async throws -> Data) {
         cropModel = AvatarCropViewModel(
             loadData: loadData,
-            commit: { [workspace] data in
-                try await workspace.setGroupImage(croppedImageData: data)
+            commit: { [workspace, cropAdvisory] data in
+                try await workspace.setGroupImage(croppedImageData: data, advisory: cropAdvisory)
             }
         )
     }

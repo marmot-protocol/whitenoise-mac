@@ -31,6 +31,8 @@ struct ContentView: View {
             // Attached here, not on the conversation pane: a chat-list delete is most likely with
             // no chat selected, and the sidebar row menu cannot host its own dialog.
             .chatDestructiveActionsConfirmation()
+            // Group changes made from the panes ask here. Sheets that make one host their own.
+            .groupChangeAdvisoryAlert(session.accountScope?.groupChangeAdvisory)
             // App-wide default: static text is selectable, so anything on screen — a startup
             // failure message, a relay URL, an npub, a profile field — can be selected and
             // copied without the view having to opt in. `.textSelection` propagates through the

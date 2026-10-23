@@ -20,6 +20,9 @@ final class AccountScope {
     let blockedUsers: BlockedUsersViewModel
     let onboarding: OnboardingCoordinator
     let historyNotices: HistoryNoticesViewModel
+    /// Asks before a group change MDK refused as advisory (`GroupCatchingUp`,
+    /// `GroupCommitUndelivered`) is acknowledged and retried.
+    let groupChangeAdvisory = GroupChangeAdvisoryPrompter()
     let productAnalytics: ProductAnalyticsRecorder
     private(set) var selectedConversationModel: ConversationViewModel?
     @ObservationIgnored private var attachmentPolicyTask: Task<Void, Never>?
@@ -31,11 +34,17 @@ final class AccountScope {
     init(
         account: AccountItem,
         runtime: any MarmotRuntime,
-        relayListsDidChange: @escaping @MainActor () -> Void = {}
+        relayListsDidChange: @escaping @MainActor () -> Void = {},
+        attachmentsDidChange: @escaping @MainActor () async -> Void = {}
     ) {
         let attachmentPolicy = AttachmentPolicyController(accountRef: account.accountRef, runtime: runtime)
         let blockedUsers = BlockedUsersViewModel(accountRef: account.accountRef, runtime: runtime)
         let productAnalytics = ProductAnalyticsRecorder()
+        let chatListModel = ChatListViewModel(
+            account: account,
+            runtime: runtime,
+            blockedUsersModel: blockedUsers
+        )
         self.account = account
         self.runtime = runtime
         self.settingsModel = SettingsViewModel(
@@ -44,13 +53,11 @@ final class AccountScope {
             attachmentPolicyController: attachmentPolicy,
             blockedUsersModel: blockedUsers,
             productAnalytics: productAnalytics,
-            relayListsDidChange: relayListsDidChange
+            chatListModel: chatListModel,
+            relayListsDidChange: relayListsDidChange,
+            attachmentsDidChange: attachmentsDidChange
         )
-        self.chatListModel = ChatListViewModel(
-            account: account,
-            runtime: runtime,
-            blockedUsersModel: blockedUsers
-        )
+        self.chatListModel = chatListModel
         self.attentionModel = AccountAttentionViewModel(runtime: runtime)
         self.attachmentPolicy = attachmentPolicy
         self.avatarAssets = AvatarAssetStore(accountRef: account.accountRef, runtime: runtime)
@@ -74,13 +81,17 @@ final class AccountScope {
             await settingsModel.diagnostics.load()
         }
         addCancellation {
-            [chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, productAnalytics, settingsModel]
-            in
+            [
+                chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, productAnalytics,
+                settingsModel, groupChangeAdvisory
+            ] in
             chatListModel.stop()
             attentionModel.stop()
             blockedUsers.stop()
             onboarding.stop()
             historyNotices.stop()
+            // A pending prompt belongs to this account's change: Wait it out rather than strand it.
+            groupChangeAdvisory.cancelPending()
             productAnalytics.deactivate()
             settingsModel.deactivate()
         }

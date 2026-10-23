@@ -105,6 +105,25 @@ nonisolated protocol MarmotRuntime: Sendable {
     func requestAvatarAssets(accountRef: String, targets: [String]) async throws -> [AvatarAssetFfi]
     func readAvatarAssets(accountRef: String, references: [String], maxBytes: UInt64) async throws -> [AvatarBytesFfi]
     func clearAvatarCache(accountRef: String) async throws
+    /// Manage Storage: one profile's retained-attachment figures, largest-first listings and bulk
+    /// removals. MDK owns the bytes; these only read and ask it to remove.
+    func attachmentStorageUsage(accountRef: String) async throws -> AttachmentStorageUsageFfi
+    func attachmentStorageByChat(accountRef: String, limit: UInt32, cursor: ChatStorageCursor?) async throws
+        -> ChatStoragePageFfi
+    func largestRetainedAttachments(
+        accountRef: String, groupIdHex: String?, limit: UInt32, cursor: RetainedAttachmentsCursor?
+    ) async throws -> RetainedAttachmentsPageFfi
+    func removeChatAttachments(accountRef: String, groupIdHex: String) async throws -> UInt64
+    func removeAttachmentsOlderThan(accountRef: String, receivedBefore: UInt64, groupIdHex: String?) async throws
+        -> UInt64
+    /// A private plaintext copy of one retained attachment for an OS surface (opening a document in
+    /// another app). Nil when MDK holds no local copy of that slot. Cancel only through `control`.
+    func openAttachmentHandoff(
+        accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi,
+        control: MediaFileTransferControlFfi
+    ) async throws -> AttachmentHandoffFfi?
+    /// Deletes a handoff copy. Idempotent; leases are process-wide, not per runtime.
+    func releaseAttachmentHandoff(lease: String) async throws
     func getBlockedUsers(accountRef: String) throws -> [BlockedUserFfi]
     func subscribeBlockedUsers(accountRef: String) throws -> BlockListSubscription
     func blockedUsersSnapshot(subscription: BlockListSubscription) -> BlockListSnapshotFfi?
@@ -189,6 +208,12 @@ nonisolated protocol MarmotRuntime: Sendable {
     func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
         -> GroupMutationResultFfi
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi
+    /// Admits one group-change attempt after the user accepts a `GroupCatchingUp` refusal. Not
+    /// persisted; `false` means the group is no longer catching up, and retrying is still correct.
+    func acknowledgeGroupCatchingUp(accountRef: String, groupIdHex: String) async throws -> Bool
+    /// Admits one group-change attempt after the user accepts a `GroupCommitUndelivered` refusal.
+    /// Not persisted; `false` means no relay is owed the last change any more.
+    func acknowledgeGroupCommitUndelivered(accountRef: String, groupIdHex: String) async throws -> Bool
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?)
         async throws -> SendSummaryFfi
@@ -394,7 +419,10 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             options: MarmotOptions(
                 cursorPersistence: cursorPersistence,
                 clientName: "whitenoise",
-                attachmentAcquisitionMode: .hostManaged
+                attachmentAcquisitionMode: .hostManaged,
+                // White Noise's deployment keeps the keychain service existing installs
+                // already use (`com.marmot.whitenoise`); never substitute the neutral one.
+                deployment: marmotDeploymentWhiteNoise()
             )
         )
     }
@@ -698,6 +726,46 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func clearAvatarCache(accountRef: String) async throws {
         try await marmot.clearAvatarCache(accountRef: accountRef)
+    }
+
+    func attachmentStorageUsage(accountRef: String) async throws -> AttachmentStorageUsageFfi {
+        try await marmot.attachmentStorageUsage(accountRef: accountRef)
+    }
+
+    func attachmentStorageByChat(accountRef: String, limit: UInt32, cursor: ChatStorageCursor?) async throws
+        -> ChatStoragePageFfi
+    {
+        try await marmot.attachmentStorageByChat(accountRef: accountRef, limit: limit, cursor: cursor)
+    }
+
+    func largestRetainedAttachments(
+        accountRef: String, groupIdHex: String?, limit: UInt32, cursor: RetainedAttachmentsCursor?
+    ) async throws -> RetainedAttachmentsPageFfi {
+        try await marmot.largestRetainedAttachments(
+            accountRef: accountRef, groupIdHex: groupIdHex, limit: limit, cursor: cursor)
+    }
+
+    func removeChatAttachments(accountRef: String, groupIdHex: String) async throws -> UInt64 {
+        try await marmot.removeChatAttachments(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func removeAttachmentsOlderThan(accountRef: String, receivedBefore: UInt64, groupIdHex: String?) async throws
+        -> UInt64
+    {
+        try await marmot.removeAttachmentsOlderThan(
+            accountRef: accountRef, receivedBefore: receivedBefore, groupIdHex: groupIdHex)
+    }
+
+    func openAttachmentHandoff(
+        accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi,
+        control: MediaFileTransferControlFfi
+    ) async throws -> AttachmentHandoffFfi? {
+        try await marmot.openAttachmentHandoff(
+            accountRef: accountRef, groupIdHex: groupIdHex, target: target, control: control)
+    }
+
+    func releaseAttachmentHandoff(lease: String) async throws {
+        try await marmot.releaseAttachmentHandoff(lease: lease)
     }
 
     func getBlockedUsers(accountRef: String) throws -> [BlockedUserFfi] {
@@ -1029,6 +1097,14 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
         try await marmot.selfDemoteAdminDetailed(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func acknowledgeGroupCatchingUp(accountRef: String, groupIdHex: String) async throws -> Bool {
+        try await marmot.acknowledgeGroupCatchingUp(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func acknowledgeGroupCommitUndelivered(accountRef: String, groupIdHex: String) async throws -> Bool {
+        try await marmot.acknowledgeGroupCommitUndelivered(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi {
@@ -1618,6 +1694,7 @@ nonisolated enum MarmotStorageRoot {
             guard isDirectory.boolValue else {
                 throw MarmotStorageRootError.rootIsNotDirectory(path: root.path)
             }
+            excludeFromBackup(root)
             return root.path
         }
 
@@ -1627,7 +1704,19 @@ nonisolated enum MarmotStorageRoot {
             throw MarmotStorageRootError.createDirectoryFailed(path: root.path, underlying: error)
         }
 
+        excludeFromBackup(root)
         return root.path
+    }
+
+    /// MDK keeps account databases and encrypted `media/` files here with
+    /// device-bound keys, so a restored copy is unreadable; MDK requires hosts
+    /// to keep the account directory out of backups (Time Machine and iCloud).
+    /// Best-effort: a failure must not block opening the store.
+    static func excludeFromBackup(_ url: URL) {
+        var url = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? url.setResourceValues(values)
     }
 
     // Best-effort display label used before bootstrap; resolve() is the authoritative path.

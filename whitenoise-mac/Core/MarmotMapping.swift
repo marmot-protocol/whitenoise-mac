@@ -1463,7 +1463,8 @@ nonisolated enum MessageMediaParser {
                             reference: reference,
                             index: Int(attachmentIndex)
                         ),
-                        reference: reference
+                        reference: reference,
+                        attachmentIndex: attachmentIndex
                     )
                 case .rejected(let attachmentIndex, let rejection):
                     return MessageMediaAttachment.rejected(

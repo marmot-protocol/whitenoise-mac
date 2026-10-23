@@ -22,6 +22,9 @@ private struct GroupImageUpdateContext {
     let groupIdHex: String
     let hadLegacyURLAvatar: Bool
     let hadEncryptedImage: Bool
+    let advisory: GroupChangeAdvisoryPrompter?
+    /// The swap and the legacy-URL clear are two commits but one change to the user: one prompt.
+    let consents = GroupChangeAdvisoryConsents()
 }
 
 private enum GroupImageSelectionError: LocalizedError {
@@ -429,7 +432,10 @@ extension WorkspaceState {
         await loadGroupDetails(groupIdHex: selectedChat.id)
     }
 
-    func saveGroupProfile() async {
+    /// `advisory` asks before an advisory refusal (`GroupCatchingUp`, `GroupCommitUndelivered`) is
+    /// acknowledged and retried; without one the refusal is reported as declined. The same holds
+    /// for every group change below that takes it.
+    func saveGroupProfile(advisory: GroupChangeAdvisoryPrompter? = nil) async {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
@@ -450,12 +456,17 @@ extension WorkspaceState {
         defer { isSavingGroupProfile = false }
 
         do {
-            _ = try await client.updateGroupProfile(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: snapshot.groupIdHex,
-                name: trimmedName.isEmpty ? nil : trimmedName,
-                description: trimmedDescription
-            )
+            _ = try await GroupChangeAdvisoryRetry.perform(
+                prompter: advisory, runtime: client, accountRef: activeAccount.accountRef,
+                groupIdHex: snapshot.groupIdHex
+            ) {
+                try await client.updateGroupProfile(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: snapshot.groupIdHex,
+                    name: trimmedName.isEmpty ? nil : trimmedName,
+                    description: trimmedDescription
+                )
+            }
             await reloadChats(forceFreshSnapshot: true)
             await loadGroupDetails(groupIdHex: snapshot.groupIdHex)
         } catch {
@@ -463,7 +474,7 @@ extension WorkspaceState {
         }
     }
 
-    func inviteMemberToSelectedGroup() async {
+    func inviteMemberToSelectedGroup(advisory: GroupChangeAdvisoryPrompter? = nil) async {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
@@ -494,11 +505,16 @@ extension WorkspaceState {
                     groupIdHex: groupIdHex
                 )
             else { return }
-            let result = try await client.inviteMembersDetailed(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: groupIdHex,
-                memberRefs: [normalized.npub]
-            )
+            let result = try await GroupChangeAdvisoryRetry.perform(
+                prompter: advisory, isInvite: true, runtime: client, accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            ) {
+                try await client.inviteMembersDetailed(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex,
+                    memberRefs: [normalized.npub]
+                )
+            }
             guard
                 isCurrentGroupDetailsMutation(
                     generation: generation,
@@ -547,7 +563,7 @@ extension WorkspaceState {
     /// draft does), never by `npub` alone, which silently dropped npub-less people from the invite.
     /// Returns `true` when the commit succeeded so the caller can dismiss only on success.
     @discardableResult
-    func inviteMembers(_ recipients: [NewChatRecipient]) async -> Bool {
+    func inviteMembers(_ recipients: [NewChatRecipient], advisory: GroupChangeAdvisoryPrompter? = nil) async -> Bool {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
@@ -580,14 +596,21 @@ extension WorkspaceState {
         // sheet changing its mind rather than as the single answer this press has.
         var discovered: Set<String> = []
         defer { unreachableInviteMemberIdHexes.formUnion(discovered) }
+        // Chasing refusals makes several attempts; the user is asked about an advisory once.
+        let consents = GroupChangeAdvisoryConsents()
         while !candidates.isEmpty {
             let attempt = candidates + (pinnedRefusal.map { [$0] } ?? [])
             do {
-                let result = try await client.inviteMembersDetailed(
-                    accountRef: activeAccount.accountRef,
-                    groupIdHex: groupIdHex,
-                    memberRefs: attempt.map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef }
-                )
+                let result = try await GroupChangeAdvisoryRetry.perform(
+                    prompter: advisory, consents: consents, isInvite: true, runtime: client,
+                    accountRef: activeAccount.accountRef, groupIdHex: groupIdHex
+                ) {
+                    try await client.inviteMembersDetailed(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: groupIdHex,
+                        memberRefs: attempt.map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef }
+                    )
+                }
                 guard
                     isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
                 else { return false }
@@ -598,6 +621,18 @@ extension WorkspaceState {
                 guard
                     isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
                 else { return false }
+                if error is GroupChangeAdvisoryDeclined || GroupChangeAdvisory(error: error) != nil {
+                    // Nothing was committed and nobody was refused: the group itself is what the
+                    // core held back, so there is no one to probe for.
+                    lastError = error.localizedDescription
+                    return false
+                }
+                if case .needsAppUpdate = ChatCreationFailure(error) {
+                    // On White Noise with an outdated app: not a "can't be added" mark, and nothing
+                    // to enumerate — the error line names them and asks them to update.
+                    lastError = ChatCreationFailure.message(for: error, candidates: attempt)
+                    return false
+                }
                 if case .notOnWhiteNoise(let account) = ChatCreationFailure(error),
                     let refused = ChatCreationFailure.refusedRecipient(named: account, among: attempt),
                     let index = candidates.firstIndex(where: {
@@ -763,19 +798,19 @@ extension WorkspaceState {
         await declineGroupInvite(groupIdHex: snapshot.groupIdHex)
     }
 
-    func promoteGroupMember(_ member: GroupMemberItem) async {
-        await mutateGroupMember(member, action: .promote)
+    func promoteGroupMember(_ member: GroupMemberItem, advisory: GroupChangeAdvisoryPrompter? = nil) async {
+        await mutateGroupMember(member, action: .promote, advisory: advisory)
     }
 
-    func demoteGroupMember(_ member: GroupMemberItem) async {
-        await mutateGroupMember(member, action: .demote)
+    func demoteGroupMember(_ member: GroupMemberItem, advisory: GroupChangeAdvisoryPrompter? = nil) async {
+        await mutateGroupMember(member, action: .demote, advisory: advisory)
     }
 
-    func removeGroupMember(_ member: GroupMemberItem) async {
-        await mutateGroupMember(member, action: .remove)
+    func removeGroupMember(_ member: GroupMemberItem, advisory: GroupChangeAdvisoryPrompter? = nil) async {
+        await mutateGroupMember(member, action: .remove, advisory: advisory)
     }
 
-    func selfDemoteSelectedGroupAdmin() async {
+    func selfDemoteSelectedGroupAdmin(advisory: GroupChangeAdvisoryPrompter? = nil) async {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
@@ -795,10 +830,14 @@ extension WorkspaceState {
         defer { mutatingGroupMemberId = nil }
 
         do {
-            let result = try await client.selfDemoteAdminDetailed(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: groupIdHex
-            )
+            let result = try await GroupChangeAdvisoryRetry.perform(
+                prompter: advisory, runtime: client, accountRef: activeAccount.accountRef, groupIdHex: groupIdHex
+            ) {
+                try await client.selfDemoteAdminDetailed(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex
+                )
+            }
             guard
                 isCurrentGroupDetailsMutation(
                     generation: generation,
@@ -1058,7 +1097,11 @@ extension WorkspaceState {
     /// still admin, still a member — rather than half-way out. The leave itself goes through
     /// `confirmChatLeave`, which re-reads eligibility and owns the self-demote-then-remove sequence,
     /// so this method adds no second copy of that logic.
-    func confirmChatAdminHandoff(_ target: ChatAdminHandoffTarget, successor: GroupMemberItem) async {
+    func confirmChatAdminHandoff(
+        _ target: ChatAdminHandoffTarget,
+        successor: GroupMemberItem,
+        advisory: GroupChangeAdvisoryPrompter? = nil
+    ) async {
         guard let client,
             let activeAccount,
             leavingChatId == nil,
@@ -1075,12 +1118,19 @@ extension WorkspaceState {
             }
         }
 
+        // The promotion and the step-down after it are one action to the user: one prompt.
+        let consents = GroupChangeAdvisoryConsents()
         do {
-            let result = try await client.promoteAdminDetailed(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: groupIdHex,
-                memberRef: successor.npub
-            )
+            let result = try await GroupChangeAdvisoryRetry.perform(
+                prompter: advisory, consents: consents, runtime: client, accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            ) {
+                try await client.promoteAdminDetailed(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex,
+                    memberRef: successor.npub
+                )
+            }
             guard activeAccountId == accountId else { return }
             // The returned details describe `groupIdHex`, which is not necessarily the chat on
             // screen — so they may only be applied when it is. Otherwise just drop the stale roster
@@ -1090,6 +1140,10 @@ extension WorkspaceState {
             } else {
                 invalidateGroupMembers(for: groupIdHex)
             }
+        } catch let declined as GroupChangeAdvisoryDeclined {
+            guard activeAccountId == accountId else { return }
+            chatActionAlert = declined.advisory.waitedAlert
+            return
         } catch {
             guard activeAccountId == accountId else { return }
             chatActionAlert = .adminHandoffFailed()
@@ -1097,11 +1151,18 @@ extension WorkspaceState {
         }
 
         await confirmChatLeave(
-            ChatLeaveTarget(groupIdHex: groupIdHex, subject: target.subject, requiresSelfDemote: true)
+            ChatLeaveTarget(groupIdHex: groupIdHex, subject: target.subject, requiresSelfDemote: true),
+            advisory: advisory,
+            consents: consents
         )
     }
 
-    func confirmChatLeave(_ target: ChatLeaveTarget) async {
+    /// Leaving is never refused, but the admin step-down before it is a group change and can be.
+    func confirmChatLeave(
+        _ target: ChatLeaveTarget,
+        advisory: GroupChangeAdvisoryPrompter? = nil,
+        consents: GroupChangeAdvisoryConsents? = nil
+    ) async {
         guard let client,
             let activeAccount,
             leavingChatId == nil
@@ -1146,10 +1207,15 @@ extension WorkspaceState {
             }
 
             if ChatDestructiveActions.shouldSelfDemoteBeforeLeave(eligibility) {
-                _ = try await client.selfDemoteAdminDetailed(
-                    accountRef: activeAccount.accountRef,
+                _ = try await GroupChangeAdvisoryRetry.perform(
+                    prompter: advisory, consents: consents, runtime: client, accountRef: activeAccount.accountRef,
                     groupIdHex: groupIdHex
-                )
+                ) {
+                    try await client.selfDemoteAdminDetailed(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: groupIdHex
+                    )
+                }
                 guard activeAccountId == accountId else { return }
             }
 
@@ -1163,6 +1229,11 @@ extension WorkspaceState {
                 closeGroupDetails()
             }
             await reloadChats(forceFreshSnapshot: true)
+        } catch let declined as GroupChangeAdvisoryDeclined {
+            // The user chose Wait on the step-down: nothing was published, so this is a note about
+            // the group, not "Couldn't leave chat".
+            guard activeAccountId == accountId else { return }
+            chatActionAlert = declined.advisory.waitedAlert
         } catch {
             guard activeAccountId == accountId else { return }
             // A leave the core already recorded is a success, not a failure: re-requesting inside
@@ -1286,9 +1357,9 @@ extension WorkspaceState {
     /// Throws what went wrong so the crop editor can show it beside the picture — including
     /// `CommitError.busy` while another change to the group is in flight, which the editor stays
     /// open over. An update with no group left to target returns quietly.
-    func setGroupImage(croppedImageData data: Data) async throws {
+    func setGroupImage(croppedImageData data: Data, advisory: GroupChangeAdvisoryPrompter? = nil) async throws {
         guard !hasInFlightGroupCommit else { throw AvatarImageCropper.CommitError.busy }
-        guard let context = beginGroupImageUpdate() else { return }
+        guard let context = beginGroupImageUpdate(advisory: advisory) else { return }
         defer { isSavingGroupImage = false }
 
         do {
@@ -1302,26 +1373,36 @@ extension WorkspaceState {
         }
     }
 
-    func clearGroupImage() async {
-        guard let context = beginGroupImageUpdate() else { return }
+    func clearGroupImage(advisory: GroupChangeAdvisoryPrompter? = nil) async {
+        guard let context = beginGroupImageUpdate(advisory: advisory) else { return }
         defer { isSavingGroupImage = false }
 
         do {
             guard groupImageUpdateStillTargetsSelection(context) else { return }
             if context.hadLegacyURLAvatar {
-                _ = try await context.client.updateGroupAvatarUrl(
-                    accountRef: context.accountRef,
-                    groupIdHex: context.groupIdHex,
-                    url: nil,
-                    dim: nil,
-                    thumbhash: nil
-                )
+                _ = try await GroupChangeAdvisoryRetry.perform(
+                    prompter: context.advisory, consents: context.consents, runtime: context.client,
+                    accountRef: context.accountRef, groupIdHex: context.groupIdHex
+                ) {
+                    try await context.client.updateGroupAvatarUrl(
+                        accountRef: context.accountRef,
+                        groupIdHex: context.groupIdHex,
+                        url: nil,
+                        dim: nil,
+                        thumbhash: nil
+                    )
+                }
             }
             if context.hadEncryptedImage {
-                _ = try await context.client.clearGroupImage(
-                    accountRef: context.accountRef,
-                    groupIdHex: context.groupIdHex
-                )
+                _ = try await GroupChangeAdvisoryRetry.perform(
+                    prompter: context.advisory, consents: context.consents, runtime: context.client,
+                    accountRef: context.accountRef, groupIdHex: context.groupIdHex
+                ) {
+                    try await context.client.clearGroupImage(
+                        accountRef: context.accountRef,
+                        groupIdHex: context.groupIdHex
+                    )
+                }
             }
             await finishGroupImageUpdate(context)
         } catch {
@@ -1329,7 +1410,7 @@ extension WorkspaceState {
         }
     }
 
-    private func beginGroupImageUpdate() -> GroupImageUpdateContext? {
+    private func beginGroupImageUpdate(advisory: GroupChangeAdvisoryPrompter?) -> GroupImageUpdateContext? {
         guard let client,
             let activeAccount,
             let selectedChat,
@@ -1344,7 +1425,8 @@ extension WorkspaceState {
             accountRef: activeAccount.accountRef,
             groupIdHex: selectedChat.id,
             hadLegacyURLAvatar: selectedChat.pictureURL != nil,
-            hadEncryptedImage: selectedChat.groupImageHashHex != nil
+            hadEncryptedImage: selectedChat.groupImageHashHex != nil,
+            advisory: advisory
         )
     }
 
@@ -1353,20 +1435,30 @@ extension WorkspaceState {
         context: GroupImageUpdateContext
     ) async throws {
         guard groupImageUpdateStillTargetsSelection(context) else { return }
-        _ = try await context.client.updateGroupImage(
-            accountRef: context.accountRef,
-            groupIdHex: context.groupIdHex,
-            plaintext: attachment.data,
-            mediaType: attachment.mediaType
-        )
-        if context.hadLegacyURLAvatar {
-            _ = try await context.client.updateGroupAvatarUrl(
+        _ = try await GroupChangeAdvisoryRetry.perform(
+            prompter: context.advisory, consents: context.consents, runtime: context.client,
+            accountRef: context.accountRef, groupIdHex: context.groupIdHex
+        ) {
+            try await context.client.updateGroupImage(
                 accountRef: context.accountRef,
                 groupIdHex: context.groupIdHex,
-                url: nil,
-                dim: nil,
-                thumbhash: nil
+                plaintext: attachment.data,
+                mediaType: attachment.mediaType
             )
+        }
+        if context.hadLegacyURLAvatar {
+            _ = try await GroupChangeAdvisoryRetry.perform(
+                prompter: context.advisory, consents: context.consents, runtime: context.client,
+                accountRef: context.accountRef, groupIdHex: context.groupIdHex
+            ) {
+                try await context.client.updateGroupAvatarUrl(
+                    accountRef: context.accountRef,
+                    groupIdHex: context.groupIdHex,
+                    url: nil,
+                    dim: nil,
+                    thumbhash: nil
+                )
+            }
         }
         await finishGroupImageUpdate(context)
     }
@@ -1445,7 +1537,9 @@ extension WorkspaceState {
         return true
     }
 
-    func setDisappearingMessages(groupIdHex: String, seconds: UInt64) async {
+    func setDisappearingMessages(
+        groupIdHex: String, seconds: UInt64, advisory: GroupChangeAdvisoryPrompter? = nil
+    ) async {
         guard let client, let activeAccount, !hasInFlightGroupCommit else { return }
         let accountId = activeAccount.id
         lastError = nil
@@ -1453,11 +1547,15 @@ extension WorkspaceState {
         defer { isUpdatingDisappearingMessages = false }
 
         do {
-            _ = try await client.updateMessageRetention(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: groupIdHex,
-                disappearingMessageSecs: seconds
-            )
+            _ = try await GroupChangeAdvisoryRetry.perform(
+                prompter: advisory, runtime: client, accountRef: activeAccount.accountRef, groupIdHex: groupIdHex
+            ) {
+                try await client.updateMessageRetention(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex,
+                    disappearingMessageSecs: seconds
+                )
+            }
             // The commit await may have suspended across an account switch — don't sync another
             // account's header.
             guard activeAccountId == accountId else { return }
@@ -1606,14 +1704,18 @@ extension WorkspaceState {
             || handingOffAdminChatId != nil
     }
 
-    func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
+    func mutateGroupMember(
+        _ member: GroupMemberItem,
+        action: GroupMemberMutationAction,
+        advisory: GroupChangeAdvisoryPrompter? = nil
+    ) async {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
             !hasInFlightGroupCommit
         else { return }
         if case .demote = action, member.isSelf {
-            await selfDemoteSelectedGroupAdmin()
+            await selfDemoteSelectedGroupAdmin(advisory: advisory)
             return
         }
         let accountId = activeAccount.id
@@ -1624,26 +1726,29 @@ extension WorkspaceState {
         defer { mutatingGroupMemberId = nil }
 
         do {
-            let result: GroupMutationResultFfi
-            switch action {
-            case .promote:
-                result = try await client.promoteAdminDetailed(
-                    accountRef: activeAccount.accountRef,
-                    groupIdHex: groupIdHex,
-                    memberRef: member.npub
-                )
-            case .demote:
-                result = try await client.demoteAdminDetailed(
-                    accountRef: activeAccount.accountRef,
-                    groupIdHex: groupIdHex,
-                    memberRef: member.npub
-                )
-            case .remove:
-                result = try await client.removeMembersDetailed(
-                    accountRef: activeAccount.accountRef,
-                    groupIdHex: groupIdHex,
-                    memberRefs: [member.npub]
-                )
+            let result = try await GroupChangeAdvisoryRetry.perform(
+                prompter: advisory, runtime: client, accountRef: activeAccount.accountRef, groupIdHex: groupIdHex
+            ) { () async throws -> GroupMutationResultFfi in
+                switch action {
+                case .promote:
+                    try await client.promoteAdminDetailed(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: groupIdHex,
+                        memberRef: member.npub
+                    )
+                case .demote:
+                    try await client.demoteAdminDetailed(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: groupIdHex,
+                        memberRef: member.npub
+                    )
+                case .remove:
+                    try await client.removeMembersDetailed(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: groupIdHex,
+                        memberRefs: [member.npub]
+                    )
+                }
             }
             guard
                 isCurrentGroupDetailsMutation(

@@ -889,6 +889,13 @@ extension WorkspaceState {
                 } else {
                     refused = nil
                 }
+                if case .needsAppUpdate = failure {
+                    // Someone here is on White Noise with an outdated app. Filing them under "not on
+                    // White Noise yet" would be wrong, and they are reachable once they update, so
+                    // the search stops and the error line names them.
+                    applyChatCreationFailure(error, recipients: attempt, surface: .groupDraft)
+                    return nil
+                }
                 guard let refused else {
                     // Nobody to pin this on. Either the refusal named no account — a KeyPackage that
                     // exists but can't be used — or the member stopping the create fails some other
@@ -1063,6 +1070,13 @@ extension WorkspaceState {
         switch ChatCreationFailure(error) {
         case .other(let message):
             lastError = message
+        case .needsAppUpdate(let account):
+            // Not an invitation: they already have White Noise and need to update it. A one-to-one
+            // attempt has exactly one recipient to name even when the core's label doesn't match.
+            let named =
+                ChatCreationFailure.refusedRecipient(named: account, among: recipients)
+                ?? (surface == .directChat ? recipients.first : nil)
+            lastError = ChatCreationFailure.needsAppUpdateMessage(recipientName: named?.title)
         case .notOnWhiteNoise(let account):
             if surface == .directChat, let recipient = recipients.first {
                 startChatInvitePrompt = StartChatInvitePrompt(

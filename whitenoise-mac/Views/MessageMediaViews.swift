@@ -11,6 +11,7 @@
 import AVFoundation
 import AVKit
 import AppKit
+import MarmotKit
 import SwiftUI
 
 /// Oversample factor applied to media thumbnails over their display-point size.
@@ -1538,9 +1539,35 @@ struct MessageMediaAttachmentView: View {
             MessageDocumentAttachmentRow(
                 download: download,
                 attachment: attachment,
-                isOutgoing: isOutgoing
+                isOutgoing: isOutgoing,
+                openHandoff: documentHandoff
             )
         }
+    }
+
+    /// MDK's leased copy of this document's original slot, so another app opens a file with the
+    /// attachment's real name rather than the host's own scratch export. Nil when MDK holds no slot
+    /// for it — an own send still going out, or a record MDK did not resolve — and the row then
+    /// opens the bytes it already has.
+    private func documentHandoff(control: MediaFileTransferControlFfi) async throws -> AttachmentHandoffLease? {
+        guard let target = attachment.localTarget(in: message),
+            let runtime = workspace.client,
+            let accountRef = workspace.activeAccount?.accountRef
+        else { return nil }
+        let workspace = workspace
+        // Released through whichever runtime is open by then, not the one captured here.
+        let releaser = LiveRuntimeHandoffReleaser { @MainActor [weak workspace] in
+            workspace?.client.map { RuntimeHandoffReleaser(runtime: $0) }
+        }
+        return try await AttachmentHandoffOpening.openLease(
+            runtime: runtime,
+            accountRef: accountRef,
+            groupIdHex: message.groupIdHex,
+            target: target,
+            control: control,
+            releaser: releaser,
+            hostHasBytes: true
+        )
     }
 
     private func mediaDetail(_ download: MessageMediaDownload) -> String {
@@ -1552,23 +1579,33 @@ struct MessageDocumentAttachmentRow: View {
     let download: MessageMediaDownload
     let attachment: MessageMediaAttachment
     let isOutgoing: Bool
+    /// Opens MDK's handoff lease for this document; nil when MDK has no slot for it.
+    var openHandoff: (MediaFileTransferControlFfi) async throws -> AttachmentHandoffLease? = { _ in nil }
+
+    @State private var isOpening = false
+    @State private var handoffControl: MediaFileTransferControlFfi?
 
     var body: some View {
         // A finished document opens on click of the whole row — no trailing retry/download glyph
         // (the file is already in hand, especially for our own sends). A `Button` (not a tap
         // gesture) keeps it reachable by keyboard/VoiceOver.
         Button {
+            guard !isOpening else { return }
             Task { await openAttachment() }
         } label: {
             MessageAttachmentStatusRow(
                 systemImage: "doc",
                 title: download.fileName.nilIfBlank ?? attachment.fileName,
                 detail: mediaDetail,
-                isOutgoing: isOutgoing
+                isOutgoing: isOutgoing,
+                isLoading: isOpening
             )
         }
         .buttonStyle(.plain)
         .help(L10n.string("Open"))
+        // A copy still being written for a row that scrolled away is cancelled through its control,
+        // never by cancelling the task awaiting it — that could drop a finished lease.
+        .onDisappear { handoffControl?.cancel() }
     }
 
     private var mediaDetail: String {
@@ -1577,23 +1614,61 @@ struct MessageDocumentAttachmentRow: View {
 
     @MainActor
     private func openAttachment() async {
+        isOpening = true
+        let control = MediaFileTransferControlFfi()
+        handoffControl = control
+        defer {
+            isOpening = false
+            if handoffControl === control { handoffControl = nil }
+        }
+        do {
+            if let lease = try await openHandoff(control) {
+                Self.open(lease)
+                return
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            // Fall through to the bytes this row already holds: the document is on screen, so the
+            // host export still opens it even when MDK's copy could not be made.
+        }
+        await openHostExport()
+    }
+
+    /// `open` returns once LaunchServices accepts the handoff; the receiving app may still be
+    /// reading the file. Release shortly after so the plaintext copy does not linger, while giving
+    /// the app a window to read it. MDK wipes any copy still leased on the next launch.
+    @MainActor
+    private static func open(_ lease: AttachmentHandoffLease) {
+        guard NSWorkspace.shared.open(lease.url) else {
+            lease.release()
+            return
+        }
+        let delay = Duration.seconds(cleanupDelaySeconds)
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(for: delay)
+            lease.release()
+        }
+    }
+
+    @MainActor
+    private func openHostExport() async {
         guard
             let url = await MessageMediaPlaybackFileStore.fileURL(
                 attachment: attachment,
                 download: download
             )
         else { return }
-        // `open` returns once LaunchServices accepts the handoff; the receiving app may
-        // still be reading the file. Delete shortly after so we don't leave decrypted
-        // plaintext on disk, while giving the app a brief window to read the bytes.
+        // Delete shortly after so we don't leave decrypted plaintext on disk, while giving the
+        // app a brief window to read the bytes.
         let didOpen = NSWorkspace.shared.open(url)
-        let cleanupDelay: TimeInterval = didOpen ? cleanupDelaySeconds : 0
+        let cleanupDelay: TimeInterval = didOpen ? Self.cleanupDelaySeconds : 0
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + cleanupDelay) {
             MediaPlaybackTempStore.remove(at: url)
         }
     }
 
-    private var cleanupDelaySeconds: TimeInterval { 30 }
+    private static let cleanupDelaySeconds: TimeInterval = 30
 }
 
 struct MessageAttachmentStatusRow: View {

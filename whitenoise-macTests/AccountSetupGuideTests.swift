@@ -96,7 +96,7 @@ import Testing
         let plan = AccountSetupProfilePlan(
             snapshot: F.snapshot(steps: [
                 F.step(
-                    .profile, .retryableFailure, findings: [.init(issue: .timedOut, endpoint: nil)],
+                    .profile, .retryableFailure, findings: [.preview(issue: .timedOut, endpoint: nil)],
                     actions: [.retry, .continueWithout]
                 )
             ])
@@ -523,8 +523,8 @@ import Testing
             F.step(
                 .relays, .retryableFailure,
                 findings: [
-                    .init(issue: .unreachable, endpoint: "wss://relay.example.com"),
-                    .init(issue: .timedOut, endpoint: "wss://another-relay.example.com"),
+                    .preview(issue: .unreachable, endpoint: "wss://relay.example.com"),
+                    .preview(issue: .timedOut, endpoint: "wss://another-relay.example.com"),
                 ],
                 actions: [.retry, .useRecommendedRelays, .editDiscoveryRelays, .continueWithout]
             ),

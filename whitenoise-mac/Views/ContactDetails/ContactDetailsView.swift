@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ContactDetailsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     let contact: NewChatRecipient
     let blockedUsersModel: BlockedUsersViewModel
 
@@ -29,7 +30,7 @@ struct ContactDetailsView: View {
 
     /// See `ContactGroupAction.closesProfile` for when the profile goes back to group info.
     private func removeFromGroup(_ member: GroupMemberItem) async {
-        await workspace.removeGroupMember(member)
+        await workspace.removeGroupMember(member, advisory: session.accountScope?.groupChangeAdvisory)
         if ContactGroupAction.closesProfile(
             afterRemoving: contact.accountIdHex,
             openProfileAccountIdHex: workspace.contactDetailsTarget?.accountIdHex,
@@ -80,8 +81,18 @@ struct ContactDetailsView: View {
                         member: groupMember,
                         isBusy: workspace.hasInFlightGroupCommit,
                         isMutating: workspace.mutatingGroupMemberId == groupMember.id,
-                        onPromote: { Task { await workspace.promoteGroupMember(groupMember) } },
-                        onDemote: { Task { await workspace.demoteGroupMember(groupMember) } },
+                        onPromote: {
+                            Task {
+                                await workspace.promoteGroupMember(
+                                    groupMember, advisory: session.accountScope?.groupChangeAdvisory)
+                            }
+                        },
+                        onDemote: {
+                            Task {
+                                await workspace.demoteGroupMember(
+                                    groupMember, advisory: session.accountScope?.groupChangeAdvisory)
+                            }
+                        },
                         onRemove: { Task { await removeFromGroup(groupMember) } }
                     )
                 }

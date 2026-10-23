@@ -87,6 +87,12 @@ struct StorageSettingsView: View {
                 }
             }
 
+            // What the limits above are spent on, chat by chat, and the bulk removals that give
+            // the space back — iOS's Settings → Manage Storage.
+            SettingsSection {
+                SettingsNavigationRow(page: .manageStorage)
+            }
+
             SettingsSection(
                 title: L10n.string("Media Cache"),
                 footer: L10n.string(
