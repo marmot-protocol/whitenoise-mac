@@ -230,10 +230,8 @@ import Testing
 
         #expect(progress.width > 0)
         #expect(missing == .zero)
-        #expect(
-            AccountSetupStepProgress.segmentColor(isCurrent: false, state: F.step(.profile, .passed))
-                != AccountSetupStepProgress.segmentColor(isCurrent: false, state: F.step(.keyPackage, .pending))
-        )
+        #expect(AccountSetupStepProgress.position(of: .relays, in: guide).map { [$0.number, $0.count] } == [2, 3])
+        #expect(AccountSetupStepProgress.position(of: .singleDevice, in: guide) == nil)
     }
 
     // MARK: - Opening and closing a step's screen

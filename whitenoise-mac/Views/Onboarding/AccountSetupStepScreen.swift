@@ -8,7 +8,7 @@ import SwiftUI
 /// is up, so the step takes the pane instead, the way Sign In and Sign Up do: the same header row,
 /// the same centred column, the same capsule actions. What the sheet gave for free — the checklist
 /// still visible behind it — is kept in the header row: a back control named for the setup it
-/// returns to, and the setup's progress with this step marked. See `AccountSetupStepProgress`.
+/// returns to, and which step of the setup this is. See `AccountSetupStepProgress`.
 ///
 /// The coordinator returns to the checklist once the step passes or is skipped; see
 /// `OnboardingCoordinator.reviewingStep`. Until then every step screen draws
@@ -51,46 +51,42 @@ struct AccountSetupStepScreen: View {
     }
 }
 
-/// Where the open step stands in the setup: one segment per step — finished, this one, still to
-/// come — and "Step 2 of 6" beside them. It is the part of the checklist a step screen keeps, so
-/// the screen reads as one stop on a list the back control returns to.
+/// Where the open step stands in the setup, as one line in the header row: "Step 2 of 6".
+///
+/// The checklist this screen returns to runs top to bottom, so the screen does not redraw the
+/// setup as a row of segments — a horizontal stepper over a vertical one reads as two different
+/// lists. Which steps are finished is the checklist's job, one back control away; the screen only
+/// has to say which stop on it this is. The outlined capsule gives the line the weight of a
+/// control-row element, level with the back button beside it.
 struct AccountSetupStepProgress: View {
     @Environment(\.locale) private var locale
     let guide: AccountSetupGuide
     let step: OnboardingStepFfi
 
     var body: some View {
-        if let index = guide.steps.firstIndex(where: { $0.step == step }) {
-            HStack(spacing: 10) {
-                HStack(spacing: 4) {
-                    ForEach(Array(guide.steps.enumerated()), id: \.element.step) { offset, state in
-                        Capsule()
-                            .fill(Self.segmentColor(isCurrent: offset == index, state: state))
-                            .frame(width: offset == index ? 20 : 12, height: 4)
-                    }
-                }
-                .accessibilityHidden(true)
-
-                Text(
-                    String(
-                        format: L10n.string("Step %lld of %lld", locale: locale),
-                        locale: locale,
-                        Int64(index + 1),
-                        Int64(guide.steps.count)
-                    )
+        if let position = Self.position(of: step, in: guide) {
+            Text(
+                String(
+                    format: L10n.string("Step %lld of %lld", locale: locale),
+                    locale: locale,
+                    Int64(position.number),
+                    Int64(position.count)
                 )
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                .monospacedDigit()
-            }
-            .accessibilityElement(children: .combine)
+            )
+            .wnFont(.medium12)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .monospacedDigit()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .overlay(Capsule().strokeBorder(WNColor.borderTertiary))
             .accessibilityIdentifier("onboarding.account-setup.progress")
         }
     }
 
-    static func segmentColor(isCurrent: Bool, state: OnboardingStepStateFfi) -> Color {
-        if isCurrent { return WNColor.backgroundContentPrimary }
-        return AccountSetupGuide.isComplete(state.status) ? WNColor.backgroundContentTertiary : WNColor.borderTertiary
+    /// The step's one-based place among the checkpoint's steps, or nil when it is not among them.
+    static func position(of step: OnboardingStepFfi, in guide: AccountSetupGuide) -> (number: Int, count: Int)? {
+        guard let index = guide.steps.firstIndex(where: { $0.step == step }) else { return nil }
+        return (index + 1, guide.steps.count)
     }
 }
 
