@@ -25,7 +25,7 @@ struct AccountSetupProfileStep: View {
     @State private var hasPrefilled = false
 
     private var plan: AccountSetupProfilePlan {
-        AccountSetupProfilePlan(snapshot: model.snapshot)
+        AccountSetupProfilePlan(snapshot: model.settledSnapshot)
     }
 
     private var isEnabled: Bool { !model.isBusy && active == nil }
@@ -77,7 +77,7 @@ struct AccountSetupProfileStep: View {
                 }
             }
 
-            AccountSetupNoActionLines(step: .profile, snapshot: model.snapshot)
+            AccountSetupNoActionLines(step: .profile, snapshot: model.settledSnapshot)
             AccountSetupErrorLine(message: photoError ?? model.error)
         } actions: {
             switch plan.primaryAction {

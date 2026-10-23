@@ -60,7 +60,7 @@ private struct AccountSetupRelayOverview: View {
     }
 
     var body: some View {
-        let plan = AccountSetupRelayPlan(snapshot: model.snapshot, step: step)
+        let plan = AccountSetupRelayPlan(snapshot: model.settledSnapshot, step: step)
 
         AccountSetupStepLayout(step: step) {
             AccountSetupCallout(
@@ -80,7 +80,7 @@ private struct AccountSetupRelayOverview: View {
                 AccountSetupRelayAddressList(headerKey: list.headerKey, entries: list.entries)
             }
 
-            AccountSetupNoActionLines(step: step, snapshot: model.snapshot)
+            AccountSetupNoActionLines(step: step, snapshot: model.settledSnapshot)
             AccountSetupErrorLine(message: model.error)
         } actions: {
             AccountSetupRelayActions(plan: plan, model: model, active: $active) { action in
@@ -251,7 +251,7 @@ private struct AccountSetupRelaySearchPane: View {
                     return
                 }
                 await model.setDiscoveryRelays([trimmed])
-                let status = model.snapshot?.steps.first { $0.step == step }?.status
+                let status = model.settledSnapshot?.steps.first { $0.step == step }?.status
                 if model.error == nil, status != .retryableFailure {
                     close()
                 } else {

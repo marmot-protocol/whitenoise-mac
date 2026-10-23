@@ -599,6 +599,9 @@ final class FakeBlockListSubscription: BlockListSubscription, @unchecked Sendabl
 final class FakeOnboardingSubscription: OnboardingSubscription, @unchecked Sendable {
     private var current: OnboardingSnapshotFfi
     private var updates: [OnboardingSnapshotFfi]
+    /// Snapshots `deliver` sends once `updates` has run out, the way MarmotKit reports a command's
+    /// progress while it is still running.
+    private let live = AsyncStream.makeStream(of: OnboardingSnapshotFfi.self)
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         current = OnboardingSnapshotFfi(
@@ -621,11 +624,23 @@ final class FakeOnboardingSubscription: OnboardingSubscription, @unchecked Senda
         super.init(noPointer: NoPointer())
     }
 
+    /// Sends `snapshot` to whoever is waiting on `next()`, now or on its next call.
+    func deliver(_ snapshot: OnboardingSnapshotFfi) {
+        live.continuation.yield(snapshot)
+    }
+
     override func snapshot() -> OnboardingSnapshotFfi { current }
 
     override func next() async -> OnboardingSnapshotFfi? {
-        guard !updates.isEmpty else { return await awaitSubscriptionCancellation() }
-        let replacement = updates.removeFirst()
+        let replacement: OnboardingSnapshotFfi
+        if !updates.isEmpty {
+            replacement = updates.removeFirst()
+        } else {
+            // Ends with nil once the observing task is cancelled, like `awaitSubscriptionCancellation`.
+            var iterator = live.stream.makeAsyncIterator()
+            guard let delivered = await iterator.next() else { return nil }
+            replacement = delivered
+        }
         current = replacement
         return replacement
     }
