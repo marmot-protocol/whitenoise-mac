@@ -10,10 +10,12 @@ import SwiftUI
 
 private struct AvatarCropSheetModifier: ViewModifier {
     @Binding var model: AvatarCropViewModel?
+    let advisory: GroupChangeAdvisoryPrompter?
 
     func body(content: Content) -> some View {
         content.sheet(item: $model) { model in
             AvatarCropSheet(model: model, onClose: { self.model = nil })
+                .groupChangeAdvisoryAlert(advisory)
         }
     }
 }
@@ -24,8 +26,12 @@ extension View {
     /// The one presentation every picture source uses — the profile avatar's file menu, the
     /// profile web picker, and both halves of the group image picker — so the crop looks and
     /// behaves the same wherever a picture is chosen.
-    func avatarCropSheet(_ model: Binding<AvatarCropViewModel?>) -> some View {
-        modifier(AvatarCropSheetModifier(model: model))
+    /// `advisory` is hosted on the editor when its commit is a group change, since the editor is
+    /// the window's topmost sheet while the commit runs.
+    func avatarCropSheet(
+        _ model: Binding<AvatarCropViewModel?>, advisory: GroupChangeAdvisoryPrompter? = nil
+    ) -> some View {
+        modifier(AvatarCropSheetModifier(model: model, advisory: advisory))
     }
 }
 

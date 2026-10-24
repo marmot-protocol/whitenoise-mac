@@ -9,6 +9,7 @@ import SwiftUI
 
 struct GroupDetailsLeaveSection: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     @State private var showSelfDemoteConfirmation = false
     let chat: ChatItem
     let snapshot: GroupDetailsSnapshot
@@ -86,7 +87,9 @@ struct GroupDetailsLeaveSection: View {
             titleVisibility: .visible
         ) {
             Button(L10n.string("Step Down"), role: .destructive) {
-                Task { await workspace.selfDemoteSelectedGroupAdmin() }
+                Task {
+                    await workspace.selfDemoteSelectedGroupAdmin(advisory: session.accountScope?.groupChangeAdvisory)
+                }
             }
             .disabled(workspace.hasInFlightGroupCommit)
             Button(L10n.string("Cancel"), role: .cancel) {}

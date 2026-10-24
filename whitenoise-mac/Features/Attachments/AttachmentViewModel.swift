@@ -166,6 +166,24 @@ final class AttachmentViewModel {
         return didApply
     }
 
+    /// MDK's leased plaintext copy of `target`, for a surface outside the app (Save As). Nil when
+    /// MDK holds no copy. Cancel only through `control`; release the lease once the copy is used.
+    func openHandoff(
+        _ target: AttachmentLocalTargetFfi,
+        control: MediaFileTransferControlFfi = MediaFileTransferControlFfi()
+    ) async throws -> AttachmentHandoffLease? {
+        try await AttachmentHandoffOpening.openLease(
+            runtime: runtime,
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            target: target,
+            control: control,
+            releaser: RuntimeHandoffReleaser(runtime: runtime),
+            hostHasBytes: false,
+            acquire: { _ = try await self.downloadExplicitly(target) }
+        )
+    }
+
     func localAssets(for targets: [AttachmentLocalTargetFfi]) async throws -> [AttachmentLocalAssetFfi] {
         try await runtime.attachmentLocalAssets(accountRef: accountRef, groupIdHex: groupIdHex, targets: targets)
     }
@@ -341,15 +359,18 @@ final class AttachmentViewModel {
 
 extension AttachmentTransferStateFfi {
     /// Work an explicit request will not restart. MDK's attachment-access contract leaves
-    /// cancelled, removed, failed and exhausted sources to a deliberate download-again, and a
-    /// source whose bytes are gone or were blocked by policy gets no reacquisition without one.
+    /// cancelled, removed (by hand or by the "Keep media" setting), failed and exhausted sources
+    /// to a deliberate download-again, and a source whose bytes are gone or were blocked by
+    /// policy gets no reacquisition without one.
+    /// `storageBlocked` is still live work parked for free space with its checkpoints kept: the
+    /// explicit request readmits it, and a download-again would throw that progress away.
     var needsRearmToDownload: Bool {
         switch self {
-        case .failed, .cancelled, .removed, .retryExhausted, .policyBlocked, .previouslyAcquiredUnavailable,
-            .completedUnretained:
+        case .failed, .cancelled, .removed, .cleanedBySetting, .retryExhausted, .policyBlocked,
+            .previouslyAcquiredUnavailable, .completedUnretained:
             true
         case .unavailable, .notRequested, .queued, .downloading, .verifyingCiphertext, .decrypting,
-            .verifyingPlaintext, .ready, .retryScheduled, .paused:
+            .verifyingPlaintext, .ready, .retryScheduled, .paused, .storageBlocked:
             false
         }
     }

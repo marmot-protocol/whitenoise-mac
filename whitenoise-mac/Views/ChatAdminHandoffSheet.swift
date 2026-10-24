@@ -14,6 +14,7 @@ import SwiftUI
 
 struct ChatAdminHandoffSheet: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     @Environment(\.dismiss) private var dismiss
 
     let target: ChatAdminHandoffTarget
@@ -92,7 +93,10 @@ struct ChatAdminHandoffSheet: View {
             Spacer()
             Button {
                 guard let selectedMember else { return }
-                Task { await workspace.confirmChatAdminHandoff(target, successor: selectedMember) }
+                // The handoff closes this sheet as it starts, so a consent prompt is asked from the
+                // window, through the account's shared prompter.
+                let advisory = session.accountScope?.groupChangeAdvisory
+                Task { await workspace.confirmChatAdminHandoff(target, successor: selectedMember, advisory: advisory) }
             } label: {
                 Text(L10n.string("Make Admin & Leave")).frame(minWidth: 96)
             }

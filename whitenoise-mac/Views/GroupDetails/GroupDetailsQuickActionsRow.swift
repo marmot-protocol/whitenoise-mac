@@ -15,6 +15,7 @@ import SwiftUI
 /// the row leaves it out rather than offer a button that searches every chat.
 struct GroupDetailsQuickActionsRow: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     @State private var isTimerPresented = false
     let chat: ChatItem
     let snapshot: GroupDetailsSnapshot
@@ -64,6 +65,10 @@ struct GroupDetailsQuickActionsRow: View {
 
     private func setTimer(_ seconds: UInt64) {
         isTimerPresented = false
-        Task { await workspace.setDisappearingMessages(groupIdHex: snapshot.groupIdHex, seconds: seconds) }
+        Task {
+            await workspace.setDisappearingMessages(
+                groupIdHex: snapshot.groupIdHex, seconds: seconds,
+                advisory: session.accountScope?.groupChangeAdvisory)
+        }
     }
 }

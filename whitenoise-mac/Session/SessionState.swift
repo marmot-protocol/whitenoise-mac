@@ -18,7 +18,8 @@ final class SessionState {
         account: AccountItem?,
         runtime: (any MarmotRuntime)?,
         connectivityAvailable: Bool,
-        relayListsDidChange: @escaping @MainActor () -> Void = {}
+        relayListsDidChange: @escaping @MainActor () -> Void = {},
+        attachmentsDidChange: @escaping @MainActor () async -> Void = {}
     ) async {
         guard let account, let runtime else {
             await deactivate()
@@ -35,7 +36,8 @@ final class SessionState {
         let scope = AccountScope(
             account: account,
             runtime: runtime,
-            relayListsDidChange: relayListsDidChange
+            relayListsDidChange: relayListsDidChange,
+            attachmentsDidChange: attachmentsDidChange
         )
         accountScope = scope
         scope.start(connectivityAvailable: connectivityAvailable)
