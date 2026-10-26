@@ -257,6 +257,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// throws `MissingKeyPackage` naming that account, so a roster with several surfaces them one
     /// attempt at a time. Keyed by member ref, valued by the account id hex the core reports.
     var missingKeyPackageAccountIdHexByMemberRef: [String: String] = [:]
+    /// Of the refs in `missingKeyPackageAccountIdHexByMemberRef`, those whose only KeyPackages are
+    /// from an outdated app: the refusal carries `.obsoleteOnly` instead of `.notFound`.
+    var obsoleteKeyPackageMemberRefs: Set<String> = []
     /// Member refs the core would refuse over a KeyPackage that exists but cannot be used. Unlike
     /// `missingKeyPackageAccountIdHexByMemberRef`, `InvalidKeyPackageEvent` names no account, so a
     /// roster containing one of these is refused without saying who is at fault. Resolution order
@@ -2084,7 +2087,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             }
             if let refusedMemberRef {
                 if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[refusedMemberRef] {
-                    throw MarmotKitError.MissingKeyPackage(account: accountIdHex, reason: .notFound)
+                    throw MarmotKitError.MissingKeyPackage(
+                        account: accountIdHex,
+                        reason: obsoleteKeyPackageMemberRefs.contains(refusedMemberRef) ? .obsoleteOnly : .notFound)
                 }
                 if unresolvableMemberRefs.contains(refusedMemberRef) {
                     throw MarmotKitError.Publish(details: "no relay list for member")
@@ -2211,7 +2216,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             missingKeyPackageAccountIdHexByMemberRef[$0] != nil || invalidKeyPackageMemberRefs.contains($0)
         }) {
             if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[refusedMemberRef] {
-                throw MarmotKitError.MissingKeyPackage(account: accountIdHex, reason: .notFound)
+                throw MarmotKitError.MissingKeyPackage(
+                    account: accountIdHex,
+                    reason: obsoleteKeyPackageMemberRefs.contains(refusedMemberRef) ? .obsoleteOnly : .notFound)
             }
             throw MarmotKitError.InvalidKeyPackageEvent(details: "unusable key package event")
         }
