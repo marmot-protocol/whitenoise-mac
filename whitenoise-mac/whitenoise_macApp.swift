@@ -56,6 +56,12 @@ struct whitenoise_macApp: App {
                 .task(id: workspace.isOffline) {
                     session.updateConnectivity(available: !workspace.isOffline)
                 }
+                .onChange(of: workspace.activeAccountId) { previousAccountId, _ in
+                    dockBadge.activeAccountDidChange(
+                        from: previousAccountId,
+                        signedInAccountIds: Set(workspace.signedInAccounts.map(\.id))
+                    )
+                }
                 .onChange(of: applicationBadgeCount, initial: true) { _, count in
                     dockBadge.apply(count: count)
                 }
@@ -90,7 +96,8 @@ struct whitenoise_macApp: App {
 
     /// The Dock / ⌘-Tab badge. MDK's attention snapshot covers every signed-in account, so the
     /// active scope's model carries the whole total. Between scopes (an account switch) the
-    /// count is unknown and the badge keeps its last value; with nobody signed in it clears.
+    /// count is unknown and the badge keeps its last value, unless the account it left was signed
+    /// out (see `DockBadgeController.activeAccountDidChange`); with nobody signed in it clears.
     private var applicationBadgeCount: Int? {
         if let scope = session.accountScope {
             return scope.attentionModel.applicationBadgeCount

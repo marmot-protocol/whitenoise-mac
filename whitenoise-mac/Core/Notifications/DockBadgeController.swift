@@ -21,6 +21,15 @@ final class DockBadgeController {
         setLabel(label)
     }
 
+    /// Clears the badge when the account that was active is no longer signed in. Its total was
+    /// what the badge showed, and the replacement scope may report `nil` (another account still
+    /// unavailable) for a while; keeping the label would then show a signed-out account's count.
+    /// An ordinary switch, where the previous account is still signed in, leaves the badge alone.
+    func activeAccountDidChange(from previousAccountId: String?, signedInAccountIds: Set<String>) {
+        guard let previousAccountId, !signedInAccountIds.contains(previousAccountId) else { return }
+        apply(count: 0)
+    }
+
     nonisolated static func label(forCount count: Int) -> String? {
         guard count > 0 else { return nil }
         return count.formatted(.number.grouping(.never))
