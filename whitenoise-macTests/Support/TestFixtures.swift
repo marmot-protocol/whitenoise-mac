@@ -2320,6 +2320,7 @@ final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
 @MainActor
 func mediaDownloadFixture(
     attachments: [(fileName: String, mediaType: String, data: Data, isAvailable: Bool)],
+    body: String = "",
     destination: FakeMediaDownloadDestination
 ) async -> (state: WorkspaceState, message: MessageItem, runtime: FakeMarmotRuntime) {
     let account = AccountSummaryFfi(
@@ -2391,7 +2392,7 @@ func mediaDownloadFixture(
         id: "media-message",
         groupIdHex: "group",
         senderName: "Alice",
-        body: "",
+        body: body,
         sentAt: Date(timeIntervalSince1970: 1_700_000_000),
         isOutgoing: false,
         mediaAttachments: messageAttachments

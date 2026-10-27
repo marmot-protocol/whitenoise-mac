@@ -11596,8 +11596,10 @@ struct TimelineTests: WorkspaceTestSupport {
         state.activeAccountId = account.id
         state.selection = .chat(source.id)
         state.startForwarding(messages)
+        let model = try #require(MessageForwardViewModel.live(workspace: state))
 
-        await state.forwardPendingMessages(to: target)
+        model.forward(to: target)
+        await model.waitUntilIdle()
 
         #expect(runtime.publishedTexts.map(\.text) == ["First", "Second"])
         #expect(runtime.sentTextClientTokens.count == 2)
@@ -11631,8 +11633,10 @@ struct TimelineTests: WorkspaceTestSupport {
         state.activeAccountId = account.id
         state.selection = .chat(source.id)
         state.startForwarding([message])
+        let model = try #require(MessageForwardViewModel.live(workspace: state))
 
-        await state.forwardPendingMessages(to: target)
+        model.forward(to: target)
+        await model.waitUntilIdle()
 
         #expect(runtime.sentTextClientTokens.count == 1)
         #expect(!state.isForwardPickerPresented)

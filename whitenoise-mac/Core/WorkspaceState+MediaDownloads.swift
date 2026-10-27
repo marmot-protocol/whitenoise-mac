@@ -200,7 +200,7 @@ extension WorkspaceState {
     /// The loop covers one window and no more: `loadMediaAttachment` publishes `.loading` before
     /// `resolvedMediaReference` has registered the download it is about to start, so a click that
     /// lands inside it sees `.loading` with nothing to await yet. Every other state is terminal.
-    private func resolvedMediaDownload(
+    func resolvedMediaDownload(
         _ attachment: MessageMediaAttachment,
         for message: MessageItem
     ) async -> MessageMediaDownload? {

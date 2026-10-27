@@ -593,7 +593,6 @@ final class WorkspaceState {
     var messageInfoTarget: MessageItem?
     var forwardingMessageIds: [String] = []
     var isForwardPickerPresented = false
-    var isForwardingMessages = false
     var groupProfileDraftName = ""
     var groupProfileDraftDescription = ""
     var groupInviteMemberQuery = ""

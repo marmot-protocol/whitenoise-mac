@@ -861,52 +861,6 @@ extension WorkspaceState {
         isForwardPickerPresented = false
     }
 
-    func forwardPendingMessages(to chat: ChatItem) async {
-        guard !isForwardingMessages,
-            chat.canUseComposer,
-            let client,
-            let activeAccount
-        else { return }
-        let messages = selectedMessages.filter { forwardingMessageIds.contains($0.id) && $0.canForward }
-        guard !messages.isEmpty else { return }
-
-        isForwardingMessages = true
-        defer { isForwardingMessages = false }
-        do {
-            for message in messages {
-                let clientToken = UUID().uuidString.lowercased()
-                do {
-                    _ = try await client.sendTextWithClientToken(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: chat.id,
-                        text: message.wireBody,
-                        clientToken: clientToken
-                    )
-                } catch {
-                    // A cancelled host await can race durable local admission. Resolve that
-                    // ambiguity with the same token instead of creating a duplicate forward.
-                    if let status = try? client.localSendStatus(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: chat.id,
-                        clientToken: clientToken
-                    ) {
-                        switch status {
-                        case .queued, .engineOwned, .completed:
-                            continue
-                        case .rejected:
-                            break
-                        }
-                    }
-                    throw error
-                }
-            }
-            cancelForwarding()
-            cancelMessageSelection()
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
     func messageDeletionTarget(for message: MessageItem) -> MessageDeletionTarget? {
         guard message.supportsChatActions, let selectedChat, let activeAccount, let activeAccountId else {
             return nil

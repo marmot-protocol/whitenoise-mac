@@ -3244,8 +3244,11 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         isActionableChatBubble && isOutgoing
     }
 
+    /// Text, a captioned attachment and an attachment-only message all forward: the text goes out
+    /// as text and every attachment through the destination's attachment send. Custom emoji drawn
+    /// inline are not content attachments, so they never make an otherwise empty message forwardable.
     var canForward: Bool {
-        isActionableChatBubble && hasCopyableBody
+        isActionableChatBubble && (hasCopyableBody || !contentMediaAttachments.isEmpty)
     }
 
     var canEdit: Bool {
