@@ -12,6 +12,13 @@ enum AccountAttentionValue: Equatable {
 final class AccountAttentionViewModel {
     private(set) var valuesByAccountId: [String: AccountAttentionValue] = [:]
     private(set) var error: ChatListFeatureError?
+    /// The app-icon badge across every signed-in account, or `nil` while it is not known:
+    /// before the first snapshot, or while an account is unavailable with no earlier total.
+    private(set) var applicationBadgeCount: Int?
+
+    /// An account that turns unavailable keeps counting its last ready total, so a transient
+    /// unavailability does not blank the Dock badge.
+    @ObservationIgnored private var lastReadyTotalsByAccountId: [String: AccountAttentionTotalFfi] = [:]
 
     @ObservationIgnored private let runtime: any MarmotRuntime
     @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
@@ -34,7 +41,7 @@ final class AccountAttentionViewModel {
 
     func unreadCount(accountIdHex: String) -> Int? {
         guard case .ready(let total) = valuesByAccountId[accountIdHex.lowercased()] else { return nil }
-        return Int(clamping: total.unreadCount + total.attentionOnlyConversations)
+        return Int(clamping: ApplicationBadgeCountProjection.contribution(for: total))
     }
 
     func mentionCount(accountIdHex: String) -> Int? {
@@ -92,6 +99,29 @@ final class AccountAttentionViewModel {
                 return (entry.accountIdHex.lowercased(), value)
             }
         )
+        lastReadyTotalsByAccountId = valuesByAccountId.reduce(into: [:]) { totals, entry in
+            switch entry.value {
+            case .ready(let total):
+                totals[entry.key] = total
+            case .unavailable:
+                totals[entry.key] = lastReadyTotalsByAccountId[entry.key]
+            }
+        }
         error = nil
+        applicationBadgeCount = projectApplicationBadgeCount()
+    }
+
+    private func projectApplicationBadgeCount() -> Int? {
+        var totals: [AccountAttentionTotalFfi] = []
+        for (accountIdHex, value) in valuesByAccountId {
+            switch value {
+            case .ready(let total):
+                totals.append(total)
+            case .unavailable:
+                guard let lastReady = lastReadyTotalsByAccountId[accountIdHex] else { return nil }
+                totals.append(lastReady)
+            }
+        }
+        return ApplicationBadgeCountProjection.count(for: totals)
     }
 }
