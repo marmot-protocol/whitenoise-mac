@@ -16,11 +16,19 @@ struct GroupAddMembersSheet: View {
     @State private var advisory = GroupChangeAdvisoryPrompter()
 
     let existingMemberIds: Set<String>
+    /// Whether the account blocked this account id hex. A blocked person is refused at Invite.
+    let isBlocked: (String) -> Bool
 
     @State private var staged: [NewChatRecipient] = []
     @State private var inviteError: String?
     /// Who the core refused, said once, under the chips that show them dimmed.
     @State private var unreachableNotice: String?
+    /// Invite is resolving a typed identifier. The fold-in resolves off the field's own lookup, so
+    /// `isResolvingNewChat` doesn't cover it; this keeps a second press from inviting twice.
+    @State private var isFoldingIdentifier = false
+    /// Cleared when the sheet goes away. An Invite press resolving an identifier outlives the
+    /// sheet, and must not commit for a user who pressed Cancel or Escape meanwhile.
+    @State private var isPresented = true
 
     private var lockedMemberIds: Set<String> {
         Set(existingMemberIds.map { $0.lowercased() })
@@ -31,7 +39,11 @@ struct GroupAddMembersSheet: View {
             header
             Divider()
             VStack(spacing: 10) {
-                MemberSearchField(accessibilityIdentifier: "addMembers.search")
+                // Off `lastError`: the group details pane behind the sheet renders it for its own
+                // actions, so the search field must not paint a red line there, nor wipe one.
+                // Invite itself still goes through `inviteMembers`, which does both; that goes
+                // away with `lastError` as a global channel.
+                MemberSearchField(accessibilityIdentifier: "addMembers.search", reportsErrors: false)
                 if !staged.isEmpty {
                     SelectedMemberChips(members: staged, isDimmed: isUnreachable) { member in
                         staged.removeAll { $0.accountIdHex == member.accountIdHex }
@@ -75,14 +87,17 @@ struct GroupAddMembersSheet: View {
         // and is released on close, so no traversal outlives the sheet.
         .task {
             workspace.resetInviteRefusals()
-            workspace.clearComposeSearch()
+            workspace.clearComposeSearch(preservingLastError: true)
             await workspace.refreshComposeContacts()
         }
         .groupChangeAdvisoryAlert(advisory)
         .onDisappear {
             advisory.cancelPending()
-            workspace.clearComposeSearch()
+            isPresented = false
+            workspace.clearComposeSearch(preservingLastError: true)
         }
+        // The error was about the text it was raised for; editing that text retires it.
+        .onChange(of: workspace.newChatQuery) { inviteError = nil }
     }
 
     private var header: some View {
@@ -105,12 +120,13 @@ struct GroupAddMembersSheet: View {
             } label: {
                 Text(inviteLabel).frame(minWidth: 96)
             }
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(returnInvites ? .defaultAction : nil)
             .nativeGlassProminentButtonStyle()
             .disabled(
                 (reachableStaged.isEmpty && pendingIdentifier == nil)
                     || workspace.hasInFlightGroupCommit
-                    || workspace.isResolvingNewChat)
+                    || workspace.isResolvingNewChat
+                    || isFoldingIdentifier)
         }
         .padding(16)
     }
@@ -128,8 +144,20 @@ struct GroupAddMembersSheet: View {
         return !query.isEmpty && workspace.looksLikeMemberRef(query) ? query : nil
     }
 
+    private var returnInvites: Bool {
+        let query = workspace.newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return GroupInviteStaging.returnInvites(query: query, isIdentifier: pendingIdentifier != nil)
+    }
+
     private var inviteLabel: String {
-        let count = reachableStaged.count + (pendingIdentifier != nil && !reachableStaged.isEmpty ? 1 : 0)
+        let pendingAddsOne = GroupInviteStaging.pendingIdentifierAddsOne(
+            isIdentifier: pendingIdentifier != nil,
+            resolved: workspace.resolvedNewChatRecipient,
+            to: staged,
+            lockedMemberIds: lockedMemberIds,
+            isBlocked: isBlocked
+        )
+        let count = reachableStaged.count + (pendingAddsOne && !reachableStaged.isEmpty ? 1 : 0)
         return count <= 1 ? L10n.string("Invite") : String(format: L10n.string("Invite %lld"), count)
     }
 
@@ -143,27 +171,44 @@ struct GroupAddMembersSheet: View {
         } else {
             staged.append(recipient)
             // As `toggleComposeMember` does: the field is ready for the next paste.
-            workspace.clearComposeSearch()
+            workspace.clearComposeSearch(preservingLastError: true)
         }
     }
 
     /// Fold in an identifier still typed in the field, then commit. Dismiss only on success.
     private func inviteStaged() async {
-        if pendingIdentifier != nil {
-            inviteError = nil
-            let resolved: NewChatRecipient?
-            if let ready = workspace.resolvedNewChatRecipient {
-                resolved = ready
-            } else {
-                resolved = await workspace.resolveNewChatQuery()
-            }
-            let outcome = GroupInviteStaging.stage(resolved, into: staged, lockedMemberIds: lockedMemberIds)
-            guard case .staged(let roster) = outcome else {
-                inviteError = outcome.errorMessage
-                return
-            }
+        let query = workspace.newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isIdentifier = pendingIdentifier != nil
+        guard !isFoldingIdentifier else { return }
+        if isIdentifier { inviteError = nil }
+        isFoldingIdentifier = true
+        // Pressed inside the field's 250 ms debounce, this resolve and the field's own lookup both
+        // run for the same text: two `refreshProfile` round-trips. Deliberate. Invalidating the
+        // field's lookup wouldn't stop it (the debounced lookup hasn't started, so it starts after
+        // the invalidate), and resolving through the field's generation would let that lookup
+        // steal it and fold in nobody.
+        let outcome = await GroupInviteStaging.foldPending(
+            query: query,
+            isIdentifier: isIdentifier,
+            resolved: workspace.resolvedNewChatRecipient,
+            // Leaves the field's lookup state and `lastError` alone.
+            resolve: { try? await workspace.resolveNewChatRecipient(for: $0) },
+            into: staged,
+            lockedMemberIds: lockedMemberIds,
+            isBlocked: isBlocked,
+            shouldCommit: { isPresented }
+        )
+        isFoldingIdentifier = false
+        guard case .staged(let roster) = outcome else {
+            inviteError = outcome.errorMessage
+            return
+        }
+        if isIdentifier {
             staged = roster
-            workspace.clearComposeSearch()
+            // The field stays editable while the identifier resolves; keep anything typed since.
+            if workspace.newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query {
+                workspace.clearComposeSearch(preservingLastError: true)
+            }
         }
         guard !reachableStaged.isEmpty else { return }
         inviteError = nil
@@ -196,7 +241,7 @@ struct GroupAddMembersSheet: View {
 }
 
 #Preview {
-    GroupAddMembersSheet(existingMemberIds: [])
+    GroupAddMembersSheet(existingMemberIds: [], isBlocked: { _ in false })
         .environment(WorkspaceState.preview())
         .environment(SessionState())
 }

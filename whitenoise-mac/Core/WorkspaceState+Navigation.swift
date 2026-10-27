@@ -97,12 +97,15 @@ extension WorkspaceState {
     /// back). Releasing the people search here rather than waiting for the view's `.task(id:)` to
     /// notice keeps a relay traversal from outliving the panel that asked for it.
     /// `closeNewChatComposer()` is covered too, via `resetNewChatComposer()`.
-    func clearComposeSearch() {
+    /// `preservingLastError` is for a search that doesn't own `lastError` — the add-members sheet,
+    /// whose parent pane may be showing an unrelated error.
+    // TODO(arch): `preservingLastError` drops with `lastError` as a global channel.
+    func clearComposeSearch(preservingLastError: Bool = false) {
         invalidateNewChatLookup()
         invalidateUserDiscovery()
         newChatQuery = ""
         newChatRecipient = nil
-        lastError = nil
+        if !preservingLastError { lastError = nil }
         // Scoped to the row that failed, so it goes with the results. The group draft's
         // unreachable marks are *not* cleared here — they survive chooseMembers ↔ nameGroup
         // hops exactly like the rest of the draft.
