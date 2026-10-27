@@ -998,15 +998,29 @@ nonisolated struct MessageMediaAttachment: Identifiable, Hashable {
     let id: String
     let reference: MediaAttachmentReferenceFfi
     let rejectionKind: MediaAttachmentRejectionKindFfi?
+    /// The slot MDK resolved this attachment from, when it did. Nil for references parsed locally
+    /// from a record that predates FFI media resolution, which MDK holds no slot for.
+    let attachmentIndex: UInt32?
 
     init(
         id: String,
         reference: MediaAttachmentReferenceFfi,
-        rejectionKind: MediaAttachmentRejectionKindFfi? = nil
+        rejectionKind: MediaAttachmentRejectionKindFfi? = nil,
+        attachmentIndex: UInt32? = nil
     ) {
         self.id = id
         self.reference = reference
         self.rejectionKind = rejectionKind
+        self.attachmentIndex = attachmentIndex
+    }
+
+    /// The original source slot MDK retains this attachment under, which is what a handoff lease
+    /// opens. Nil while the message has no source id yet (an own send still going out) or when the
+    /// attachment was not resolved by MDK.
+    func localTarget(in message: MessageItem) -> AttachmentLocalTargetFfi? {
+        guard let attachmentIndex, rejectionKind == nil, let source = message.sourceMessageIdHex else { return nil }
+        return AttachmentLocalTargetFfi(
+            messageIdHex: message.id, sourceMessageIdHex: source, attachmentIndex: attachmentIndex)
     }
 
     static func rejected(
@@ -3377,6 +3391,9 @@ enum SettingsPage: Equatable {
     case blockedUsers
     case notifications
     case storage
+    /// Retained attachments, largest first, and bulk removal. A destination of Storage rather than
+    /// a drawer row of its own, reached from the Storage page.
+    case manageStorage
     case agents
     case support
     case donate
@@ -3441,6 +3458,8 @@ enum SettingsPage: Equatable {
             .developerMode
         case .blockedUsers:
             .privacySecurity
+        case .manageStorage:
+            .storage
         default:
             self
         }
@@ -3478,6 +3497,8 @@ enum SettingsPage: Equatable {
             "Notifications"
         case .storage:
             "Storage"
+        case .manageStorage:
+            "Manage Storage"
         case .agents:
             "AI Agents"
         case .support:
@@ -3515,6 +3536,8 @@ enum SettingsPage: Equatable {
             "bell"
         case .storage:
             "externaldrive"
+        case .manageStorage:
+            "internaldrive"
         case .agents:
             "sparkles"
         case .support:

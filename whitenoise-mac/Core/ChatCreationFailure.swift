@@ -24,6 +24,12 @@ nonisolated enum ChatCreationFailure: Equatable {
     /// `WorkspaceState.createGroupResolvingEveryRefusal`, which spends them all in one press).
     /// `nil` when the core reported the condition without naming anyone.
     case notOnWhiteNoise(account: String?)
+    /// The recipient *is* on White Noise, but every KeyPackage they published is from an
+    /// outdated app (`MissingKeyPackageReasonFfi.obsoleteOnly`). An invite prompt would be wrong —
+    /// they need to update and open the app — so this is reported, not offered as an invitation,
+    /// and the refusal-enumerating paths stop on it rather than filing them under "not on White
+    /// Noise yet".
+    case needsAppUpdate(account: String?)
     case other(message: String)
 
     init(_ error: Error) {
@@ -32,9 +38,15 @@ nonisolated enum ChatCreationFailure: Equatable {
             return
         }
         switch marmotError {
-        case .MissingKeyPackage(let account):
+        case .MissingKeyPackage(let account, let reason):
             let trimmed = account.trimmingCharacters(in: .whitespacesAndNewlines)
-            self = .notOnWhiteNoise(account: trimmed.isEmpty ? nil : trimmed)
+            let named = trimmed.isEmpty ? nil : trimmed
+            switch reason {
+            case .notFound:
+                self = .notOnWhiteNoise(account: named)
+            case .obsoleteOnly:
+                self = .needsAppUpdate(account: named)
+            }
         // A KeyPackage event that exists but cannot be used, and an identity rejected *after*
         // the recipient already resolved through the new-chat lookup, mean the same thing on
         // this path: not reachable on White Noise yet. Neither names an account.
@@ -73,9 +85,22 @@ nonisolated enum ChatCreationFailure: Equatable {
             return String(
                 format: L10n.string("%@ isn't on White Noise yet, so they can't be added."),
                 named.title)
+        case .needsAppUpdate(let account):
+            return needsAppUpdateMessage(
+                recipientName: refusedRecipient(named: account, among: candidates)?.title)
         case .other(let message):
             return message
         }
+    }
+
+    /// Copy for a recipient whose only KeyPackages are outdated: they are reachable once they
+    /// update, so this asks for that instead of an install.
+    static func needsAppUpdateMessage(recipientName: String?) -> String {
+        guard let recipientName, !recipientName.isEmpty else {
+            return L10n.string("This user needs to update their app before they can be invited.")
+        }
+        return String(
+            format: L10n.string("%@ needs to update their app before they can be invited."), recipientName)
     }
 }
 

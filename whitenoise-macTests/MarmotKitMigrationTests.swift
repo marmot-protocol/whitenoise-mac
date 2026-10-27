@@ -49,7 +49,8 @@ struct MarmotKitMigrationTests {
                 cursorPersistence: .advance,
                 clientName: "whitenoise",
                 secretStore: nil,
-                attachmentAcquisitionMode: .hostManaged
+                attachmentAcquisitionMode: .hostManaged,
+                deployment: marmotDeploymentWhiteNoise()
             )
         )
     }

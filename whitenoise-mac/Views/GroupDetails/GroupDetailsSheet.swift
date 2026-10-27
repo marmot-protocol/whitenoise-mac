@@ -21,6 +21,8 @@ struct GroupDetailsSheet: View {
     /// A direct chat's groups in common. Kept apart from the contact profile's list, which a
     /// member's profile sliding in over this pane clears again when it closes.
     @State private var groupsInCommon = GroupsInCommonViewModel()
+    /// Hosted by the profile editor sheet, which is on top while its save runs.
+    @State private var profileAdvisory = GroupChangeAdvisoryPrompter()
     let chat: ChatItem
     let conversationModel: ConversationViewModel
     let attachmentModel: AttachmentViewModel
@@ -228,10 +230,12 @@ struct GroupDetailsSheet: View {
                 canSave: hasProfileChanges && !workspace.hasInFlightGroupCommit,
                 error: workspace.lastError,
                 onSave: {
-                    await workspace.saveGroupProfile()
+                    await workspace.saveGroupProfile(advisory: profileAdvisory)
                     return workspace.lastError == nil
                 }
             )
+            .groupChangeAdvisoryAlert(profileAdvisory)
+            .onDisappear { profileAdvisory.cancelPending() }
             // Sheets are hosted outside this view's hierarchy and inherit nothing from it, so
             // the app-language locale has to be handed over again.
             .environment(\.locale, workspace.preferredLocale)

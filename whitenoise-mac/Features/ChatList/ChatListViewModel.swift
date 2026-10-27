@@ -114,24 +114,9 @@ final class ChatListViewModel {
                 }
             }
             .map { presented in
-                let peerNickname = presented.presentation.peerId.flatMap {
-                    nicknames.nickname(forContactAccountIdHex: $0)
-                }
-                let senderNickname: String?
-                if let sender = presented.row.lastMessage?.sender {
-                    senderNickname = nicknames.nickname(forContactAccountIdHex: sender)
-                } else {
-                    senderNickname = nil
-                }
-                return ChatItem(
-                    presented: presented,
-                    activeAccountIdHex: account.accountIdHex,
-                    nickname: peerNickname,
-                    lastSenderNickname: senderNickname,
-                    avatarBytes: presented.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] },
-                    isBlockedDirectPeer: presented.presentation.peerId.map {
-                        blockedUsersModel?.isBlocked(accountID: $0) == true
-                    } ?? false,
+                chatItem(
+                    for: presented,
+                    nicknames: nicknames,
                     mentionNames: presented.previewMentionsAnyone ? mentionNames(presented.row.groupIdHex) : [:]
                 )
             }
@@ -147,6 +132,45 @@ final class ChatListViewModel {
                     chat.isNoLongerMember
                 }
             }
+    }
+
+    /// The presented row for one chat, archived or not, when this account's list carries it.
+    func presentedRow(groupIdHex: String) -> PresentedChatRowFfi? {
+        presentedRows.first { $0.row.groupIdHex == groupIdHex }
+    }
+
+    /// One chat as the sidebar draws it, wherever it sits in the list — for surfaces outside the
+    /// list that name a chat (Manage Storage), so they pick up renames, nicknames and avatars as
+    /// the list does.
+    func chatItem(groupIdHex: String, nicknames: ContactNicknames) -> ChatItem? {
+        presentedRow(groupIdHex: groupIdHex).map { chatItem(for: $0, nicknames: nicknames) }
+    }
+
+    private func chatItem(
+        for presented: PresentedChatRowFfi,
+        nicknames: ContactNicknames,
+        mentionNames: MarkdownMentionNames = [:]
+    ) -> ChatItem {
+        let peerNickname = presented.presentation.peerId.flatMap {
+            nicknames.nickname(forContactAccountIdHex: $0)
+        }
+        let senderNickname: String?
+        if let sender = presented.row.lastMessage?.sender {
+            senderNickname = nicknames.nickname(forContactAccountIdHex: sender)
+        } else {
+            senderNickname = nil
+        }
+        return ChatItem(
+            presented: presented,
+            activeAccountIdHex: account.accountIdHex,
+            nickname: peerNickname,
+            lastSenderNickname: senderNickname,
+            avatarBytes: presented.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] },
+            isBlockedDirectPeer: presented.presentation.peerId.map {
+                blockedUsersModel?.isBlocked(accountID: $0) == true
+            } ?? false,
+            mentionNames: mentionNames
+        )
     }
 
     func setVisibleWindowAnchor(groupIdHex: String) {

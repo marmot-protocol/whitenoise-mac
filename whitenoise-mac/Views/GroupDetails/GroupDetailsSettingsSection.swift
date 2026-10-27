@@ -10,6 +10,7 @@ import SwiftUI
 
 struct GroupDetailsSettingsSection: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     @State private var isTimerPresented = false
     @State private var showArchiveConfirmation = false
     let snapshot: GroupDetailsSnapshot
@@ -30,7 +31,11 @@ struct GroupDetailsSettingsSection: View {
             .popover(isPresented: $isTimerPresented, arrowEdge: .trailing) {
                 DisappearingTimerPopover(currentSeconds: snapshot.disappearingMessageSecs) { seconds in
                     isTimerPresented = false
-                    Task { await workspace.setDisappearingMessages(groupIdHex: snapshot.groupIdHex, seconds: seconds) }
+                    Task {
+                        await workspace.setDisappearingMessages(
+                            groupIdHex: snapshot.groupIdHex, seconds: seconds,
+                            advisory: session.accountScope?.groupChangeAdvisory)
+                    }
                 }
                 .environment(\.locale, workspace.preferredLocale)
             }

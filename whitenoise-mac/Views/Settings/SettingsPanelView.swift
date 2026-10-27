@@ -47,6 +47,11 @@ struct SettingsPanelView: View {
                 NotificationsSettingsView()
             case .storage:
                 StorageSettingsView(model: model.storage)
+            case .manageStorage:
+                ManageStorageSettingsView(
+                    model: model.manageStorage,
+                    nicknames: workspace.activeContactNicknames
+                )
             case .agents:
                 AIAgentsSettingsView(model: model.agentSettings)
             case .support:
@@ -87,7 +92,7 @@ private extension SettingsPage {
         case .overview, .profile, .identityKeys, .notifications:
             true
         case .preferences, .relays, .keyPackages, .appearance, .privacySecurity, .blockedUsers, .storage,
-            .agents, .support, .donate, .developerMode, .quarantinedGroups:
+            .manageStorage, .agents, .support, .donate, .developerMode, .quarantinedGroups:
             false
         }
     }

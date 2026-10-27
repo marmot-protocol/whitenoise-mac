@@ -195,6 +195,8 @@ struct AccountSetupGuide: Equatable {
         case .multiDeviceUnsupported: "Conversations do not sync across devices yet."
         case .otherInstallationPossible: "Another installation may exist."
         case .discoveryIncomplete: "Some discovery sources could not be checked."
+        // An informational finding, not a fault: MDK reports that it finished inspecting the source.
+        case .inspectionCompleted: "Complete"
         }
     }
 }

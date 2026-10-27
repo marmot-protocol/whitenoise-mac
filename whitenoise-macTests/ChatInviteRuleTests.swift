@@ -69,7 +69,7 @@ struct ChatInviteRuleTests {
 
     @Test func addMemberMessageNamesTheRefusedRecipientWhenKnown() {
         let named = ChatCreationFailure.message(
-            for: MarmotKitError.MissingKeyPackage(account: " abcdef0123 "),
+            for: MarmotKitError.MissingKeyPackage(account: " abcdef0123 ", reason: .notFound),
             candidates: [Self.recipient]
         )
         #expect(named.contains("Robin"))
@@ -78,7 +78,8 @@ struct ChatInviteRuleTests {
         let unnamed = L10n.string("Someone you picked isn't on White Noise yet, so they can't be added.")
         #expect(
             ChatCreationFailure.message(
-                for: MarmotKitError.MissingKeyPackage(account: "unknown"), candidates: [Self.recipient]
+                for: MarmotKitError.MissingKeyPackage(account: "unknown", reason: .notFound),
+                candidates: [Self.recipient]
             ) == unnamed
         )
         #expect(

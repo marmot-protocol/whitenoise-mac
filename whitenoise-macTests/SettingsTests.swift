@@ -582,6 +582,8 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(SettingsPage.quarantinedGroups.drawerPage == .developerMode)
         #expect(!SettingsPage.sidebarPages.contains(.blockedUsers))
         #expect(SettingsPage.blockedUsers.drawerPage == .privacySecurity)
+        #expect(!SettingsPage.sidebarPages.contains(.manageStorage))
+        #expect(SettingsPage.manageStorage.drawerPage == .storage)
 
         for page in SettingsPage.sidebarPages {
             #expect(page.drawerPage == page)

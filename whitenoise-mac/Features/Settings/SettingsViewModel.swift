@@ -9,6 +9,7 @@ final class SettingsViewModel {
     let relays: RelaySettingsViewModel
     let quarantinedGroups: QuarantinedGroupsViewModel
     let storage: StorageSettingsViewModel
+    let manageStorage: ManageStorageViewModel
     let diagnostics: DiagnosticsSettingsViewModel
 
     init(
@@ -17,7 +18,9 @@ final class SettingsViewModel {
         attachmentPolicyController: AttachmentPolicyController? = nil,
         blockedUsersModel: BlockedUsersViewModel? = nil,
         productAnalytics: ProductAnalyticsRecorder? = nil,
-        relayListsDidChange: @escaping @MainActor () -> Void = {}
+        chatListModel: ChatListViewModel? = nil,
+        relayListsDidChange: @escaping @MainActor () -> Void = {},
+        attachmentsDidChange: @escaping @MainActor () async -> Void = {}
     ) {
         agentSettings = AgentSettingsViewModel(account: account, runtime: runtime)
         self.blockedUsersModel = blockedUsersModel
@@ -32,6 +35,13 @@ final class SettingsViewModel {
             accountRef: account.accountRef,
             runtime: runtime,
             attachmentPolicyController: attachmentPolicyController
+        )
+        manageStorage = ManageStorageViewModel(
+            accountRef: account.accountRef,
+            activeAccountIdHex: account.accountIdHex,
+            runtime: runtime,
+            chatList: chatListModel,
+            attachmentsDidChange: attachmentsDidChange
         )
         diagnostics = DiagnosticsSettingsViewModel(
             runtime: runtime,

@@ -315,7 +315,7 @@ private struct AccountSetupPaneActions: View {
             OnboardingStepStateFfi(
                 step: .relays,
                 status: .retryableFailure,
-                findings: [.init(issue: .unreachable, endpoint: "wss://relay.example.com")],
+                findings: [.preview(issue: .unreachable, endpoint: "wss://relay.example.com")],
                 actions: [.retry, .useRecommendedRelays, .editDiscoveryRelays],
                 checkedAt: nil
             ),

@@ -439,6 +439,9 @@ private struct RetainedFileRow: View {
 /// Saves one retained attachment wherever the user picks, downloading it first when the automatic
 /// policy left it alone. Shared by the file row and the full-pane viewer, so both write the same
 /// bytes under the same name.
+///
+/// The bytes come from MDK's handoff lease when it can lend one, so a large file is copied on disk
+/// rather than read through app memory; the lease is released as soon as the copy is written.
 func saveRetainedAttachment(_ item: RetainedAttachmentItem, model: AttachmentViewModel) async throws {
     guard let target = item.target, let reference = item.reference else { return }
     if model.localAssetsByTarget[target]?.reference == nil {
@@ -447,15 +450,31 @@ func saveRetainedAttachment(_ item: RetainedAttachmentItem, model: AttachmentVie
     guard let asset = model.localAssetsByTarget[target], let retainedReference = asset.reference else {
         return
     }
-    let data = try await model.readRetainedAsset(
-        reference: retainedReference,
-        byteCount: asset.byteCount
-    )
     let panel = NSSavePanel()
     panel.nameFieldStringValue = MessageMediaAttachment(id: item.id, reference: reference).fileName
     panel.canCreateDirectories = true
     guard panel.runModal() == .OK, let url = panel.url else { return }
+    if let lease = try? await model.openHandoff(target) {
+        defer { lease.release() }
+        try RetainedAttachmentFileCopy.copy(from: lease.url, to: url)
+        return
+    }
+    let data = try await model.readRetainedAsset(
+        reference: retainedReference,
+        byteCount: asset.byteCount
+    )
     try data.write(to: url, options: .atomic)
+}
+
+/// Copies a leased file to the place the user chose. The save panel already confirmed replacing
+/// an existing file there, which `copyItem` would otherwise refuse.
+nonisolated enum RetainedAttachmentFileCopy {
+    static func copy(from source: URL, to destination: URL, fileManager: FileManager = .default) throws {
+        if fileManager.fileExists(atPath: destination.path(percentEncoded: false)) {
+            try fileManager.removeItem(at: destination)
+        }
+        try fileManager.copyItem(at: source, to: destination)
+    }
 }
 
 private struct RetainedAttachmentControlMenu: View {
@@ -494,30 +513,32 @@ private extension AttachmentTransferStatusFfi {
         case .queued, .downloading, .verifyingCiphertext, .decrypting, .verifyingPlaintext:
             true
         case .unavailable, .notRequested, .ready, .retryScheduled, .failed, .cancelled, .paused,
-            .removed, .policyBlocked, .previouslyAcquiredUnavailable, .completedUnretained,
-            .retryExhausted:
+            .removed, .cleanedBySetting, .policyBlocked, .previouslyAcquiredUnavailable,
+            .completedUnretained, .retryExhausted, .storageBlocked:
             false
         }
     }
 
     var canRetry: Bool {
         switch state {
+        // `storageBlocked` is parked for free space, not on a timer: an explicit Retry readmits it.
         case .failed, .cancelled, .paused, .policyBlocked, .previouslyAcquiredUnavailable,
-            .completedUnretained, .retryExhausted:
+            .completedUnretained, .retryExhausted, .storageBlocked:
             true
+        // `cleanedBySetting` is a removal by the "Keep media" setting, so it behaves like `removed`.
         case .unavailable, .notRequested, .queued, .downloading, .verifyingCiphertext, .decrypting,
-            .verifyingPlaintext, .ready, .retryScheduled, .removed:
+            .verifyingPlaintext, .ready, .retryScheduled, .removed, .cleanedBySetting:
             false
         }
     }
 
     var canRemove: Bool {
         switch state {
-        case .unavailable, .notRequested, .removed:
+        case .unavailable, .notRequested, .removed, .cleanedBySetting:
             false
         case .queued, .downloading, .verifyingCiphertext, .decrypting, .verifyingPlaintext, .ready,
             .retryScheduled, .failed, .cancelled, .paused, .policyBlocked,
-            .previouslyAcquiredUnavailable, .completedUnretained, .retryExhausted:
+            .previouslyAcquiredUnavailable, .completedUnretained, .retryExhausted, .storageBlocked:
             true
         }
     }

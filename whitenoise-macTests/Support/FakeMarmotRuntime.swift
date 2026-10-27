@@ -117,6 +117,25 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private(set) var requestedAvatarTargetBatches: [[String]] = []
     private(set) var readAvatarReferenceBatches: [[String]] = []
     private(set) var didClearAvatarCache = false
+    // Manage Storage. Pages are served once each, in order; cursors are opaque handles the fake
+    // cannot mint, so every served page ends its listing.
+    var attachmentStorageUsageResult = AttachmentStorageUsageFfi(
+        mediaBytes: 0, legacyBytes: 0, attachmentCount: 0, databaseBytes: 0, databaseFreeBytes: 0,
+        migration: .notNeeded, migrationBytes: 0, cacheBytes: 0
+    )
+    var attachmentStorageUsageError: Error?
+    private(set) var attachmentStorageUsageReadCount = 0
+    var chatStorageUsage: [ChatAttachmentUsageFfi] = []
+    private(set) var chatStoragePageReadCount = 0
+    var retainedAttachmentSummaries: [RetainedAttachmentSummaryFfi] = []
+    private(set) var largestRetainedAttachmentReads: [String?] = []
+    var bulkAttachmentRemovalError: Error?
+    private(set) var removedChatAttachmentGroups: [String] = []
+    private(set) var removedAttachmentsOlderThan: [(receivedBefore: UInt64, groupIdHex: String?)] = []
+    private(set) var controlledAttachments: [(reference: String, control: AttachmentControlFfi)] = []
+    var attachmentHandoffResults: [Result<AttachmentHandoffFfi?, Error>] = []
+    private(set) var openedAttachmentHandoffTargets: [AttachmentLocalTargetFfi] = []
+    private(set) var releasedAttachmentHandoffLeases: [String] = []
     var blockedUsers: [BlockedUserFfi] = []
     var blockedUserSnapshots: [BlockListSnapshotFfi] = []
     var blockUserError: Error?
@@ -238,6 +257,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// throws `MissingKeyPackage` naming that account, so a roster with several surfaces them one
     /// attempt at a time. Keyed by member ref, valued by the account id hex the core reports.
     var missingKeyPackageAccountIdHexByMemberRef: [String: String] = [:]
+    /// Of the refs in `missingKeyPackageAccountIdHexByMemberRef`, those whose only KeyPackages are
+    /// from an outdated app: the refusal carries `.obsoleteOnly` instead of `.notFound`.
+    var obsoleteKeyPackageMemberRefs: Set<String> = []
     /// Member refs the core would refuse over a KeyPackage that exists but cannot be used. Unlike
     /// `missingKeyPackageAccountIdHexByMemberRef`, `InvalidKeyPackageEvent` names no account, so a
     /// roster containing one of these is refused without saying who is at fault. Resolution order
@@ -433,6 +455,13 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private(set) var clearGroupImageCallCount = 0
     private(set) var downloadGroupImageCallCount = 0
     var downloadedGroupImage = Data([0x89, 0x50, 0x4E, 0x47])
+    /// Advisory refusals the fake core raises on group changes, by group: each stands until the
+    /// test clears it, exactly as MDK's does until the group catches up or the relay accepts.
+    /// An acknowledgement of the matching kind admits one attempt past it.
+    var groupChangeAdvisoryRefusals: [String: MarmotKitError] = [:]
+    private var admittedGroupChangeAttempts: [String: Int] = [:]
+    /// `catchingUp:` / `commitUndelivered:` plus the group, in acknowledgement order.
+    private(set) var groupChangeAdvisoryAcknowledgements: [String] = []
     private(set) var updatedGroupProfile: UpdatedGroupProfile?
     private(set) var updateGroupProfileCallCount = 0
     private(set) var archivedGroup: ArchivedGroup?
@@ -1657,7 +1686,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     }
 
     func controlAttachment(accountRef: String, reference: String, control: AttachmentControlFfi) async throws -> Bool {
-        attachmentControlResult
+        controlledAttachments.append((reference, control))
+        return attachmentControlResult
     }
 
     func readAttachmentAsset(accountRef: String, reference: String, offset: UInt64, limit: UInt32) async throws
@@ -1697,6 +1727,62 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         didClearAvatarCache = true
         avatarAssets.removeAll()
         avatarBytes.removeAll()
+    }
+
+    func attachmentStorageUsage(accountRef: String) async throws -> AttachmentStorageUsageFfi {
+        attachmentStorageUsageReadCount += 1
+        if let attachmentStorageUsageError { throw attachmentStorageUsageError }
+        return attachmentStorageUsageResult
+    }
+
+    func attachmentStorageByChat(accountRef: String, limit: UInt32, cursor: ChatStorageCursor?) async throws
+        -> ChatStoragePageFfi
+    {
+        chatStoragePageReadCount += 1
+        return ChatStoragePageFfi(chats: Array(chatStorageUsage.prefix(Int(limit))), nextCursor: nil)
+    }
+
+    func largestRetainedAttachments(
+        accountRef: String, groupIdHex: String?, limit: UInt32, cursor: RetainedAttachmentsCursor?
+    ) async throws -> RetainedAttachmentsPageFfi {
+        largestRetainedAttachmentReads.append(groupIdHex)
+        let matching = retainedAttachmentSummaries.filter { groupIdHex == nil || $0.groupIdHex == groupIdHex }
+        return RetainedAttachmentsPageFfi(attachments: Array(matching.prefix(Int(limit))), nextCursor: nil)
+    }
+
+    func removeChatAttachments(accountRef: String, groupIdHex: String) async throws -> UInt64 {
+        removedChatAttachmentGroups.append(groupIdHex)
+        if let bulkAttachmentRemovalError { throw bulkAttachmentRemovalError }
+        let removed = retainedAttachmentSummaries.filter { $0.groupIdHex == groupIdHex }
+        retainedAttachmentSummaries.removeAll { $0.groupIdHex == groupIdHex }
+        chatStorageUsage.removeAll { $0.groupIdHex == groupIdHex }
+        return UInt64(removed.count)
+    }
+
+    func removeAttachmentsOlderThan(accountRef: String, receivedBefore: UInt64, groupIdHex: String?) async throws
+        -> UInt64
+    {
+        removedAttachmentsOlderThan.append((receivedBefore, groupIdHex))
+        if let bulkAttachmentRemovalError { throw bulkAttachmentRemovalError }
+        let isRemoved = { (item: RetainedAttachmentSummaryFfi) in
+            item.receivedAt < receivedBefore && (groupIdHex == nil || item.groupIdHex == groupIdHex)
+        }
+        let removed = retainedAttachmentSummaries.filter(isRemoved).count
+        retainedAttachmentSummaries.removeAll(where: isRemoved)
+        return UInt64(removed)
+    }
+
+    func openAttachmentHandoff(
+        accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi,
+        control: MediaFileTransferControlFfi
+    ) async throws -> AttachmentHandoffFfi? {
+        openedAttachmentHandoffTargets.append(target)
+        guard !attachmentHandoffResults.isEmpty else { return nil }
+        return try attachmentHandoffResults.removeFirst().get()
+    }
+
+    func releaseAttachmentHandoff(lease: String) async throws {
+        releasedAttachmentHandoffLeases.append(lease)
     }
 
     func getBlockedUsers(accountRef: String) throws -> [BlockedUserFfi] {
@@ -2001,7 +2087,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             }
             if let refusedMemberRef {
                 if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[refusedMemberRef] {
-                    throw MarmotKitError.MissingKeyPackage(account: accountIdHex)
+                    throw MarmotKitError.MissingKeyPackage(
+                        account: accountIdHex,
+                        reason: obsoleteKeyPackageMemberRefs.contains(refusedMemberRef) ? .obsoleteOnly : .notFound)
                 }
                 if unresolvableMemberRefs.contains(refusedMemberRef) {
                     throw MarmotKitError.Publish(details: "no relay list for member")
@@ -2119,6 +2207,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     {
         inviteMembersDetailedCallCount += 1
         await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
         inviteMemberRefAttempts.append(memberRefs)
         await onMemberResolutionAttempt?()
         // Invites resolve every member's KeyPackage before committing anything and stop at the
@@ -2127,7 +2216,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             missingKeyPackageAccountIdHexByMemberRef[$0] != nil || invalidKeyPackageMemberRefs.contains($0)
         }) {
             if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[refusedMemberRef] {
-                throw MarmotKitError.MissingKeyPackage(account: accountIdHex)
+                throw MarmotKitError.MissingKeyPackage(
+                    account: accountIdHex,
+                    reason: obsoleteKeyPackageMemberRefs.contains(refusedMemberRef) ? .obsoleteOnly : .notFound)
             }
             throw MarmotKitError.InvalidKeyPackageEvent(details: "unusable key package event")
         }
@@ -2192,6 +2283,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     {
         promoteAdminDetailedCallCount += 1
         await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
         if let promoteAdminError { throw promoteAdminError }
         groupMutationOrder.append("promote")
         promotedAdminRef = memberRef
@@ -2214,6 +2306,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     {
         demoteAdminDetailedCallCount += 1
         await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
         demotedAdminRef = memberRef
         updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
             member.isAdmin = false
@@ -2226,6 +2319,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     {
         removeMembersDetailedCallCount += 1
         await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
         if let removeMembersError { throw removeMembersError }
         removedMemberRefs = memberRefs
         guard var details = groupDetailsById[groupIdHex] else {
@@ -2243,6 +2337,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         selfDemoteAdminDetailedCallCount += 1
         groupMutationOrder.append("selfDemote")
         await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
         selfDemotedGroupIdHex = groupIdHex
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -2283,6 +2378,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     {
         updateGroupAvatarUrlCallCount += 1
         await groupAvatarUpdateGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
 
         updatedGroupAvatar = UpdatedGroupAvatar(groupIdHex: groupIdHex, url: url, dim: dim, thumbhash: thumbhash)
 
@@ -2307,6 +2403,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     {
         updateGroupImageCallCount += 1
         await groupAvatarUpdateGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
         updatedEncryptedGroupImage = plaintext
         updatedEncryptedGroupImageMediaType = mediaType
         if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
@@ -2341,6 +2438,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func clearGroupImage(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
         clearGroupImageCallCount += 1
+        try admitGroupChange(groupIdHex: groupIdHex)
         if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
             groups[index].imageHashHex = nil
         }
@@ -2376,6 +2474,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     {
         updateGroupProfileCallCount += 1
         await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
         updatedGroupProfile = UpdatedGroupProfile(groupIdHex: groupIdHex, name: name, description: description)
 
         if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
@@ -2677,6 +2776,38 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             return chatListRows(includeArchived: includeArchived)
         }
         return installed.filter { includeArchived || !$0.archived }
+    }
+
+    func acknowledgeGroupCatchingUp(accountRef: String, groupIdHex: String) async throws -> Bool {
+        acknowledgeGroupChangeAdvisory(kind: "catchingUp", groupIdHex: groupIdHex) {
+            if case .GroupCatchingUp = $0 { true } else { false }
+        }
+    }
+
+    func acknowledgeGroupCommitUndelivered(accountRef: String, groupIdHex: String) async throws -> Bool {
+        acknowledgeGroupChangeAdvisory(kind: "commitUndelivered", groupIdHex: groupIdHex) {
+            if case .GroupCommitUndelivered = $0 { true } else { false }
+        }
+    }
+
+    private func acknowledgeGroupChangeAdvisory(
+        kind: String, groupIdHex: String, matches: (MarmotKitError) -> Bool
+    ) -> Bool {
+        groupChangeAdvisoryAcknowledgements.append("\(kind):\(groupIdHex)")
+        guard let refusal = groupChangeAdvisoryRefusals[groupIdHex], matches(refusal) else { return false }
+        admittedGroupChangeAttempts[groupIdHex, default: 0] += 1
+        return true
+    }
+
+    /// Throws the group's standing advisory refusal unless an acknowledgement admitted this
+    /// attempt. Like MDK's, the admission is consumed by the attempt whether or not it succeeds.
+    private func admitGroupChange(groupIdHex: String) throws {
+        guard let refusal = groupChangeAdvisoryRefusals[groupIdHex] else { return }
+        if let admitted = admittedGroupChangeAttempts[groupIdHex], admitted > 0 {
+            admittedGroupChangeAttempts[groupIdHex] = admitted - 1
+            return
+        }
+        throw refusal
     }
 
     private func groupMutationResult(groupIdHex: String, messageId: String) throws -> GroupMutationResultFfi {
@@ -3567,6 +3698,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     {
         updateMessageRetentionCallCount += 1
         await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
         lastRetentionSecs = disappearingMessageSecs
         return SendSummaryFfi(published: 1, messageIds: ["retention"])
     }

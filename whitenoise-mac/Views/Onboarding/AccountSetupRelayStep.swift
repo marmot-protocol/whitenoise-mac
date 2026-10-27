@@ -364,7 +364,7 @@ struct AccountSetupRelayDraftEditor: View {
     let model = OnboardingCoordinator.preview(steps: [
         OnboardingStepStateFfi(
             step: .relays, status: .needsInput,
-            findings: [.init(issue: .missing, endpoint: nil)],
+            findings: [.preview(issue: .missing, endpoint: nil)],
             actions: [.useRecommendedRelays, .editRelays, .editDiscoveryRelays, .retry], checkedAt: nil
         )
     ])

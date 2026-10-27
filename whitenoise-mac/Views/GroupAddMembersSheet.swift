@@ -12,6 +12,8 @@ import SwiftUI
 struct GroupAddMembersSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.dismiss) private var dismiss
+    /// Owned and hosted here: the window cannot show an alert from under this sheet.
+    @State private var advisory = GroupChangeAdvisoryPrompter()
 
     let existingMemberIds: Set<String>
 
@@ -76,7 +78,11 @@ struct GroupAddMembersSheet: View {
             workspace.clearComposeSearch()
             await workspace.refreshComposeContacts()
         }
-        .onDisappear { workspace.clearComposeSearch() }
+        .groupChangeAdvisoryAlert(advisory)
+        .onDisappear {
+            advisory.cancelPending()
+            workspace.clearComposeSearch()
+        }
     }
 
     private var header: some View {
@@ -162,7 +168,7 @@ struct GroupAddMembersSheet: View {
         guard !reachableStaged.isEmpty else { return }
         inviteError = nil
         unreachableNotice = nil
-        if await workspace.inviteMembers(staged) {
+        if await workspace.inviteMembers(staged, advisory: advisory) {
             dismiss()
             return
         }

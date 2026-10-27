@@ -149,6 +149,34 @@ build.
   cross-checks every stamp, re-hashes the vendored `MarmotKit.swift` and
   `PrivacyInfo.xcprivacy`, and verifies the Swift package resource declaration
   — so never hand-edit generated release artifacts, re-run the sync instead.
+- A dated nightly installs the same way (`just sync-bindings 0.14.0-nightly.20261022`). Nightlies
+  are for testing only and upstream deletes them after 30 days; pin a formal release before
+  shipping.
+- Every `Marmot` construction, tests included, passes `deployment: marmotDeploymentWhiteNoise()`
+  (required since 0.14.0). Its keychain service is `com.marmot.whitenoise`, the one existing
+  installs and `MarmotAccountKeychain` use, so never substitute the neutral deployment.
+  `MarmotStorageRoot` excludes the Marmot root from backups: MDK keeps device-bound account
+  databases and encrypted `media/` files there, and a restored copy is unreadable.
+- Group changes (invite, remove, admin, profile, image, retention, and the admin step-down before
+  a leave) can fail with the advisory `GroupCatchingUp` or `GroupCommitUndelivered`. Run them
+  through `GroupChangeAdvisoryRetry` (`Core/GroupChangeAdvisory.swift`): ask, acknowledge only
+  after consent, retry once. Acknowledgements admit one attempt and are not persisted; choosing
+  Wait is a note, not an error. Each `GroupChangeAdvisoryPrompter` has exactly one alert host —
+  the account's shared one (`AccountScope.groupChangeAdvisory`) is hosted in `ContentView` for
+  pane changes, and a sheet that makes a change owns and hosts its own, because a window cannot
+  alert from under a sheet and an unanswered prompt holds the change open.
+- `MissingKeyPackage` carries a reason: `obsoleteOnly` recipients are on White Noise with an
+  outdated app, so they get "needs to update" copy (`ChatCreationFailure.needsAppUpdate`), never
+  the invite prompt or the "not on White Noise yet" mark.
+- Documents open in another app (and Shared Media → Save As copies) from MDK's
+  `openAttachmentHandoff` lease on the original slot (`Core/AttachmentHandoff.swift`), not a host
+  plaintext export; in-app display and playback stay on `readAttachmentAsset`. Release the lease
+  once the surface is done (idempotent; retry `Io`/`StorageClosed` on whichever runtime is open).
+  Cancel a copy only through its `MediaFileTransferControlFfi`, never by cancelling the awaiting
+  task. Only bytes MDK holds no slot for (an own send still going out) use the host export.
+- Settings → Storage → Manage Storage (`ManageStorageViewModel`) reads MDK's attachment storage
+  figures and removes in bulk. Bulk removals report counts, not hashes, so every removal runs the
+  shell's `attachmentsDidChange` hook, which clears the host media cache.
 - The published macOS XCFramework is `aarch64-apple-darwin` only — there is no
   Intel or universal build upstream, so the app stays arm64-only.
 - `MarmotRuntime` (in `Core/MarmotClient.swift`) is the `nonisolated` protocol the

@@ -518,7 +518,7 @@ struct AccountSetupFollowsStep: View {
     let model = OnboardingCoordinator.preview(steps: [
         OnboardingStepStateFfi(
             step: .keyPackage, status: .retryableFailure,
-            findings: [.init(issue: .publicationFailed, endpoint: nil)], actions: [.retry], checkedAt: nil
+            findings: [.preview(issue: .publicationFailed, endpoint: nil)], actions: [.retry], checkedAt: nil
         )
     ])
     AccountSetupStepScreen(model: model, step: .keyPackage)
@@ -528,7 +528,7 @@ struct AccountSetupFollowsStep: View {
     let model = OnboardingCoordinator.preview(steps: [
         OnboardingStepStateFfi(
             step: .follows, status: .retryableFailure,
-            findings: [.init(issue: .unreachable, endpoint: "wss://relay.example.com")],
+            findings: [.preview(issue: .unreachable, endpoint: "wss://relay.example.com")],
             actions: [.retry, .continueWithout], checkedAt: nil
         )
     ])
