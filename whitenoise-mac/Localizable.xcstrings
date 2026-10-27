@@ -10647,7 +10647,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ añadió un administrador"
+            "value" : "%@ añadió a un administrador"
           }
         },
         "fr" : {
@@ -82281,7 +82281,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Añadiste un administrador"
+            "value" : "Añadiste a un administrador"
           }
         },
         "fr" : {

@@ -1747,8 +1747,9 @@ struct TimelineTests: WorkspaceTestSupport {
         )
 
         // "You" must never be spliced into a third-person template: in Spanish
-        // "%@ made %@ an admin" with "You" reads "Tú nombró administrador a Bob". Asserting
-        // through the keys pins which sentence was chosen in whatever language the host runs.
+        // "%@ made %@ an admin" with "You" reads "Tú nombró administrador a Bob". On an English
+        // host the spliced and the dedicated sentence are identical, so this checks the wording,
+        // not which sentence was chosen.
         let messages = MessageItem.timeline(from: page, activeAccountIdHex: alice, senderProfiles: profiles)
         #expect(
             messages.map(\.body) == [
@@ -1833,8 +1834,9 @@ struct TimelineTests: WorkspaceTestSupport {
         )
 
         // Same contract as the admin events: "You" is never spliced into a third-person
-        // template ("Tú añadió a Bob", "Du hat Bob hinzugefügt"). Asserting through the keys
-        // pins which sentence was chosen in whatever language the host runs.
+        // template ("Tú añadió a Bob", "Du hat Bob hinzugefügt"). On an English host the spliced
+        // and the dedicated sentence are identical, so this checks the wording, not which
+        // sentence was chosen.
         let off = L10n.string("off")
         let oneWeek = L10n.plural("%llu weeks", UInt64(1))
         let messages = MessageItem.timeline(from: page, activeAccountIdHex: alice, senderProfiles: profiles)
@@ -1893,7 +1895,8 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(L10n.string("You made %@ an admin", locale: spanish) == "Nombraste administrador a %@")
         #expect(L10n.string("%@ made you an admin", locale: spanish) == "%@ te nombró administrador")
         #expect(L10n.string("You became an admin", locale: spanish) == "Ahora eres administrador")
-        #expect(L10n.string("You added an admin", locale: spanish) == "Añadiste un administrador")
+        #expect(L10n.string("You added an admin", locale: spanish) == "Añadiste a un administrador")
+        #expect(L10n.string("%@ added an admin", locale: spanish) == "%@ añadió a un administrador")
         #expect(L10n.string("You removed %@ as admin", locale: spanish) == "Eliminaste a %@ como administrador")
         #expect(L10n.string("You removed an admin", locale: spanish) == "Eliminaste a un administrador")
         #expect(L10n.string("%@ removed an admin", locale: spanish) == "%@ eliminó a un administrador")

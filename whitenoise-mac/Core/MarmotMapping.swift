@@ -1136,6 +1136,8 @@ nonisolated extension MessageItem {
         position: SystemAccountNamePosition
     ) -> String? {
         guard let accountIdHex = nonBlank(accountIdHex) else { return nil }
+        // Safety net only: every system-text template checks for the active account first and
+        // uses its own "you" key, so no template should ever splice this "You"/"you".
         if isActiveAccount(accountIdHex, activeAccountIdHex) {
             switch position {
             case .subject:
