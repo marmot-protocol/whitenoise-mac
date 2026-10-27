@@ -24,11 +24,12 @@ private nonisolated struct MediaAttachmentDownloadTaskFailure: Error {
 
 /// One slot of a concurrently prepared batch. `index` is the position the user chose the file in,
 /// which the group's completion order does not preserve; a nil `attachment` with a nil
-/// `errorDescription` is a cancelled slot, which is silent by design.
+/// `rejection` is a cancelled slot, which is silent by design.
 private nonisolated struct PreparedMediaAttachmentOutcome: Sendable {
     let index: Int
+    let source: AttachmentRejection.Source
     let attachment: PendingMediaAttachment?
-    let errorDescription: String?
+    let rejection: AttachmentRejection.Reason?
 }
 
 @MainActor
@@ -493,39 +494,52 @@ extension WorkspaceState {
             && mediaDownloads[key] === stateStore
     }
 
-    func addMediaAttachments(from urls: [URL]) async {
-        guard let draftKey = selectedComposerDraftKey else { return }
-        guard canBeginMediaAttachmentSelection() else { return }
+    /// Stages every file it can and returns the ones it could not, each with its own reason, in
+    /// the order the user picked them. The returned list is empty when the selection changed
+    /// while the batch was preparing: those files belonged to a conversation no longer on screen.
+    @discardableResult
+    func addMediaAttachments(from urls: [URL]) async -> [AttachmentRejection] {
+        guard let draftKey = selectedComposerDraftKey else { return [] }
+        guard canBeginMediaAttachmentSelection() else { return [] }
         let fileURLs = urls.filter(\.isFileURL)
-        guard !fileURLs.isEmpty else { return }
+        guard !fileURLs.isEmpty else { return [] }
 
         let selected = Array(fileURLs.prefix(remainingMediaAttachmentSlots))
-        if selected.count < fileURLs.count {
-            presentMaxMediaAttachmentWarning()
+        let overflow = fileURLs.dropFirst(selected.count).map {
+            AttachmentRejection(fileURL: $0, reason: .perMessageLimitReached)
         }
 
-        let prepared = await Self.preparedMediaAttachments(for: selected) { url in
-            try await Self.preparedMediaAttachment(fromFileURL: url)
-        }
-        stagePreparedMediaAttachments(prepared, for: draftKey)
+        let prepared = await Self.preparedMediaAttachments(
+            for: selected,
+            source: { .file(name: $0.lastPathComponent) },
+            prepare: { url in try await Self.preparedMediaAttachment(fromFileURL: url) }
+        )
+        return stagePreparedMediaAttachments(prepared, overflow: overflow, for: draftKey)
     }
 
-    func addPastedMediaAttachments(from pasteboard: NSPasteboard = .general) async {
+    @discardableResult
+    func addPastedMediaAttachments(from pasteboard: NSPasteboard = .general) async -> [AttachmentRejection] {
         let pasteboardAttachments = OutgoingMediaPasteboardReader.attachments(from: pasteboard)
-        await addPastedMediaAttachments(pasteboardAttachments)
+        return await addPastedMediaAttachments(pasteboardAttachments)
     }
 
-    func addPastedMediaAttachments(_ pasteboardAttachments: [OutgoingMediaPasteboardAttachment]) async {
-        guard let draftKey = selectedComposerDraftKey else { return }
-        guard canBeginMediaAttachmentSelection() else { return }
-        guard !pasteboardAttachments.isEmpty else { return }
+    @discardableResult
+    func addPastedMediaAttachments(
+        _ pasteboardAttachments: [OutgoingMediaPasteboardAttachment]
+    ) async -> [AttachmentRejection] {
+        guard let draftKey = selectedComposerDraftKey else { return [] }
+        guard canBeginMediaAttachmentSelection() else { return [] }
+        guard !pasteboardAttachments.isEmpty else { return [] }
 
         let selected = Array(pasteboardAttachments.prefix(remainingMediaAttachmentSlots))
-        if selected.count < pasteboardAttachments.count {
-            presentMaxMediaAttachmentWarning()
+        let overflow = pasteboardAttachments.dropFirst(selected.count).map {
+            AttachmentRejection(source: .init(pasteboardItem: $0), reason: .perMessageLimitReached)
         }
 
-        let prepared = await Self.preparedMediaAttachments(for: selected) { item in
+        let prepared = await Self.preparedMediaAttachments(
+            for: selected,
+            source: AttachmentRejection.Source.init(pasteboardItem:)
+        ) { item in
             switch item.payload {
             case .fileURL(let url):
                 return try await Self.preparedMediaAttachment(fromFileURL: url)
@@ -536,7 +550,7 @@ extension WorkspaceState {
                 )
             }
         }
-        stagePreparedMediaAttachments(prepared, for: draftKey)
+        return stagePreparedMediaAttachments(prepared, overflow: overflow, for: draftKey)
     }
 
     /// Prepares a whole selection at once, returning the outcomes in the order the user chose them.
@@ -548,24 +562,29 @@ extension WorkspaceState {
     /// aborting the batch, so one unsupported file no longer costs the user the rest of the drop.
     private nonisolated static func preparedMediaAttachments<Item: Sendable>(
         for items: [Item],
+        source: (Item) -> AttachmentRejection.Source,
         prepare: @Sendable @escaping (Item) async throws -> PendingMediaAttachment
     ) async -> [PreparedMediaAttachmentOutcome] {
         await withTaskGroup(of: PreparedMediaAttachmentOutcome.self) { group in
             for (index, item) in items.enumerated() {
+                let source = source(item)
                 group.addTask {
                     do {
                         return PreparedMediaAttachmentOutcome(
                             index: index,
+                            source: source,
                             attachment: try await prepare(item),
-                            errorDescription: nil
+                            rejection: nil
                         )
                     } catch is CancellationError {
-                        return PreparedMediaAttachmentOutcome(index: index, attachment: nil, errorDescription: nil)
+                        return PreparedMediaAttachmentOutcome(
+                            index: index, source: source, attachment: nil, rejection: nil)
                     } catch {
                         return PreparedMediaAttachmentOutcome(
                             index: index,
+                            source: source,
                             attachment: nil,
-                            errorDescription: error.localizedDescription
+                            rejection: AttachmentRejection.Reason(error)
                         )
                     }
                 }
@@ -589,32 +608,44 @@ extension WorkspaceState {
         return try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
     }
 
-    /// Stages a prepared batch in selection order, surfacing at most one failure. Preparation ran
-    /// while the user could still switch chats, so every append re-checks the selection and the
-    /// first refusal ends the batch (#245).
+    /// Stages a prepared batch in selection order and returns every file that did not make it, each
+    /// with its own reason. The successful ones stay staged, so the user only has to deal with the
+    /// failures. Preparation ran while the user could still switch chats, so every append
+    /// re-checks the selection and the first refusal ends the batch silently (#245).
+    ///
+    /// `overflow` is the tail of the selection that never got a slot; it trails the prepared
+    /// outcomes because it was the tail of what the user chose.
     private func stagePreparedMediaAttachments(
         _ outcomes: [PreparedMediaAttachmentOutcome],
+        overflow: [AttachmentRejection],
         for draftKey: ComposerDraftKey
-    ) {
+    ) -> [AttachmentRejection] {
         // Preparation ran while the composer was live, and a recording can only start from an
         // empty one — which this batch was, right up until it landed. Yield to the recording the
         // same way `finishVoiceRecording` yields to a meanwhile-staged file, or the batch would
         // append itself alongside a voice message that is meant to go out on its own.
         guard stagedVoiceMessage == nil else {
             presentVoiceMessageIsSentAloneWarning()
-            return
+            return []
         }
-        var failure: String?
+        var rejections: [AttachmentRejection] = []
         for outcome in outcomes {
             guard let attachment = outcome.attachment else {
-                failure = outcome.errorDescription ?? failure
+                if let reason = outcome.rejection {
+                    rejections.append(AttachmentRejection(source: outcome.source, reason: reason))
+                }
                 continue
             }
-            guard appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey) else { return }
+            guard appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey) else { return [] }
+            // Something else filled the composer while this batch was preparing, and the append
+            // refused it at the cap. That file is as rejected as one that never got a slot.
+            let staged = pendingMediaAttachmentsByConversation[draftKey] ?? []
+            let wasStaged = staged.contains { $0.id == attachment.id }
+            if !wasStaged {
+                rejections.append(AttachmentRejection(source: outcome.source, reason: .perMessageLimitReached))
+            }
         }
-        if let failure {
-            lastError = failure
-        }
+        return rejections + overflow
     }
 
     func removePendingMediaAttachment(_ id: PendingMediaAttachment.ID) {

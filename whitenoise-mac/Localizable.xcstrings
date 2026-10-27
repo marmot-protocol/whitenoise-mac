@@ -56101,6 +56101,65 @@
         }
       }
     },
+    "Pasted image" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eingefügtes Bild"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imagen pegada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image collée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immagine incollata"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imagem colada"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставленное изображение"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapıştırılan görsel"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴的图片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "貼上的圖片"
+          }
+        }
+      }
+    },
     "Pending commit recovery failed" : {
       "comment" : "A quarantine reason when Marmot found a stranded MLS commit but could not recover it.",
       "extractionState" : "manual",
@@ -68372,6 +68431,65 @@
         }
       }
     },
+    "That attachment is too large to send. The limit is %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Anhang ist zu groß zum Senden. Das Limit liegt bei %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ese adjunto es demasiado grande para enviarlo. El límite es de %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette pièce jointe est trop volumineuse pour être envoyée. La limite est de %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo allegato è troppo grande per essere inviato. Il limite è di %@."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esse anexo é muito grande para enviar. O limite é de %@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это вложение слишком большое для отправки. Ограничение — %@."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu ek gönderilemeyecek kadar büyük. Sınır %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "该附件过大，无法发送。上限为 %@。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "該附件過大，無法傳送。上限為 %@。"
+          }
+        }
+      }
+    },
     "The group's last change hasn't reached all of its relays yet. Members who use only those relays may not be able to follow this change. Wait, or continue anyway?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -68433,6 +68551,65 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "該群組的最近一次變更尚未送達其所有中繼伺服器。只使用這些中繼伺服器的成員可能無法跟上此次變更。要等待，還是仍要繼續？"
+          }
+        }
+      }
+    },
+    "These files weren't attached" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Dateien wurden nicht angehängt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estos archivos no se adjuntaron"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ces fichiers n’ont pas été joints"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questi file non sono stati allegati"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estes arquivos não foram anexados"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эти файлы не прикреплены"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu dosyalar eklenmedi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些文件未能添加为附件"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這些檔案未能加入為附件"
           }
         }
       }
@@ -68628,6 +68805,65 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此裝置可能還沒有該群組的最新變更。現在邀請可能會讓所有人的群組分裂，並讓你邀請的人收到無法使用的邀請。要等待同步完成，還是仍要繼續？"
+          }
+        }
+      }
+    },
+    "This file wasn't attached" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Datei wurde nicht angehängt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este archivo no se adjuntó"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce fichier n’a pas été joint"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo file non è stato allegato"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este arquivo não foi anexado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот файл не прикреплён"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu dosya eklenmedi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此文件未能添加为附件"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此檔案未能加入為附件"
           }
         }
       }
@@ -73950,65 +74186,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法準備該附件。"
-          }
-        }
-      }
-    },
-    "That attachment is too large to send." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieser Anhang ist zu groß zum Senden."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ese adjunto es demasiado grande para enviarlo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette pièce jointe est trop volumineuse pour être envoyée."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questo allegato è troppo grande per essere inviato."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esse anexo é muito grande para enviar."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Это вложение слишком большое для отправки."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu ek gönderilemeyecek kadar büyük."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "该附件过大，无法发送。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "該附件過大，無法傳送。"
           }
         }
       }
