@@ -70,7 +70,7 @@ private struct AccountSetupRelayOverview: View {
                 isLoading: model.isBusy && active == nil
             ) {
                 ForEach(plan.messageKeys, id: \.self) { Text(L10n.string($0, locale: locale)) }
-                if plan.proposal == nil, !plan.findings.isEmpty {
+                if plan.proposal == nil, !AccountSetupFindingLines.problems(in: plan.findings).isEmpty {
                     Divider()
                     AccountSetupFindingLines(findings: plan.findings)
                 }

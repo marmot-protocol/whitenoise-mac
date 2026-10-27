@@ -337,18 +337,60 @@ import Testing
         model.stop()
     }
 
-    /// Every finding MarmotKit can report has its own line of copy.
+    /// Every fault MarmotKit can report has its own line of copy; a relay that answered has none.
     @Test func everyFindingHasItsOwnLine() {
         let issues: [OnboardingIssueFfi] = [
             .missing, .malformed, .futureDated, .invalidRelay, .retiredRelay, .unsafeRelay, .unreachable,
             .timedOut, .authenticationRequired, .paymentRequired, .accessRestricted, .noUsableRoute,
             .publicationFailed, .signerUnavailable, .signerRejected, .recordChanged, .interrupted,
             .tooManyRelays, .multiDeviceUnsupported, .otherInstallationPossible, .discoveryIncomplete,
-            .inspectionCompleted,
         ]
-        let lines = issues.map(AccountSetupGuide.issueKey)
+        let lines = issues.compactMap(AccountSetupGuide.issueKey)
 
+        #expect(lines.count == issues.count)
         #expect(Set(lines).count == issues.count)
+        #expect(AccountSetupGuide.issueKey(.inspectionCompleted) == nil)
+    }
+
+    /// `inspectionCompleted` only says a relay answered. A step whose only finding is that one
+    /// prints nothing under it — no "Complete", no relay address — and a failed step falls back to
+    /// its generic line exactly as if it had named nothing.
+    @Test func anAnsweredRelayIsNotListedAsAProblem() {
+        let answered = OnboardingFindingFfi.preview(issue: .inspectionCompleted, endpoint: "wss://relay.example.com")
+        let unreachable = OnboardingFindingFfi.preview(issue: .unreachable, endpoint: "wss://down.example.com")
+
+        #expect(AccountSetupFindingLines.problems(in: [answered]).isEmpty)
+        #expect(
+            AccountSetupFindingLines.problems(in: [answered, unreachable]).map(\.endpoint) == ["wss://down.example.com"]
+        )
+
+        func height(_ findings: [OnboardingFindingFfi], isFailure: Bool) -> CGFloat {
+            F.hostedSize(
+                VStack(spacing: 0) { AccountSetupFindingLines(findings: findings, isFailure: isFailure) }
+                    .frame(width: 400)
+            ).height
+        }
+        #expect(height([answered], isFailure: false) == height([], isFailure: false))
+        #expect(height([answered], isFailure: true) == height([], isFailure: true))
+        #expect(height([answered, unreachable], isFailure: true) == height([unreachable], isFailure: true))
+    }
+
+    /// The relay step draws its divider and finding list only when there is a fault to list, so a
+    /// relay that merely answered leaves the callout as if nothing had been found.
+    @Test func theRelayStepDrawsNoFindingsForAnAnsweredRelay() async {
+        let answered = OnboardingFindingFfi.preview(issue: .inspectionCompleted, endpoint: "wss://relay.example.com")
+        let withAnswer = await F.coordinator(
+            F.snapshot(steps: [F.step(.relays, .needsInput, findings: [answered], actions: [.retry])])
+        )
+        let without = await F.coordinator(
+            F.snapshot(steps: [F.step(.relays, .needsInput, actions: [.retry])])
+        )
+
+        let answeredSize = F.hostedSize(AccountSetupRelayStep(model: withAnswer, step: .relays).frame(width: 400))
+        let emptySize = F.hostedSize(AccountSetupRelayStep(model: without, step: .relays).frame(width: 400))
+        #expect(answeredSize == emptySize)
+        withAnswer.stop()
+        without.stop()
     }
 
     @Test func theRelayEditorDrawsOneRowPerAddress() {

@@ -230,20 +230,27 @@ struct AccountSetupCallout<Lines: View>: View {
 }
 
 /// What MarmotKit found wrong with a step, one line each, with the relay it was about — or, for a
-/// failed step that names nothing, a generic line.
+/// failed step that names nothing, a generic line. Findings that are not faults (a relay that
+/// answered) are left out, so they never read as errors.
 struct AccountSetupFindingLines: View {
     @Environment(\.locale) private var locale
     let findings: [OnboardingFindingFfi]
     var isFailure = false
 
+    /// The findings that print a line: each with its copy and the relay it was about.
+    static func problems(in findings: [OnboardingFindingFfi]) -> [(key: String, endpoint: String?)] {
+        findings.compactMap { finding in AccountSetupGuide.issueKey(finding.issue).map { ($0, finding.endpoint) } }
+    }
+
     var body: some View {
-        if isFailure, findings.isEmpty {
+        let problems = Self.problems(in: findings)
+        if isFailure, problems.isEmpty {
             Text(L10n.string("Couldn’t finish this step. Try again.", locale: locale))
         }
-        ForEach(Array(findings.enumerated()), id: \.offset) { _, finding in
+        ForEach(Array(problems.enumerated()), id: \.offset) { _, problem in
             VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.string(AccountSetupGuide.issueKey(finding.issue), locale: locale))
-                if let endpoint = finding.endpoint {
+                Text(L10n.string(problem.key, locale: locale))
+                if let endpoint = problem.endpoint {
                     Text(String(endpoint.prefix(200)))
                         .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentTertiary)

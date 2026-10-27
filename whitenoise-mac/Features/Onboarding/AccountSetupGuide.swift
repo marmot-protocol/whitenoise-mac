@@ -172,7 +172,8 @@ struct AccountSetupGuide: Equatable {
         }
     }
 
-    static func issueKey(_ issue: OnboardingIssueFfi) -> String {
+    /// The line a finding prints under its step, or `nil` for one that is not a fault.
+    static func issueKey(_ issue: OnboardingIssueFfi) -> String? {
         switch issue {
         case .missing: "No published settings were found."
         case .malformed: "The published settings could not be read."
@@ -195,8 +196,8 @@ struct AccountSetupGuide: Equatable {
         case .multiDeviceUnsupported: "Conversations do not sync across devices yet."
         case .otherInstallationPossible: "Another installation may exist."
         case .discoveryIncomplete: "Some discovery sources could not be checked."
-        // An informational finding, not a fault: MDK reports that it finished inspecting the source.
-        case .inspectionCompleted: "Complete"
+        // MDK records only that the relay answered, not that it accepts writes: nothing to report.
+        case .inspectionCompleted: nil
         }
     }
 }
