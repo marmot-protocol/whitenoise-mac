@@ -15,6 +15,9 @@ nonisolated enum ApplicationBadgeCountProjection {
         return Int(clamping: total)
     }
 
+    /// MDK documents the badge as `unread_count + attention_only_conversations`. The floor of one
+    /// for a conversation marked unread by hand (no unread messages) is deliberate parity with
+    /// whitenoise-ios, beyond that formula; the account-rail badge uses this value too.
     static func contribution(for total: AccountAttentionTotalFfi) -> UInt64 {
         let (count, overflow) = total.unreadCount.addingReportingOverflow(total.attentionOnlyConversations)
         let boundedCount = overflow ? UInt64.max : count

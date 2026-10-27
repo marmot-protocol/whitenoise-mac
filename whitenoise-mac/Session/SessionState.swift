@@ -44,6 +44,18 @@ final class SessionState {
         await updateProductAnalyticsActivity(.accountChanged)
     }
 
+    /// The Dock / ⌘-Tab badge. MDK's attention snapshot covers every signed-in account, so the
+    /// active scope's model carries the whole total. Between scopes (an account switch) the
+    /// count is unknown (`nil`) and the badge keeps its last value, unless the account it left
+    /// was signed out or removed (see `DockBadgeController.activeAccountDidChange`); with nobody
+    /// signed in it clears.
+    func applicationBadgeCount(hasSignedInAccounts: Bool) -> Int? {
+        if let accountScope {
+            return accountScope.attentionModel.applicationBadgeCount
+        }
+        return hasSignedInAccounts ? nil : 0
+    }
+
     func updateConnectivity(available: Bool) {
         accountScope?.updateConnectivity(available: available)
     }

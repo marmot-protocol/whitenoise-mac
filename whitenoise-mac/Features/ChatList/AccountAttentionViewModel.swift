@@ -14,6 +14,8 @@ final class AccountAttentionViewModel {
     private(set) var error: ChatListFeatureError?
     /// The app-icon badge across every signed-in account, or `nil` while it is not known:
     /// before the first snapshot, or while an account is unavailable with no earlier total.
+    /// A subscription error sets `error` but keeps the last known total while the subscription
+    /// retries (backoff capped at 4s), so the Dock does not blank on a transient MDK failure.
     private(set) var applicationBadgeCount: Int?
 
     /// An account that turns unavailable keeps counting its last ready total, so a transient
