@@ -85,6 +85,30 @@ struct ApplicationBadgeTests {
         #expect(writes == ["5", nil])
     }
 
+    @Test func dockControllerClearsTheBadgeWhenTheActiveAccountSignedOut() {
+        var writes: [String?] = []
+        let controller = DockBadgeController { writes.append($0) }
+        controller.apply(count: 5)
+
+        // The replacement scope has no ready total yet.
+        controller.activeAccountDidChange(from: "signed-out", signedInAccountIds: ["remaining"])
+        controller.apply(count: nil)
+
+        #expect(writes == ["5", nil])
+    }
+
+    @Test func dockControllerKeepsTheBadgeAcrossAnOrdinaryAccountSwitch() {
+        var writes: [String?] = []
+        let controller = DockBadgeController { writes.append($0) }
+        controller.apply(count: 5)
+
+        controller.activeAccountDidChange(from: "previous", signedInAccountIds: ["previous", "next"])
+        controller.activeAccountDidChange(from: nil, signedInAccountIds: ["next"])
+        controller.apply(count: nil)
+
+        #expect(writes == ["5"])
+    }
+
     // MARK: - Attention model
 
     @Test func attentionModelPublishesTheTotalAcrossEveryAccount() async {
