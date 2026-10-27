@@ -1577,10 +1577,20 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/x-yaml",
+        "application/x-zip-compressed",
+        "application/xml",
+        "application/yaml",
+        "application/zip",
         "text/csv",
         "text/json",
+        "text/markdown",
         "text/plain",
         "text/rtf",
+        "text/x-markdown",
+        "text/x-yaml",
+        "text/xml",
+        "text/yaml",
     ]
 
     static let supportedDocumentExtensions: Set<String> = [
@@ -1588,6 +1598,8 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         "doc",
         "docx",
         "json",
+        "markdown",
+        "md",
         "pdf",
         "ppt",
         "pptx",
@@ -1595,6 +1607,10 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         "txt",
         "xls",
         "xlsx",
+        "xml",
+        "yaml",
+        "yml",
+        "zip",
     ]
 
     static let fileImporterAllowedTypes: [UTType] = {
@@ -1629,9 +1645,9 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         if supportedVideoMediaTypes.contains(canonical) { return true }
         if supportedAudioMediaTypes.contains(canonical) { return true }
         if supportedDocumentMediaTypes.contains(canonical) { return true }
-        if let fileName,
-            let fileExtension = fileName.split(separator: ".").last.map(String.init)
-        {
+        if let fileName {
+            // `pathExtension`, as in `fileExtension(for:fileName:)`: `README` has no extension.
+            let fileExtension = (fileName as NSString).pathExtension
             return supportedDocumentExtensions.contains(fileExtension.lowercased())
         }
         return false
@@ -1645,7 +1661,7 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
             return canonicalMediaType(mediaType)
         }
         if let fileName,
-            let fileExtension = fileName.split(separator: ".").last.map(String.init),
+            case let fileExtension = (fileName as NSString).pathExtension, !fileExtension.isEmpty,
             let mediaType = mediaType(forFileExtension: fileExtension)
         {
             return canonicalMediaType(mediaType)
@@ -1724,11 +1740,11 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
     }
 
     static func fileExtension(for mediaType: String, fileName: String? = nil) -> String {
-        if let fileName,
-            let ext = fileName.split(separator: ".").last.map(String.init),
-            !ext.isEmpty
-        {
-            return ext.lowercased()
+        // `pathExtension`, not the last `.`-separated piece: `README` has no extension, and
+        // splitting would hand back the whole name as one. Every name lookup here parses it so.
+        if let fileName {
+            let ext = (fileName as NSString).pathExtension
+            if !ext.isEmpty { return ext.lowercased() }
         }
         switch canonicalMediaType(mediaType) {
         case "image/jpeg":
@@ -1788,7 +1804,7 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         let canonical = canonicalMediaType(mediaType)
         if shouldInferKindFromFileName(canonicalMediaType: canonical),
             let fileName,
-            let fileExtension = fileName.split(separator: ".").last.map(String.init),
+            case let fileExtension = (fileName as NSString).pathExtension, !fileExtension.isEmpty,
             let resolved = allowlistedMediaType(forFileExtension: fileExtension)
         {
             return Self.fileExtension(for: canonicalMediaType(resolved))
@@ -1804,7 +1820,7 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         // mismatched extension is supplied.
         if shouldInferKindFromFileName(canonicalMediaType: canonical),
             let fileName,
-            let fileExtension = fileName.split(separator: ".").last.map(String.init),
+            case let fileExtension = (fileName as NSString).pathExtension, !fileExtension.isEmpty,
             let resolved = Self.mediaType(forFileExtension: fileExtension),
             let kind = kind(canonicalMediaType: canonicalMediaType(resolved))
         {
@@ -2079,7 +2095,7 @@ nonisolated enum OutgoingMediaDraftProcessor {
             }
         }
         if let fileName,
-            let fileExtension = fileName.split(separator: ".").last.map(String.init),
+            case let fileExtension = (fileName as NSString).pathExtension, !fileExtension.isEmpty,
             let mediaType = OutgoingMediaAttachmentPolicy.mediaType(forFileExtension: fileExtension)
         {
             return OutgoingMediaAttachmentPolicy.kind(mediaType: mediaType, fileName: fileName)
@@ -2199,27 +2215,37 @@ nonisolated enum OutgoingMediaDraftProcessor {
         return "\(name).jpg"
     }
 
-    private static func sanitizedFileName(
+    /// The attachment's own name, kept as the user sees it in Finder — spaces, accents and all.
+    ///
+    /// Only what could mislead a receiver is removed: any directory part, control and bidi characters,
+    /// the HFS `:` separator, and leading dots (`MediaFileDownloader.sanitizedFileName`, the rule
+    /// the receiving side applies when it saves). A name without an extension keeps none: the
+    /// receiver types the attachment by its media type, not by its name. The fallback name is
+    /// only for an attachment that arrived with no usable name at all.
+    /// C0/C1 controls and the bidi controls that can make `fdp.exe` read as `exe.pdf`.
+    ///
+    /// Not all of `Cf` (`CharacterSet.controlCharacters`): that also holds U+200C ZWNJ, which
+    /// Persian spelling depends on, and U+200D ZWJ, which joins emoji sequences like 👨‍👩‍👧.
+    private static let strippedFormatScalars: Set<Unicode.Scalar> = {
+        let values: [UInt32] = [0x061C, 0x200E, 0x200F] + Array(0x202A...0x202E) + Array(0x2066...0x2069)
+        return Set(values.compactMap(Unicode.Scalar.init))
+    }()
+
+    private static func isStrippedFromAttachmentNames(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.properties.generalCategory == .control || strippedFormatScalars.contains(scalar)
+    }
+
+    static func sanitizedFileName(
         _ fileName: String?,
         fallbackStem: String,
         fallbackExtension: String
     ) -> String {
-        let base = fileName?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: "/")
-            .last
-            .map(String.init)
-        let stem = base?
-            .replacingOccurrences(of: #"[^A-Za-z0-9._-]+"#, with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
-        guard let stem, !stem.isEmpty else {
+        let scalars = (fileName ?? "").unicodeScalars.filter { !isStrippedFromAttachmentNames($0) }
+        let withoutControls = String(String.UnicodeScalarView(scalars))
+        guard let sanitized = MediaFileDownloader.sanitizedFileNameIfUsable(withoutControls) else {
             return "\(fallbackStem).\(fallbackExtension)"
         }
-        let capped = String(stem.prefix(120))
-        if capped.contains(".") {
-            return capped
-        }
-        return "\(capped).\(fallbackExtension)"
+        return sanitized
     }
 }
 

@@ -3322,6 +3322,8 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(MediaFileDownloader.sanitizedFileName("Q3:report.pdf") == "Q3-report.pdf")
         #expect(MediaFileDownloader.sanitizedFileName("   ") == MediaFileDownloader.fallbackFileName)
         #expect(MediaFileDownloader.sanitizedFileName("..") == MediaFileDownloader.fallbackFileName)
+        #expect(MediaFileDownloader.sanitizedFileName("report.pdf. ") == "report.pdf")
+        #expect(MediaFileDownloader.sanitizedFileName("notes...") == "notes")
     }
 
     @Test func mediaFileDownloaderCapsMultibyteNamesByBytesNotCharacters() {
