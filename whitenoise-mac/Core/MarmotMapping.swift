@@ -468,6 +468,9 @@ nonisolated struct MessageEditOverlay: Equatable, Sendable {
     let sender: String
     let plaintext: String
     let timelineAt: UInt64
+    /// The core's Markdown parse of `plaintext`, so the edited bubble keeps its formatting and
+    /// mention links. `nil` renders the edit as plain text with mentions resolved into it.
+    var contentTokens: MarkdownDocumentFfi? = nil
 
     static func mutations(from records: [TimelineMessageRecordFfi]) -> [MessageEditMutation] {
         records.compactMap { record in
@@ -484,7 +487,8 @@ nonisolated struct MessageEditOverlay: Equatable, Sendable {
                     editMessageIdHex: record.messageIdHex,
                     sender: record.sender,
                     plaintext: record.plaintext,
-                    timelineAt: record.timelineAt
+                    timelineAt: record.timelineAt,
+                    contentTokens: record.contentTokens
                 )
             )
         }
@@ -582,7 +586,11 @@ nonisolated extension MessageItem {
             senderPictureURL: senderProfile?.pictureURL,
             senderImagePayload: senderProfile?.imagePayload,
             body: body,
-            contentMarkdown: projectedIsEdited
+            // The core parses `contentTokens` from this record's own `plaintext`, which for an edited
+            // record is already the latest edit, so the tokens describe the text shown here and the
+            // edit keeps its Markdown and mention links. Only a host-supplied `editedPlaintext`
+            // outruns them.
+            contentMarkdown: editedPlaintext != nil
                 ? nil
                 : MessageItem.renderableMarkdown(
                     document: record.contentTokens,
@@ -1195,7 +1203,7 @@ nonisolated extension MessageItem {
     ///
     /// An invalidated row is *not* excluded: it still shows its own content, so it renders with
     /// the same formatting it would have had on delivery.
-    fileprivate static func renderableMarkdown(
+    static func renderableMarkdown(
         document: MarkdownDocumentFfi,
         displayedBody: String,
         deleted: Bool,

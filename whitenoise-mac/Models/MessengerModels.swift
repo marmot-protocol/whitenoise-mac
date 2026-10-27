@@ -3018,7 +3018,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.metadataLabel = metadataParts.joined(separator: "  ")
     }
 
-    func applyingEdit(plaintext editedPlaintext: String) -> MessageItem {
+    /// `contentTokens` is the core's Markdown parse of `editedPlaintext`; with it the edited bubble
+    /// keeps rendering Markdown and mention links instead of collapsing to plain text.
+    func applyingEdit(plaintext editedPlaintext: String, contentTokens: MarkdownDocumentFfi? = nil) -> MessageItem {
         let wireBody = MessageItem.displayText(
             presentation: presentation,
             plaintext: editedPlaintext,
@@ -3042,7 +3044,14 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             senderImagePayload: senderImagePayload,
             body: body,
             wireBody: wireBody,
-            contentMarkdown: nil,
+            contentMarkdown: contentTokens.flatMap {
+                MessageItem.renderableMarkdown(
+                    document: $0,
+                    displayedBody: wireBody,
+                    deleted: isDeleted,
+                    presentation: presentation
+                )
+            },
             mentionNames: mentionNames,
             sentAt: sentAt,
             timelineAt: timelineAt,

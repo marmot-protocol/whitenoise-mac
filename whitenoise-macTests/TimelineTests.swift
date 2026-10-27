@@ -830,7 +830,8 @@ struct TimelineTests: WorkspaceTestSupport {
                         editMessageIdHex: "edit",
                         sender: "alice",
                         plaintext: "Edited",
-                        timelineAt: 1_800_000_030
+                        timelineAt: 1_800_000_030,
+                        contentTokens: editRecord.contentTokens
                     ))
             ])
     }
@@ -858,7 +859,8 @@ struct TimelineTests: WorkspaceTestSupport {
                         editMessageIdHex: "edit",
                         sender: "alice",
                         plaintext: "Edited",
-                        timelineAt: 1_800_000_030
+                        timelineAt: 1_800_000_030,
+                        contentTokens: editRecord.contentTokens
                     ))
             ])
     }
