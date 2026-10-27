@@ -162,6 +162,8 @@ final class GroupChangeAdvisoryPrompter {
     @ObservationIgnored private var continuation: CheckedContinuation<Bool, Never>?
 
     func requestConsent(for advisory: GroupChangeAdvisory, isInvite: Bool) async -> Bool {
+        // An already-cancelled caller would otherwise show the alert and decline it a moment later.
+        if Task.isCancelled { return false }
         // A newer request never strands an older waiter.
         cancelPending()
         let prompt = Prompt(advisory: advisory, isInvite: isInvite)

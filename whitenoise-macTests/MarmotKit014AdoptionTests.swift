@@ -1,5 +1,6 @@
 import Foundation
 import MarmotKit
+import Observation
 import Testing
 
 @testable import whitenoise_mac
@@ -126,6 +127,27 @@ struct MarmotKit014AdoptionTests {
         _ = await Self.awaitPrompt(prompter)
         prompter.cancelPending()
         #expect(await request.value == false)
+    }
+
+    /// A caller that is already cancelled is declined without ever setting a prompt, so its alert
+    /// never flashes up.
+    @Test func anAlreadyCancelledRequestNeverShowsAPrompt() async {
+        let prompter = GroupChangeAdvisoryPrompter()
+        nonisolated(unsafe) var promptChanged = false
+        withObservationTracking {
+            _ = prompter.prompt
+        } onChange: {
+            promptChanged = true
+        }
+
+        let approved = await Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await prompter.requestConsent(for: .catchingUp, isInvite: false)
+        }.value
+
+        #expect(approved == false)
+        #expect(promptChanged == false)
+        #expect(prompter.prompt == nil)
     }
 
     @Test func invitesGetTheStrongerCatchingUpWarning() {
