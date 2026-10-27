@@ -189,11 +189,14 @@ build.
   onboarding snapshots are complete replacements; do not merge them with an
   older snapshot or restart per-row enrichment.
 - MarmotKit 0.10.4 upgrades account databases through migrations 57–89, 0.11.0
-  through 90–98, 0.12.0 through 99–101, and 0.13.0 through 102–107. An older app must not
+  through 90–98, 0.12.0 through 99–101, 0.13.0 through 102–107, and 0.14.0 through 108–116
+  (plus the directory cache from schema 1 to 2). An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
-  shows as a `storage_backend` startup error after a branch switch); see
-  `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md` and
-  `docs/MarmotKit-0.12.0-migration.md`.
+  shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every
+  database once to a raw SQLCipher key, which 0.13.0 cannot open at all, so the only way back is a
+  copy of the account directory taken before the upgrade; see
+  `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md`,
+  `docs/MarmotKit-0.12.0-migration.md` and `docs/MarmotKit-0.14.0-migration.md`.
 - 0.11.0 hosts must surface and let the user dismiss "history may be incomplete"
   notices: a parked loss keeps the account's transport cursor fenced until dismissed.
   `HistoryNoticesViewModel` on `AccountScope` owns this, re-reading on the runtime's
