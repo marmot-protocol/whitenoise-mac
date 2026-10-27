@@ -608,7 +608,7 @@ extension WorkspaceState {
                     try await client.inviteMembersDetailed(
                         accountRef: activeAccount.accountRef,
                         groupIdHex: groupIdHex,
-                        memberRefs: attempt.map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef }
+                        memberRefs: attempt.map(\.inviteRef)
                     )
                 }
                 guard
@@ -728,7 +728,7 @@ extension WorkspaceState {
                     let result = try await client.inviteMembersDetailed(
                         accountRef: activeAccount.accountRef,
                         groupIdHex: groupIdHex,
-                        memberRefs: [candidate, pin].map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef }
+                        memberRefs: [candidate, pin].map(\.inviteRef)
                     )
                     // The pin resolved between attempts, so this invited both — which is what the
                     // user staged them for.

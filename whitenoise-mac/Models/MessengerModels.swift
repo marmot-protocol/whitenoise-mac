@@ -3812,6 +3812,12 @@ struct NewChatRecipient: Equatable {
         self.displayNameIsPrivate = displayNameIsPrivate
     }
 
+    /// The reference handed to the core when inviting this person: the normalized member ref, or
+    /// the account id hex for a contact known only by key.
+    var inviteRef: String {
+        memberRef.isEmpty ? accountIdHex : memberRef
+    }
+
     /// The same person under a new label, every other field kept. Rebuilding through `init` at
     /// the call site silently drops whatever was added to the type after that site was written.
     func relabeled(

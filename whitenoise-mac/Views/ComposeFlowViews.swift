@@ -249,9 +249,14 @@ struct ChooseMembersPanelView: View {
 // chat closes the composer.
 
 /// The compose search field, wired to identifier resolution and people discovery.
+// TODO(arch): reads WorkspaceState from the environment, moved here from ChooseMembersPanelView.
+// First candidate to take its inputs through `init` once the compose search gets a view model.
 struct MemberSearchField: View {
     @Environment(WorkspaceState.self) private var workspace
     let accessibilityIdentifier: String
+    /// Whether a failed lookup is reported through `lastError`. Off where the field sits over a
+    /// pane that renders `lastError` for its own actions.
+    var reportsErrors = true
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -262,7 +267,7 @@ struct MemberSearchField: View {
             placeholder: L10n.string("Name or npub"),
             autofocus: true
         )
-        .debouncedNewChatQueryResolution(for: workspace.newChatQuery)
+        .debouncedNewChatQueryResolution(for: workspace.newChatQuery, reportingErrors: reportsErrors)
         .userDiscovery(for: workspace.newChatQuery)
     }
 }
@@ -270,6 +275,8 @@ struct MemberSearchField: View {
 /// Contacts while the query is empty; contacts, discovered people, or the resolved identifier once
 /// it isn't. Rows toggle selection. A locked row (someone already in the group) shows as selected
 /// and can't be toggled, so a search for them still finds them instead of reading "No matches".
+// TODO(arch): reads WorkspaceState from the environment, moved here from ChooseMembersPanelView.
+// First candidate to take its inputs through `init` once the compose search gets a view model.
 struct MemberSearchResults: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
@@ -719,8 +726,8 @@ private func shortKey(npub: String, hex: String) -> String {
 }
 
 private extension View {
-    func debouncedNewChatQueryResolution(for query: String) -> some View {
-        modifier(NewChatQueryResolutionModifier(query: query))
+    func debouncedNewChatQueryResolution(for query: String, reportingErrors: Bool = true) -> some View {
+        modifier(NewChatQueryResolutionModifier(query: query, reportingErrors: reportingErrors))
     }
 
     func userDiscovery(for query: String) -> some View {
@@ -735,12 +742,13 @@ private extension View {
 private struct NewChatQueryResolutionModifier: ViewModifier {
     @Environment(WorkspaceState.self) private var workspace
     let query: String
+    let reportingErrors: Bool
 
     func body(content: Content) -> some View {
         content.task(id: query) {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
-            await workspace.resolveNewChatQueryIfReady()
+            await workspace.resolveNewChatQueryIfReady(reportingErrors: reportingErrors)
         }
     }
 }
