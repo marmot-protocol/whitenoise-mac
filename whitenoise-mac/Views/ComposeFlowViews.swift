@@ -249,8 +249,8 @@ struct ChooseMembersPanelView: View {
 // chat closes the composer.
 
 /// The compose search field, wired to identifier resolution and people discovery.
-// TODO(arch): reads WorkspaceState from the environment, moved here from ChooseMembersPanelView.
-// First candidate to take its inputs through `init` once the compose search gets a view model.
+// TODO(arch): reads WorkspaceState from the environment (extracted from ChooseMembersPanelView in
+// #951). First candidate to take its inputs through `init` once the compose search gets a view model.
 struct MemberSearchField: View {
     @Environment(WorkspaceState.self) private var workspace
     let accessibilityIdentifier: String
@@ -275,8 +275,8 @@ struct MemberSearchField: View {
 /// Contacts while the query is empty; contacts, discovered people, or the resolved identifier once
 /// it isn't. Rows toggle selection. A locked row (someone already in the group) shows as selected
 /// and can't be toggled, so a search for them still finds them instead of reading "No matches".
-// TODO(arch): reads WorkspaceState from the environment, moved here from ChooseMembersPanelView.
-// First candidate to take its inputs through `init` once the compose search gets a view model.
+// TODO(arch): reads WorkspaceState from the environment (extracted from ChooseMembersPanelView in
+// #951). First candidate to take its inputs through `init` once the compose search gets a view model.
 struct MemberSearchResults: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session

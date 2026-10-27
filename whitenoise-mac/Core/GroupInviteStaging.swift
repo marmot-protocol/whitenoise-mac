@@ -37,9 +37,11 @@ enum GroupInviteStaging {
         }
     }
 
-    /// Whether Return commits the invite. Not while a name search is in the field: Return there
-    /// reads as "add this one", and inviting the staged roster without them would drop the person
-    /// silently. Clicking Invite still commits, with the name search ignored.
+    /// Whether Return commits the invite. Not while a name search is in the field: someone typing a
+    /// name and pressing Return means the person they are looking for, and inviting the staged
+    /// roster without them would drop that person silently. Return is intentionally inert there —
+    /// it does not stage the top match either; pick the row. Clicking Invite still commits, with
+    /// the name search ignored.
     static func returnInvites(query: String, isIdentifier: Bool) -> Bool {
         query.isEmpty || isIdentifier
     }
@@ -54,17 +56,20 @@ enum GroupInviteStaging {
     /// `shouldCommit` is asked once `resolve` returns: the resolve is a relay round-trip, and the
     /// sheet can close while it runs. Nothing guards the resolve itself, so without this a Cancel
     /// pressed mid-resolve would still send the invite.
+    ///
+    /// `staged` is read after the resolve, not before it: the sheet stays interactive meanwhile,
+    /// and a chip removed or a row added during the round-trip must be what gets invited.
     static func foldPending(
         query: String,
         isIdentifier: Bool,
         resolved: NewChatRecipient?,
         resolve: (String) async -> NewChatRecipient?,
-        into staged: [NewChatRecipient],
+        into staged: () -> [NewChatRecipient],
         lockedMemberIds: Set<String>,
         isBlocked: (String) -> Bool,
         shouldCommit: () -> Bool = { true }
     ) async -> Outcome {
-        guard !query.isEmpty, isIdentifier else { return .staged(staged) }
+        guard !query.isEmpty, isIdentifier else { return .staged(staged()) }
         let recipient: NewChatRecipient?
         if let resolved {
             recipient = resolved
@@ -72,7 +77,7 @@ enum GroupInviteStaging {
             recipient = await resolve(query)
             guard shouldCommit() else { return .cancelled }
         }
-        return stage(recipient, into: staged, lockedMemberIds: lockedMemberIds, isBlocked: isBlocked)
+        return stage(recipient, into: staged(), lockedMemberIds: lockedMemberIds, isBlocked: isBlocked)
     }
 
     /// Whether a pending identifier would add someone to `staged` — what Invite's count includes.

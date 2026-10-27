@@ -360,6 +360,11 @@ struct MessagesSearchField: View {
     var placeholder = L10n.string("Search")
     var autofocus = false
     @FocusState private var isFocused: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    /// The field had focus when a `.disabled` ancestor took it. AppKit resigns a disabled field's
+    /// editor and SwiftUI never hands it back, so without this the user has to click back in after
+    /// every disable (the add-members sheet disables the field while Invite resolves a paste).
+    @State private var regainsFocusWhenEnabled = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -394,6 +399,19 @@ struct MessagesSearchField: View {
         }
         .task {
             if autofocus {
+                isFocused = true
+            }
+        }
+        .onChange(of: isFocused) { _, focused in
+            if focused {
+                regainsFocusWhenEnabled = true
+            } else if isEnabled {
+                // Lost while enabled: the user moved on, so a later re-enable must not pull focus back.
+                regainsFocusWhenEnabled = false
+            }
+        }
+        .onChange(of: isEnabled) { _, enabled in
+            if enabled, regainsFocusWhenEnabled {
                 isFocused = true
             }
         }

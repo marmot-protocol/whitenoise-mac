@@ -2904,7 +2904,7 @@ struct GroupsTests: WorkspaceTestSupport {
                 resolvedQueries.append(query)
                 return try? await state.resolveNewChatRecipient(for: query)
             },
-            into: [Self.aliceDraftRecipient()],
+            into: { [Self.aliceDraftRecipient()] },
             lockedMemberIds: locked,
             isBlocked: { _ in false }
         )
@@ -2935,7 +2935,7 @@ struct GroupsTests: WorkspaceTestSupport {
                 resolveCalls += 1
                 return nil
             },
-            into: [Self.aliceDraftRecipient()],
+            into: { [Self.aliceDraftRecipient()] },
             lockedMemberIds: [],
             isBlocked: { _ in false }
         )
@@ -2957,13 +2957,42 @@ struct GroupsTests: WorkspaceTestSupport {
                     resolveCalls += 1
                     return nil
                 },
-                into: [alice],
+                into: { [alice] },
                 lockedMemberIds: [],
                 isBlocked: { _ in false }
             )
             #expect(outcome == .staged([alice]))
         }
         #expect(resolveCalls == 0)
+    }
+
+    @MainActor
+    @Test func aChipRemovedWhileAnIdentifierResolvesIsNotInvited() async {
+        // The sheet stays interactive while Invite resolves the typed npub over the relays. A chip
+        // removed meanwhile must stay removed: the roster is the one on screen when it resolves.
+        let alice = Self.aliceDraftRecipient()
+        let bob = NewChatRecipient(
+            sourceQuery: "npub1bob", memberRef: "npub1bob", accountIdHex: Self.bobAccountIdHex,
+            npub: "npub1bob", displayName: "Bob", pictureURL: nil)
+        let carol = NewChatRecipient(
+            sourceQuery: "npub1carol", memberRef: "npub1carol", accountIdHex: Self.carolAccountIdHex,
+            npub: "npub1carol", displayName: "Carol", pictureURL: nil)
+        var roster = [alice, bob]
+
+        let outcome = await GroupInviteStaging.foldPending(
+            query: "npub1carol",
+            isIdentifier: true,
+            resolved: nil,
+            resolve: { _ in
+                roster = [alice]  // Bob's chip removed before the relay answered.
+                return carol
+            },
+            into: { roster },
+            lockedMemberIds: [],
+            isBlocked: { _ in false }
+        )
+
+        #expect(outcome == .staged([alice, carol]))
     }
 
     @MainActor
@@ -2987,7 +3016,7 @@ struct GroupsTests: WorkspaceTestSupport {
                 isPresented = false  // Cancel pressed before the relay answered.
                 return recipient
             },
-            into: [Self.aliceDraftRecipient()],
+            into: { [Self.aliceDraftRecipient()] },
             lockedMemberIds: [],
             isBlocked: { _ in false },
             shouldCommit: { isPresented }
@@ -2995,11 +3024,8 @@ struct GroupsTests: WorkspaceTestSupport {
 
         #expect(outcome == .cancelled)
         #expect(outcome.errorMessage == nil)
-        // What the sheet does with the outcome: only a staged roster is ever invited.
-        if case .staged(let roster) = outcome {
-            await state.inviteMembers(roster)
-        }
-        #expect(runtime.inviteMembersDetailedCallCount == 0)
+        // The sheet invites only a `.staged` roster. Asserting that nobody was invited needs a test
+        // that drives the sheet's own Invite, which waits on the sheet getting a view model.
     }
 
     @MainActor
@@ -3016,7 +3042,7 @@ struct GroupsTests: WorkspaceTestSupport {
             isIdentifier: true,
             resolved: nil,
             resolve: { try? await state.resolveNewChatRecipient(for: $0) },
-            into: [],
+            into: { [] },
             lockedMemberIds: locked,
             isBlocked: { _ in false }
         )
@@ -3065,7 +3091,7 @@ struct GroupsTests: WorkspaceTestSupport {
             isIdentifier: true,
             resolved: state.resolvedNewChatRecipient,
             resolve: { try? await state.resolveNewChatRecipient(for: $0) },
-            into: [Self.aliceDraftRecipient()],
+            into: { [Self.aliceDraftRecipient()] },
             lockedMemberIds: [],
             isBlocked: { _ in false }
         )
@@ -3126,7 +3152,7 @@ struct GroupsTests: WorkspaceTestSupport {
             isIdentifier: true,
             resolved: nil,
             resolve: { _ in carol },
-            into: [alice],
+            into: { [alice] },
             lockedMemberIds: [],
             isBlocked: { $0 == Self.carolAccountIdHex }
         )

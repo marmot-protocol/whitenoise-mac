@@ -26,9 +26,11 @@ struct GroupAddMembersSheet: View {
     /// Invite is resolving a typed identifier. The fold-in resolves off the field's own lookup, so
     /// `isResolvingNewChat` doesn't cover it; this keeps a second press from inviting twice.
     @State private var isFoldingIdentifier = false
-    /// Cleared when the sheet goes away. An Invite press resolving an identifier outlives the
-    /// sheet, and must not commit for a user who pressed Cancel or Escape meanwhile.
-    @State private var isPresented = true
+    /// The Invite press in flight. Cancelled when the sheet goes away: a press resolving an
+    /// identifier outlives the sheet, and must not commit for a user who pressed Cancel or Escape
+    /// meanwhile. Once `inviteMembers` is running the commit is already on its way, and the
+    /// cancellation doesn't stop it.
+    @State private var inviteTask: Task<Void, Never>?
 
     private var lockedMemberIds: Set<String> {
         Set(existingMemberIds.map { $0.lowercased() })
@@ -44,6 +46,10 @@ struct GroupAddMembersSheet: View {
                 // Invite itself still goes through `inviteMembers`, which does both; that goes
                 // away with `lastError` as a global channel.
                 MemberSearchField(accessibilityIdentifier: "addMembers.search", reportsErrors: false)
+                    // Invite has committed to the text it is resolving; an edit now would be
+                    // ambiguous between "invite that one too" and "not that one". Focus comes back
+                    // when the resolve ends, so an error can be fixed in place.
+                    .disabled(isFoldingIdentifier)
                 if !staged.isEmpty {
                     SelectedMemberChips(members: staged, isDimmed: isUnreachable) { member in
                         staged.removeAll { $0.accountIdHex == member.accountIdHex }
@@ -93,7 +99,7 @@ struct GroupAddMembersSheet: View {
         .groupChangeAdvisoryAlert(advisory)
         .onDisappear {
             advisory.cancelPending()
-            isPresented = false
+            inviteTask?.cancel()
             workspace.clearComposeSearch(preservingLastError: true)
         }
         // The error was about the text it was raised for; editing that text retires it.
@@ -116,7 +122,7 @@ struct GroupAddMembersSheet: View {
         HStack {
             Spacer()
             Button {
-                Task { await inviteStaged() }
+                inviteTask = Task { await inviteStaged() }
             } label: {
                 Text(inviteLabel).frame(minWidth: 96)
             }
@@ -193,10 +199,10 @@ struct GroupAddMembersSheet: View {
             resolved: workspace.resolvedNewChatRecipient,
             // Leaves the field's lookup state and `lastError` alone.
             resolve: { try? await workspace.resolveNewChatRecipient(for: $0) },
-            into: staged,
+            into: { staged },
             lockedMemberIds: lockedMemberIds,
             isBlocked: isBlocked,
-            shouldCommit: { isPresented }
+            shouldCommit: { !Task.isCancelled }
         )
         isFoldingIdentifier = false
         guard case .staged(let roster) = outcome else {
@@ -205,7 +211,8 @@ struct GroupAddMembersSheet: View {
         }
         if isIdentifier {
             staged = roster
-            // The field stays editable while the identifier resolves; keep anything typed since.
+            // The field is disabled while the identifier resolves, but a result row picked meanwhile
+            // clears it; only clear the text this press folded in.
             if workspace.newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query {
                 workspace.clearComposeSearch(preservingLastError: true)
             }
@@ -213,6 +220,9 @@ struct GroupAddMembersSheet: View {
         guard !reachableStaged.isEmpty else { return }
         inviteError = nil
         unreachableNotice = nil
+        // `inviteMembers` can refuse before it clears `lastError`, which may still hold the group
+        // pane's own error; only an error this press raised is the sheet's to show.
+        let errorBefore = workspace.lastError
         if await workspace.inviteMembers(staged, advisory: advisory) {
             dismiss()
             return
@@ -222,7 +232,8 @@ struct GroupAddMembersSheet: View {
         let refused = workspace.unreachableInviteRecipients(staged)
         unreachableNotice = unreachableMessage(for: refused)
         if unreachableNotice == nil {
-            inviteError = workspace.lastError ?? L10n.string("Couldn't add members.")
+            let raised = workspace.lastError != errorBefore ? workspace.lastError : nil
+            inviteError = raised ?? L10n.string("Couldn't add members.")
         }
     }
 
