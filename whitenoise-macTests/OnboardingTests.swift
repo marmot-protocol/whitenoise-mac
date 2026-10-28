@@ -216,14 +216,12 @@ import Testing
 
     // MARK: - What the sign-in field makes of what is in it
 
-    /// The regression this exists to prevent. `wn-ios-prototype` validates with
-    /// `hasPrefix("nsec")`; ported literally, the sign-in button would never enable for an
-    /// `npub1…`, and adding a watch-only account through the UI would become impossible with no
-    /// error to explain why.
-    @Test func anNpubIsAValidIdentityJustLikeAnNsec() {
+    /// The field signs in with a private key and nothing else. An `npub1…` is a public key: the
+    /// core would add it as an account that cannot sign, which the pane does not offer.
+    @Test func onlyAnNsecIsAValidIdentity() {
         #expect(LoginIdentityDraft("nsec1" + String(repeating: "q", count: 58)) == .valid)
-        #expect(LoginIdentityDraft("npub1" + String(repeating: "q", count: 58)) == .valid)
-        #expect(LoginIdentityDraft("npub1abc").isSubmittable)
+        #expect(LoginIdentityDraft("npub1" + String(repeating: "q", count: 58)) == .invalid)
+        #expect(LoginIdentityDraft("NPUB1ABC").isSubmittable == false)
     }
 
     @Test func aDraftIsEmptyBeforeItIsWrong() {
@@ -235,7 +233,7 @@ import Testing
     @Test func aDraftIgnoresSurroundingWhitespaceAndCase() {
         #expect(LoginIdentityDraft("  nsec1abc  ") == .valid)
         #expect(LoginIdentityDraft("NSEC1ABC") == .valid)
-        #expect(LoginIdentityDraft("\nNpub1AbC\t") == .valid)
+        #expect(LoginIdentityDraft("\nNsec1AbC\t") == .valid)
     }
 
     @Test func aDraftRejectsAnythingThatIsNotOneOfTheTwoPrefixes() {
@@ -245,6 +243,95 @@ import Testing
         // A hex private key, which the core does not take through this door.
         #expect(LoginIdentityDraft(String(repeating: "a", count: 64)) == .invalid)
         #expect(LoginIdentityDraft("note1abc") == .invalid)
+    }
+
+    /// A key pasted across several lines goes into the one-line field as one line: the breaks and
+    /// the indentation around them are dropped, and the pieces join back into the key.
+    @Test func aKeyPastedAcrossLinesIsJoinedOntoOneLine() {
+        #expect(OnboardingKeyField.singleLine("nsec1abc\ndef") == "nsec1abcdef")
+        #expect(OnboardingKeyField.singleLine("nsec1abc  \r\n  def\n\nghi\n") == "nsec1abcdefghi")
+        #expect(OnboardingKeyField.singleLine("\u{2028}nsec1abc") == "nsec1abc")
+        #expect(LoginIdentityDraft(OnboardingKeyField.singleLine("nsec1abc\ndef")) == .valid)
+    }
+
+    /// Without a line break nothing changes — including a space typed mid-entry, which a
+    /// per-keystroke trim would eat from under the caret.
+    @Test func aSingleLineEntryIsLeftAlone() {
+        #expect(OnboardingKeyField.singleLine("nsec1abc ") == "nsec1abc ")
+        #expect(OnboardingKeyField.singleLine("") == "")
+    }
+
+    /// The paste button beside the key field. A key copied wrapped across lines lands as one key,
+    /// with the whitespace around it dropped; an empty pasteboard leaves the field as it was.
+    /// Exercised on a private pasteboard so the test never touches the clipboard of whoever runs it.
+    @Test func thePasteButtonPutsAWrappedKeyInTheFieldOnOneLine() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("onboarding-tests-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+
+        pasteboard.clearContents()
+        #expect(OnboardingKeyField.pastedKey(from: pasteboard) == nil)
+
+        pasteboard.setString("  nsec1abc\n  def  \n", forType: .string)
+        #expect(OnboardingKeyField.pastedKey(from: pasteboard) == "nsec1abcdef")
+
+        pasteboard.clearContents()
+        pasteboard.setString("  nsec1abc  ", forType: .string)
+        #expect(OnboardingKeyField.pastedKey(from: pasteboard) == "nsec1abc")
+    }
+
+    // MARK: - The sign-in pane holds still
+
+    /// The key field is as tall as every other single-line input in the app, and stays that height
+    /// when it fills: the disc beside it turns from paste into clear and the show/hide toggle
+    /// appears inside it, and neither may change the row the Sign In button sits under.
+    @Test func theKeyFieldKeepsOneHeightWhetherEmptyOrFilled() throws {
+        var heights: [CGFloat] = []
+        for key in ["", "nsec1" + String(repeating: "q", count: 58)] {
+            let field = OnboardingKeyField(text: .constant(key), onSubmit: {})
+                .wnButtonShape(.capsule)
+                .frame(width: OnboardingLayout.contentWidth)
+            heights.append(try #require(ImageRenderer(content: field).nsImage?.size.height))
+        }
+        #expect(heights == [WNInputMetrics.singleLineHeight, WNInputMetrics.singleLineHeight])
+    }
+
+    /// The hint and a short error share one slot under the field, so swapping one for the other —
+    /// a refused sign-in replacing "It starts with nsec." — does not move the button below.
+    @Test func theHintAndAShortErrorTakeTheSameHeight() throws {
+        func height(showing message: String?) throws -> CGFloat {
+            let line = OnboardingMessageLine(
+                message: message,
+                hint: L10n.string("It starts with nsec."),
+                minimumHeight: OnboardingMessageLine.singleLineReservedHeight
+            )
+            .frame(width: OnboardingLayout.contentWidth - OnboardingKeyField.textInset)
+            return try #require(ImageRenderer(content: line).nsImage?.size.height)
+        }
+
+        let withHint = try height(showing: nil)
+        #expect(withHint >= OnboardingMessageLine.singleLineReservedHeight)
+        #expect(try height(showing: SignInFailure.message) == withHint)
+    }
+
+    /// The sign-in pane fits the smallest window in each state it can be in: empty with its hint,
+    /// holding a key, and complaining about one. The same budget `theSignUpPaneFitsTheSmallestWindow`
+    /// holds the other pane to.
+    @Test(arguments: ["", "nsec1" + String(repeating: "q", count: 58), "npub1abc"])
+    func theSignInPaneFitsTheSmallestWindow(holding key: String) throws {
+        let workspace = WorkspaceState(
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        workspace.authenticationMode = .login
+        workspace.loginIdentity = key
+        let pane = OnboardingSignInView()
+            .environment(workspace)
+            .frame(width: Self.minimumWindowWidth)
+        let height = try #require(ImageRenderer(content: pane).nsImage?.size.height)
+        let holding = key.isEmpty ? "nothing" : key
+        #expect(
+            height <= Self.minimumWindowHeight,
+            "the sign-in pane holding \(holding) needs \(height)pt of \(Self.minimumWindowHeight)pt")
     }
 
     /// The core's complaint about the last attempt belongs to the field that attempt was made

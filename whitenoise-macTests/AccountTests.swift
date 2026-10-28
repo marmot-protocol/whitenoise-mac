@@ -331,6 +331,55 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.isImprovementsPromptPresented)
     }
 
+    /// `login()` holds the field's rule itself, so a public key cannot sign in by any route that
+    /// skips the disabled button — the core would otherwise add it as a read-only account.
+    @MainActor
+    @Test func loginRefusesAPublicKey() async throws {
+        // An account to create, so the only thing between the key and a sign-in is the guard.
+        let watched = AccountSummaryFfi(
+            label: "Watched Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: false,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: watched)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "npub1anotherfakekeyanotherfakekeyanotherfakekeyanotherfake"
+        await state.login()
+
+        #expect(runtime.begunOnboardingIdentities.isEmpty)
+        #expect(state.phase != .ready)
+    }
+
+    /// A refused sign-in is reported in the app's words, never as the core's error dump — which is
+    /// what `error.localizedDescription` on a `MarmotKitError` is. Every core refusal reads the same,
+    /// a storage fault included: its details mention the "secret key" too, and must not be told
+    /// apart from a bad key by text matching.
+    @MainActor
+    @Test(arguments: [
+        MarmotKitError.Runtime(details: "invalid nsec or secret key"),
+        MarmotKitError.Runtime(details: "stored account id does not match stored secret key"),
+        MarmotKitError.InvalidIdentity(details: "bad checksum"),
+    ])
+    func aRefusedSignInIsReportedInTheAppsWordsNotTheCores(_ refusal: MarmotKitError) async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.beginOnboardingError = refusal
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1notakey"
+        await state.login()
+
+        #expect(state.lastError == L10n.string("Couldn't sign in"))
+        #expect(state.lastError?.contains("MarmotKit") == false)
+    }
+
     @MainActor
     @Test func signingInOffersTheImprovementsPrompt() async throws {
         let store = FakeImprovementsPromptStore()
@@ -900,7 +949,7 @@ struct AccountTests: WorkspaceTestSupport {
 
         // The user pastes a different key. `lastError` deliberately still stands, so the draft is
         // what has to stop carrying it.
-        state.loginIdentity = "npub1anotherfakekeyanotherfakekeyanotherfakekeyanotherfake"
+        state.loginIdentity = "nsec1anotherfakekeyanotherfakekeyanotherfakekeyanotherfake"
         #expect(state.lastError == failure)
         #expect(LoginIdentityDraft(state.loginIdentity).showsLastAttemptError == false)
 

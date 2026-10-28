@@ -165,6 +165,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// The subscription `subscribeOnboarding` handed out last, for a test to `deliver` to.
     private(set) var onboardingSubscription: FakeOnboardingSubscription?
     private(set) var begunOnboardingIdentities: [String] = []
+    /// Thrown by `beginOnboarding` instead of starting one, for a test of how a refused sign-in
+    /// is reported.
+    var beginOnboardingError: Error?
     private(set) var onboardingDiscoveryRelayUpdates: [[String]] = []
     private(set) var cancelOnboardingCallCount = 0
     private(set) var runOnboardingCallCount = 0
@@ -1218,6 +1221,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     }
 
     func beginOnboarding(nsec: String, options: OnboardingOptionsFfi) async throws -> OnboardingSnapshotFfi {
+        if let beginOnboardingError { throw beginOnboardingError }
         accountRelayArguments.append(
             .init(
                 defaultRelays: options.defaultRelays, bootstrapRelays: options.discoveryRelays,

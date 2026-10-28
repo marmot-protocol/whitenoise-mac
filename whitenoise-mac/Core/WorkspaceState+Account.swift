@@ -416,7 +416,9 @@ extension WorkspaceState {
     func login() async {
         guard !isAuthenticating else { return }
         let identity = loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !identity.isEmpty else { return }
+        // Private keys only, whoever calls: the pane already disables Sign In for anything else,
+        // and an `npub1…` the core would accept as a read-only account must not get in another way.
+        guard LoginIdentityDraft(identity).isSubmittable else { return }
 
         lastError = nil
         authenticationActivity = .login
@@ -479,7 +481,7 @@ extension WorkspaceState {
             await activateReadyState()
             presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
-            lastError = error.localizedDescription
+            lastError = SignInFailure.message
         }
     }
 
