@@ -9858,6 +9858,66 @@
         }
       }
     },
+    "Your name, photo, and bio are public.\nShare only what you’re comfortable with." : {
+      "comment" : "Public-profile privacy note and details link below the About field.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Name, dein Foto und deine Profilbeschreibung sind öffentlich.\nTeile nur das, womit du dich wohlfühlst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu nombre, foto y biografía son públicos.\nComparte solo lo que te resulte cómodo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre nom, votre photo et votre biographie sont publics.\nPartagez uniquement ce qui vous convient."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il tuo nome, la tua foto e la tua biografia sono pubblici.\nCondividi solo ciò che ti senti di condividere."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seu nome, foto e biografia são públicos.\nCompartilhe apenas o que você se sente à vontade para compartilhar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваше имя, фото и описание профиля общедоступны.\nДелитесь только тем, чем вам комфортно делиться."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adınız, fotoğrafınız ve biyografiniz herkese açıktır.\nYalnızca paylaşmaktan rahat olduğunuz bilgileri paylaşın."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的名字、照片和个人简介是公开的。\n只分享你愿意公开的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的名字、照片和個人簡介是公開的。\n只分享你願意公開的內容。"
+          }
+        }
+      }
+    },
     "Your previous update hasn’t finished. Try again to finish publishing it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -41330,6 +41390,65 @@
         }
       }
     },
+    "Anyone can see your name, photo, and bio, including people using other apps on the same network. You can use a nickname instead of your real name." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle können deinen Namen, dein Foto und deine Profilbeschreibung sehen, auch Personen, die andere Apps im selben Netzwerk nutzen. Du kannst einen Spitznamen statt deines echten Namens verwenden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cualquiera puede ver tu nombre, foto y biografía, incluidas las personas que usan otras apps en la misma red. Puedes usar un apodo en lugar de tu nombre real."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tout le monde peut voir votre nom, votre photo et votre biographie, y compris les personnes utilisant d’autres apps sur le même réseau. Vous pouvez utiliser un pseudonyme à la place de votre vrai nom."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiunque può vedere il tuo nome, la tua foto e la tua biografia, anche chi usa altre app sulla stessa rete. Puoi usare un soprannome invece del tuo vero nome."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qualquer pessoa pode ver seu nome, foto e biografia, inclusive quem usa outros apps na mesma rede. Você pode usar um apelido em vez do seu nome real."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваше имя, фото и описание профиля видны всем, в том числе пользователям других приложений в той же сети. Вместо настоящего имени можно использовать псевдоним."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adınızı, fotoğrafınızı ve biyografinizi aynı ağdaki diğer uygulamaları kullananlar dahil herkes görebilir. Gerçek adınız yerine bir takma ad kullanabilirsiniz."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任何人都能看到你的名字、照片和个人简介，包括在同一网络上使用其他应用的人。你可以使用昵称，而不是真实姓名。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任何人都能看到你的名字、照片和個人簡介，包括在同一網路上使用其他 App 的人。你可以使用暱稱，而不是真實姓名。"
+          }
+        }
+      }
+    },
     "Attachment Storage Update Paused" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -42465,6 +42584,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近一次群組變更未送達"
+          }
+        }
+      }
+    },
+    "Learn more" : {
+      "comment" : "Public-profile privacy note and details link below the About field.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mehr erfahren"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Más información"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En savoir plus"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scopri di più"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saiba mais"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подробнее"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daha fazla bilgi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "了解更多"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "瞭解更多"
           }
         }
       }
@@ -48481,65 +48660,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名稱或 npub"
-          }
-        }
-      }
-    },
-    "Name, photo, and bio are visible on the global Nostr network. Use what you're comfortable sharing." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Name, Foto und Bio sind im globalen Nostr-Netzwerk sichtbar. Verwende Angaben, mit denen du dich wohlfühlst."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El nombre, la foto y la biografía son visibles en la red global de Nostr. Usa lo que te resulte cómodo compartir."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le nom, la photo et la bio sont visibles sur le réseau mondial de Nostr. Utilisez ce que vous êtes à l'aise de partager."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nome, foto e bio sono visibili sulla rete globale di Nostr. Usa ciò che ti senti a tuo agio nel condividere."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nome, foto e bio são visíveis na rede global do Nostr. Use o que você se sentir confortável em compartilhar."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Имя, фото и биография видны в глобальной сети Nostr. Используйте то, чем вам комфортно делиться."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "İsim, fotoğraf ve biyografi küresel Nostr ağında görünür. Paylaşırken kendinizi rahat hissedeceğiniz bilgileri kullanın."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名称、照片和简介在全局 Nostr 网络中是公开可见的。请仅分享您愿意公开的内容。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名稱、照片和簡介會在全球 Nostr 網路上公開顯示。請只分享您願意公開的內容。"
           }
         }
       }
@@ -68434,6 +68554,65 @@
         }
       }
     },
+    "Share only what you’re comfortable making public. Photos may stay online even after you remove them from your profile." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teile nur das, was du öffentlich machen möchtest. Fotos können auch dann online bleiben, wenn du sie aus deinem Profil entfernst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comparte solo lo que quieras hacer público. Las fotos pueden seguir en internet aunque las elimines de tu perfil."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partagez uniquement ce que vous souhaitez rendre public. Les photos peuvent rester en ligne même après leur suppression de votre profil."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Condividi solo ciò che vuoi rendere pubblico. Le foto potrebbero restare online anche dopo averle rimosse dal profilo."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compartilhe apenas o que você se sente à vontade para tornar público. As fotos podem permanecer online mesmo depois de removidas do perfil."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Делитесь только тем, что готовы сделать общедоступным. Фотографии могут остаться в интернете даже после удаления из профиля."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca herkese açık olmasını istediğiniz bilgileri paylaşın. Fotoğraflar, profilinizden kaldırsanız bile internette kalabilir."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只分享你愿意公开的内容。即使你从个人资料中移除照片，它们仍可能留在网上。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只分享你願意公開的內容。即使你從個人資料中移除照片，它們仍可能留在網路上。"
+          }
+        }
+      }
+    },
     "Storage Used" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -85230,65 +85409,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的個人資料"
-          }
-        }
-      }
-    },
-    "Your profile is public" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dein Profil ist öffentlich"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tu perfil es público"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre profil est public"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il tuo profilo è pubblico"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seu perfil é público"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ваш профиль публичный"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Profiliniz herkese açık"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "您的个人资料是公开的"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "您的個人檔案是公開的"
           }
         }
       }

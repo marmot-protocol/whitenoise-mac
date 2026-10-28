@@ -49,7 +49,8 @@ struct ProfileSettingsView: View {
                 )
             }
 
-            PublicProfileNote()
+            // Where the old public-profile notice stood, as on Sign Up and the setup step.
+            ProfilePrivacyNote()
 
             WNInput(
                 label: L10n.string("Name"),
@@ -382,10 +383,11 @@ struct ProfileIdentityHeaderView: View {
                 isEnabled: workspace.isProfileFormEnabled && !workspace.isUploadingProfileImage
             ) {
                 Text(L10n.string(hasPhoto ? "Change photo" : "Add photo"))
-                    .wnFont(.medium12)
+                    .wnFont(OnboardingLayout.signUpPhotoPillTextStyle)
             }
             .buttonStyle(.wnSecondary)
-            .controlSize(.small)
+            // The pill Sign Up and the account-setup step draw, at their size.
+            .controlSize(OnboardingLayout.signUpPhotoPillControlSize)
             .accessibilityIdentifier("settings.profile.photo")
 
             if workspace.isUploadingProfileImage {

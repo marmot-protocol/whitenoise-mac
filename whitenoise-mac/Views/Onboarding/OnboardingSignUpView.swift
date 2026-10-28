@@ -33,17 +33,23 @@ import SwiftUI
 ///   bar, and the pane answers its own question without one: an avatar over a Name field over a
 ///   `Create profile` button is not ambiguous about what it is. A heading above it would only be
 ///   the pane reading itself out.
-/// * **The privacy callout is quiet, and it does not fold.** Flutter puts a tap-to-expand
-///   `WnCallout` here. This pane draws the same box Settings → Profile draws, with the same two
-///   strings, in the neutral gray rather than the info tint — see `PublicProfileNote`.
-///   The height that buys comes out of the pane's own margins, not out of the form; see
-///   `OnboardingLayout.signUpEdgePadding`.
+/// * **The privacy note is `whitenoise-ios`'s, above the form.** An eye, its two lines and a
+///   `Learn more`, in a card that opens in place and closes from a chevron — see `ProfilePrivacyNote`.
 ///
 /// The one thing kept exactly is the bar for submitting — a non-blank name, which is Flutter's
 /// `hasName` on `signup_create_profile_button`. Nothing else is required, and nothing is created
 /// until the button is pressed; see `WorkspaceState.completeSignUp()`.
 struct OnboardingSignUpView: View {
     @Environment(WorkspaceState.self) private var workspace
+
+    /// Whether the pane scrolls once it outgrows the window — always, in the app. Tests measuring
+    /// the pane's natural height turn it off: an `ImageRenderer` sizes a scroll view by rules that
+    /// are not the column's, so the height of the column itself is what they need.
+    private let scrollsWhenShort: Bool
+
+    init(scrollsWhenShort: Bool = true) {
+        self.scrollsWhenShort = scrollsWhenShort
+    }
 
     private var isCreating: Bool {
         workspace.authenticationActivity == .signUp
@@ -59,20 +65,23 @@ struct OnboardingSignUpView: View {
         OnboardingScaffold(
             exit: .back(cancel),
             minimumEdgeSpacing: OnboardingLayout.signUpEdgePadding,
-            maximumHeroToContentSpacing: OnboardingLayout.signUpHeroToContentSpacing
+            maximumHeroToContentSpacing: OnboardingLayout.signUpHeroToContentSpacing,
+            // The privacy card opens in place, and opened it outgrows the shortest window; the
+            // pane then scrolls, with the card (at the top of the form) left in view.
+            scrollsWhenShort: scrollsWhenShort
         ) {
             OnboardingSignUpAvatar()
         } content: {
             VStack(alignment: .leading, spacing: OnboardingLayout.titleToFieldsSpacing) {
-                PublicProfileNote()
+                // Where the old public-profile notice stood: above the form it is about.
+                ProfilePrivacyNote()
 
                 // The error slot is inside the field block, at the same gap a field's own label
                 // sits at, rather than a third peer of the notice and the fields at
                 // `titleToFieldsSpacing`. Two reasons, and they point the same way: what lands
                 // there is an annotation on the form — `Couldn't publish profile` — which belongs
-                // against the fields it is about, and the 32pt the slot reserves for it is 32pt
-                // the pane is spending whether or not there is anything to say. Held out here at
-                // 20 it put Create profile 76pt below the About field.
+                // against the fields it is about, and the height the slot reserves for it is
+                // height the pane is spending whether or not there is anything to say.
                 VStack(alignment: .leading, spacing: OnboardingLayout.fieldLabelSpacing) {
                     VStack(alignment: .leading, spacing: OnboardingLayout.fieldSpacing) {
                         WNInput(
@@ -93,7 +102,13 @@ struct OnboardingSignUpView: View {
                         .accessibilityIdentifier("onboarding.sign-up.about")
                     }
 
-                    OnboardingMessageLine(message: workspace.lastError)
+                    // One reserved line, not two, as on the sign-in pane: two lines of nothing
+                    // under About read as a gap before Create profile rather than as room for an
+                    // error. A message that wraps grows the line by one.
+                    OnboardingMessageLine(
+                        message: workspace.lastError,
+                        minimumHeight: OnboardingMessageLine.singleLineReservedHeight
+                    )
                 }
             }
         } actions: {

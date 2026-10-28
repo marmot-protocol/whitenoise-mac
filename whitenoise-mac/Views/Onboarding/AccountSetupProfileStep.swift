@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// The profile step's screen: `whitenoise-ios`'s `IdentityProfileSetupView` in its account-setup
 /// mode, laid out as the Sign Up pane is. While MarmotKit lets the profile be edited it *is* that
-/// pane — the photo over its pill where the mark would be, the public-profile notice, Name and
+/// pane — the photo over its pill where the mark would be, the privacy card, Name and
 /// About, and the button that publishes them — with the setup's back control and progress in the
 /// header row, and Not Now under Save when the step is optional. Otherwise it explains why the
 /// profile could not be loaded and offers a retry.
@@ -170,18 +170,18 @@ struct AccountSetupProfileAvatar: View {
             HStack(spacing: 8) {
                 Button(action: choosePhoto) {
                     Text(L10n.string(avatar == nil ? "Add photo" : "Change photo", locale: locale))
-                        .wnFont(.medium12)
+                        .wnFont(OnboardingLayout.signUpPhotoPillTextStyle)
                 }
                 .accessibilityIdentifier("onboarding.account-setup.photo")
                 if avatar != nil {
                     Button(action: removePhoto) {
                         Text(L10n.string("Remove photo", locale: locale))
-                            .wnFont(.medium12)
+                            .wnFont(OnboardingLayout.signUpPhotoPillTextStyle)
                     }
                 }
             }
             .onboardingActionTier(.secondary)
-            .controlSize(.small)
+            .controlSize(OnboardingLayout.signUpPhotoPillControlSize)
             .disabled(!isEnabled)
         }
         .frame(maxWidth: .infinity)
@@ -212,16 +212,19 @@ struct AccountSetupProfileIntro: View {
     }
 }
 
-/// The form itself: the public-profile notice over Name and About, as on the sign-up pane.
+/// The form itself: the privacy card over Name and About, as on the sign-up pane.
 struct AccountSetupProfileForm: View {
     @Environment(\.locale) private var locale
     @Binding var displayName: String
     @Binding var about: String
     var isEnabled = true
+    /// Whether the privacy card starts open. Always closed on screen; previews and the layout
+    /// tests open it to check the screen still scrolls to Save.
+    var isPrivacyNoteInitiallyExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: OnboardingLayout.titleToFieldsSpacing) {
-            PublicProfileNote()
+            ProfilePrivacyNote(isExpanded: isPrivacyNoteInitiallyExpanded)
 
             VStack(alignment: .leading, spacing: OnboardingLayout.fieldSpacing) {
                 WNInput(
