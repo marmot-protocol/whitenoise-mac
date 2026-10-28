@@ -10,27 +10,23 @@ import Foundation
 
 /// The state of a half-typed login identity.
 ///
-/// `wn-ios-prototype`'s `LoginView` keeps this inline as a private `KeyState` and decides it with
-/// `normalizedKey.hasPrefix("nsec")`. Ported literally that would be a **regression**, not a
-/// port: this app's `login(identity:)` hands the string to the core, and the core accepts an
-/// `npub1…` as well — it tracks a public key without being able to sign with it, which is how a
-/// read-only account is added. A field that greys its button out for anything not starting
-/// `nsec` would make that path unreachable through the UI, silently, with the button simply
-/// never enabling.
+/// `whitenoise-ios` decides this with a prefix check on `nsec`, and so does this: the field signs
+/// in with a private key and nothing else. The core would also take an `npub1…` — it tracks a
+/// public key without being able to sign with it — but an account that cannot send a message is
+/// not something the sign-in pane offers, and its hint says the key "starts with nsec".
 ///
-/// So the accepted set is both bech32 human-readable prefixes, and the value lives out here
-/// where that can be asserted.
+/// The value lives out here, rather than inline in the view, so the rule can be asserted and so
+/// `login()` can refuse anything the field would not have submitted.
 enum LoginIdentityDraft: Equatable {
     /// Nothing typed yet. The pane shows no complaint — an empty field is not a wrong one.
     case empty
-    /// Typed, and not a bech32 identity this app can hand to the core.
+    /// Typed, and not a private key: anything that does not start `nsec1`, an `npub1…` included.
     case invalid
     /// Ready to submit.
     case valid
 
-    /// The bech32 human-readable parts the core will take. `nsec1…` signs; `npub1…` is watched
-    /// without signing.
-    static let acceptedPrefixes = ["nsec1", "npub1"]
+    /// The bech32 human-readable part of a private key.
+    static let acceptedPrefix = "nsec1"
 
     init(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -44,10 +40,7 @@ enum LoginIdentityDraft: Equatable {
         // client can arrive upper-cased. The core normalizes; the field should not disagree with
         // it about what it is looking at.
         let lowered = trimmed.lowercased()
-        self =
-            Self.acceptedPrefixes.contains(where: lowered.hasPrefix)
-            ? .valid
-            : .invalid
+        self = lowered.hasPrefix(Self.acceptedPrefix) ? .valid : .invalid
     }
 
     /// Whether the pane's primary action can fire.

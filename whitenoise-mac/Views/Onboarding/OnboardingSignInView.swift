@@ -15,10 +15,9 @@ import SwiftUI
 /// inside `OnboardingScaffold`, which keeps the mark above it and puts a back control where the
 /// nav bar's would have been.
 ///
-/// What the prototype does that this deliberately does not is decide validity with
-/// `hasPrefix("nsec")`. See `LoginIdentityDraft`: this app's core takes an `npub1…` too, and a
-/// field that only enables for `nsec` would quietly close that door. The QR scanner the prototype
-/// offers beside the field is also left out — it exists because a phone cannot be pasted into
+/// Like the prototype, the field takes a private key only — `LoginIdentityDraft` decides that,
+/// and an `npub1…` is refused there rather than handed to the core. The QR scanner the prototype
+/// offers beside the field is left out — it exists because a phone cannot be pasted into
 /// from a desktop, and here ⌘V and the field's own paste accessory cover it.
 struct OnboardingSignInView: View {
     @Environment(WorkspaceState.self) private var workspace
@@ -41,7 +40,7 @@ struct OnboardingSignInView: View {
     /// is no longer about what is in the field.
     private var message: String? {
         if draft == .invalid {
-            return L10n.string("Invalid nsec. Make sure you entered it correctly.")
+            return L10n.string("That private key isn't valid. Check it and try again.")
         }
         return draft.showsLastAttemptError ? workspace.lastError : nil
     }
@@ -51,9 +50,12 @@ struct OnboardingSignInView: View {
 
         OnboardingScaffold(exit: .back { workspace.cancelLogin() }) {
             VStack(alignment: .leading, spacing: 8) {
+                // Primary, and inset to the key's first character, as `whitenoise-ios` draws its
+                // section label. The hint-or-error line below takes the same inset.
                 Text(L10n.string("Private Key"))
                     .wnFont(.semiBold14)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .padding(.leading, OnboardingKeyField.textInset)
 
                 OnboardingKeyField(
                     text: $workspace.loginIdentity,
@@ -61,7 +63,12 @@ struct OnboardingSignInView: View {
                     onSubmit: submit
                 )
 
-                OnboardingMessageLine(message: message)
+                OnboardingMessageLine(
+                    message: message,
+                    hint: L10n.string("It starts with nsec."),
+                    minimumHeight: OnboardingMessageLine.singleLineReservedHeight
+                )
+                .padding(.leading, OnboardingKeyField.textInset)
             }
         } actions: {
             OnboardingActionButton(
