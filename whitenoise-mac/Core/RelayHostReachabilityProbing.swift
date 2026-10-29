@@ -103,10 +103,13 @@ private nonisolated final class RelayProbeConnection: @unchecked Sendable {
                 case .failed, .cancelled:
                     settle(continuation, isReachable: false)
                 case .waiting:
-                    // "No route yet, will retry." For a reachability question that is already
-                    // the answer, and waiting out the timeout would only make an unplugged
-                    // machine take three seconds to admit what it knows now.
-                    settle(continuation, isReachable: false)
+                    // "No route yet, will retry" — and `NWConnection` does retry, on its own,
+                    // the moment the path settles. Right after a network change (wake, Wi-Fi
+                    // join, VPN dial) DNS and routes routinely pass through here for a moment
+                    // before going `.ready`, so settling now reported a working connection as
+                    // offline. The timeout is the authority instead; an unplugged machine never
+                    // gets this far, because the interface check answers it first.
+                    break
                 case .setup, .preparing:
                     break
                 @unknown default:
