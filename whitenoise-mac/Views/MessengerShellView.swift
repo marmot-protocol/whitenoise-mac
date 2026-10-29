@@ -437,6 +437,9 @@ private struct ConversationView: View {
     @State private var openedModel: ObjectIdentifier?
     @State private var isFileImporterPresented = false
     @State private var isPollComposerPresented = false
+    /// The open "Forward To" sheet's model, built when the workspace opens a forward and dropped
+    /// when it closes one.
+    @State private var forwardModel: MessageForwardViewModel?
     @State private var isFileDropTargeted = false
     @State private var isComposerEmojiPickerPresented = false
     @State private var composerEmojiInsertion: ComposerEmojiInsertion?
@@ -746,15 +749,23 @@ private struct ConversationView: View {
         ) { message in
             MessageInfoSheet(message: message)
         }
-        .sheet(
-            isPresented: Binding(
-                get: { workspace.isForwardPickerPresented },
-                set: { isPresented in
-                    if !isPresented { workspace.cancelForwarding() }
-                }
+        .sheet(item: $forwardModel, onDismiss: { workspace.cancelForwarding() }) { forwardModel in
+            MessageForwardSheet(
+                model: forwardModel,
+                chats: chatListModel.chats(
+                    view: .chats,
+                    nicknames: workspace.activeContactNicknames,
+                    useWindow: false
+                ),
+                onClose: { workspace.cancelForwarding() }
             )
-        ) {
-            MessageForwardSheet(chatListModel: chatListModel)
+        }
+        .onChange(of: workspace.isForwardPickerPresented, initial: true) { _, isPresented in
+            forwardModel?.cancel()
+            forwardModel = isPresented ? MessageForwardViewModel.live(workspace: workspace) : nil
+            // Nothing left to forward (the messages scrolled out of the window, or the account
+            // went away): close the forward rather than leave it open with no sheet.
+            if isPresented, forwardModel == nil { workspace.cancelForwarding() }
         }
         .sheet(isPresented: $isPollComposerPresented) {
             PollComposerSheet(
