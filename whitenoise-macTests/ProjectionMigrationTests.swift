@@ -1688,6 +1688,54 @@ struct ProjectionMigrationTests {
         #expect(item.body == L10n.string("This message was deleted by an admin."))
     }
 
+    /// Regression: an edited record used to drop its Markdown, so a pasted Markdown message turned
+    /// into plain text after an edit and its `@npub` mentions showed as raw bech32. The core parses
+    /// `contentTokens` from the record's (already edited) `plaintext`, so they are safe to render.
+    @Test func editedProjectedMessageKeepsMarkdownAndMentionNames() throws {
+        let npub = "npub1editedmention"
+        let tokens = MarkdownDocumentFfi(
+            blocks: [
+                .heading(level: 2, inlines: [.text(content: "Notes")]),
+                .paragraph(inlines: [
+                    .strong(children: [.text(content: "Ping")]),
+                    .text(content: " "),
+                    .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub)),
+                ]),
+            ],
+            truncated: false
+        )
+        var record = timelineMessage(
+            id: "edited",
+            groupIdHex: "group",
+            sender: "peer",
+            plaintext: "## Notes\n\n**Ping** nostr:\(npub)",
+            recordedAt: 20,
+            contentTokens: tokens
+        )
+        record.edit = TimelineEditSummaryFfi(editCount: 1, latestEditMessageIdHex: "edit-1", editedAt: 20)
+
+        let item = try #require(
+            MessageItem.timeline(
+                from: TimelinePageFfi(messages: [record], hasMoreBefore: false, hasMoreAfter: false),
+                activeAccountIdHex: AccountItem.samples[0].accountIdHex,
+                mentionNames: [npub: "Alex"]
+            ).first
+        )
+
+        #expect(item.isEdited)
+        let markdown = try #require(item.contentMarkdown)
+        #expect(markdown.blocks.count == 2)
+        #expect(markdown.inlineParagraph == nil)
+        #expect(item.mentionNames == [npub: "Alex"])
+        // The mention resolves to the roster name, never the raw bech32.
+        guard case .paragraph(let paragraph) = markdown.blocks[1].block else {
+            Issue.record("expected the mention paragraph")
+            return
+        }
+        #expect(String(paragraph.characters).contains("Alex"))
+        #expect(!String(paragraph.characters).contains(npub))
+    }
+
     @Test func blockedConversationProjectionHidesAuthorsAndTheirQuotedContent() {
         let blocked = timelineMessage(
             id: "blocked",

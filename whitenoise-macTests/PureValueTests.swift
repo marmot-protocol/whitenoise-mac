@@ -1097,6 +1097,66 @@ struct PureValueTests {
         #expect(history.map(\.text) == ["Original @Alex", "Edited @Alex"])
     }
 
+    /// Regression: a live edit overlay used to render as plain text, dropping the edited
+    /// message's Markdown. The edit record's own `contentTokens` now travel with the overlay.
+    @MainActor
+    @Test func editOverlayKeepsTheEditsMarkdownAndMentionLinks() throws {
+        let npub = "npub1qqqq"
+        let tokens = MarkdownDocumentFfi(
+            blocks: [
+                .paragraph(inlines: [
+                    .emph(children: [.text(content: "Edited")]),
+                    .text(content: " "),
+                    .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub)),
+                ])
+            ],
+            truncated: false
+        )
+        let editRecord = timelineMessage(
+            id: "edit",
+            groupIdHex: "group",
+            sender: "sender",
+            plaintext: "*Edited* nostr:\(npub)",
+            kind: 1009,  // MarmotTimelineKind.messageEdit
+            tags: [MessageTagFfi(values: ["e", "message"])],
+            recordedAt: 2,
+            contentTokens: tokens
+        )
+        let mutations = MessageEditOverlay.mutations(from: [editRecord])
+        guard case .upsert(let overlay) = try #require(mutations.first) else {
+            Issue.record("expected an upsert")
+            return
+        }
+        #expect(overlay.contentTokens == tokens)
+
+        let base = MessageItem(
+            id: "message",
+            senderAccountIdHex: "sender",
+            senderName: "Sender",
+            body: "Original",
+            mentionNames: [npub: "Alex"],
+            sentAt: Date(timeIntervalSince1970: 1),
+            timelineAt: 1,
+            isOutgoing: false
+        )
+        let store = MessageTimelineStore.loaded(with: [base])
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: mutations,
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+
+        let edited = try #require(store.lookup["message"])
+        #expect(edited.isEdited)
+        #expect(edited.wireBody == "*Edited* nostr:\(npub)")
+        let paragraph = try #require(edited.contentMarkdown?.inlineParagraph)
+        #expect(String(paragraph.characters).contains("Alex"))
+        #expect(!String(paragraph.characters).contains(npub))
+        #expect(paragraph.runs.contains { $0.inlinePresentationIntent?.contains(.emphasized) == true })
+    }
+
     @MainActor
     @Test func disappearingMessageCustomLabelFormatsCoreUInt64Value() async throws {
         // Regression for whitenoise-mac#212: values can originate from the core as

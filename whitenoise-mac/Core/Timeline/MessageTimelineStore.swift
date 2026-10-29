@@ -270,10 +270,10 @@ final class MessageTimelineStore {
     /// Both the rendered rows and the pre-edit bases are relabeled: an edited row renders from its
     /// base, and a base left with the stale label would resurface it on the next recompute.
     ///
-    /// An edited row cannot be relabeled directly — it carries no Markdown (`applyingEdit` drops
-    /// it) and resolves its mentions into plain text from the base's `mentionNames` — so the rows
-    /// whose base changed are re-rendered through the ordinary edit-overlay path afterwards.
-    /// Without that, an edited bubble kept the old label until the next full recomputation.
+    /// An edited row renders from its base's `mentionNames` — through its Markdown when the edit
+    /// carried the core's tokens, otherwise resolved into its plain-text body — so the rows whose
+    /// base changed are re-rendered through the ordinary edit-overlay path afterwards. Without
+    /// that, an edited bubble kept the old label until the next full recomputation.
     @discardableResult
     func relabelMention(bech32: String, name: String?) -> Bool {
         var didChange = false
@@ -411,7 +411,8 @@ final class MessageTimelineStore {
     private func renderedMessage(from base: MessageItem) -> (message: MessageItem, candidateVisitCount: Int) {
         let result = effectiveEdit(for: base.id, base: base)
         guard let edit = result.edit else { return (base, result.candidateVisitCount) }
-        return (base.applyingEdit(plaintext: edit.plaintext), result.candidateVisitCount)
+        let rendered = base.applyingEdit(plaintext: edit.plaintext, contentTokens: edit.contentTokens)
+        return (rendered, result.candidateVisitCount)
     }
 
     private func effectiveEdit(
