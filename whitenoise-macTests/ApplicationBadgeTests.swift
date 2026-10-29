@@ -69,7 +69,7 @@ struct ApplicationBadgeTests {
     @Test func dockLabelIsEmptyAtZeroAndUngroupedAboveIt() {
         #expect(DockBadgeController.label(forCount: 0) == nil)
         #expect(DockBadgeController.label(forCount: 3) == "3")
-        #expect(DockBadgeController.label(forCount: 1234)?.count == 4)
+        #expect(DockBadgeController.label(forCount: 1234) == "1234")
     }
 
     @Test func dockControllerKeepsTheBadgeForAnUnknownCountAndWritesOnlyChanges() {
@@ -85,16 +85,33 @@ struct ApplicationBadgeTests {
         #expect(writes == ["5", nil])
     }
 
-    @Test func dockControllerClearsTheBadgeWhenTheActiveAccountSignedOut() {
+    @Test func dockControllerClearsTheBadgeWhenTheActiveAccountSignsOut() {
         var writes: [String?] = []
         let controller = DockBadgeController { writes.append($0) }
         controller.apply(count: 5)
 
-        // The replacement scope has no ready total yet.
+        // The signed-out account is still listed, but not among the signed-in ids, and the
+        // replacement scope has no ready total yet.
         controller.activeAccountDidChange(from: "signed-out", signedInAccountIds: ["remaining"])
         controller.apply(count: nil)
 
         #expect(writes == ["5", nil])
+    }
+
+    @Test func dockControllerClearsTheBadgeWhenTheActiveAccountIsRemoved() {
+        var writes: [String?] = []
+        let controller = DockBadgeController { writes.append($0) }
+        controller.apply(count: 5)
+
+        // `removeAccount` refreshes `accounts` before `restoreOrSelectFirstAccount()` moves
+        // `activeAccountId`, so the removed id is absent altogether. Removing the last account
+        // leaves nobody signed in.
+        controller.activeAccountDidChange(from: "removed", signedInAccountIds: ["remaining"])
+        controller.apply(count: nil)
+        controller.apply(count: 4)
+        controller.activeAccountDidChange(from: "remaining", signedInAccountIds: [])
+
+        #expect(writes == ["5", nil, "4", nil])
     }
 
     @Test func dockControllerKeepsTheBadgeAcrossAnOrdinaryAccountSwitch() {
@@ -107,6 +124,20 @@ struct ApplicationBadgeTests {
         controller.apply(count: nil)
 
         #expect(writes == ["5"])
+    }
+
+    // MARK: - Session
+
+    @Test func sessionClearsTheBadgeWithNoScopeAndNobodySignedIn() {
+        let session = SessionState()
+
+        #expect(session.applicationBadgeCount(hasSignedInAccounts: false) == 0)
+    }
+
+    @Test func sessionLeavesTheBadgeUnknownBetweenScopesWhileSomeoneIsSignedIn() {
+        let session = SessionState()
+
+        #expect(session.applicationBadgeCount(hasSignedInAccounts: true) == nil)
     }
 
     // MARK: - Attention model
@@ -127,6 +158,24 @@ struct ApplicationBadgeTests {
         await Self.waitUntil { model.applicationBadgeCount != nil }
 
         #expect(model.applicationBadgeCount == 6)
+        model.stop()
+    }
+
+    @Test func attentionModelCountsAConversationMarkedUnreadOnTheAccountRail() async {
+        // No unread messages, one conversation marked unread by hand: the rail badge shows 1,
+        // the same floor the Dock badge applies.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountAttentionInitialSnapshot = Self.snapshot(
+            sequence: 1,
+            [("account", .ready(total: Self.total(conversations: 1)))]
+        )
+        let model = AccountAttentionViewModel(runtime: runtime)
+
+        model.start()
+        await Self.waitUntil { model.applicationBadgeCount != nil }
+
+        #expect(model.unreadCount(accountIdHex: "account") == 1)
+        #expect(model.applicationBadgeCount == 1)
         model.stop()
     }
 
@@ -172,6 +221,54 @@ struct ApplicationBadgeTests {
         await Self.waitUntil { model.applicationBadgeCount == 3 }
 
         #expect(model.applicationBadgeCount == 3)
+        model.stop()
+    }
+
+    @Test func attentionModelDropsAnAccountThatLeavesTheSnapshot() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountAttentionInitialSnapshot = Self.snapshot(
+            sequence: 1,
+            [
+                ("a", .ready(total: Self.total(unread: 3, conversations: 1))),
+                ("b", .ready(total: Self.total(unread: 2, conversations: 1))),
+            ]
+        )
+        runtime.accountAttentionUpdates = [
+            Self.snapshot(sequence: 2, [("a", .ready(total: Self.total(unread: 3, conversations: 1)))])
+        ]
+        let model = AccountAttentionViewModel(runtime: runtime)
+
+        model.start()
+        await Self.waitUntil { model.applicationBadgeCount == 3 }
+
+        #expect(model.applicationBadgeCount == 3)
+        model.stop()
+    }
+
+    @Test func attentionModelForgetsTheLastTotalOfAnAccountThatLeftAndCameBackUnavailable() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountAttentionInitialSnapshot = Self.snapshot(
+            sequence: 1,
+            [("a", .ready(total: Self.total(unread: 3, conversations: 1)))]
+        )
+        runtime.accountAttentionUpdates = [
+            // Unavailable, but remembered: still counts 3.
+            Self.snapshot(sequence: 2, [("a", .unavailable(reason: .preparing))]),
+            // Removed: the memory goes with it.
+            Self.snapshot(sequence: 3, []),
+            // Back, but never ready since it returned: unknown, not the old 3.
+            Self.snapshot(sequence: 4, [("a", .unavailable(reason: .preparing))]),
+        ]
+        let model = AccountAttentionViewModel(runtime: runtime)
+
+        model.start()
+        // Only the last update has `a` unavailable with no total; the second one still counts 3.
+        await Self.waitUntil {
+            model.valuesByAccountId["a"] == .unavailable(.preparing) && model.applicationBadgeCount == nil
+        }
+
+        #expect(model.valuesByAccountId["a"] == .unavailable(.preparing))
+        #expect(model.applicationBadgeCount == nil)
         model.stop()
     }
 
