@@ -441,6 +441,14 @@ private struct ConversationView: View {
     /// when it closes one.
     @State private var forwardModel: MessageForwardViewModel?
     @State private var isFileDropTargeted = false
+    /// The files the last staging batch could not attach. Replaced by the next batch, so a
+    /// selection that fully succeeds clears the notice for the files the user just fixed.
+    @State private var attachmentRejections: ComposerAttachmentRejections?
+    /// The staging batch allowed to set or clear `attachmentRejections`: the most recent one.
+    /// Batches overlap (a second drop while the first is still preparing) and finish in any
+    /// order. Cancelling the earlier batch instead would throw away files the user picked, so
+    /// it runs to completion and only loses the right to touch the notice.
+    @State private var latestAttachmentStagingBatch: UUID?
     @State private var isComposerEmojiPickerPresented = false
     @State private var composerEmojiInsertion: ComposerEmojiInsertion?
     @State private var composerMentionContext: ComposerMentionContext?
@@ -597,6 +605,13 @@ private struct ConversationView: View {
                 // `sendDraft()` and call `jumpToNewest()` themselves.
                 .onChange(of: workspace.outgoingSendScrollGeneration) { _, _ in
                     guard workspace.selectedChat?.id == chat.id else { return }
+                    // The files it named belonged to the message that just went out. Cleared on
+                    // the send rather than on the staging strip emptying, which also happens when
+                    // every file was refused and the notice is all the user has. A batch still
+                    // preparing keeps its claim: its result is about the next message.
+                    if attachmentRejections?.chatId == chat.id {
+                        attachmentRejections = nil
+                    }
                     Task { await jumpToNewest() }
                 }
                 // Keyed on the window being presented too: a search can open a chat whose
@@ -689,7 +704,7 @@ private struct ConversationView: View {
             ) { result in
                 switch result {
                 case .success(let urls):
-                    Task { await workspace.addMediaAttachments(from: urls) }
+                    Task { await stageMediaAttachments { await workspace.addMediaAttachments(from: urls) } }
                 case .failure(let error):
                     workspace.reportUserActionError(error.localizedDescription)
                 }
@@ -698,9 +713,9 @@ private struct ConversationView: View {
                 // Refuse drops whenever the composer is hidden: accepted files would
                 // accumulate invisibly behind the replacement notice and could never be
                 // sent. `addMediaAttachments` re-checks via
-                // `canBeginMediaAttachmentSelection()` as defense in depth.
+                // the same composer gate as defense in depth.
                 guard canUseComposer else { return false }
-                Task { await workspace.addMediaAttachments(from: urls) }
+                Task { await stageMediaAttachments { await workspace.addMediaAttachments(from: urls) } }
                 return !urls.isEmpty
             } isTargeted: { isTargeted in
                 isFileDropTargeted = isTargeted && canUseComposer
@@ -824,9 +839,29 @@ private struct ConversationView: View {
         return true
     }
 
+    /// Runs one staging batch and keeps what it refused next to the composer it was meant for.
+    private func stageMediaAttachments(_ stage: () async -> [AttachmentRejection]) async {
+        let chatId = chat.id
+        let batch = UUID()
+        latestAttachmentStagingBatch = batch
+        let rejections = await stage()
+        // `chat` is this view value's copy; the workspace knows which chat is on screen now. A
+        // batch whose chat was switched away returns nothing and must not clear the new chat's
+        // notice, and an older batch must not replace a newer one's.
+        guard latestAttachmentStagingBatch == batch, workspace.selectedChat?.id == chatId else { return }
+        attachmentRejections =
+            rejections.isEmpty ? nil : ComposerAttachmentRejections(chatId: chatId, items: rejections)
+    }
+
     @ViewBuilder
     private var composerControls: some View {
         @Bindable var workspace = workspace
+
+        if let attachmentRejections, attachmentRejections.chatId == chat.id {
+            ComposerAttachmentRejectionNotice(rejections: attachmentRejections.items) {
+                self.attachmentRejections = nil
+            }
+        }
 
         if let editingMessageContext = workspace.editingMessageContext {
             EditComposerContextView(context: editingMessageContext)
@@ -966,7 +1001,9 @@ private struct ConversationView: View {
                     },
                     onPasteMedia: { attachments in
                         guard workspace.editingMessageContext == nil else { return }
-                        Task { await workspace.addPastedMediaAttachments(attachments) }
+                        Task {
+                            await stageMediaAttachments { await workspace.addPastedMediaAttachments(attachments) }
+                        }
                     },
                     onSend: {
                         Task { await workspace.sendDraft() }

@@ -1931,7 +1931,9 @@ nonisolated enum OutgoingMediaDraftProcessor {
         case unsupportedImage
         case unsupportedAttachment
         case encodingFailed
-        case attachmentTooLarge(Int)
+        /// The attachment's size and the cap it broke. Images have two caps — the raw file, and
+        /// the re-encoded JPEG — so the limit travels with the failure rather than being assumed.
+        case attachmentTooLarge(Int, limit: Int = OutgoingMediaDraftProcessor.maxAttachmentBytes)
 
         var errorDescription: String? {
             switch self {
@@ -1941,8 +1943,11 @@ nonisolated enum OutgoingMediaDraftProcessor {
                 return L10n.string("That file type is not supported.")
             case .encodingFailed:
                 return L10n.string("That attachment could not be prepared.")
-            case .attachmentTooLarge:
-                return L10n.string("That attachment is too large to send.")
+            case .attachmentTooLarge(_, let limit):
+                return String(
+                    format: L10n.string("That attachment is too large to send. The limit is %@."),
+                    AttachmentRejection.formattedLimit(limit, locale: AppLanguage.currentLocale)
+                )
             }
         }
     }
@@ -2128,7 +2133,7 @@ nonisolated enum OutgoingMediaDraftProcessor {
         }
         let encoded = try encodeJPEG(image)
         guard encoded.count <= maxImageAttachmentBytes else {
-            throw Failure.attachmentTooLarge(encoded.count)
+            throw Failure.attachmentTooLarge(encoded.count, limit: maxImageAttachmentBytes)
         }
         return PendingMediaAttachment(
             fileName: sanitizedImageFileName(fileName),
