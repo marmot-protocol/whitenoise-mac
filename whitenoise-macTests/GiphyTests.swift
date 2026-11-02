@@ -593,18 +593,18 @@ struct GiphyTests: WorkspaceTestSupport {
 
     // MARK: Playback
 
-    @Test func animatedGIFReadsDimensionsFromItsFirstFrame() throws {
+    @Test func animatedGIFReadsDimensionsFromItsLogicalCanvas() throws {
         let aspectRatio = try GiphyRemoteMediaLoader.animatedImageAspectRatio(
             from: try Self.animatedGIF(width: 2, height: 1))
         #expect(aspectRatio == 2)
     }
 
     @Test func aSingleFrameImageIsNotAcceptedAsAGIF() throws {
-        #expect(throws: GiphyRemoteMediaLoader.Failure.invalidResponse) {
+        #expect(throws: GiphyRemoteMediaLoader.Failure.unsupportedMedia) {
             try GiphyRemoteMediaLoader.animatedImageAspectRatio(
                 from: try Self.animatedGIF(width: 2, height: 1, frames: 1))
         }
-        #expect(throws: GiphyRemoteMediaLoader.Failure.invalidResponse) {
+        #expect(throws: GiphyRemoteMediaLoader.Failure.unsupportedMedia) {
             try GiphyRemoteMediaLoader.animatedImageAspectRatio(from: Data("not an image".utf8))
         }
     }
@@ -647,11 +647,77 @@ struct GiphyTests: WorkspaceTestSupport {
         let legacy = RemoteGiphyMedia(
             url: URL(string: "https://media.giphy.com/media/abc123/giphy.mp4")!, width: 4, height: 3, attribution: nil)
 
-        await #expect(throws: GiphyRemoteMediaLoader.Failure.invalidResponse) {
+        await #expect(throws: GiphyRemoteMediaLoader.Failure.unsupportedMedia) {
             _ = try await GiphyRemoteMediaLoader.preparePlayback(for: legacy, apiKey: nil) { _ in
                 Issue.record("nothing may be fetched without a key")
                 return nil
             }
+        }
+    }
+
+    /// A refusal is a verdict on the bytes and fails the same way on every click, so only a
+    /// transient failure may offer Retry.
+    @Test func onlyTransientFailuresOfferRetry() {
+        #expect(GiphyPlaybackState.failure(for: GiphyRemoteMediaLoader.Failure.invalidResponse) == .failed)
+        #expect(GiphyPlaybackState.failure(for: GiphySearchError.badResponse) == .failed)
+        #expect(GiphyPlaybackState.failure(for: URLError(.timedOut)) == .failed)
+        #expect(GiphyPlaybackState.failure(for: CancellationError()) == .failed)
+
+        #expect(GiphyPlaybackState.failure(for: GiphyRemoteMediaLoader.Failure.unsupportedMedia) == .unsupported)
+        #expect(GiphyPlaybackState.failure(for: GiphyRemoteMediaLoader.Failure.invalidURL) == .unsupported)
+        #expect(GiphyPlaybackState.failure(for: GiphySearchError.unsupportedMedia) == .unsupported)
+        #expect(GiphyPlaybackState.failure(for: GiphySearchError.invalidRequest) == .unsupported)
+    }
+
+    @Test func preparationTellsAMissingDownloadFromARefusedGIF() async throws {
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 1, height: 1, attribution: nil)
+        let singleFrame = try Self.animatedGIF(width: 2, height: 1, frames: 1)
+        let oversized = Data(count: GiphySearchClient.maximumMediaBytes + 1)
+
+        await #expect(throws: GiphyRemoteMediaLoader.Failure.invalidResponse) {
+            _ = try await GiphyRemoteMediaLoader.preparePlayback(for: media, apiKey: nil) { _ in nil }
+        }
+        await #expect(throws: GiphyRemoteMediaLoader.Failure.unsupportedMedia) {
+            _ = try await GiphyRemoteMediaLoader.preparePlayback(for: media, apiKey: nil) { _ in singleFrame }
+        }
+        await #expect(throws: GiphyRemoteMediaLoader.Failure.unsupportedMedia) {
+            _ = try await GiphyRemoteMediaLoader.preparePlayback(for: media, apiKey: nil) { _ in oversized }
+        }
+    }
+
+    @Test func legacyMP4EnvelopeFallsBackToTheNextGIFRendition() async throws {
+        let refused = try Self.animatedGIF(width: 2, height: 1, frames: 1)
+        let admitted = try Self.animatedGIF(width: 3, height: 1)
+        let requested = RequestLog()
+        let legacy = RemoteGiphyMedia(
+            url: URL(string: "https://media.giphy.com/media/abc123/giphy.mp4")!, width: 4, height: 3, attribution: nil)
+        let lookup = Data(#"{"data": \#(Self.fallbackItemJSON)}"#.utf8)
+
+        let prepared = try await GiphyRemoteMediaLoader.preparePlayback(for: legacy, apiKey: "key") { url in
+            await requested.append(url)
+            if url.host == "api.giphy.com" { return lookup }
+            return url.lastPathComponent == "200_d.gif" ? admitted : refused
+        }
+
+        #expect(prepared.aspectRatio == 3)
+        #expect(
+            await requested.urls.dropFirst().map(\.lastPathComponent) == ["giphy.gif", "200_d.gif"])
+    }
+
+    @Test func resultsListTheDownsampledRenditionsAfterThePreferredOneOnce() throws {
+        let results = try GiphySearchClient.decodeResults(
+            from: Data(#"{"data": [\#(Self.fallbackItemJSON)]}"#.utf8))
+        let result = try #require(results.first)
+
+        #expect(result.candidates.map(\.url.lastPathComponent) == ["giphy.gif", "200_d.gif", "200w_d.gif"])
+        #expect(result.media == result.candidates.first)
+        #expect(result.candidates.allSatisfy { $0.attribution == "Cat Person" })
+    }
+
+    @Test func aLookupWithoutAGIFRenditionIsUnsupported() {
+        let lookup = Data(#"{"data": { "id": "abc123", "title": "Cat", "images": {} }}"#.utf8)
+        #expect(throws: GiphySearchError.unsupportedMedia) {
+            try GiphySearchClient.decodeLookupResult(from: lookup)
         }
     }
 
@@ -714,12 +780,18 @@ struct GiphyTests: WorkspaceTestSupport {
     @Test func selectingAResultSendsItsEnvelopeAndReportsFailure() async {
         let result = Self.result(id: "one")
         let sender = SendRecorder()
+        let playback = GiphyRemoteMediaLoader.PreparedPlayback(data: Data([0x47]), aspectRatio: 2)
         let model = GiphySearchViewModel(
             search: { _ in [] },
             send: { media in try sender.send(media) },
+            prepare: { _ in playback },
+            cache: GiphyPlaybackCache(),
             debounce: .zero
         )
 
+        #expect(!(await model.select(result)), "a result whose preview never played was sent")
+        #expect(sender.sent.isEmpty)
+        await model.loadPreview(for: result)
         #expect(await model.select(result))
         #expect(sender.sent == [result.media])
         #expect(model.sendingResultID == nil)
@@ -728,6 +800,108 @@ struct GiphyTests: WorkspaceTestSupport {
         sender.failNext = true
         #expect(!(await model.select(result)))
         #expect(model.sendErrorMessage == GiphySearchError.badResponse.localizedDescription)
+    }
+
+    /// The envelope carries one rendition and every recipient applies the same admission, so the
+    /// picker must send the rendition that actually played, not GIPHY's preferred one.
+    @MainActor
+    @Test func pickerSendsTheFirstRenditionAdmissionAccepts() async throws {
+        let refused = try Self.animatedGIF(width: 2, height: 1, frames: 1)
+        let admitted = try Self.animatedGIF(width: 2, height: 1)
+        let preferred = RemoteGiphyMedia(url: Self.gifURL, width: 2, height: 1, attribution: nil)
+        let fallback = RemoteGiphyMedia(
+            url: URL(string: "https://media1.giphy.com/media/abc123/200_d.gif")!, width: 2, height: 1, attribution: nil)
+        let result = GiphySearchResult(id: "one", title: "Cat", candidates: [preferred, fallback])
+        let sender = SendRecorder()
+        let model = GiphySearchViewModel(
+            search: { _ in [] },
+            send: { try sender.send($0) },
+            prepare: { media in
+                try await GiphyRemoteMediaLoader.preparePlayback(for: media, apiKey: nil) { url in
+                    url == preferred.url ? refused : admitted
+                }
+            },
+            cache: GiphyPlaybackCache(),
+            debounce: .zero
+        )
+
+        await model.loadPreview(for: result)
+
+        #expect(model.preview(for: result).playableMedia == fallback)
+        #expect(await model.select(result))
+        #expect(sender.sent == [fallback])
+    }
+
+    @MainActor
+    @Test func pickerSendsNothingWhenEveryRenditionIsRefused() async throws {
+        let refused = try Self.animatedGIF(width: 2, height: 1, frames: 1)
+        let requested = RequestLog()
+        let result = GiphySearchResult(
+            id: "one",
+            title: "Cat",
+            candidates: [
+                RemoteGiphyMedia(url: Self.gifURL, width: 2, height: 1, attribution: nil),
+                RemoteGiphyMedia(
+                    url: URL(string: "https://media1.giphy.com/media/abc123/200_d.gif")!,
+                    width: 2, height: 1, attribution: nil),
+            ]
+        )
+        let sender = SendRecorder()
+        let model = GiphySearchViewModel(
+            search: { _ in [] },
+            send: { try sender.send($0) },
+            prepare: { media in
+                try await GiphyRemoteMediaLoader.preparePlayback(for: media, apiKey: nil) { url in
+                    await requested.append(url)
+                    return refused
+                }
+            },
+            cache: GiphyPlaybackCache(),
+            debounce: .zero
+        )
+
+        await model.loadPreview(for: result)
+        await model.loadPreview(for: result)
+
+        #expect(model.preview(for: result) == .unsupported)
+        #expect(await requested.urls.count == 2, "a refused result was downloaded again")
+        #expect(!(await model.select(result)))
+        #expect(sender.sent.isEmpty)
+    }
+
+    /// A smaller rendition is no likelier to download than the first one, so a transport failure
+    /// stops the walk and leaves the tile unchosen rather than burning through every candidate.
+    @MainActor
+    @Test func pickerStopsAtATransientFailure() async {
+        let requested = RequestLog()
+        let result = GiphySearchResult(
+            id: "one",
+            title: "Cat",
+            candidates: [
+                RemoteGiphyMedia(url: Self.gifURL, width: 2, height: 1, attribution: nil),
+                RemoteGiphyMedia(
+                    url: URL(string: "https://media1.giphy.com/media/abc123/200_d.gif")!,
+                    width: 2, height: 1, attribution: nil),
+            ]
+        )
+        let model = GiphySearchViewModel(
+            search: { _ in [] },
+            send: { _ in Issue.record("nothing may be sent") },
+            prepare: { media in
+                try await GiphyRemoteMediaLoader.preparePlayback(for: media, apiKey: nil) { url in
+                    await requested.append(url)
+                    return nil
+                }
+            },
+            cache: GiphyPlaybackCache(),
+            debounce: .zero
+        )
+
+        await model.loadPreview(for: result)
+
+        #expect(model.preview(for: result) == .failed)
+        #expect(await requested.urls == [Self.gifURL])
+        #expect(!(await model.select(result)))
     }
 
     // MARK: Preference
@@ -793,6 +967,22 @@ struct GiphyTests: WorkspaceTestSupport {
             "fixed_height": { "width": "356", "height": "200", "url": "https://media2.giphy.com/media/abc123/200.gif", "size": "900000" },
             "fixed_width": { "width": "200", "height": "112", "url": "https://media2.giphy.com/media/abc123/200w.mp4", "size": "100000" },
             "downsized": { "width": "400", "height": "225", "url": "https://evil.example/abc123/giphy.gif", "size": "100000" }
+          }
+        }
+        """
+
+    /// `original` is preferred (under budget, largest); both downsampled renditions follow it,
+    /// and `fixed_height_downsampled` appears twice under another key to prove the de-duplication.
+    private static let fallbackItemJSON = """
+        {
+          "id": "abc123",
+          "title": "Cat",
+          "user": { "username": "catperson", "display_name": "Cat Person" },
+          "images": {
+            "original": { "width": "480", "height": "270", "url": "https://media2.giphy.com/media/abc123/giphy.gif", "size": "900000" },
+            "fixed_height_downsampled": { "width": "356", "height": "200", "url": "https://media2.giphy.com/media/abc123/200_d.gif", "size": "200000" },
+            "fixed_width_downsampled": { "width": "200", "height": "112", "url": "https://media2.giphy.com/media/abc123/200w_d.gif", "size": "100000" },
+            "downsized": { "width": "356", "height": "200", "url": "https://media2.giphy.com/media/abc123/200_d.gif", "size": "200000" }
           }
         }
         """

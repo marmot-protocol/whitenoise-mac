@@ -16,6 +16,32 @@ struct GIFPlaybackAdmissionTests {
         #expect(GIFPlaybackAdmission.inspect(Self.container(width: 0, height: 1)) == nil)
     }
 
+    @Test func capsTheLogicalCanvasArea() {
+        #expect(GIFPlaybackAdmission.inspect(Self.container(width: 2_048, height: 2_048)) != nil)
+        #expect(GIFPlaybackAdmission.inspect(Self.container(width: 2_048, height: 2_049)) == nil)
+        #expect(GIFPlaybackAdmission.inspect(Self.container(width: 4_096, height: 4_096)) == nil)
+    }
+
+    @Test func rejectsAdmittedCanvasThatImageIOCannotDecode() {
+        // 1x1 frames on a 400x400 canvas pass the header checks, but ImageIO refuses frame 0
+        // and the animator would crash on it.
+        let data = Self.container(width: 400, height: 400)
+        #expect(GIFPlaybackAdmission.inspect(data) != nil)
+        #expect(throws: GiphyRemoteMediaLoader.Failure.unsupportedMedia) {
+            try GiphyRemoteMediaLoader.animatedImageAspectRatio(from: data)
+        }
+    }
+
+    /// The reader indexes `Data` in place, so a slice whose `startIndex` is not 0 must read the
+    /// same as a fresh buffer.
+    @Test func readsADataSliceFromItsOwnStartIndex() {
+        let slice = (Data([0xFF, 0xFF, 0xFF]) + Self.container(width: 3, height: 2)).dropFirst(3)
+        #expect(slice.startIndex == 3)
+        #expect(
+            GIFPlaybackAdmission.inspect(slice) == GIFPlaybackAdmission.inspect(Self.container(width: 3, height: 2)))
+        #expect(GIFPlaybackAdmission.inspect(slice)?.width == 3)
+    }
+
     @Test func boundsEveryFrameRectangle() {
         #expect(GIFPlaybackAdmission.inspect(Self.container(frames: [Self.frame(), Self.frame(width: 2)])) == nil)
         #expect(GIFPlaybackAdmission.inspect(Self.container(frames: [Self.frame(), Self.frame(left: 1)])) == nil)
@@ -29,10 +55,10 @@ struct GIFPlaybackAdmissionTests {
     }
 
     @Test func enforcesAggregateCanvasBudgetWithoutAllocatingPixels() {
-        // Two full logical canvases are exactly 32 Mi pixels, though the stored frames are 1x1.
-        let boundary = Self.container(width: 4_096, height: 4_096)
+        // Eight full logical canvases are exactly 32 Mi pixels, though the stored frames are 1x1.
+        let boundary = Self.container(width: 2_048, height: 2_048, frames: Array(repeating: Self.frame(), count: 8))
         #expect(GIFPlaybackAdmission.inspect(boundary) != nil)
-        let over = Self.container(width: 4_096, height: 4_096, frames: Array(repeating: Self.frame(), count: 3))
+        let over = Self.container(width: 2_048, height: 2_048, frames: Array(repeating: Self.frame(), count: 9))
         #expect(GIFPlaybackAdmission.inspect(over) == nil)
     }
 
@@ -64,6 +90,32 @@ struct GIFPlaybackAdmissionTests {
         #expect(GIFPlaybackAdmission.inspect(Data(count: GiphySearchClient.maximumMediaBytes + 1)) == nil)
     }
 
+    @Test func reportsWhyAContainerWasRefused() {
+        func reason(_ data: Data) -> GIFPlaybackAdmission.Rejection? {
+            if case .failure(let rejection) = GIFPlaybackAdmission.evaluate(data) { return rejection }
+            return nil
+        }
+        let frame = Self.frame()
+        var reserved = frame
+        reserved[17] |= 0x08  // Image descriptor flags.
+        var plainText = Array(Self.container())
+        plainText.insert(contentsOf: [0x21, 0x01, 0], at: 13)
+        #expect(reason(Self.container()) == nil)
+        #expect(reason(Data(count: 4)) == .size)
+        #expect(reason(Data("GIF00a".utf8) + Self.container().dropFirst(6)) == .signature)
+        #expect(reason(Self.container(width: 4_097, height: 1)) == .canvas)
+        #expect(reason(Self.container(width: 4_096, height: 4_096)) == .area)
+        #expect(reason(Self.container(frames: [frame])) == .frames)
+        #expect(reason(Self.container(frames: Array(repeating: frame, count: 1_001))) == .frames)
+        let overBudget = Self.container(width: 2_048, height: 2_048, frames: Array(repeating: frame, count: 9))
+        #expect(reason(overBudget) == .aggregate)
+        #expect(reason(Self.container(frames: [frame, Self.frame(left: 1)])) == .rect)
+        #expect(reason(Self.container(frames: [frame, reserved])) == .reservedBits)
+        #expect(reason(Data(plainText)) == .extension)
+        #expect(reason(Self.container().dropLast()) == .truncated)
+        #expect(reason(Self.container() + Data([0])) == .trailingData)
+    }
+
     @Test func playbackPreparationCannotBypassAdmissionWithSmallAdvertisedDimensions() async {
         let media = RemoteGiphyMedia(
             url: URL(string: "https://media.giphy.com/media/fixture/giphy.gif")!,
@@ -74,7 +126,7 @@ struct GIFPlaybackAdmissionTests {
                 _ = try await GiphyRemoteMediaLoader.preparePlayback(for: media, apiKey: nil) { _ in oversizedCanvas }
                 Issue.record("Oversized GIF was admitted")
             } catch {
-                #expect(error as? GiphyRemoteMediaLoader.Failure == .invalidResponse)
+                #expect(error as? GiphyRemoteMediaLoader.Failure == .unsupportedMedia)
             }
         }
     }
