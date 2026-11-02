@@ -52,6 +52,10 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
     /// below it describes, and the two read as one thing only while they are close enough to be
     /// one thing. See `OnboardingLayout.signUpHeroToContentSpacing`.
     var maximumHeroToContentSpacing: CGFloat = OnboardingLayout.markToActionsMaximumSpacing
+    /// Whether everything under the header row scrolls once it outgrows the window. Off by
+    /// default; the sign-up pane turns it on because its privacy card opens in place, and opened
+    /// it is taller than the shortest window. See `OnboardingShortWindowScroll`.
+    var scrollsWhenShort = false
     /// What the pane is arranged around. Defaults to the mark.
     @ViewBuilder var hero: Hero
     /// Whatever sits between the hero and the actions — the sign-in pane's key field, the sign-up
@@ -64,36 +68,40 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
         VStack(spacing: 0) {
             OnboardingHeaderRow(exit: exit)
 
-            Spacer(minLength: minimumEdgeSpacing)
+            OnboardingShortWindowScroll(isEnabled: scrollsWhenShort) {
+                VStack(spacing: 0) {
+                    Spacer(minLength: minimumEdgeSpacing)
 
-            hero
+                    hero
 
-            // Capped, unlike the `Spacer` above the hero, so the pane's spare height collects at
-            // the top instead of being split evenly across the hero. See
-            // `maximumHeroToContentSpacing`.
-            //
-            // The floor yields to the ceiling rather than fighting it: a pane that wants this gap
-            // held tighter than its own margins — the sign-up pane does — would otherwise clamp a
-            // `minLength` above `maxHeight`, and the two would disagree about a gap neither is
-            // wrong about.
-            Spacer(minLength: min(minimumEdgeSpacing, maximumHeroToContentSpacing))
-                .frame(maxHeight: maximumHeroToContentSpacing)
+                    // Capped, unlike the `Spacer` above the hero, so the pane's spare height collects at
+                    // the top instead of being split evenly across the hero. See
+                    // `maximumHeroToContentSpacing`.
+                    //
+                    // The floor yields to the ceiling rather than fighting it: a pane that wants this gap
+                    // held tighter than its own margins — the sign-up pane does — would otherwise clamp a
+                    // `minLength` above `maxHeight`, and the two would disagree about a gap neither is
+                    // wrong about.
+                    Spacer(minLength: min(minimumEdgeSpacing, maximumHeroToContentSpacing))
+                        .frame(maxHeight: maximumHeroToContentSpacing)
 
-            VStack(spacing: OnboardingLayout.contentToActionsSpacing) {
-                content
+                    VStack(spacing: OnboardingLayout.contentToActionsSpacing) {
+                        content
 
-                VStack(spacing: OnboardingLayout.actionSpacing) {
-                    actions
+                        VStack(spacing: OnboardingLayout.actionSpacing) {
+                            actions
+                        }
+                    }
+                    .frame(width: OnboardingLayout.contentWidth)
+
+                    // Flexible, and the twin of the `Spacer` above the hero rather than a fixed inset.
+                    // A fixed one made every point of spare height land *above* the hero, so a tall
+                    // window pushed the whole group onto the bottom edge; two flexible ends split it and
+                    // the group sits centred with real air under the buttons. `minimumEdgeSpacing`
+                    // is the floor, for the short window where there is nothing to split.
+                    Spacer(minLength: minimumEdgeSpacing)
                 }
             }
-            .frame(width: OnboardingLayout.contentWidth)
-
-            // Flexible, and the twin of the `Spacer` above the hero rather than a fixed inset.
-            // A fixed one made every point of spare height land *above* the hero, so a tall
-            // window pushed the whole group onto the bottom edge; two flexible ends split it and
-            // the group sits centred with real air under the buttons. `minimumEdgeSpacing`
-            // is the floor, for the short window where there is nothing to split.
-            Spacer(minLength: minimumEdgeSpacing)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
@@ -185,4 +193,55 @@ extension OnboardingHeaderRow where Accessory == EmptyView {
     init(exit: OnboardingExitControl?) {
         self.init(exit: exit) { EmptyView() }
     }
+}
+
+/// The part of an onboarding pane under its header row, scrolling once it is taller than the
+/// window when `isEnabled`.
+///
+/// The column inside is laid out against the visible height — `minHeight` is the viewport — so
+/// while it fits, its `Spacer`s split the spare height exactly as an unscrolled pane does and
+/// nothing about the pane changes. Past that it scrolls, from the top, and the scroll position is
+/// left where it is when the column grows: the sign-up privacy card sits at the top of the form,
+/// so opening it keeps it in view and pushes `Create profile` down to where a scroll reaches it.
+///
+/// A `GeometryReader` rather than a measured `@State` height: it hands the viewport to the column
+/// on the first layout pass, where a height captured by `onGeometryChange` would be 0 for one
+/// frame and lay the column out top-aligned before snapping it into place. Nothing newer offers a
+/// *minimum* height relative to the container — `containerRelativeFrame` fixes the height, which
+/// would compress a column that needs to scroll.
+struct OnboardingShortWindowScroll<Content: View>: View {
+    let isEnabled: Bool
+    let content: Content
+
+    init(isEnabled: Bool, @ViewBuilder content: () -> Content) {
+        self.isEnabled = isEnabled
+        self.content = content()
+    }
+
+    var body: some View {
+        if isEnabled {
+            GeometryReader { viewport in
+                ScrollView {
+                    content
+                        .frame(maxWidth: .infinity, minHeight: viewport.size.height)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+        } else {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+#Preview("Short window") {
+    OnboardingShortWindowScroll(isEnabled: true) {
+        VStack {
+            Spacer(minLength: 12)
+            ProfilePrivacyNote(isExpanded: true)
+                .frame(width: OnboardingLayout.contentWidth)
+            Spacer(minLength: 12)
+        }
+    }
+    .frame(width: 400, height: 160)
 }

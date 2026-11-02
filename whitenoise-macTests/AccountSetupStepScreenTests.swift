@@ -187,20 +187,64 @@ import Testing
         }
     }
 
-    /// The editable profile screen is Sign Up's pane plus Not Now, and like Sign Up it fits the
-    /// smallest window without scrolling, header row included, in every language.
+    /// The editable profile screen is Sign Up's pane plus Not Now. With the privacy card closed it
+    /// fits the smallest window without scrolling, header row included, in the languages whose
+    /// card summary is two lines — see `languagesThatFitClosed`. Elsewhere the screen scrolls, which
+    /// `theEditableProfileScreenReachesSaveAndNotNowInEveryLanguage` holds.
     @Test func theEditableProfileScreenFitsTheSmallestWindowWithoutScrolling() throws {
+        for language in Self.languagesThatFitClosed {
+            let height = try Self.editableProfileColumnHeight(locale: Locale(identifier: language))
+            #expect(height <= Self.windowSize.height, "\(language): \(height)pt")
+        }
+    }
+
+    /// In every language, at the smallest window, the real profile screen puts its whole column —
+    /// Save and Not Now included — inside a scroll view that reaches its end. This replaces a test
+    /// that sized the screen and then asserted the size it had set; here the probe reads AppKit's
+    /// scroll view, so a screen that clipped its column instead would have no scroll view, or a
+    /// document shorter than the column, and fail.
+    @Test func theEditableProfileScreenReachesSaveAndNotNowInEveryLanguage() throws {
         let model = OnboardingCoordinator.preview(steps: [
             F.step(.profile, .needsInput, actions: [.editProfile, .continueWithout])
         ])
-        let languages = Bundle.main.localizations.filter { $0 != "Base" }
-        for language in languages {
-            let column = AccountSetupStepColumn {
+        let header = F.hostedSize(OnboardingHeaderRow(exit: .backToSetup {}).frame(width: Self.windowSize.width))
+        for language in Bundle.main.localizations where language != "Base" {
+            let locale = Locale(identifier: language)
+            let column = try Self.editableProfileColumnHeight(locale: locale) - header.height
+            for height in [Self.windowSize.height, 400] {
+                let geometry = try #require(
+                    F.scrollGeometry(
+                        AccountSetupStepScreen(model: model, step: .profile).environment(\.locale, locale),
+                        size: CGSize(width: Self.windowSize.width, height: height)
+                    ),
+                    "\(language) at \(height)pt: no scroll view"
+                )
+                #expect(geometry.documentHeight >= column - 1, "\(language) at \(height)pt: \(geometry)")
+                // A column shorter than the window is centred in it, so the end is in view either
+                // way: scrolled to, or already above the bottom edge.
+                #expect(
+                    geometry.maximumVisibleBottom >= geometry.documentHeight - 1,
+                    "\(language) at \(height)pt: the end of the column is out of reach — \(geometry)")
+            }
+        }
+    }
+
+    /// With the privacy card open the column is taller than the smallest window in every language
+    /// but Chinese. The screen still opens at its top, where the card is, and scrolling reaches
+    /// Save and Not Now.
+    @Test func anOpenedPrivacyCardKeepsSaveAndNotNowReachable() throws {
+        let model = OnboardingCoordinator.preview(steps: [
+            F.step(.profile, .needsInput, actions: [.editProfile, .continueWithout])
+        ])
+        for language in Bundle.main.localizations where language != "Base" {
+            let screen = AccountSetupStepLayout {
                 AccountSetupProfileAvatar(
                     titleKey: "Add your profile", avatar: nil, displayName: "", choosePhoto: {}, removePhoto: {}
                 )
             } content: {
-                AccountSetupProfileForm(displayName: .constant(""), about: .constant(""))
+                AccountSetupProfileForm(
+                    displayName: .constant(""), about: .constant(""), isPrivacyNoteInitiallyExpanded: true
+                )
             } actions: {
                 AccountSetupStepButton(titleKey: "Save", model: model, active: .constant(nil)) {}
                 AccountSetupStepButton(titleKey: "Not Now", tier: .secondary, model: model, active: .constant(nil)) {}
@@ -208,14 +252,45 @@ import Testing
             .controlSize(.large)
             .wnButtonShape(.capsule)
             .environment(\.locale, Locale(identifier: language))
-            .environment(WorkspaceState.preview())
-            let column_ = try #require(ImageRenderer(content: column).nsImage?.size.height)
-            let header = F.hostedSize(OnboardingHeaderRow(exit: .backToSetup {}).frame(width: Self.windowSize.width))
-            let height = column_ + header.height + 2 * AccountSetupStepLayoutMetrics.edgePadding
 
-            #expect(height <= Self.windowSize.height, "\(language): \(height)pt")
+            let geometry = try #require(
+                F.scrollGeometry(screen, size: Self.windowSize), "\(language): no scroll view")
+            // The top of the column — the opened card — is in view (a column that fits is centred,
+            // so its top sits below the viewport's), and scrolling reaches its end.
+            #expect(geometry.visibleTop <= 0.5, "\(language): the opened card is out of view — \(geometry)")
+            #expect(geometry.maximumVisibleBottom >= geometry.documentHeight - 1, "\(language): \(geometry)")
         }
     }
+
+    /// The editable profile screen's column plus its header row and margins, in `locale`.
+    private static func editableProfileColumnHeight(locale: Locale) throws -> CGFloat {
+        let model = OnboardingCoordinator.preview(steps: [
+            F.step(.profile, .needsInput, actions: [.editProfile, .continueWithout])
+        ])
+        let column = AccountSetupStepColumn {
+            AccountSetupProfileAvatar(
+                titleKey: "Add your profile", avatar: nil, displayName: "", choosePhoto: {}, removePhoto: {}
+            )
+        } content: {
+            AccountSetupProfileForm(displayName: .constant(""), about: .constant(""))
+        } actions: {
+            AccountSetupStepButton(titleKey: "Save", model: model, active: .constant(nil)) {}
+            AccountSetupStepButton(titleKey: "Not Now", tier: .secondary, model: model, active: .constant(nil)) {}
+        }
+        .controlSize(.large)
+        .wnButtonShape(.capsule)
+        .environment(\.locale, locale)
+        .environment(WorkspaceState.preview())
+        let columnHeight = try #require(ImageRenderer(content: column).nsImage?.size.height)
+        let header = F.hostedSize(OnboardingHeaderRow(exit: .backToSetup {}).frame(width: windowSize.width))
+        return columnHeight + header.height + 2 * AccountSetupStepLayoutMetrics.edgePadding
+    }
+
+    /// Where the closed card's summary is two lines. Measured on 2026-10-29 at the smallest window:
+    /// 616pt in English, Spanish and Chinese; 631pt in de/fr/it/pt/tr (three lines) and 646pt in
+    /// Russian (four), against 620 — this screen has 26pt less room than Sign Up, for its header
+    /// progress and Not Now. Those scroll from the top, with Not Now a short scroll away.
+    private static let languagesThatFitClosed = ["en", "es", "zh-Hans", "zh-Hant"]
 
     /// The progress in the header row counts the step being reviewed among the checkpoint's steps.
     @Test func theProgressNamesTheStepAmongTheCheckpointsSteps() {

@@ -15,7 +15,7 @@ import SwiftUI
 /// **The affordance is a pill under the avatar, not a badge on it.** That is what
 /// `wn-ios-prototype`'s `SignUpView` draws: the face is inert, and a capsule beneath it reads
 /// `Add Photo` before a picture has been chosen and `Change Photo` after — the label carrying the
-/// state, which a camera glyph cannot. Drawn as the pane's own secondary tier at a smaller size;
+/// state, which a camera glyph cannot. Drawn as the pane's own secondary tier;
 /// see the two modifiers on it. Settings → Profile keeps the on-avatar badge, because that
 /// page has no room under its avatar for a control and its picture is already published; this pane
 /// is asking for one.
@@ -42,7 +42,7 @@ struct OnboardingSignUpAvatar: View {
                 destination: .signUpDraft, appearance: .pushButton, isEnabled: !isBusy
             ) {
                 Text(L10n.string(hasPhoto ? "Change photo" : "Add photo"))
-                    .wnFont(.medium12)
+                    .wnFont(OnboardingLayout.signUpPhotoPillTextStyle)
             }
             // The same tier the welcome pane's `Sign In` wears, handed over rather than named
             // again here: this is a secondary action standing on a bare onboarding pane, which is
@@ -52,14 +52,9 @@ struct OnboardingSignUpAvatar: View {
             // drawn by a second, ringed secondary style, so the flow offered two
             // different-looking secondary buttons one pane apart.
             .onboardingActionTier(.secondary)
-            // The size is the only thing that differs from the pane's own buttons, and it differs
-            // for the same reason the prototype leaves this control at its default size while its
-            // CTA is `.extraLarge`. The pane sets `.large` on the whole scaffold for its 44pt CTA,
-            // and a subordinate control at that size is a second full-height button under the hero
-            // — it would read as the thing the pane is asking for rather than as the optional step
-            // it is. `.small` draws it at 21pt against the CTA's 44, and those 10pt are also
-            // height the pane does not have; see `OnboardingLayout.signUpAvatarSize`.
-            .controlSize(.small)
+            // A full pill, as `whitenoise-ios` draws its photo button — see
+            // `OnboardingLayout.signUpPhotoPillControlSize`.
+            .controlSize(OnboardingLayout.signUpPhotoPillControlSize)
             .accessibilityIdentifier("onboarding.sign-up.photo")
         }
         // The hero is centred by a frame rather than by the scaffold, which lays its children out

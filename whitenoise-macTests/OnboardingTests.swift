@@ -486,13 +486,13 @@ import Testing
                 destination: .signUpDraft, appearance: .pushButton, isEnabled: true
             ) {
                 Text(L10n.string("Add photo"))
-                    .wnFont(.medium12)
+                    .wnFont(OnboardingLayout.signUpPhotoPillTextStyle)
             }
             .onboardingActionTier(.secondary)
             // `.capsule` because `pickerEdgeColumns` sets that on the container, the way the pane
             // does; the shape decides where the edge the probe reads is.
-            .overlay { ringOverlay(.capsule, for: .small) }
-            .controlSize(.small)
+            .overlay { ringOverlay(.capsule, for: OnboardingLayout.signUpPhotoPillControlSize) }
+            .controlSize(OnboardingLayout.signUpPhotoPillControlSize)
         }
         .frame(maxWidth: .infinity)
     }
@@ -553,7 +553,7 @@ import Testing
     /// probe walks in from the pane's margin along the control's centre row and stops at the first
     /// pixel that is not the pane, then reads 3pt inward from there — far enough to be inside the
     /// ground whichever tier is drawing it, and nowhere near the label's own ink, which starts a
-    /// further 10pt in at `.small`.
+    /// further 16pt in at `.large`.
     ///
     /// The pane's colour is read off the render rather than resolved from the token, so a shift
     /// `ImageRenderer` applies to the background applies to the comparison too.
@@ -568,10 +568,10 @@ import Testing
                 .background(WNColor.backgroundPrimary)
         }
 
-        // The control is the lowest thing in the hero and draws about 21pt tall at `.small`, so
-        // 10pt up from the bottom edge is its vertical centre — the one row where a capsule's edge
+        // The control is the lowest thing in the hero and draws about 33pt tall at `.large`, so
+        // 16pt up from the bottom edge is its vertical centre — the one row where a capsule's edge
         // is a straight column of pixels rather than an antialiased curve.
-        let row = rep.pixelsHigh - Int(10 * renderScale)
+        let row = rep.pixelsHigh - Int(16 * renderScale)
         let paneLuminance = try #require(rep.colorAt(x: 0, y: row)?.usingColorSpace(.sRGB))
             .brightnessComponent
 
@@ -648,45 +648,35 @@ import Testing
     /// The same fit, in the language that makes the pane tallest rather than the one the test host
     /// happens to be running in.
     ///
-    /// The public-profile notice is the pane's only multi-line block, and it is the one string here
-    /// whose length is a translator's decision: its message wraps to two lines in English and to
-    /// three in six of the nine languages this app ships, which is 15pt the pane does not have
-    /// spare. The test above measures the host's language and would therefore pass in English while
-    /// shipping a pane whose Create profile button is off the bottom edge in German.
+    /// The privacy card is the pane's only multi-line block, and its summary is the one string here
+    /// whose length is a translator's decision: two lines in English, Spanish and Chinese, three in
+    /// German, French, Italian, Portuguese and Turkish, four in Russian. The test above measures
+    /// the host's language and would therefore pass in English while shipping a pane whose Create
+    /// profile button is off the bottom edge in Russian.
     ///
-    /// So the pane is measured once, its own notice is subtracted, and the tallest translation of
-    /// that notice is put back. Nothing else on the pane can take a line it did not take before:
-    /// both field labels are one line, and the error slot is reserved at a fixed height.
+    /// So the pane is measured once, its own (closed) card is subtracted, and the tallest
+    /// translation of that card is put back. Nothing else on the pane can take a line it did not
+    /// take before: both field labels are one line, and the error slot is reserved at a fixed
+    /// height. The opened card is not budgeted here — opened, the pane scrolls; see
+    /// `theSignUpPaneScrollsToCreateProfileWhenTallerThanTheWindow`.
     ///
-    /// This is the test that prices `OnboardingLayout.signUpAvatarSize`. German draws the notice
-    /// on three lines and puts the pane at 614pt of the 620pt there is, so the 6pt left over is
-    /// the entire budget for anything the pane grows by next.
+    /// Measured on 2026-10-29 with a two-line error slot: 590pt in English, 620pt in Russian, of the
+    /// 620pt there is. The slot has since dropped to one line, which takes 16pt off both.
     @Test func theSignUpPaneFitsTheSmallestWindowInEveryLanguage() throws {
         let paneHeight = try Self.signUpPaneHeight()
-        let hostNotice = try Self.publicProfileNoticeHeight(
-            title: L10n.string(Self.publicProfileTitleKey),
-            message: L10n.string(Self.publicProfileMessageKey)
-        )
+        let hostNote = try Self.signUpPrivacyNoteHeight(locale: AppLanguage.currentLocale)
 
-        var tallest = hostNotice
+        var tallest = hostNote
         var tallestLanguage = "the host language"
-        for code in Bundle.main.localizations {
-            guard let path = Bundle.main.path(forResource: code, ofType: "lproj"),
-                let bundle = Bundle(path: path)
-            else { continue }
-            let height = try Self.publicProfileNoticeHeight(
-                title: bundle.localizedString(
-                    forKey: Self.publicProfileTitleKey, value: Self.publicProfileTitleKey, table: nil),
-                message: bundle.localizedString(
-                    forKey: Self.publicProfileMessageKey, value: Self.publicProfileMessageKey, table: nil)
-            )
+        for code in Bundle.main.localizations where code != "Base" {
+            let height = try Self.signUpPrivacyNoteHeight(locale: Locale(identifier: code))
             if height > tallest {
                 tallest = height
                 tallestLanguage = code
             }
         }
 
-        let worstCase = paneHeight - hostNotice + tallest
+        let worstCase = paneHeight - hostNote + tallest
         #expect(
             worstCase <= Self.minimumWindowHeight,
             """
@@ -695,59 +685,170 @@ import Testing
             """)
     }
 
-    /// The shortest the sign-up pane can be drawn — both margin `Spacer`s at their floor. See
-    /// `OnboardingLayout.signUpEdgePadding`, which is what buys the notice its box.
-    private static func signUpPaneHeight() throws -> CGFloat {
-        let workspace = Self.signUpWorkspace()
-        let pane = OnboardingSignUpView()
-            .environment(workspace)
-            .frame(width: Self.minimumWindowWidth)
-        return try #require(ImageRenderer(content: pane).nsImage?.size.height)
+    /// `Learn more` opens the card and the chevron closes it: the closed card offers only the link,
+    /// the open card only the chevron, and the chevron says what it does in the reader's language.
+    @Test func thePrivacyCardOpensFromLearnMoreAndClosesFromTheChevron() {
+        var disclosure = ProfilePrivacyDisclosure()
+        #expect(!disclosure.isExpanded)
+        #expect(disclosure.showsLearnMore)
+        #expect(!disclosure.showsChevron, "the closed card has no chevron")
+
+        disclosure.expand()
+        #expect(disclosure.isExpanded)
+        #expect(!disclosure.showsLearnMore, "the open card offers the chevron alone")
+        #expect(disclosure.showsChevron)
+
+        disclosure.collapse()
+        #expect(disclosure == ProfilePrivacyDisclosure(), "the chevron closes it again")
+
+        #expect(ProfilePrivacyDisclosure.chevronSymbol == "chevron.up")
+        let key = ProfilePrivacyDisclosure.collapseLabelKey
+        for code in Bundle.main.localizations where !["Base", "en"].contains(code) {
+            #expect(L10n.string(key, locale: Locale(identifier: code)) != key, "\(key) is untranslated in \(code)")
+        }
     }
 
-    /// The notice as the pane draws it, at the width the pane draws it in.
-    private static func publicProfileNoticeHeight(title: String, message: String) throws -> CGFloat {
-        let notice = WNCallout(title: title, message: message, intent: .info, emphasis: .quiet)
-            .frame(width: OnboardingLayout.contentWidth)
-        return try #require(ImageRenderer(content: notice).nsImage?.size.height)
-    }
-
-    /// The two catalog keys Settings → Profile and the sign-up pane both draw. Shared literals
-    /// rather than a copy each, because the point of the notice is that they are the same strings.
-    private static let publicProfileTitleKey = "Your profile is public"
-    private static let publicProfileMessageKey =
-        "Name, photo, and bio are visible on the global Nostr network. Use what you're comfortable sharing."
-
-    /// The notice is gray, and stays gray.
-    ///
-    /// It is the same `WNCallout` Settings → Profile draws, and it would be one word — `.info`
-    /// instead of `.quiet` — from arriving in this pane wearing the info tint. That would make a
-    /// standing sentence about privacy the most colorful thing on a pane whose most colorful thing
-    /// is meant to be Create profile, so the neutral ground is asserted rather than assumed.
-    ///
-    /// Sampled against a swatch rendered the same way rather than against the ramp constant:
-    /// `ImageRenderer` does not always hand back the exact token it was given.
-    @Test func theSignUpNoticeIsDrawnOnNeutralGround() throws {
-        let quiet = try Self.noticeGround { PublicProfileNote() }
-        let tinted = try Self.noticeGround {
-            WNCallout(
-                title: Self.publicProfileTitleKey,
-                message: Self.publicProfileMessageKey,
-                intent: .info
-            )
+    /// The open card's chevron sits in its top-right corner: on the summary's first line the card's
+    /// last column of ink is the chevron's, inside the 14pt trailing padding. Closed, nothing is
+    /// drawn there — the summary is all the first line holds.
+    @Test func thePrivacyChevronIsTheOpenCardsTrailingControl() throws {
+        let width = OnboardingLayout.contentWidth
+        func lastInk(expanded: Bool) throws -> (first: CGFloat, last: CGFloat) {
+            let card = try Self.rasterize(appearance: .aqua) {
+                ProfilePrivacyNote(isExpanded: expanded).frame(width: width)
+            }
+            let row = Int(18 * Self.renderScale)
+            let ground = try #require(card.colorAt(x: Int(7 * Self.renderScale), y: row)?.usingColorSpace(.sRGB))
+            var inked: [Int] = []
+            for x in Int(10 * Self.renderScale)..<Int((width - 10) * Self.renderScale) {
+                let pixel = try #require(card.colorAt(x: x, y: row)?.usingColorSpace(.sRGB))
+                if Self.channelDistance(pixel, ground) > 0.15 { inked.append(x) }
+            }
+            let first = try #require(inked.first, "nothing is drawn on the card's first line")
+            let last = try #require(inked.last)
+            return (CGFloat(first) / Self.renderScale, CGFloat(last) / Self.renderScale)
         }
 
+        let open = try lastInk(expanded: true)
+        // The eye starts at the 14pt padding.
+        #expect(
+            open.first >= 14 && open.first < 18,
+            "the first glyph starts at \(open.first)pt — the eye is not leading")
+        // The summary ends at least 8pt before the 12pt chevron column, which ends at the padding:
+        // only the chevron can ink the last 12pt.
+        #expect(
+            open.last > width - 14 - 12 && open.last <= width - 14,
+            "the last glyph ends at \(open.last)pt of \(width)pt — the chevron is not trailing")
+
+        let closed = try lastInk(expanded: false)
+        #expect(closed.last <= width - 14 - 12, "the closed card draws something at \(closed.last)pt")
+    }
+
+    @Test func theProfilePrivacyNoteExpandsInPlace() throws {
+        let collapsed = try #require(
+            ImageRenderer(content: ProfilePrivacyNote().frame(width: OnboardingLayout.contentWidth))
+                .nsImage?.size.height)
+        let expanded = try #require(
+            ImageRenderer(
+                content: ProfilePrivacyNote(isExpanded: true).frame(width: OnboardingLayout.contentWidth)
+            ).nsImage?.size.height)
+        #expect(expanded > collapsed + 30, "expanded \(expanded)pt vs collapsed \(collapsed)pt")
+
+        let spanish = Locale(identifier: "es")
+        for key in [ProfilePrivacyNote.summaryKey, "Learn more"] + ProfilePrivacyNote.detailKeys {
+            #expect(L10n.string(key, locale: spanish) != key, "\(key) is not translated")
+        }
+    }
+
+    /// Past the bottom of the window the sign-up pane scrolls, and scrolling reaches the end of it,
+    /// where `Create profile` is.
+    ///
+    /// A 400pt window forces what an opened privacy card does at 620: a column taller than the
+    /// viewport. The column is the same either way — the card only adds height — so what has to
+    /// hold is that the whole of it is in the scroll view's document (nothing compressed or clipped
+    /// off), that the pane starts at the top (where the card is), and that scrolling down shows the
+    /// last point of the document.
+    @Test func theSignUpPaneScrollsToCreateProfileWhenTallerThanTheWindow() throws {
+        let natural = try Self.signUpPaneHeight()
+        let header = OnboardingFixtures.hostedSize(
+            OnboardingHeaderRow(exit: .back {}).frame(width: Self.minimumWindowWidth)
+        ).height
+        let geometry = try #require(
+            OnboardingFixtures.scrollGeometry(
+                OnboardingSignUpView().environment(Self.signUpWorkspace()),
+                size: CGSize(width: Self.minimumWindowWidth, height: 400)
+            ),
+            "the sign-up pane has no scroll view, so whatever is past the window's edge is unreachable"
+        )
+
+        #expect(geometry.documentHeight > geometry.viewportHeight, "\(geometry)")
+        #expect(geometry.documentHeight >= natural - header - 1, "the column was squeezed: \(geometry)")
+        #expect(abs(geometry.visibleTop) <= 0.5, "the pane did not open at its top, where the card is")
+        #expect(abs(geometry.maximumVisibleBottom - geometry.documentHeight) <= 1, "\(geometry)")
+    }
+
+    /// With the card opened, the scroll wrapper keeps the card at the top in view and still
+    /// reaches the bottom of the column. Its negative control is the same column unwrapped, which
+    /// has no scroll view at all.
+    @Test func anOpenedPrivacyCardStaysInViewAndTheColumnStaysReachable() throws {
+        func column() -> some View {
+            VStack(spacing: 16) {
+                ProfilePrivacyNote(isExpanded: true)
+                // Where the fields and the primary button are.
+                Color.clear.frame(height: 560)
+            }
+            .frame(width: OnboardingLayout.contentWidth)
+        }
+        let size = CGSize(width: Self.minimumWindowWidth, height: Self.minimumWindowHeight)
+
+        let geometry = try #require(
+            OnboardingFixtures.scrollGeometry(OnboardingShortWindowScroll(isEnabled: true) { column() }, size: size)
+        )
+        #expect(geometry.documentHeight > geometry.viewportHeight, "\(geometry)")
+        #expect(abs(geometry.visibleTop) <= 0.5, "the opened card is scrolled out of view: \(geometry)")
+        #expect(abs(geometry.maximumVisibleBottom - geometry.documentHeight) <= 1, "\(geometry)")
+
+        #expect(
+            OnboardingFixtures.scrollGeometry(OnboardingShortWindowScroll(isEnabled: false) { column() }, size: size)
+                == nil,
+            "the probe finds a scroll view where there is none")
+    }
+
+    /// The card is gray, and stays gray: a standing sentence about privacy must not be the most
+    /// colorful thing on a form whose most colorful thing is the button that publishes it.
+    /// Sampled against a swatch rendered the same way, with a tinted callout as the control that
+    /// proves the probe can tell the two grounds apart.
+    @Test func theProfilePrivacyNoteIsDrawnOnNeutralGround() throws {
+        let ground = try Self.noticeGround { ProfilePrivacyNote() }
+        let tinted = try Self.noticeGround {
+            WNCallout(title: "Tinted", message: "A control the probe must tell apart.", intent: .info)
+        }
         let swatchRep = try Self.rasterize(appearance: .aqua) {
             WNColor.backgroundSecondary.frame(width: 40, height: 40)
         }
         let neutral = try #require(swatchRep.colorAt(x: 20, y: 20)?.usingColorSpace(.sRGB))
+        #expect(Self.channelDistance(ground, neutral) < 0.02, "the card drew on \(ground), not \(neutral)")
+        #expect(Self.channelDistance(tinted, neutral) > 0.02, "the probe cannot see a tinted ground")
+    }
 
-        #expect(
-            Self.channelDistance(quiet, neutral) < 0.02,
-            "the notice drew its box on \(quiet) where the neutral surface is \(neutral)")
-        #expect(
-            Self.channelDistance(quiet, tinted) > 0.02,
-            "the quiet notice and the tinted one drew the same ground, so the emphasis did nothing")
+    /// The collapsed card as the pane draws it, in `locale`.
+    private static func signUpPrivacyNoteHeight(locale: Locale) throws -> CGFloat {
+        let note = ProfilePrivacyNote()
+            .environment(\.locale, locale)
+            .frame(width: OnboardingLayout.contentWidth)
+        return try #require(ImageRenderer(content: note).nsImage?.size.height)
+    }
+
+    /// The shortest the sign-up pane can be drawn — both margin `Spacer`s at their floor. See
+    /// `OnboardingLayout.signUpEdgePadding`, which is what buys the notice its box.
+    private static func signUpPaneHeight() throws -> CGFloat {
+        let workspace = Self.signUpWorkspace()
+        // Unscrolled, so `ImageRenderer` measures the column rather than a scroll view's idea of
+        // its own size.
+        let pane = OnboardingSignUpView(scrollsWhenShort: false)
+            .environment(workspace)
+            .frame(width: Self.minimumWindowWidth)
+        return try #require(ImageRenderer(content: pane).nsImage?.size.height)
     }
 
     /// The color the notice's box is drawn on, sampled in the padding strip left of the glyph —

@@ -62,6 +62,40 @@ import Testing
         #expect(abs(save - offered) <= 1, "Save drew \(save)pt of the \(offered)pt offered")
     }
 
+    /// The page's `Add photo` pill is the one Sign Up draws under its avatar, at the same size.
+    ///
+    /// Measured as what each hero adds under its avatar, since the two avatars are different sizes
+    /// on purpose: a page that drifted back to the old `.small`/12pt pill would come out about 12pt
+    /// shorter than the sign-up hero's.
+    @Test func thePhotoPillMatchesTheSignUpPill() throws {
+        let workspace = WorkspaceState.preview()
+        let account = try #require(workspace.activeAccount ?? AccountItem.samples.first)
+        let header = try Self.drawnSize(
+            ProfileIdentityHeaderView(account: account, displayName: account.displayName)
+                .environment(workspace)
+                .wnButtonShape(.capsule)
+                .frame(width: 460)
+        ).height
+        // The header's own layout: a 96pt avatar, a 12pt gap, the pill, 8pt of bottom padding.
+        let settingsPill = header - 96 - 12 - 8
+
+        let signUpWorkspace = WorkspaceState(
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        signUpWorkspace.authenticationMode = .signUp
+        let hero = try Self.drawnSize(
+            OnboardingSignUpAvatar()
+                .environment(signUpWorkspace)
+                .wnButtonShape(.capsule)
+                .frame(width: OnboardingLayout.contentWidth)
+        ).height
+        let signUpPill = hero - OnboardingLayout.signUpAvatarSize - OnboardingLayout.signUpAvatarToPickerSpacing
+
+        #expect(signUpPill > 28, "the sign-up pill is \(signUpPill)pt — no longer the large pill")
+        #expect(abs(settingsPill - signUpPill) <= 1, "Settings draws a \(settingsPill)pt pill, Sign Up \(signUpPill)pt")
+    }
+
     private static var cancelButton: some View {
         Button {
         } label: {

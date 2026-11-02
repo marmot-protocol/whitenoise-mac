@@ -149,9 +149,10 @@ enum OnboardingLayout {
     /// 76, up from the 64 this shipped at, and every one of those 12pt was bought rather than
     /// found: 4 off `signUpHeroToContentSpacing` and 8 off `signUpEdgePadding`. The bill is
     /// settled by `theSignUpPaneFitsTheSmallestWindowInEveryLanguage`, not by this comment —
-    /// German draws the public-profile notice on three lines, which puts the pane at 614pt of the
-    /// 620pt there is. That 6pt is the whole remaining cushion, so anything added here has to come
-    /// off one of the two numbers above, and re-measuring is the only way to know how much.
+    /// Russian draws the privacy card's summary on four lines, which puts the pane at exactly the
+    /// 620pt there is (with the larger `Add photo` pill and the card above the form). There is no
+    /// cushion left, so anything added here has to come off one of the two numbers above, and
+    /// re-measuring is the only way to know how much.
     static let signUpAvatarSize: CGFloat = 76
 
     /// Between the sign-up hero and the form under it.
@@ -174,6 +175,15 @@ enum OnboardingLayout {
     /// `.padding(.top)` — the system's 16 on a phone — and the pill here is the smaller of the
     /// two controls, so it sits a step closer than that.
     static let signUpAvatarToPickerSpacing: CGFloat = 10
+
+    /// The `Add photo` pill's size. `.large`, the CTA's own size, rather than the `.small` it
+    /// started at: drawn at 21pt with 12pt type it read as a caption rather than as a control,
+    /// where `whitenoise-ios`'s photo button is a full pill. It still draws shorter than the 44pt
+    /// CTA, which pads its label up to `actionHeight`; this one keeps the style's own chrome.
+    static let signUpPhotoPillControlSize: ControlSize = .large
+
+    /// The pill's label type: one rung above the `medium12` it started at.
+    static let signUpPhotoPillTextStyle: WNTextStyle = .medium14
 
     /// Between a field's label and the field itself. `WNInput`'s, restated under the name the
     /// pane's own spacing reads it by — the error slot below the fields sits at this gap too.
