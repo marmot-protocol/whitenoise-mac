@@ -83,7 +83,8 @@ struct NetworkReachabilityTests {
         let state = WorkspaceState(
             clientFactory: { throw TestConnectivityError() },
             networkInterfaceMonitor: ScriptedInterfaceMonitor(availability: [false]),
-            relayHostProbe: probe
+            relayHostProbe: probe,
+            connectivityPolicy: ScriptedSleeper().policy
         )
 
         state.startConnectivityMonitoring()
@@ -101,14 +102,18 @@ struct NetworkReachabilityTests {
         let state = WorkspaceState(
             clientFactory: { throw TestConnectivityError() },
             networkInterfaceMonitor: ScriptedInterfaceMonitor(availability: [true]),
-            relayHostProbe: probe
+            relayHostProbe: probe,
+            // The relays never answer, so the re-check loop would run forever; the sleeper's
+            // budget is what ends it.
+            connectivityPolicy: ScriptedSleeper(budget: 2).policy
         )
 
         state.startConnectivityMonitoring()
         await state.connectivityMonitorTask?.value
 
         #expect(state.isOffline)
-        #expect(probe.recordedEndpoints == [RelayHostEndpoint.endpoints(from: MarmotClient.seedRelays)])
+        let seedEndpoints = RelayHostEndpoint.endpoints(from: MarmotClient.seedRelays)
+        #expect(probe.recordedEndpoints == Array(repeating: seedEndpoints, count: 3))
     }
 
     @MainActor
@@ -119,7 +124,8 @@ struct NetworkReachabilityTests {
         let state = WorkspaceState(
             clientFactory: { throw TestConnectivityError() },
             networkInterfaceMonitor: ScriptedInterfaceMonitor(availability: [false, true]),
-            relayHostProbe: probe
+            relayHostProbe: probe,
+            connectivityPolicy: ScriptedSleeper().policy
         )
 
         state.startConnectivityMonitoring()
@@ -146,7 +152,8 @@ struct NetworkReachabilityTests {
         let state = WorkspaceState(
             clientFactory: { throw TestConnectivityError() },
             networkInterfaceMonitor: ScriptedInterfaceMonitor(availability: [true], finishes: false),
-            relayHostProbe: RecordingRelayProbe(answers: [true])
+            relayHostProbe: RecordingRelayProbe(answers: [true]),
+            connectivityPolicy: ScriptedSleeper().policy
         )
 
         state.startConnectivityMonitoring()
@@ -154,11 +161,144 @@ struct NetworkReachabilityTests {
 
         #expect(state.connectivityMonitorTask == nil)
     }
+
+    // MARK: - Patience and recovery
+
+    @Test func oneFailedProbeDoesNotRaiseTheNotice() async {
+        // Right after a path change a handshake can time out while DNS and routes settle. One
+        // miss followed by an answer is a working connection, and the notice must not flash.
+        let sleeper = ScriptedSleeper()
+        let watcher = ConnectivityWatcher(
+            interfaceMonitor: ScriptedInterfaceMonitor(availability: [true]),
+            probe: RecordingRelayProbe(answers: [false, true]),
+            policy: sleeper.policy
+        )
+
+        #expect(await watcher.collectedStates() == [false])
+        #expect(sleeper.requestedPauses == [ConnectivityPolicy.standard.confirmationRetryDelay])
+    }
+
+    @Test func theNoticeComesDownWithoutAPathChange() async {
+        // The reported bug: the path never moves (captive portal signed into, uplink restored
+        // behind the same Wi-Fi), so a check that only ran on path changes left the notice up
+        // over a working connection. Once offline, the relays are re-probed on a timer.
+        let sleeper = ScriptedSleeper()
+        let probe = RecordingRelayProbe(answers: [false, false, false, true])
+        let watcher = ConnectivityWatcher(
+            interfaceMonitor: ScriptedInterfaceMonitor(availability: [true]),
+            probe: probe,
+            policy: sleeper.policy
+        )
+
+        #expect(await watcher.collectedStates() == [true, false])
+        #expect(probe.recordedEndpoints.count == 4)
+        let policy = ConnectivityPolicy.standard
+        #expect(
+            sleeper.requestedPauses == [
+                policy.confirmationRetryDelay,
+                policy.offlineRecheckInterval,
+                policy.offlineRecheckInterval,
+            ]
+        )
+    }
+
+    @Test func aPersistentInterfaceLossRaisesTheNoticeAfterTheGrace() async {
+        let sleeper = ScriptedSleeper()
+        let probe = RecordingRelayProbe(answers: [true])
+        let watcher = ConnectivityWatcher(
+            interfaceMonitor: ScriptedInterfaceMonitor(availability: [false]),
+            probe: probe,
+            policy: sleeper.policy
+        )
+
+        #expect(await watcher.collectedStates() == [true])
+        #expect(sleeper.requestedPauses == [ConnectivityPolicy.standard.interfaceLossGrace])
+        #expect(probe.recordedEndpoints.isEmpty)
+    }
+
+    @Test func anInterfaceThatReturnsInsideTheGraceNeverRaisesTheNotice() async {
+        // Wi-Fi roaming and wake from sleep drop the path for a moment. The sleeper here never
+        // wakes on its own, so the only way past the grace is the next reading cancelling it —
+        // which is exactly the blip this guards against.
+        let sleeper = ScriptedSleeper(wakes: false)
+        let watcher = ConnectivityWatcher(
+            interfaceMonitor: ScriptedInterfaceMonitor(availability: [false, true]),
+            probe: RecordingRelayProbe(answers: [true]),
+            policy: sleeper.policy
+        )
+
+        #expect(await watcher.collectedStates() == [false])
+    }
+
+    @Test func anUnparseableRelayListFailsOpen() async {
+        // No endpoints is not evidence about the user's network, so it never reads as offline.
+        let probe = RecordingRelayProbe(answers: [false])
+        let watcher = ConnectivityWatcher(
+            interfaceMonitor: ScriptedInterfaceMonitor(availability: [true]),
+            probe: probe,
+            policy: ScriptedSleeper().policy
+        )
+
+        #expect(await watcher.collectedStates(probing: []) == [false])
+        #expect(probe.recordedEndpoints.isEmpty)
+    }
 }
 
 // MARK: - Doubles
 
 private struct TestConnectivityError: Error {}
+
+private extension ConnectivityWatcher {
+    func collectedStates(
+        probing endpoints: [RelayHostEndpoint] = RelayHostEndpoint.endpoints(from: MarmotClient.seedRelays)
+    ) async -> [Bool] {
+        var states: [Bool] = []
+        for await isOffline in offlineStates(probing: endpoints) {
+            states.append(isOffline)
+        }
+        return states
+    }
+}
+
+/// Stands in for `Task.sleep` in the policy: records each requested pause and returns at once,
+/// so a test walks the whole policy without waiting it out. `budget` caps how many pauses are
+/// granted before it throws, which is what ends a re-check loop that would otherwise never
+/// stop; `wakes: false` suspends until cancelled, for proving that a new reading cuts a grace
+/// short.
+private nonisolated final class ScriptedSleeper: Sendable {
+    private let pauses = OSAllocatedUnfairLock<[Duration]>(initialState: [])
+    private let budget: Int
+    private let wakes: Bool
+
+    init(budget: Int = .max, wakes: Bool = true) {
+        self.budget = budget
+        self.wakes = wakes
+    }
+
+    var requestedPauses: [Duration] {
+        pauses.withLock { $0 }
+    }
+
+    var policy: ConnectivityPolicy {
+        var policy = ConnectivityPolicy.standard
+        policy.sleep = { [self] duration in try await self.sleep(for: duration) }
+        return policy
+    }
+
+    private func sleep(for duration: Duration) async throws {
+        let granted = pauses.withLock { pauses in
+            guard pauses.count < budget else { return false }
+            pauses.append(duration)
+            return true
+        }
+        guard granted else { throw CancellationError() }
+        if wakes {
+            try Task.checkCancellation()
+        } else {
+            try await Task.sleep(for: .seconds(3600))
+        }
+    }
+}
 
 /// Replays a fixed list of interface readings. Finishing the stream is what lets a test await
 /// the monitoring task instead of polling `isOffline` and hoping.

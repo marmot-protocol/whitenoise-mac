@@ -181,10 +181,10 @@ final class WorkspaceState {
     /// interface at all, or one exists and no default relay answers a TCP handshake. Drives the
     /// "Waiting for internet connection" notice, which the Flutter and mobile clients show on
     /// every screen. Stays `false` until `startConnectivityMonitoring()` runs, so a workspace
-    /// that never asks for monitoring never claims to know.
+    /// that never asks for monitoring never claims to know. How patient it is in each direction
+    /// is `ConnectivityPolicy`'s call.
     var isOffline = false
-    @ObservationIgnored let networkInterfaceMonitor: any NetworkInterfaceMonitoring
-    @ObservationIgnored let relayHostProbe: any RelayHostReachabilityProbing
+    @ObservationIgnored let connectivityWatcher: ConnectivityWatcher
     @ObservationIgnored var connectivityMonitorTask: Task<Void, Never>?
 
     /// Profile reference from a marmot:// deep link that arrived before the workspace
@@ -1218,7 +1218,8 @@ final class WorkspaceState {
         // probe opens no socket until `startConnectivityMonitoring()` asks — so the production
         // implementations are safe as defaults even in tests that never go near the network.
         networkInterfaceMonitor: any NetworkInterfaceMonitoring = NWPathInterfaceMonitor(),
-        relayHostProbe: any RelayHostReachabilityProbing = TCPRelayHostProbe()
+        relayHostProbe: any RelayHostReachabilityProbing = TCPRelayHostProbe(),
+        connectivityPolicy: ConnectivityPolicy = .standard
     ) {
         self.accounts = accounts
         self.chatsByAccount = chatsByAccount.mapValues { Self.deduplicatedChats($0) }
@@ -1256,8 +1257,11 @@ final class WorkspaceState {
         self.mediaDownloadDestinationStore =
             mediaDownloadDestinationStore ?? UserDefaultsMediaDownloadDestinationStore()
         self.clientFactory = clientFactory
-        self.networkInterfaceMonitor = networkInterfaceMonitor
-        self.relayHostProbe = relayHostProbe
+        self.connectivityWatcher = ConnectivityWatcher(
+            interfaceMonitor: networkInterfaceMonitor,
+            probe: relayHostProbe,
+            policy: connectivityPolicy
+        )
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
         self.chatListWidth = ChatListWidthPolicy.restored(

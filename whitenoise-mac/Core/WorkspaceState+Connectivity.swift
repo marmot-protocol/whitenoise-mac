@@ -18,20 +18,12 @@ extension WorkspaceState {
     func startConnectivityMonitoring() {
         guard connectivityMonitorTask == nil else { return }
 
-        let endpoints = RelayHostEndpoint.endpoints(from: MarmotClient.seedRelays)
-        let monitor = networkInterfaceMonitor
-        let probe = relayHostProbe
+        let states = connectivityWatcher.offlineStates(
+            probing: RelayHostEndpoint.endpoints(from: MarmotClient.seedRelays)
+        )
 
         connectivityMonitorTask = Task { [weak self] in
-            // The stream yields the current path before any change, so the first pass through
-            // this loop is the initial reading rather than a wait for the network to move.
-            for await hasInterface in monitor.interfaceAvailability() {
-                let isOffline: Bool
-                if hasInterface {
-                    isOffline = await !Self.canReachAnyRelay(using: probe, endpoints: endpoints)
-                } else {
-                    isOffline = true
-                }
+            for await isOffline in states {
                 guard let self else { return }
                 self.isOffline = isOffline
             }
@@ -42,13 +34,5 @@ extension WorkspaceState {
     func stopConnectivityMonitoring() {
         connectivityMonitorTask?.cancel()
         connectivityMonitorTask = nil
-    }
-
-    private static func canReachAnyRelay(
-        using probe: any RelayHostReachabilityProbing,
-        endpoints: [RelayHostEndpoint]
-    ) async -> Bool {
-        guard !endpoints.isEmpty else { return true }
-        return await probe.canReachAnyHost(endpoints)
     }
 }
