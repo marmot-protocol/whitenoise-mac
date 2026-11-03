@@ -50,7 +50,7 @@ struct AttachmentGIFTests {
         let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
 
         #expect(attachment.mediaType == "image/gif")
-        #expect(attachment.fileName == "dancing-cat.gif")
+        #expect(attachment.fileName == "dancing cat.gif")
         #expect(AttachmentGIF.animation(from: attachment.data) == .init(frameCount: 2, loopCount: nil))
     }
 

@@ -26,6 +26,12 @@ nonisolated enum MediaFileDownloader {
     private static let maximumUniquingSuffix = 999
 
     static func sanitizedFileName(_ fileName: String) -> String {
+        sanitizedFileNameIfUsable(fileName) ?? fallbackFileName
+    }
+
+    /// `sanitizedFileName(_:)` without the placeholder: `nil` when nothing usable is left, so a
+    /// caller with a better fallback can tell that apart from a file genuinely named `attachment`.
+    static func sanitizedFileNameIfUsable(_ fileName: String) -> String? {
         // Keep the last path component only: a remote name of `../../evil.sh` must not escape the
         // destination folder.
         var sanitized = fileName.split(separator: "/").last.map(String.init) ?? ""
@@ -36,8 +42,12 @@ nonisolated enum MediaFileDownloader {
         while sanitized.hasPrefix(".") {
             sanitized.removeFirst()
         }
+        // A trailing dot is an empty extension, and Windows drops trailing dots and spaces itself.
+        while let last = sanitized.last, last == "." || last.isWhitespace {
+            sanitized.removeLast()
+        }
         sanitized = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sanitized.isEmpty else { return fallbackFileName }
+        guard !sanitized.isEmpty else { return nil }
         return truncated(sanitized)
     }
 
