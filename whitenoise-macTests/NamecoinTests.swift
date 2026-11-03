@@ -9,7 +9,9 @@
 //  `tests/app/namecoin_test.odin` (commit 79447095f2).
 //
 
+import CryptoKit
 import Foundation
+import Network
 import Testing
 
 @testable import whitenoise_mac
@@ -430,10 +432,63 @@ struct NamecoinTests {
         )
         #expect(server.url?.absoluteString == "wss://nmc2.bitcoins.sk:57002/")
         #expect(try #require(server.pinnedLeafKeySHA256).count == 32)
-        // The three pinned defaults carry decodable 32-byte pins.
-        for pinned in [NamecoinServer].namecoinDefaultPinned {
+        for pinned in [NamecoinServer].namecoinDefaultPinned where pinned.pinnedLeafKeyBase64 != nil {
             #expect(pinned.pinnedLeafKeySHA256?.count == 32)
         }
+    }
+
+    @Test func defaultServersMatchAmethystOrderAndEndpointPins() throws {
+        let servers = [NamecoinServer].namecoinDefaultPinned
+        #expect(
+            servers.map(\.host) == [
+                "electrumx.testls.space",
+                "nmc2.bitcoins.sk",
+                "46.229.238.187",
+                "relay.testls.bit",
+                "23.158.233.10",
+                "electrumx2.testls.space",
+            ])
+        #expect(servers.map(\.port) == [50002, 57002, 57002, 50012, 50012, 50002])
+
+        let nmcPin = "tkCCQ6AZPqU4Te1poKHeS5l/CRWYHz5n7J4LH22/LxQ="
+        let relayPin = "Y9Zu+VV8eoqOBanmpk5QzJtnHwqzxb0ynJGiMRKVJBw="
+        #expect(servers.map(\.pinnedLeafKeyBase64) == [nil, nmcPin, nmcPin, relayPin, relayPin, nil])
+        #expect(!servers.contains { $0.host == "electrum.nmc.ethicnology.com" })
+
+        // Each endpoint carries its own trust decision. In particular, neither system-CA
+        // endpoint inherits a neighbouring operator's pin and the IP pair has exactly its
+        // hostname peer's pin rather than a process-wide value.
+        #expect(servers[0].pinnedLeafKeySHA256 == nil)
+        #expect(servers[5].pinnedLeafKeySHA256 == nil)
+        #expect(servers[1].pinnedLeafKeySHA256 != servers[3].pinnedLeafKeySHA256)
+        #expect(servers[1].pinnedLeafKeySHA256 == servers[2].pinnedLeafKeySHA256)
+        #expect(servers[3].pinnedLeafKeySHA256 == servers[4].pinnedLeafKeySHA256)
+        #expect(LeafKeyPinningDelegate(pinnedLeafKeySHA256: nil).pinnedLeafKeySHA256 == nil)
+        #expect(
+            LeafKeyPinningDelegate(pinnedLeafKeySHA256: servers[1].pinnedLeafKeySHA256)
+                .pinnedLeafKeySHA256 == servers[1].pinnedLeafKeySHA256
+        )
+    }
+
+    @Test func tlsPinHashesCertificateSPKINotRawKeyBytes() {
+        func der(_ tag: UInt8, _ content: [UInt8]) -> [UInt8] {
+            [tag, UInt8(content.count)] + content
+        }
+        let spki = der(0x30, der(0x30, [0x06, 0x01, 0x2A]) + der(0x03, [0x00, 0xAA, 0xBB]))
+        let signature = der(0x30, [0x06, 0x01, 0x2A])
+        let tbs = der(
+            0x30,
+            der(0xA0, der(0x02, [0x02]))
+                + der(0x02, [0x01])
+                + signature
+                + der(0x30, [])
+                + der(0x30, [])
+                + der(0x30, [])
+                + spki
+        )
+        let certificate = der(0x30, tbs + signature + der(0x03, [0x00]))
+        #expect(LeafKeyPinningDelegate.subjectPublicKeyInfo(from: Data(certificate)) == Data(spki))
+        #expect(LeafKeyPinningDelegate.subjectPublicKeyInfo(from: Data([0x30, 0x80])) == nil)
     }
 }
 
@@ -520,13 +575,54 @@ struct NamecoinResolverTests {
         #expect(thrown == .unavailable)
     }
 
-    @Test func definitiveMissLatchesButLaterServerCanStillWin() async throws {
-        // Server one has indexed nothing (empty history — a definitive miss), server two
-        // has the record: the walk must continue past the miss, same as upstream.
+    @Test func slowPositiveBeatsFastNegativeDuringGrace() async throws {
+        // Server one needs about 1.6s for its four RPCs. Server two starts at 1.5s and
+        // immediately returns empty history; its miss must grant the in-flight positive 1.5s
+        // rather than winning merely because it was faster.
+        let transport = ScriptedElectrumXTransport()
+        transport.setResponseDelay(.milliseconds(400), forHost: "one.test")
+        transport.scriptValue(Self.identityValue, forName: "id/alice", tipHeight: 1_000_000, onHosts: ["one.test"])
+        let resolver = Self.makeResolver(transport: transport)
+        #expect(try await resolver.accountReference(for: "id/alice") == Self.alice)
+    }
+
+    @Test func fastNegativeStopsAttemptsThatHaveNotStarted() async {
         let transport = ScriptedElectrumXTransport()
         transport.scriptValue(Self.identityValue, forName: "id/alice", tipHeight: 1_000_000, onHosts: ["two.test"])
         let resolver = Self.makeResolver(transport: transport)
+        do {
+            _ = try await resolver.accountReference(for: "id/alice")
+            Issue.record("expected notFound")
+        } catch let error as NamecoinResolutionError {
+            #expect(error == .notFound("id/alice"))
+        } catch {
+            Issue.record("expected NamecoinResolutionError, got \(error)")
+        }
+        #expect(transport.versionRequestDate(for: "two.test") == nil)
+    }
+
+    @Test func nextServerStartsAfterHedgeDelay() async throws {
+        let transport = ScriptedElectrumXTransport()
+        transport.setResponseDelay(.milliseconds(600), forHost: "one.test")
+        transport.scriptValue(Self.identityValue, forName: "id/alice", tipHeight: 1_000_000)
+        let resolver = Self.makeResolver(transport: transport)
         #expect(try await resolver.accountReference(for: "id/alice") == Self.alice)
+        let first = try #require(transport.versionRequestDate(for: "one.test"))
+        let second = try #require(transport.versionRequestDate(for: "two.test"))
+        let stagger = second.timeIntervalSince(first)
+        #expect(stagger >= 1.3)
+        #expect(stagger < 2.3)
+    }
+
+    @Test func latestFailureStartsNextServerImmediately() async throws {
+        let transport = ScriptedElectrumXTransport()
+        transport.failHost("one.test")
+        transport.scriptValue(Self.identityValue, forName: "id/alice", tipHeight: 1_000_000, onHosts: ["two.test"])
+        let resolver = Self.makeResolver(transport: transport)
+        #expect(try await resolver.accountReference(for: "id/alice") == Self.alice)
+        let first = try #require(transport.versionRequestDate(for: "one.test"))
+        let second = try #require(transport.versionRequestDate(for: "two.test"))
+        #expect(second.timeIntervalSince(first) < 0.5)
     }
 
     @Test func expiredNameIsNotFound() async {
@@ -658,6 +754,58 @@ struct NamecoinResolverTests {
     }
 }
 
+// MARK: - real stalled-socket tests
+
+struct ElectrumXTransportSocketTests {
+    @Test func stalledSocketTimesOut() async throws {
+        let socket = try StallingWebSocketServer()
+        defer { socket.cancel() }
+        let port = try await socket.waitForPort()
+        let endpoint = NamecoinServer(
+            host: "127.0.0.1",
+            port: port,
+            path: "",
+            pinnedLeafKeyBase64: nil,
+            scheme: "ws"
+        )
+        let transport = ElectrumXTransport(requestTimeout: .milliseconds(250))
+        let attempt = Task {
+            try await transport.roundTrip(to: endpoint, request: #"{"id":1}"#, wantID: 1)
+        }
+        try await socket.waitForHandshake()
+        do {
+            _ = try await attempt.value
+            Issue.record("expected the stalled receive to time out")
+        } catch let error as ElectrumXTransportError {
+            #expect(error == .timeout)
+        }
+    }
+
+    @Test func cancellationUnblocksStalledSocket() async throws {
+        let socket = try StallingWebSocketServer()
+        defer { socket.cancel() }
+        let port = try await socket.waitForPort()
+        let endpoint = NamecoinServer(
+            host: "127.0.0.1",
+            port: port,
+            path: "",
+            pinnedLeafKeyBase64: nil,
+            scheme: "ws"
+        )
+        let attempt = Task {
+            try await ElectrumXTransport().roundTrip(to: endpoint, request: #"{"id":1}"#, wantID: 1)
+        }
+        try await socket.waitForHandshake()
+
+        let start = ContinuousClock.now
+        attempt.cancel()
+        _ = await attempt.result
+        // This is a real URLSession receive blocked on an open local TCP socket. A graceful
+        // WebSocket close or cancellation-insensitive I/O would leave it stuck for 15 seconds.
+        #expect(ContinuousClock.now - start < .seconds(2))
+    }
+}
+
 /// Scripted ElectrumX transport: answers the resolver's four RPC shapes per host from a
 /// name→value table, synthesizing the history and verbose-transaction envelopes the real
 /// servers would send. Failures are per host. No networking of any kind.
@@ -675,7 +823,17 @@ nonisolated final class ScriptedElectrumXTransport: ElectrumXTransporting, @unch
 
     private let lock = NSLock()
     private var scripts: [String: ServerScript] = [:]
+    private var responseDelays: [String: Duration] = [:]
+    private var versionRequestDates: [String: Date] = [:]
     private(set) var historyRequestCount = 0
+
+    func setResponseDelay(_ delay: Duration, forHost host: String) {
+        lock.withLock { responseDelays[host] = delay }
+    }
+
+    func versionRequestDate(for host: String) -> Date? {
+        lock.withLock { versionRequestDates[host] }
+    }
 
     /// Make every request to `host` fail at the transport layer.
     func failHost(_ host: String) {
@@ -713,8 +871,13 @@ nonisolated final class ScriptedElectrumXTransport: ElectrumXTransporting, @unch
     }
 
     func roundTrip(to server: NamecoinServer, request: String, wantID: Int) async throws -> String {
-        if responseDelay > .zero {
-            try? await Task.sleep(for: responseDelay)
+        if wantID == 1 {
+            // Attempt start, not the first byte after a scripted stall.
+            lock.withLock { versionRequestDates[server.host] = Date() }
+        }
+        let delay = lock.withLock { responseDelays[server.host] ?? responseDelay }
+        if delay > .zero {
+            try? await Task.sleep(for: delay)
         }
         let scripted = lock.withLock { () -> ServerScript? in
             if wantID == 2 { historyRequestCount += 1 }
@@ -812,6 +975,99 @@ private func appendPush(_ script: inout [UInt8], _ data: [UInt8]) {
         ])
     }
     script.append(contentsOf: data)
+}
+
+private enum StallingWebSocketServerError: Error {
+    case listenerDidNotStart
+    case handshakeDidNotArrive
+}
+
+/// Minimal local RFC 6455 handshake server which then leaves the socket open and never sends a
+/// response. It deliberately exercises real blocking URLSession I/O rather than a scripted fake.
+private final class StallingWebSocketServer: @unchecked Sendable {
+    private let lock = NSLock()
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "namecoin-tests.stalling-websocket")
+    private var connections: [NWConnection] = []
+    private var handshakeComplete = false
+
+    init() throws {
+        listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { return }
+            self.lock.withLock { self.connections.append(connection) }
+            connection.stateUpdateHandler = { state in
+                if case .ready = state {
+                    self.receiveHandshake(on: connection)
+                }
+            }
+            connection.start(queue: self.queue)
+        }
+        listener.start(queue: queue)
+    }
+
+    func waitForPort() async throws -> Int {
+        for _ in 0..<100 {
+            if let port = listener.port, port.rawValue != 0 {
+                return Int(port.rawValue)
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw StallingWebSocketServerError.listenerDidNotStart
+    }
+
+    func waitForHandshake() async throws {
+        for _ in 0..<200 {
+            if lock.withLock({ handshakeComplete }) { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw StallingWebSocketServerError.handshakeDidNotArrive
+    }
+
+    func cancel() {
+        listener.cancel()
+        lock.withLock {
+            connections.forEach { $0.cancel() }
+            connections.removeAll()
+        }
+    }
+
+    private func receiveHandshake(on connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) {
+            [weak self] data, _, _, _ in
+            guard let self, let data, let request = String(data: data, encoding: .utf8) else {
+                connection.cancel()
+                return
+            }
+            guard let key = Self.webSocketKey(in: request) else {
+                connection.cancel()
+                return
+            }
+            let accept = Data(
+                Insecure.SHA1.hash(data: Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))
+            ).base64EncodedString()
+            let response =
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                + "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                + "Sec-WebSocket-Accept: \(accept)\r\n\r\n"
+            connection.send(
+                content: Data(response.utf8),
+                completion: .contentProcessed { [weak self] _ in
+                    self?.lock.withLock { self?.handshakeComplete = true }
+                    // Intentionally no receive/reply: the client remains blocked on real socket I/O.
+                })
+        }
+    }
+
+    private static func webSocketKey(in request: String) -> String? {
+        for line in request.components(separatedBy: "\r\n") {
+            let pieces = line.split(separator: ":", maxSplits: 1)
+            if pieces.count == 2, pieces[0].lowercased() == "sec-websocket-key" {
+                return pieces[1].trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
 }
 
 // MARK: - wire-in routing

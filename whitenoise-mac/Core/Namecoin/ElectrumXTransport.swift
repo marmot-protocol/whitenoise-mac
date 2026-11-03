@@ -38,10 +38,27 @@ nonisolated struct NamecoinServer: Equatable, Sendable {
     let port: Int
     let path: String
     let pinnedLeafKeyBase64: String?
+    /// Production endpoints are always WSS. The internal override exists for hermetic local
+    /// socket tests; no resolver configuration can select an insecure remote transport.
+    let scheme: String
+
+    init(
+        host: String,
+        port: Int,
+        path: String,
+        pinnedLeafKeyBase64: String?,
+        scheme: String = "wss"
+    ) {
+        self.host = host
+        self.port = port
+        self.path = path
+        self.pinnedLeafKeyBase64 = pinnedLeafKeyBase64
+        self.scheme = scheme
+    }
 
     var url: URL? {
         var components = URLComponents()
-        components.scheme = "wss"
+        components.scheme = scheme
         components.host = host
         components.port = port
         components.path = path.isEmpty ? "/" : (path.hasPrefix("/") ? path : "/\(path)")
@@ -54,9 +71,9 @@ nonisolated struct NamecoinServer: Equatable, Sendable {
 }
 
 extension [NamecoinServer] {
-    /// The public Namecoin ElectrumX operators, pinned by leaf pubkey SHA-256. Matches
-    /// `NC_DEFAULT_SERVERS` in whitenoise-linux `app/namecoin.odin`; pins verified against
-    /// the live servers on 2026-09-30 (upstream pinned them on 2026-09-22).
+    /// Amethyst main's current clearnet ElectrumX list, in the same order. Pins are SPKI
+    /// SHA-256 values and belong to an individual endpoint's connection delegate, never to a
+    /// process-wide trust store. The two testls.space endpoints use normal system-CA trust.
     ///
     /// Rotation runbook: when a pinned server rotates its cert, regenerate the pin with
     ///
@@ -68,6 +85,12 @@ extension [NamecoinServer] {
     /// and update the entry. Removing a pin without replacing it opens the server to
     /// trivial MITM.
     static let namecoinDefaultPinned: [NamecoinServer] = [
+        NamecoinServer(
+            host: "electrumx.testls.space",
+            port: 50002,
+            path: "",
+            pinnedLeafKeyBase64: nil
+        ),
         // bitcoins.sk community ElectrumX peer (Slovakia). Self-signed; pinned leaf.
         NamecoinServer(
             host: "nmc2.bitcoins.sk",
@@ -75,23 +98,32 @@ extension [NamecoinServer] {
             path: "",
             pinnedLeafKeyBase64: "tkCCQ6AZPqU4Te1poKHeS5l/CRWYHz5n7J4LH22/LxQ="
         ),
-        // testls.space community ElectrumX peer. Self-signed; the leaf CN
-        // (`electrum.testls.space`) does not match the deploy hostname
-        // (`electrumx.testls.space`), so a chain check would fail anyway — pinning the
-        // pubkey side-steps that mismatch.
+        // Same operator and SPKI pin, addressed directly by IP.
         NamecoinServer(
-            host: "electrumx.testls.space",
-            port: 50004,
+            host: "46.229.238.187",
+            port: 57002,
             path: "",
-            pinnedLeafKeyBase64: "YQAbKuAPFnlb9hr6x7O20dgjW5HfVRc2juKlhVWH8Ww="
+            pinnedLeafKeyBase64: "tkCCQ6AZPqU4Te1poKHeS5l/CRWYHz5n7J4LH22/LxQ="
         ),
         // relay.testls.bit peer (Namecoin `.bit` resolved via a separate resolver on the
         // host). Reached only when the host's `.bit` DNS is available.
         NamecoinServer(
             host: "relay.testls.bit",
-            port: 50004,
+            port: 50012,
             path: "",
             pinnedLeafKeyBase64: "Y9Zu+VV8eoqOBanmpk5QzJtnHwqzxb0ynJGiMRKVJBw="
+        ),
+        NamecoinServer(
+            host: "23.158.233.10",
+            port: 50012,
+            path: "",
+            pinnedLeafKeyBase64: "Y9Zu+VV8eoqOBanmpk5QzJtnHwqzxb0ynJGiMRKVJBw="
+        ),
+        NamecoinServer(
+            host: "electrumx2.testls.space",
+            port: 50002,
+            path: "",
+            pinnedLeafKeyBase64: nil
         ),
     ]
 }
@@ -118,9 +150,15 @@ nonisolated protocol ElectrumXTransporting: Sendable {
 }
 
 nonisolated struct ElectrumXTransport: ElectrumXTransporting {
-    /// Per-server request budget, applied to the whole "connect + handshake + one JSON-RPC
-    /// round trip". Mirrors `NC_REQUEST_TIMEOUT_MS` upstream.
-    static let requestTimeout: Duration = .seconds(8)
+    /// Per-server I/O budget. URLSession has no separate TCP-connect timeout knob; its request
+    /// timeout covers connect/TLS and read inactivity, while the resolver owns the overall 20s
+    /// deadline. Keep this configured before the task (and therefore its socket/TLS) starts.
+    static let requestTimeout: Duration = .seconds(15)
+    let requestTimeout: Duration
+
+    init(requestTimeout: Duration = ElectrumXTransport.requestTimeout) {
+        self.requestTimeout = requestTimeout
+    }
     /// Reply body cap. Mirrors `NC_REPLY_MAX` upstream: the resolver never asks for more
     /// than a single verbose transaction, so anything larger is hostile. The C shim applied
     /// this bound while framing so a hostile server could neither overflow the buffer nor
@@ -130,7 +168,7 @@ nonisolated struct ElectrumXTransport: ElectrumXTransporting {
 
     func roundTrip(to server: NamecoinServer, request: String, wantID: Int) async throws -> String {
         guard let url = server.url else { throw ElectrumXTransportError.connectionFailed }
-        return try await Self.withTimeout(Self.requestTimeout) {
+        return try await Self.withTimeout(requestTimeout) {
             try await self.performRoundTrip(url: url, server: server, request: request, wantID: wantID)
         }
     }
@@ -144,6 +182,9 @@ nonisolated struct ElectrumXTransport: ElectrumXTransporting {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 20
+        configuration.waitsForConnectivity = false
         let delegate = LeafKeyPinningDelegate(pinnedLeafKeySHA256: server.pinnedLeafKeySHA256)
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         // One call = one connection: nothing may linger after the round trip, success or not.
@@ -187,7 +228,11 @@ nonisolated struct ElectrumXTransport: ElectrumXTransporting {
                 throw ElectrumXTransportError.connectionFailed
             }
         } onCancel: {
-            task.cancel(with: .normalClosure, reason: nil)
+            // A graceful WebSocket close can wait for a peer that is already stalled. Cancel
+            // the URLSession task and its session so the underlying socket is torn down and a
+            // real blocked receive/send is interrupted immediately.
+            task.cancel()
+            session.invalidateAndCancel()
         }
     }
 
@@ -263,8 +308,7 @@ nonisolated final class LeafKeyPinningDelegate: NSObject, URLSessionDelegate, Se
 
         guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
             let leaf = chain.first,
-            let key = SecCertificateCopyKey(leaf),
-            let keyData = SecKeyCopyExternalRepresentation(key, nil) as Data?
+            let keyData = Self.subjectPublicKeyInfo(from: SecCertificateCopyData(leaf) as Data)
         else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
@@ -275,5 +319,73 @@ nonisolated final class LeafKeyPinningDelegate: NSObject, URLSessionDelegate, Se
         } else {
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
+    }
+
+    /// Extract the exact DER `SubjectPublicKeyInfo` element from an X.509 certificate. Hashing
+    /// `SecKeyCopyExternalRepresentation` instead would hash PKCS#1 for RSA (or raw X9.63 for
+    /// EC), which is not the SPKI digest produced by OpenSSL/curl and would reject the pins.
+    static func subjectPublicKeyInfo(from certificate: Data) -> Data? {
+        let bytes = [UInt8](certificate)
+        guard let outer = derElement(in: bytes, at: 0, limit: bytes.count),
+            outer.tag == 0x30,
+            let tbs = derElement(in: bytes, at: outer.content.lowerBound, limit: outer.content.upperBound),
+            tbs.tag == 0x30
+        else { return nil }
+
+        var cursor = tbs.content.lowerBound
+        guard var element = derElement(in: bytes, at: cursor, limit: tbs.content.upperBound) else {
+            return nil
+        }
+        // Explicit [0] Version is optional; it precedes the six mandatory fields below.
+        if element.tag == 0xA0 {
+            cursor = element.full.upperBound
+            guard let next = derElement(in: bytes, at: cursor, limit: tbs.content.upperBound) else {
+                return nil
+            }
+            element = next
+        }
+
+        // SerialNumber, signature, issuer, validity, subject, SubjectPublicKeyInfo.
+        for field in 0...5 {
+            if field == 5 {
+                return Data(bytes[element.full])
+            }
+            cursor = element.full.upperBound
+            guard let next = derElement(in: bytes, at: cursor, limit: tbs.content.upperBound) else {
+                return nil
+            }
+            element = next
+        }
+        return nil
+    }
+
+    private static func derElement(
+        in bytes: [UInt8],
+        at offset: Int,
+        limit: Int
+    ) -> (tag: UInt8, full: Range<Int>, content: Range<Int>)? {
+        guard offset >= 0, offset + 2 <= limit, limit <= bytes.count else { return nil }
+        let firstLength = bytes[offset + 1]
+        let headerLength: Int
+        let contentLength: Int
+        if firstLength < 0x80 {
+            headerLength = 2
+            contentLength = Int(firstLength)
+        } else {
+            let lengthBytes = Int(firstLength & 0x7F)
+            guard lengthBytes > 0, lengthBytes <= 4, offset + 2 + lengthBytes <= limit else {
+                return nil
+            }
+            headerLength = 2 + lengthBytes
+            var value = 0
+            for byte in bytes[(offset + 2)..<(offset + headerLength)] {
+                value = value << 8 | Int(byte)
+            }
+            contentLength = value
+        }
+        let contentStart = offset + headerLength
+        let contentEnd = contentStart + contentLength
+        guard contentEnd >= contentStart, contentEnd <= limit else { return nil }
+        return (bytes[offset], offset..<contentEnd, contentStart..<contentEnd)
     }
 }

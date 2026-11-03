@@ -69,6 +69,13 @@ nonisolated struct NamecoinResolver: NamecoinResolving {
     /// A name whose last update is this many blocks behind the tip is treated as expired.
     /// Matches `NC_NAME_EXPIRE_DEPTH` upstream.
     static let nameExpireDepth = 36_000
+    /// Bound the whole lookup, including hedged attempts and import expansion. Individual
+    /// transports have shorter I/O deadlines; this is the last-resort budget for the resolver.
+    static let overallTimeout: Duration = .seconds(20)
+    /// Quartz 2.13-style staggered hedging: one immediate attempt, then one every 1.5s.
+    static let hedgeDelay: Duration = .milliseconds(1_500)
+    /// A fast definitive miss must not beat a positive already in flight on another server.
+    static let negativeGrace: Duration = .milliseconds(1_500)
 
     private let transport: any ElectrumXTransporting
     private let servers: [NamecoinServer]
@@ -100,7 +107,7 @@ nonisolated struct NamecoinResolver: NamecoinResolving {
         // the upstream `nc_inflight` dedup. Structured concurrency replaces the worker
         // pool: the shared task IS the worker.
         let task = await cache.sharedTask(for: key) { [transport, servers] in
-            try await Self.lookup(parsed: parsed, transport: transport, servers: servers)
+            try await Self.lookupWithTimeout(parsed: parsed, transport: transport, servers: servers)
         }
         defer {
             Task { await cache.clearInflight(for: key) }
@@ -125,6 +132,27 @@ nonisolated struct NamecoinResolver: NamecoinResolving {
     }
 
     // MARK: - Lookup pipeline
+
+    private static func lookupWithTimeout(
+        parsed: NamecoinParsedIdentifier,
+        transport: any ElectrumXTransporting,
+        servers: [NamecoinServer]
+    ) async throws -> String {
+        try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await lookup(parsed: parsed, transport: transport, servers: servers)
+            }
+            group.addTask {
+                try await Task.sleep(for: overallTimeout)
+                throw NamecoinResolutionError.unavailable
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw NamecoinResolutionError.unavailable
+            }
+            return result
+        }
+    }
 
     /// name → value JSON → import expansion → fail-closed nostr extraction → pubkey hex.
     private static func lookup(
@@ -176,28 +204,155 @@ nonisolated struct NamecoinResolver: NamecoinResolving {
         case unavailable
     }
 
-    /// Server fallback: walk the pinned list in order. A definitive miss latches Not_Found
-    /// but the walk continues in case a later server has fresher indexing; transport
-    /// failures try the next server. Unavailable only when every server failed transport
-    /// with no definitive miss.
+    private enum NameShowEvent {
+        case finished(Int, NameShowResult)
+        case hedgeTimer(Int)
+        case graceTimer(Int)
+        case timerCancelled
+    }
+
+    /// Quartz 2.13-style hedging. The first server starts immediately and later servers start
+    /// 1.5s apart, or immediately when the latest attempt fails. A positive always wins. A
+    /// definitive miss stops new attempts but leaves existing attempts a 1.5s grace period, so
+    /// a slow positive can beat a fast negative. Empty lists and all-transport-failure outcomes
+    /// remain unavailable rather than being misreported as not-found.
     private static func nameShowWithFallback(
         name: String,
         servers: [NamecoinServer],
         transport: any ElectrumXTransporting
     ) async -> NameShowResult {
-        var definitiveMiss = false
-        for server in servers {
-            if Task.isCancelled { return .unavailable }
-            switch await nameShow(name: name, server: server, transport: transport) {
-            case .resolved(let value):
-                return .resolved(value)
-            case .notFound:
-                definitiveMiss = true
-            case .unavailable:
-                continue
+        guard let first = servers.first else { return .unavailable }
+
+        return await withTaskGroup(of: NameShowEvent.self) { group in
+            group.addTask {
+                .finished(0, await nameShow(name: name, server: first, transport: transport))
             }
+
+            var nextIndex = 1
+            var latestStarted = 0
+            var running = 1
+            var definitiveMiss = false
+            var timerGeneration = 0
+
+            if nextIndex < servers.count {
+                let generation = timerGeneration
+                group.addTask {
+                    do {
+                        try await Task.sleep(for: hedgeDelay)
+                        return .hedgeTimer(generation)
+                    } catch {
+                        return .timerCancelled
+                    }
+                }
+            }
+
+            while let event = await group.next() {
+                switch event {
+                case .timerCancelled:
+                    continue
+
+                case .hedgeTimer(let generation):
+                    guard generation == timerGeneration, !definitiveMiss, nextIndex < servers.count
+                    else { continue }
+                    let index = nextIndex
+                    nextIndex += 1
+                    latestStarted = index
+                    running += 1
+                    group.addTask {
+                        .finished(
+                            index,
+                            await nameShow(name: name, server: servers[index], transport: transport)
+                        )
+                    }
+                    if nextIndex < servers.count {
+                        timerGeneration += 1
+                        let nextGeneration = timerGeneration
+                        group.addTask {
+                            do {
+                                try await Task.sleep(for: hedgeDelay)
+                                return .hedgeTimer(nextGeneration)
+                            } catch {
+                                return .timerCancelled
+                            }
+                        }
+                    }
+
+                case .graceTimer(let generation):
+                    if definitiveMiss, generation == timerGeneration {
+                        group.cancelAll()
+                        return .notFound
+                    }
+
+                case .finished(let index, .resolved(let value)):
+                    _ = index
+                    group.cancelAll()
+                    return .resolved(value)
+
+                case .finished(let index, .notFound):
+                    running -= 1
+                    if !definitiveMiss {
+                        definitiveMiss = true
+                        // Invalidate the next-hedge timer: no new work may start after a miss.
+                        timerGeneration += 1
+                        guard running > 0 else {
+                            group.cancelAll()
+                            return .notFound
+                        }
+                        let generation = timerGeneration
+                        group.addTask {
+                            do {
+                                try await Task.sleep(for: negativeGrace)
+                                return .graceTimer(generation)
+                            } catch {
+                                return .timerCancelled
+                            }
+                        }
+                    } else if running == 0 {
+                        group.cancelAll()
+                        return .notFound
+                    }
+                    _ = index
+
+                case .finished(let index, .unavailable):
+                    running -= 1
+                    // Only failure of the latest attempt accelerates the next one. An older
+                    // hedge failing must not compress the stagger for the current attempt.
+                    if !definitiveMiss, index == latestStarted, nextIndex < servers.count {
+                        timerGeneration += 1
+                        let newIndex = nextIndex
+                        nextIndex += 1
+                        latestStarted = newIndex
+                        running += 1
+                        group.addTask {
+                            .finished(
+                                newIndex,
+                                await nameShow(
+                                    name: name,
+                                    server: servers[newIndex],
+                                    transport: transport
+                                )
+                            )
+                        }
+                        if nextIndex < servers.count {
+                            timerGeneration += 1
+                            let generation = timerGeneration
+                            group.addTask {
+                                do {
+                                    try await Task.sleep(for: hedgeDelay)
+                                    return .hedgeTimer(generation)
+                                } catch {
+                                    return .timerCancelled
+                                }
+                            }
+                        }
+                    } else if running == 0 {
+                        group.cancelAll()
+                        return definitiveMiss ? .notFound : .unavailable
+                    }
+                }
+            }
+            return definitiveMiss ? .notFound : .unavailable
         }
-        return definitiveMiss ? .notFound : .unavailable
     }
 
     /// One `name_show` against one server: version handshake → history → latest tx →

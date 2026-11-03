@@ -99,6 +99,7 @@ struct NewChatPanelView: View {
 
                     if let lastError = workspace.lastError {
                         Text(lastError)
+                            .textSelection(.enabled)
                             .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentDestructive)
                             .padding(.horizontal, 12)
@@ -453,6 +454,7 @@ struct NameGroupPanelView: View {
 
                     if let lastError = workspace.lastError {
                         Text(lastError)
+                            .textSelection(.enabled)
                             .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentDestructive)
                             .frame(maxWidth: .infinity, alignment: .leading)
