@@ -115,8 +115,9 @@ nonisolated enum MediaPlaybackTempStore {
     /// delayed cleanup from an earlier open from deleting the file a later consumer is
     /// still reading. The path component contains only the stable attachment stem, UUID,
     /// and an app-controlled canonical type suffix derived from `mediaType` (with
-    /// allowlisted extension inference for generic MIME types); peer basenames are never
-    /// embedded because directory entries are not covered by `.completeFileProtection`.
+    /// allowlisted or supported-document extension inference for generic MIME types); peer
+    /// basenames are never embedded because directory entries are not covered by
+    /// `.completeFileProtection`.
     static func materialize(
         data: Data,
         id: String,
@@ -137,6 +138,59 @@ nonisolated enum MediaPlaybackTempStore {
     /// Removes a single scratch file. Missing files are treated as success.
     static func remove(at url: URL, fileManager: FileManager = .default) {
         MediaProtectedTempDirectory.remove(at: url, fileManager: fileManager)
+    }
+
+    private static let handoffDirectoryPrefix = "handoff-"
+
+    /// Writes a scratch file for another app (`NSWorkspace.open`) inside a directory of
+    /// its own, and returns the file's URL.
+    ///
+    /// The receiving app may write next to the file it was handed: Archive Utility expands
+    /// a `.zip` beside the archive. Removing only the file would leave that expanded
+    /// plaintext in the playback directory until the next purge, so the whole handoff
+    /// directory is removed instead (`removeHandoff(at:)`).
+    static func materializeHandoff(
+        data: Data,
+        id: String,
+        mediaType: String,
+        fileName: String? = nil,
+        directory: URL,
+        uniqueID: UUID = UUID(),
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        try MediaProtectedTempDirectory.prepareDirectory(directory, fileManager: fileManager)
+        let handoffDirectory = directory.appendingPathComponent(
+            "\(handoffDirectoryPrefix)\(uniqueID.uuidString)",
+            isDirectory: true
+        )
+        do {
+            return try materialize(
+                data: data,
+                id: id,
+                mediaType: mediaType,
+                fileName: fileName,
+                directory: handoffDirectory,
+                uniqueID: uniqueID,
+                fileManager: fileManager
+            )
+        } catch {
+            // No caller will ever hold a URL to remove, so drop the directory now.
+            MediaProtectedTempDirectory.remove(at: handoffDirectory, fileManager: fileManager)
+            throw error
+        }
+    }
+
+    /// Removes a file from `materializeHandoff` together with its handoff directory and
+    /// anything the receiving app wrote into it. A URL that is not inside a handoff
+    /// directory only removes the file itself, so a stray caller can never delete the
+    /// shared playback directory. Missing items are treated as success.
+    static func removeHandoff(at url: URL, fileManager: FileManager = .default) {
+        let parent = url.deletingLastPathComponent()
+        guard parent.lastPathComponent.hasPrefix(handoffDirectoryPrefix) else {
+            remove(at: url, fileManager: fileManager)
+            return
+        }
+        MediaProtectedTempDirectory.remove(at: parent, fileManager: fileManager)
     }
 
     /// Removes playback and voice-recording scratch directories. Used on launch and
