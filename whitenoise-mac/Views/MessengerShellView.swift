@@ -100,7 +100,10 @@ struct MessengerShellView: View {
         // the transcript, and a download started from the gallery has to confirm itself over the
         // gallery, not underneath it.
         .overlay(alignment: .bottomLeading) {
-            MediaDownloadFeedbackToast()
+            VStack(alignment: .leading, spacing: 0) {
+                ModerationReportToast(reporter: session.accountScope?.moderationReporter)
+                MediaDownloadFeedbackToast()
+            }
         }
         .ignoresSafeArea(.container, edges: ignoredEdges)
         .task(id: productScreen) {

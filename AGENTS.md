@@ -165,6 +165,17 @@ build.
   the account's shared one (`AccountScope.groupChangeAdvisory`) is hosted in `ContentView` for
   pane changes, and a sheet that makes a change owns and hosts its own, because a window cannot
   alert from under a sheet and an unanswered prompt holds the change open.
+- Group reports (`reportMessage`) are visible to the group's members, so a direct chat has none.
+  Report (in groups *and* direct chats) and Block and Report also send a private copy to the White
+  Noise team through `submitModerationReport` (`Features/Safety/ModerationReporter.swift`), only on
+  explicit user action. MDK sends only the reported key, the reason and the optional explanation;
+  never add message, group or relay ids. Block and Report sends `other` with no explanation, and
+  only once the block is confirmed. The destination is the `WN_MODERATION_REPORT_PUBKEY` build
+  setting (staging key in Debug, production in Release), installed with
+  `configureModerationReporting` so a bad key hides the options instead of failing startup. Gate
+  every report-to-White-Noise affordance on `ModerationReporter.isAvailable`; Block itself never
+  depends on it. Retained outcomes (`AcceptedPending`, `CompletionUnknown`) are queued and retried
+  by MDK: show them as waiting, never resubmit, and never report to the group twice on a retry.
 - `MissingKeyPackage` carries a reason: `obsoleteOnly` recipients are on White Noise with an
   outdated app, so they get "needs to update" copy (`ChatCreationFailure.needsAppUpdate`), never
   the invite prompt or the "not on White Noise yet" mark.

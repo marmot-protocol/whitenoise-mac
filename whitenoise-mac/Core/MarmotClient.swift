@@ -148,6 +148,17 @@ nonisolated protocol MarmotRuntime: Sendable {
         reason: ReportReasonFfi,
         explanation: String
     ) async throws -> SendSummaryFfi
+    /// True when this build installed a valid White Noise moderation-report destination.
+    func moderationReportingAvailable() -> Bool
+    /// A private report to the White Noise team (NIP-56, NIP-59 gift-wrapped). Additive to the
+    /// in-group `reportMessage`; MDK sends only the reported key, the reason and the explanation.
+    func submitModerationReport(
+        accountRef: String,
+        reportedPubkey: String,
+        reason: ReportReasonFfi,
+        explanation: String,
+        origin: ModerationReportOriginFfi
+    ) async throws -> ModerationReportOutcomeFfi
     func contentReports(
         accountRef: String, groupIdHex: String, messageId: String?, after: String?, limit: UInt32
     ) throws -> ContentReportPageFfi
@@ -425,6 +436,12 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
                 deployment: marmotDeploymentWhiteNoise()
             )
         )
+        // Installed after construction rather than through `MarmotOptions`: MDK rejects an
+        // invalid destination whole, and a bad build setting must hide the report-to-White-Noise
+        // options, never stop the runtime from opening.
+        if let moderationReportConfig = ModerationReportBuildConfig.current() {
+            try? marmot.configureModerationReporting(config: moderationReportConfig.ffi)
+        }
     }
 
     func start() async throws {
@@ -845,6 +862,26 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             messageId: messageId,
             reason: reason,
             explanation: explanation
+        )
+    }
+
+    func moderationReportingAvailable() -> Bool {
+        marmot.moderationReportingAvailable()
+    }
+
+    func submitModerationReport(
+        accountRef: String,
+        reportedPubkey: String,
+        reason: ReportReasonFfi,
+        explanation: String,
+        origin: ModerationReportOriginFfi
+    ) async throws -> ModerationReportOutcomeFfi {
+        try await marmot.submitModerationReport(
+            accountRef: accountRef,
+            reportedPubkey: reportedPubkey,
+            reason: reason,
+            explanation: explanation,
+            origin: origin
         )
     }
 

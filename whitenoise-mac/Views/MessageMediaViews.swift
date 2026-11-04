@@ -274,7 +274,10 @@ struct MessageBubble: View {
     /// unconfirmed long enough to stop reading as "Sending". Separate from the shared
     /// `timestampReferenceDate`, which only moves on calendar-day changes.
     @State private var deliveryClock = Date.now
-    @State private var isReportPresented = false
+    /// The open Report Message sheet's model, built when Report is picked.
+    @State private var reportModel: ReportMessageViewModel?
+    /// The author a picked Block is waiting on confirmation for.
+    @State private var blockTarget: MessageBlockTarget?
     /// A picked removal that would also retract the account's other reactions, held for
     /// confirmation. Owned here because the context menu that picks it is gone by the time the
     /// dialog shows.
@@ -438,17 +441,15 @@ struct MessageBubble: View {
                 MessageContextMenuItems(
                     message: message,
                     onReactionPick: pickReaction,
-                    onReport: { isReportPresented = true }
+                    moderation: moderationActions
                 )
             }
         }
-        .sheet(isPresented: $isReportPresented) {
-            ReportMessageSheet(
-                message: message,
-                model: safetyModel,
-                dismiss: { isReportPresented = false }
-            )
-        }
+        .messageModerationPresentations(
+            report: $reportModel,
+            blockTarget: $blockTarget,
+            reporter: safetyModel.moderation
+        )
         .confirmationDialog(
             L10n.string("Remove all your reactions?"),
             isPresented: Binding(
@@ -496,6 +497,35 @@ struct MessageBubble: View {
 
     private var showsInlineActions: Bool {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+    }
+
+    /// Report and Block for the context menu and the hover strip's overflow. Resolved against the
+    /// open conversation: a direct chat has no group report, and the White Noise copy and Block and
+    /// Report depend on this build's reports key. An unknown chat is treated as direct, so a report
+    /// is never shared with members the reporter cannot see.
+    private var moderationActions: MessageModerationActions {
+        let eligibility = safetyModel.moderationEligibility(
+            for: message,
+            isDirectChat: workspace.selectedChat?.isDirect ?? true
+        )
+        return MessageModerationActions(
+            eligibility: eligibility,
+            report: {
+                reportModel = ReportMessageViewModel(
+                    eligibility: eligibility,
+                    dependencies: .live(
+                        messageId: message.id,
+                        authorAccountIdHex: eligibility.authorAccountIdHex,
+                        safety: safetyModel,
+                        reporter: safetyModel.moderation
+                    )
+                )
+            },
+            block: {
+                guard let author = eligibility.authorAccountIdHex else { return }
+                blockTarget = MessageBlockTarget(accountIdHex: author)
+            }
+        )
     }
 
     /// Sends a hover-strip or context-menu pick. Those menus only have the window preview, so the
@@ -657,7 +687,7 @@ struct MessageBubble: View {
                 isPresentationActive: $isInlineActionPresentationActive,
                 message: message,
                 onReactionPick: pickReaction,
-                onReport: { isReportPresented = true }
+                moderation: moderationActions
             )
             // The strip is an overlay on the bubble's edge, pushed clear of it by the width
             // SwiftUI measured — not by a count of the controls kept in step with the row's `if`
@@ -2566,7 +2596,7 @@ struct MessageInlineActions: View {
     let message: MessageItem
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
-    let onReport: () -> Void
+    let moderation: MessageModerationActions
 
     var body: some View {
         HStack(spacing: 4) {
@@ -2621,7 +2651,7 @@ struct MessageInlineActions: View {
                 .popover(isPresented: $isOverflowPresented, arrowEdge: .bottom) {
                     MessageOverflowPopover(
                         message: message,
-                        onReport: onReport,
+                        moderation: moderation,
                         dismiss: { isOverflowPresented = false }
                     )
                 }
@@ -2818,7 +2848,7 @@ struct QuickReactionPicker: View {
 /// (`MessageOverflowPopover`) — share one source of truth for which actions exist and what
 /// they do, while each keeps its own button styling.
 struct MessageRowAction: Identifiable {
-    enum Kind { case retry, info, select, forward, edit, copy, report, delete }
+    enum Kind { case retry, info, select, forward, edit, copy, report, block, delete }
 
     let kind: Kind
     let title: String
@@ -2836,7 +2866,7 @@ struct MessageRowAction: Identifiable {
         for message: MessageItem,
         workspace: WorkspaceState,
         now: Date = .now,
-        report: (() -> Void)? = nil,
+        moderation: MessageModerationActions? = nil,
         focusComposer: @escaping () -> Void = {},
         dismiss: @escaping () -> Void = {}
     ) -> [MessageRowAction] {
@@ -2891,7 +2921,7 @@ struct MessageRowAction: Identifiable {
                     dismiss()
                 })
         }
-        if message.canReport, let report {
+        if let moderation, moderation.eligibility.canReport {
             actions.append(
                 MessageRowAction(
                     kind: .report,
@@ -2900,7 +2930,19 @@ struct MessageRowAction: Identifiable {
                     role: nil
                 ) {
                     dismiss()
-                    report()
+                    moderation.report()
+                })
+        }
+        if let moderation, moderation.eligibility.canBlockAuthor {
+            actions.append(
+                MessageRowAction(
+                    kind: .block,
+                    title: L10n.string("Block User"),
+                    systemImage: "hand.raised",
+                    role: .destructive
+                ) {
+                    dismiss()
+                    moderation.block()
                 })
         }
         if workspace.canDeleteMessage(message) {
@@ -2970,7 +3012,7 @@ struct MessageOverflowPopover: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.composerFocusRequester) private var composerFocusRequester
     let message: MessageItem
-    let onReport: () -> Void
+    let moderation: MessageModerationActions
     let dismiss: () -> Void
 
     var body: some View {
@@ -2978,7 +3020,7 @@ struct MessageOverflowPopover: View {
             actions: MessageRowAction.all(
                 for: message,
                 workspace: workspace,
-                report: onReport,
+                moderation: moderation,
                 focusComposer: composerFocusRequester.request,
                 dismiss: dismiss
             )
@@ -3041,7 +3083,7 @@ struct MessageContextMenuItems: View {
     let message: MessageItem
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
-    let onReport: () -> Void
+    let moderation: MessageModerationActions
 
     var body: some View {
         Group {
@@ -3079,7 +3121,7 @@ struct MessageContextMenuItems: View {
                 MessageRowAction.all(
                     for: message,
                     workspace: workspace,
-                    report: onReport,
+                    moderation: moderation,
                     focusComposer: composerFocusRequester.request
                 )
             ) { action in

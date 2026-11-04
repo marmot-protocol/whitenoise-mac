@@ -73,7 +73,11 @@ struct ContactDetailsView: View {
                 )
 
                 if !isLocalProfile {
-                    ContactBlockingSection(model: blockedUsersModel, accountID: contact.accountIdHex)
+                    ContactBlockingSection(
+                        model: blockedUsersModel,
+                        accountID: contact.accountIdHex,
+                        reporter: session.accountScope?.moderationReporter
+                    )
                 }
 
                 if let groupMember {
