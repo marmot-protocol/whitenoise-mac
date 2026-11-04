@@ -285,4 +285,32 @@ struct AttachmentRejectionTests: WorkspaceTestSupport {
         let ioError = CocoaError(.fileReadNoPermission)
         #expect(AttachmentRejection.Reason(ioError) == .other(ioError.localizedDescription))
     }
+
+    /// A refused file's tile draws the glyph a staged file of the same kind would, read from the
+    /// name alone because its bytes were never taken.
+    @Test func rejectedTilesTakeTheirGlyphFromTheFileName() {
+        func kind(_ source: AttachmentRejection.Source) -> MessageMediaKind {
+            AttachmentRejection(source: source, reason: .unsupportedType).mediaKind
+        }
+        #expect(kind(.file(name: "holiday-video.mov")) == .video)
+        #expect(kind(.file(name: "photo.jpg")) == .image)
+        #expect(kind(.file(name: "memo.m4a")) == .audio)
+        #expect(kind(.file(name: "installer.exe")) == .file)
+        #expect(kind(.file(name: "no-extension")) == .file)
+        #expect(kind(.pastedImage) == .image)
+    }
+
+    /// Dismissing one failed tile leaves its neighbors, in order.
+    @Test func dismissingOneRejectionKeepsTheOthers() {
+        var rejections = ComposerAttachmentRejections(
+            chatId: "chat",
+            rejections: [
+                AttachmentRejection(source: .file(name: "a.exe"), reason: .unsupportedType),
+                AttachmentRejection(source: .file(name: "b.exe"), reason: .unsupportedType),
+                AttachmentRejection(source: .file(name: "c.exe"), reason: .unsupportedType),
+            ]
+        )
+        rejections.remove(rejections.items[1].id)
+        #expect(rejections.items.map(\.rejection.source) == [.file(name: "a.exe"), .file(name: "c.exe")])
+    }
 }

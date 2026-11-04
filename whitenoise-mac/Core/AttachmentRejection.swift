@@ -68,6 +68,17 @@ nonisolated struct AttachmentRejection: Equatable, Sendable {
         }
     }
 
+    /// What the file looks like it is, from its name alone: the bytes were refused, so the
+    /// tile standing in for it draws the same glyph a staged file of that kind would.
+    var mediaKind: MessageMediaKind {
+        switch source {
+        case .file(let name):
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: name)
+        case .pastedImage:
+            .image
+        }
+    }
+
     func reasonDescription(locale: Locale) -> String {
         switch reason {
         case .tooLarge(let limitBytes):

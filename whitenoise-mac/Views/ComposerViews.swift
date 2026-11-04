@@ -877,17 +877,22 @@ private final class ComposerPasteInterceptingTextView: NSTextView {
     }
 }
 
+/// The files staged for the next message, followed by any the last selection refused. A refused
+/// file stays in line with the ones that made it, as a failed tile, until the user dismisses it,
+/// stages again, or sends.
 struct PendingMediaDraftStrip: View {
     let attachments: [PendingMediaAttachment]
     let uploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]
     let isSending: Bool
     let onRemove: (PendingMediaAttachment.ID) -> Void
     let onRetryUpload: (PendingMediaAttachment.ID) -> Void
+    var rejections: [ComposerAttachmentRejections.Item] = []
+    var onDismissRejection: (ComposerAttachmentRejections.Item.ID) -> Void = { _ in }
 
     private let tileSize = CGSize(width: 74, height: 74)
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(attachments) { attachment in
                     ZStack(alignment: .topTrailing) {
@@ -899,20 +904,18 @@ struct PendingMediaDraftStrip: View {
                         )
 
                         if !isSending {
-                            Button {
+                            PendingMediaDraftRemoveButton(help: L10n.string("Remove attachment")) {
                                 onRemove(attachment.id)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .wnFont(.semiBold18)
-                                    .symbolRenderingMode(.palette)
-                                    // Two-layer glyph: the inner disc is the surface it is
-                                    // punched out of, the ring is content on that surface.
-                                    .foregroundStyle(
-                                        WNColor.backgroundPrimary, WNColor.backgroundContentSecondary)
                             }
-                            .buttonStyle(.plain)
-                            .help(L10n.string("Remove attachment"))
-                            .offset(x: 7, y: -7)
+                        }
+                    }
+                }
+
+                ForEach(rejections) { item in
+                    ZStack(alignment: .topTrailing) {
+                        RejectedAttachmentTile(rejection: item.rejection, tileSize: tileSize)
+                        PendingMediaDraftRemoveButton(help: L10n.string("Dismiss")) {
+                            onDismissRejection(item.id)
                         }
                     }
                 }
@@ -921,6 +924,29 @@ struct PendingMediaDraftStrip: View {
             .padding(.top, 8)
             .padding(.bottom, 2)
         }
+        .scrollIndicators(.hidden)
+    }
+}
+
+/// The small disc on a strip tile's corner that takes it out of the draft.
+private struct PendingMediaDraftRemoveButton: View {
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .wnFont(.semiBold18)
+                .symbolRenderingMode(.palette)
+                // Two-layer glyph: the inner disc is the surface it is
+                // punched out of, the ring is content on that surface.
+                .foregroundStyle(
+                    WNColor.backgroundPrimary, WNColor.backgroundContentSecondary)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+        .offset(x: 7, y: -7)
     }
 }
 
