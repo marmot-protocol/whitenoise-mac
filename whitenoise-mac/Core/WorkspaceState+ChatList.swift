@@ -680,7 +680,8 @@ extension WorkspaceState {
             leaveRequestPending: current.leaveRequestPending,
             latestMessageDelivery: current.latestMessageDelivery,
             pendingConfirmation: current.pendingConfirmation,
-            selfMembership: current.selfMembership
+            selfMembership: current.selfMembership,
+            lifecycle: current.lifecycle
         )
     }
 

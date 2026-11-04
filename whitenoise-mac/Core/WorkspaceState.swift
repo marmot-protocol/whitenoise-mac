@@ -603,6 +603,10 @@ final class WorkspaceState {
     var isDecliningGroupInvite = false
     var isArchivingGroup = false
     var isLeavingGroup = false
+    /// An End Group run — enabling disbanding, the disband, and the reload after them — is in
+    /// flight. Owned by the inspector's End Group action rather than `GroupDisbandViewModel` so it
+    /// can join `hasInFlightGroupCommit`, the guard every other group commit checks before it starts.
+    var isEndingGroup = false
     var isUpdatingDisappearingMessages = false
     var isSecureDeletingExpired = false
     var isDeletingGroupLocally = false
@@ -1935,7 +1939,8 @@ final class WorkspaceState {
             requiresSelfDemoteBeforeLeave: managementState.requiresSelfDemoteBeforeLeave,
             leaveRequestPending: managementState.leaveRequestPending,
             leaveRequestedAtMs: managementState.leaveRequestedAtMs,
-            disappearingMessageSecs: details.group.disappearingMessageSecs
+            disappearingMessageSecs: details.group.disappearingMessageSecs,
+            disband: GroupDisbandState(managementState: managementState, group: details.group)
         )
     }
 
