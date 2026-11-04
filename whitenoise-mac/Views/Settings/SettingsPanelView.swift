@@ -32,7 +32,7 @@ struct SettingsPanelView: View {
             case .profile:
                 ProfileSettingsView()
             case .identityKeys:
-                ProfileKeysSettingsView()
+                ProfileKeysSettingsView(model: model.profileKeys)
             case .relays:
                 RelaySettingsView(model: model.relays)
             case .keyPackages:

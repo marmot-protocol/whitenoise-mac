@@ -6,6 +6,7 @@ final class SettingsViewModel {
     let agentSettings: AgentSettingsViewModel
     let blockedUsersModel: BlockedUsersViewModel?
     let keyPackageSettings: KeyPackageSettingsViewModel
+    let profileKeys: ProfileKeysViewModel
     let relays: RelaySettingsViewModel
     let quarantinedGroups: QuarantinedGroupsViewModel
     let storage: StorageSettingsViewModel
@@ -25,6 +26,7 @@ final class SettingsViewModel {
         agentSettings = AgentSettingsViewModel(account: account, runtime: runtime)
         self.blockedUsersModel = blockedUsersModel
         keyPackageSettings = KeyPackageSettingsViewModel(accountRef: account.accountRef, runtime: runtime)
+        profileKeys = ProfileKeysViewModel(accountRef: account.accountRef, runtime: runtime)
         relays = RelaySettingsViewModel(
             accountRef: account.accountRef,
             runtime: runtime,
@@ -55,5 +57,6 @@ final class SettingsViewModel {
 
     func deactivate() {
         relays.deactivate()
+        profileKeys.reset()
     }
 }

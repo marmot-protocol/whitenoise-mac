@@ -179,8 +179,8 @@ struct ProfileKeysSourceContractTests {
         #expect(!page.contains("removeAccountConfirmation"))
         #expect(!page.contains("Account Removal"))
 
-        // And the three groups the prototype's spec names are the three that are there.
-        for header in ["Public Key", "Private Key", "Export"] {
+        // And the three groups the iOS client draws are the three that are there.
+        for header in ["Public Key", "Private Key", "Back Up Your Private Key"] {
             #expect(page.contains("L10n.string(\"\(header)\")"), "missing the \(header) group")
         }
     }
@@ -283,5 +283,127 @@ struct ProfileKeysSourceContractTests {
         // No radius of its own: one table, or the tiers drift apart again.
         #expect(style.contains("WNButtonMetrics.backgroundShape("))
         #expect(!style.contains("cornerRadius: "))
+    }
+}
+
+/// The private-key row's consent step, ported from the iOS client: nothing is read from the core
+/// until the reader agrees, and nothing read for one visit outlives it.
+@Suite
+@MainActor
+struct ProfileKeysViewModelTests {
+    private struct RevealFailure: LocalizedError {
+        var errorDescription: String? { "keystore offline" }
+    }
+
+    private func makeModel(
+        runtime: FakeMarmotRuntime,
+        copied: @escaping @MainActor (String) -> Void = { _ in }
+    ) -> ProfileKeysViewModel {
+        ProfileKeysViewModel(
+            accountRef: "Desktop Account",
+            runtime: runtime,
+            copyConcealed: copied
+        )
+    }
+
+    @Test func askingToRevealReadsNothingUntilConfirmed() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let model = makeModel(runtime: runtime)
+
+        model.request(.reveal)
+        #expect(model.pendingConfirmation == .reveal)
+        #expect(runtime.revealNsecCallCount == 0)
+
+        model.confirm(.reveal)
+        #expect(model.pendingConfirmation == nil)
+        #expect(model.actionInFlight == .reveal)
+        await model.actionTask?.value
+
+        #expect(runtime.revealNsecCallCount == 1)
+        #expect(model.revealedNsec == "nsec1fake")
+        #expect(model.actionInFlight == nil)
+    }
+
+    @Test func decliningLeavesTheKeyUnread() {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let model = makeModel(runtime: runtime)
+
+        model.request(.copy)
+        model.cancelRequest()
+
+        #expect(model.pendingConfirmation == nil)
+        #expect(model.actionTask == nil)
+        #expect(runtime.revealNsecCallCount == 0)
+    }
+
+    @Test func hidingARevealedKeyNeedsNoConsent() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let model = makeModel(runtime: runtime)
+        model.confirm(.reveal)
+        await model.actionTask?.value
+        #expect(model.isRevealed)
+
+        model.request(.reveal)
+
+        #expect(!model.isRevealed)
+        #expect(model.pendingConfirmation == nil)
+        #expect(runtime.revealNsecCallCount == 1)
+    }
+
+    @Test func copyingPutsTheKeyOnThePasteboardWithoutRevealingIt() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        var copied: [String] = []
+        let model = makeModel(runtime: runtime) { copied.append($0) }
+
+        model.request(.copy)
+        model.confirm(.copy)
+        await model.actionTask?.value
+
+        #expect(copied == ["nsec1fake"])
+        #expect(!model.isRevealed)
+        #expect(model.copyConfirmation.isConfirming)
+    }
+
+    @Test func aFailedReadIsReportedInPlace() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.revealNsecError = RevealFailure()
+        let model = makeModel(runtime: runtime)
+
+        model.confirm(.reveal)
+        await model.actionTask?.value
+
+        #expect(model.error == "keystore offline")
+        #expect(!model.isRevealed)
+        #expect(model.actionInFlight == nil)
+
+        // Asking again starts from a clean slate rather than leaving the old failure up.
+        model.request(.reveal)
+        #expect(model.error == nil)
+    }
+
+    @Test func leavingThePageDropsAReadStillInFlight() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        var copied: [String] = []
+        let model = makeModel(runtime: runtime) { copied.append($0) }
+
+        model.confirm(.copy)
+        let task = model.actionTask
+        model.reset()
+        await task?.value
+
+        #expect(copied.isEmpty)
+        #expect(model.actionInFlight == nil)
+        #expect(model.actionTask == nil)
+    }
+
+    @Test func leavingThePageConcealsARevealedKey() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let model = makeModel(runtime: runtime)
+        model.confirm(.reveal)
+        await model.actionTask?.value
+
+        model.reset()
+
+        #expect(!model.isRevealed)
     }
 }

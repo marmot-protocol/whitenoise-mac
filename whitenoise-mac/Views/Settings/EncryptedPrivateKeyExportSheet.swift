@@ -71,7 +71,8 @@ struct EncryptedPrivateKeyExportSheet: View {
                 } else {
                     Text(
                         L10n.string(
-                            "Use a long, unique password. You'll need it to open the encrypted file.")
+                            "Use a long, unique password. You'll need it to open the encrypted backup. White Noise never stores it."
+                        )
                     )
                     .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
