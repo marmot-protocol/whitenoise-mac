@@ -38,12 +38,14 @@ nonisolated enum RemoteMediaHTTPRequest {
 
     /// `GET` in origin-form with the original `Host` (bracketed IPv6, explicit non-443 port),
     /// identity encoding and `Connection: close`. Never carries cookies, credentials, a
-    /// referrer, or `Accept-Language`. `target` has already been restricted to visible ASCII.
-    static func bytes(for target: RemoteMediaRequestTarget) -> Data {
+    /// referrer, or `Accept-Language`. `target` has already been restricted to visible ASCII;
+    /// an `accept` value that is not printable ASCII falls back to `*/*`.
+    static func bytes(for target: RemoteMediaRequestTarget, accept: String = "*/*") -> Data {
+        let accept = accept.utf8.allSatisfy { (0x20...0x7E).contains($0) } ? accept : "*/*"
         var text = "GET \(target.path) HTTP/1.1\r\n"
         text += "Host: \(target.hostHeader)\r\n"
         text += "User-Agent: \(userAgent)\r\n"
-        text += "Accept: */*\r\n"
+        text += "Accept: \(accept)\r\n"
         text += "Accept-Encoding: identity\r\n"
         text += "Connection: close\r\n"
         text += "\r\n"

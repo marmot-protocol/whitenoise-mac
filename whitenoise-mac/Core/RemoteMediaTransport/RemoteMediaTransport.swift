@@ -151,11 +151,7 @@ nonisolated struct RemoteMediaFetchResult: Sendable {
     /// The URL whose response this is — the last redirect hop.
     let url: URL
     let body: Data
-    /// `nil` when the body was served from the response cache.
-    let head: RemoteMediaHTTPResponseHead?
-    let requestSentAt: ContinuousClock.Instant
-    let responseReceivedAt: ContinuousClock.Instant
-    let responseWallClockAtHead: Date
+    let head: RemoteMediaHTTPResponseHead
 }
 
 nonisolated struct RemoteMediaTransport: Sendable {
@@ -204,16 +200,11 @@ nonisolated struct RemoteMediaTransport: Sendable {
         }
     #endif
 
-    func now() -> ContinuousClock.Instant { clock.now() }
-
     /// Fetches `url`, following at most `maximumRedirects` redirects. Every hop — including a
     /// same-host one — is re-admitted by `RemoteImageURLPolicy`, re-resolved, and re-admitted
-    /// by answer set. `cachedBody` is consulted per hop after admission.
+    /// by answer set.
     @concurrent
-    func fetch(
-        _ url: URL,
-        cachedBody: @Sendable (URL) -> Data? = { _ in nil }
-    ) async throws -> RemoteMediaFetchResult {
+    func fetch(_ url: URL, accept: String = "*/*") async throws -> RemoteMediaFetchResult {
         // Established before DNS, shared by every address and every hop.
         let deadline = clock.now().advanced(by: Self.totalDeadline)
         var current = url
@@ -223,16 +214,10 @@ nonisolated struct RemoteMediaTransport: Sendable {
             guard clock.now() < deadline else { throw RemoteMediaTransportError.deadlineExceeded }
             guard RemoteImageURLPolicy.isAllowed(current) else { throw RemoteMediaTransportError.disallowedURL }
             let target = try RemoteMediaRequestTarget(url: current)
-
-            if let body = cachedBody(current) {
-                let now = clock.now()
-                return RemoteMediaFetchResult(
-                    url: current, body: body, head: nil, requestSentAt: now,
-                    responseReceivedAt: now, responseWallClockAtHead: Date())
-            }
-
             let addresses = try await admittedAddresses(for: target, deadline: deadline)
-            let exchange = try await exchange(target: target, addresses: addresses, deadline: deadline)
+            let request = RemoteMediaHTTPRequest.bytes(for: target, accept: accept)
+            let exchange = try await exchange(
+                request: request, addresses: addresses, target: target, deadline: deadline)
             let status = exchange.head.statusCode
             switch status {
             case 301, 302, 303, 307, 308:
@@ -240,14 +225,7 @@ nonisolated struct RemoteMediaTransport: Sendable {
                 guard redirects <= Self.maximumRedirects else { throw RemoteMediaTransportError.tooManyRedirects }
                 current = try Self.redirectURL(from: exchange.head, relativeTo: current)
             case _ where Self.isAcceptedSuccess(status):
-                return RemoteMediaFetchResult(
-                    url: current,
-                    body: exchange.body,
-                    head: exchange.head,
-                    requestSentAt: exchange.requestSentAt,
-                    responseReceivedAt: exchange.responseReceivedAt,
-                    responseWallClockAtHead: exchange.responseWallClockAtHead
-                )
+                return RemoteMediaFetchResult(url: current, body: exchange.body, head: exchange.head)
             default:
                 throw RemoteMediaTransportError.httpStatus(status)
             }
@@ -313,9 +291,6 @@ nonisolated struct RemoteMediaTransport: Sendable {
     private struct Exchange {
         let head: RemoteMediaHTTPResponseHead
         let body: Data
-        let requestSentAt: ContinuousClock.Instant
-        let responseReceivedAt: ContinuousClock.Instant
-        let responseWallClockAtHead: Date
     }
 
     /// Marks an attempt failure that happened before any response byte was processed, which is
@@ -325,11 +300,11 @@ nonisolated struct RemoteMediaTransport: Sendable {
     }
 
     private func exchange(
-        target: RemoteMediaRequestTarget,
+        request: Data,
         addresses: [RemoteMediaAddress],
+        target: RemoteMediaRequestTarget,
         deadline: ContinuousClock.Instant
     ) async throws -> Exchange {
-        let request = RemoteMediaHTTPRequest.bytes(for: target)
         var lastError = RemoteMediaTransportError.connectionFailed
         for address in addresses {
             if Task.isCancelled { throw RemoteMediaTransportError.cancelled }
@@ -399,12 +374,9 @@ nonisolated struct RemoteMediaTransport: Sendable {
             }
         }
         lastProgress = clock.now()
-        let requestSentAt = lastProgress
 
         var parser = RemoteMediaHTTPResponseParser()
         var receivedAnyByte = false
-        var responseReceivedAt = requestSentAt
-        var responseWallClockAtHead = Date()
         while true {
             let chunk = try await stage(
                 retryable: !receivedAnyByte
@@ -433,15 +405,10 @@ nonisolated struct RemoteMediaTransport: Sendable {
             }
 
             if progress == .headReceived, let head = parser.head {
-                responseReceivedAt = clock.now()
-                responseWallClockAtHead = Date()
                 guard Self.isAcceptedSuccess(head.statusCode) else {
                     // Redirects and errors close right after the head; their bodies are never
                     // drained, framed, or buffered.
-                    return Exchange(
-                        head: head, body: Data(), requestSentAt: requestSentAt,
-                        responseReceivedAt: responseReceivedAt,
-                        responseWallClockAtHead: responseWallClockAtHead)
+                    return Exchange(head: head, body: Data())
                 }
                 progress = try parser.beginBody()
             }
@@ -453,10 +420,7 @@ nonisolated struct RemoteMediaTransport: Sendable {
             if progress == .complete, let head = parser.head {
                 guard !Task.isCancelled else { throw RemoteMediaTransportError.cancelled }
                 guard clock.now() < deadline else { throw RemoteMediaTransportError.deadlineExceeded }
-                return Exchange(
-                    head: head, body: parser.body, requestSentAt: requestSentAt,
-                    responseReceivedAt: responseReceivedAt,
-                    responseWallClockAtHead: responseWallClockAtHead)
+                return Exchange(head: head, body: parser.body)
             }
             if chunk.isComplete {
                 throw RemoteMediaTransportError.prematureEOF

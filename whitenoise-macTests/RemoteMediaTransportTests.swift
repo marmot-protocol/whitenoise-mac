@@ -76,9 +76,16 @@ import Testing
                 == .ipv6(try #require(IPv6Address("2606:4700:4700::1111"))))
     }
 
-    @Test func parametersAskToBypassSystemProxies() {
-        #expect(NetworkRemoteMediaConnectionFactory.parameters(tlsServerName: "cdn.example.com").preferNoProxies)
-        #expect(NetworkRemoteMediaConnectionFactory.parameters(tlsServerName: nil).preferNoProxies)
+    /// The user's system proxy must still carry peer-controlled fetches, as it did under
+    /// `URLSession`; going direct would expose their address to a peer-chosen host.
+    @Test func parametersHonorSystemProxiesOverTLSAndTCP() throws {
+        for name in ["cdn.example.com", nil] as [String?] {
+            let parameters = NetworkRemoteMediaConnectionFactory.parameters(tlsServerName: name)
+            #expect(!parameters.preferNoProxies)
+            let tcp = try #require(parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options)
+            #expect(tcp.connectionTimeout == Int(RemoteImageURLPolicy.downloadStallTimeout))
+            #expect(parameters.defaultProtocolStack.applicationProtocols.first is NWProtocolTLS.Options)
+        }
     }
 }
 
@@ -101,7 +108,7 @@ struct RemoteMediaTransportTests {
         let result = try await harness.transport.fetch(try Self.url("https://cdn.example.com:8443/a.png?s=1"))
 
         #expect(result.body == Data("pixel".utf8))
-        #expect(result.head?.statusCode == 200)
+        #expect(result.head.statusCode == 200)
         #expect(harness.network.resolveCalls == ["cdn.example.com"])
         let connection = try #require(harness.network.connections.first)
         #expect(harness.network.connections.count == 1)
@@ -249,7 +256,7 @@ struct RemoteMediaTransportTests {
 
     @Test func dnsBurstWaitsInBoundedFIFOWithoutStartingExtraWorkers() async throws {
         let slots = RemoteMediaDNSSlots(limit: 1)
-        #expect(slots.claim())
+        #expect(slots.request { _ in } == nil)  // admitted at once, so no queue ticket
         // Tickets and callbacks are observed through a lock-protected existing completion gate.
         var gates: [RemoteMediaCompletionGate<Bool>] = []
         var tickets: [UUID] = []
@@ -313,7 +320,7 @@ struct RemoteMediaTransportTests {
 
     @Test func dnsWaitTicketCancellationBeforeInstallationRemovesQueueEntry() throws {
         let slots = RemoteMediaDNSSlots(limit: 1)
-        #expect(slots.claim())
+        #expect(slots.request { _ in } == nil)  // admitted at once, so no queue ticket
         let ticket = RemoteMediaDNSWaitTicket()
         ticket.cancel(slots: slots)
         let queued = try #require(slots.request { _ in Issue.record("Cancelled waiter ran") })
@@ -618,175 +625,5 @@ struct RemoteMediaTransportTests {
 
         #expect(await fetch.value.transportError == .deadlineExceeded)
         #expect(harness.network.connections[1].cancelCount >= 1)
-    }
-
-    // MARK: Cache hook
-
-    @Test func cachedHopIsServedAfterAdmissionWithoutResolvingOrConnecting() async throws {
-        let harness = RemoteMediaFakeHarness()
-        let url = try Self.url("https://cdn.example.com/x.png")
-
-        let result = try await harness.transport.fetch(url) { hop in
-            hop == url ? Data("cached".utf8) : nil
-        }
-
-        #expect(result.body == Data("cached".utf8))
-        #expect(result.head == nil)
-        #expect(harness.network.resolveCalls.isEmpty)
-        #expect(harness.network.connections.isEmpty)
-    }
-}
-
-@Suite struct RemoteMediaResponseCacheTests {
-    private static let responseTime = Date(timeIntervalSince1970: 1_700_000_000)
-
-    private static func head(status: Int = 200, _ fields: [(String, String)]) -> RemoteMediaHTTPResponseHead {
-        RemoteMediaHTTPResponseHead(
-            statusCode: status,
-            minorVersion: 1,
-            fields: fields.map { RemoteMediaHTTPField(name: $0.0.lowercased(), value: $0.1) }
-        )
-    }
-
-    private static func freshness(
-        status: Int = 200,
-        _ fields: [(String, String)],
-        responseDelay: Duration = .zero
-    ) -> RemoteMediaCacheFreshness? {
-        RemoteMediaCachePolicy.freshness(
-            for: head(status: status, fields),
-            wallClockAtResponse: responseTime,
-            responseDelay: responseDelay
-        )
-    }
-
-    @Test func explicitMaxAgeIsCacheableAndAgeIsCorrected() {
-        let fresh = Self.freshness(
-            [("Cache-Control", "public, max-age=600"), ("Age", "100")],
-            responseDelay: .seconds(2)
-        )
-        #expect(fresh == RemoteMediaCacheFreshness(lifetime: .seconds(600), initialAge: .seconds(102)))
-    }
-
-    @Test func dateInThePastRaisesTheInitialAge() {
-        let fresh = Self.freshness([
-            ("Cache-Control", "max-age=600"),
-            ("Date", "Tue, 14 Nov 2023 22:08:20 GMT"),  // responseTime - 300s
-        ])
-        #expect(fresh == RemoteMediaCacheFreshness(lifetime: .seconds(600), initialAge: .seconds(300)))
-    }
-
-    @Test func expiresIsMeasuredFromTheDateHeader() {
-        let fresh = Self.freshness([
-            ("Date", "Tue, 14 Nov 2023 22:13:10 GMT"),  // responseTime - 10s
-            ("Expires", "Tue, 14 Nov 2023 22:18:10 GMT"),  // Date + 300s
-        ])
-        #expect(fresh == RemoteMediaCacheFreshness(lifetime: .seconds(300), initialAge: .seconds(10)))
-    }
-
-    @Test(arguments: [
-        [("Cache-Control", "no-store, max-age=600")],
-        [("Cache-Control", "max-age=600, no-cache")],
-        [("Cache-Control", "max-age=600"), ("Vary", "Accept")],
-        [("Cache-Control", "max-age=600"), ("Set-Cookie", "id=1")],
-        [("Cache-Control", "max-age=600, x-unknown")],
-        [("Cache-Control", "max-age=600"), ("Pragma", "no-cache")],
-        [("Cache-Control", "max-age=abc")],
-        [("Cache-Control", "max-age=60, max-age=600")],
-        [("Cache-Control", "max-age=600"), ("Age", "600")],
-        [("Cache-Control", "max-age=600"), ("Age", "-1")],
-        [("Cache-Control", "max-age=0")],
-        [("Last-Modified", "Tue, 14 Nov 2023 22:13:20 GMT")],
-        [("Expires", "0")],
-        [("Expires", "Tue, 14 Nov 2023 22:13:19 GMT")],
-        [("Expires", "Tuesday, 14-Nov-23 22:18:20 GMT")],
-        [("Cache-Control", "max-age=600"), ("Date", "nonsense")],
-    ])
-    func responsesThatMustNotBeStoredAreBypassed(fields: [(String, String)]) {
-        #expect(Self.freshness(fields) == nil)
-    }
-
-    @Test func onlyAComplete200IsCacheable() {
-        for status in [203, 204, 206, 301, 404] {
-            #expect(Self.freshness(status: status, [("Cache-Control", "max-age=600")]) == nil)
-        }
-    }
-
-    @Test func httpDatesParseOnlyAsIMFFixdate() {
-        #expect(
-            RemoteMediaCachePolicy.parseHTTPDate("Tue, 14 Nov 2023 22:13:20 GMT")
-                == Date(timeIntervalSince1970: 1_700_000_000))
-        #expect(
-            RemoteMediaCachePolicy.parseHTTPDate("Sun, 06 Nov 1994 08:49:37 GMT")
-                == Date(timeIntervalSince1970: 784_111_777))
-        #expect(RemoteMediaCachePolicy.parseHTTPDate("Sunday, 06-Nov-94 08:49:37 GMT") == nil)
-        #expect(RemoteMediaCachePolicy.parseHTTPDate("Sun Nov  6 08:49:37 1994") == nil)
-        #expect(RemoteMediaCachePolicy.parseHTTPDate("Sun, 06 Nov 1994 25:49:37 GMT") == nil)
-        #expect(RemoteMediaCachePolicy.parseHTTPDate("Sun, 06 Foo 1994 08:49:37 GMT") == nil)
-    }
-
-    @Test func expiredEntryIsDroppedSoTheNextLoadRefetches() throws {
-        var cache = RemoteMediaResponseCache()
-        let url = try #require(URL(string: "https://cdn.example.com/x.png"))
-        let start = ContinuousClock.now
-        let freshness = RemoteMediaCacheFreshness(lifetime: .seconds(60), initialAge: .seconds(10))
-
-        let stored = cache.store(Data("x".utf8), for: url, freshness: freshness, now: start)
-        #expect(stored)
-        #expect(cache.body(for: url, now: start.advanced(by: .seconds(49))) == Data("x".utf8))
-        #expect(cache.body(for: url, now: start.advanced(by: .seconds(50))) == nil)
-        #expect(!cache.contains(url))
-        #expect(cache.totalBytes == 0)
-    }
-
-    @Test func entryCountIsBoundedLeastRecentlyUsedFirst() throws {
-        var cache = RemoteMediaResponseCache()
-        let now = ContinuousClock.now
-        let freshness = RemoteMediaCacheFreshness(lifetime: .seconds(600), initialAge: .zero)
-        let urls = try (0...RemoteMediaResponseCache.maximumEntryCount).map { index in
-            try #require(URL(string: "https://cdn.example.com/\(index).png"))
-        }
-        for url in urls.dropLast() {
-            cache.store(Data([1]), for: url, freshness: freshness, now: now)
-        }
-        _ = cache.body(for: urls[0], now: now)
-
-        cache.store(Data([1]), for: urls[urls.count - 1], freshness: freshness, now: now)
-
-        #expect(cache.count == RemoteMediaResponseCache.maximumEntryCount)
-        #expect(cache.contains(urls[0]))
-        #expect(!cache.contains(urls[1]))
-        #expect(cache.contains(urls[urls.count - 1]))
-    }
-
-    @Test func totalBytesAreBoundedLeastRecentlyUsedFirst() throws {
-        var cache = RemoteMediaResponseCache()
-        let now = ContinuousClock.now
-        let freshness = RemoteMediaCacheFreshness(lifetime: .seconds(600), initialAge: .zero)
-        let body = Data(count: 6 * 1_024 * 1_024)
-        let urls = try (0..<3).map { try #require(URL(string: "https://cdn.example.com/big\($0).png")) }
-
-        for url in urls {
-            cache.store(body, for: url, freshness: freshness, now: now)
-        }
-
-        #expect(cache.totalBytes <= RemoteMediaResponseCache.maximumTotalBytes)
-        #expect(!cache.contains(urls[0]))
-        #expect(cache.contains(urls[1]))
-        #expect(cache.contains(urls[2]))
-    }
-
-    @Test func uncacheableReplacementEvictsThePriorEntry() throws {
-        var cache = RemoteMediaResponseCache()
-        let url = try #require(URL(string: "https://cdn.example.com/x.png"))
-        let now = ContinuousClock.now
-        cache.store(
-            Data("old".utf8), for: url,
-            freshness: RemoteMediaCacheFreshness(lifetime: .seconds(600), initialAge: .zero), now: now)
-
-        let stored = cache.store(Data("new".utf8), for: url, freshness: nil, now: now)
-        #expect(!stored)
-        #expect(!cache.contains(url))
-        #expect(cache.totalBytes == 0)
     }
 }

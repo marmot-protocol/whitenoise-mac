@@ -4,8 +4,6 @@
 # Xcode
 build/
 DerivedData/
-TestBuild/
-NativeTestProducts.tar.gz
 *.xcresult
 *.xcuserstate
 *.xcscmblueprint
