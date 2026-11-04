@@ -48,7 +48,8 @@ struct MessengerShellView: View {
                             if workspace.isChatListVisible {
                                 ChatListDrawerView(
                                     model: session.accountScope?.chatListModel,
-                                    historyNotices: session.accountScope?.historyNotices
+                                    historyNotices: session.accountScope?.historyNotices,
+                                    selection: session.accountScope?.chatListSelection
                                 )
                                 // Deliberately un-animated: the width is dragged, so animating
                                 // it would re-wrap the non-lazy transcript on every frame of the

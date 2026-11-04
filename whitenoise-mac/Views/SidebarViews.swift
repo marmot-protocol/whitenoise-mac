@@ -152,10 +152,16 @@ struct ChatListDrawerView: View {
     @Environment(\.locale) private var locale
     let model: ChatListViewModel?
     let historyNotices: HistoryNoticesViewModel?
+    let selection: ChatListSelectionViewModel?
 
-    init(model: ChatListViewModel? = nil, historyNotices: HistoryNoticesViewModel? = nil) {
+    init(
+        model: ChatListViewModel? = nil,
+        historyNotices: HistoryNoticesViewModel? = nil,
+        selection: ChatListSelectionViewModel? = nil
+    ) {
         self.model = model
         self.historyNotices = historyNotices
+        self.selection = selection
     }
 
     private var isShowingSettings: Bool {
@@ -184,11 +190,14 @@ struct ChatListDrawerView: View {
                 let listing = visibleChats(for: filter)
                 let visibleChats = listing.chats
                 let isCollapsed = workspace.isChatListCollapsed
+                // The avatar-only rail has no room for checkmarks or the action bar.
+                let rowSelection = isCollapsed ? nil : selection
+                let activeSelection = rowSelection?.isActive == true ? rowSelection : nil
 
                 if isCollapsed {
                     CollapsedChatListHeader(isShowingArchived: isShowingArchived)
                 } else {
-                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived)
+                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived, selection: activeSelection)
                 }
 
                 GlassSeparator(axis: .horizontal)
@@ -204,7 +213,8 @@ struct ChatListDrawerView: View {
                                 chat: chat,
                                 isArchived: listing.archivedIds.contains(chat.id),
                                 isCollapsed: isCollapsed,
-                                searchResult: workspace.sidebarMessageSearchResult(for: chat)
+                                searchResult: workspace.sidebarMessageSearchResult(for: chat),
+                                selection: rowSelection
                             )
                             .onAppear {
                                 guard filter == .active else { return }
@@ -259,11 +269,35 @@ struct ChatListDrawerView: View {
                         }
                     }
                 }
+                .onChange(of: visibleChats.map(\.id), initial: true) { _, ids in
+                    selection?.updateVisibleChats(ids)
+                }
+
+                if let activeSelection {
+                    GlassSeparator(axis: .horizontal)
+                    ChatListSelectionBar(
+                        model: activeSelection,
+                        chats: visibleChats,
+                        archivedIds: listing.archivedIds
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .background {
             MessagesSidebarBackground(level: .drawer)
         }
+        .animation(.smooth(duration: 0.18), value: selection?.isActive == true)
+        .onChange(of: showsSelectableList) { _, shows in
+            // Selection belongs to the list on screen: settings, the composer or the collapsed rail
+            // replacing it ends selection mode rather than leaving it armed out of sight.
+            if !shows { selection?.end() }
+        }
+        .modifier(ChatListSelectionDialogs(model: selection))
+    }
+
+    private var showsSelectableList: Bool {
+        !isShowingSettings && !workspace.isNewChatComposerVisible && !workspace.isChatListCollapsed
     }
 }
 
@@ -329,32 +363,24 @@ private struct ChatListHeader: View {
     @Environment(WorkspaceState.self) private var workspace
     let filter: ChatListFilter
     let isShowingArchived: Bool
+    /// Set while selection mode is on; the title row gives way to the selection controls.
+    let selection: ChatListSelectionViewModel?
 
     var body: some View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Text(filter.title)
-                    .wnFont(MessagesType.paneTitle)
-                Spacer()
-                Button {
-                    workspace.presentGlobalMessageSearch()
-                } label: {
-                    Image(systemName: "text.magnifyingglass")
-                        .wnFont(.semiBold14)
-                        .frame(width: 34, height: 34)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Search all messages"))
-                if !isShowingArchived {
+            if let selection {
+                ChatListSelectionHeaderRow(model: selection)
+            } else {
+                HStack(spacing: 8) {
+                    Text(filter.title)
+                        .wnFont(MessagesType.paneTitle)
+                    Spacer()
                     Button {
-                        workspace.showNewChat()
+                        workspace.presentGlobalMessageSearch()
                     } label: {
-                        Image(systemName: "square.and.pencil")
+                        Image(systemName: "text.magnifyingglass")
                             .wnFont(.semiBold14)
                             .frame(width: 34, height: 34)
                             .background {
@@ -362,8 +388,22 @@ private struct ChatListHeader: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .keyboardShortcut("n", modifiers: .command)
-                    .help(L10n.string("New chat"))
+                    .help(L10n.string("Search all messages"))
+                    if !isShowingArchived {
+                        Button {
+                            workspace.showNewChat()
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                                .wnFont(.semiBold14)
+                                .frame(width: 34, height: 34)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut("n", modifiers: .command)
+                        .help(L10n.string("New chat"))
+                    }
                 }
             }
 
@@ -541,11 +581,78 @@ private struct ChatSidebarRow: View {
     let isArchived: Bool
     let isCollapsed: Bool
     let searchResult: GlobalMessageSearchResult?
+    /// `nil` where selection is unavailable (the collapsed rail). The row reads only `isActive`;
+    /// the checkmark observes the selected set on its own.
+    let selection: ChatListSelectionViewModel?
 
     var body: some View {
+        let isSelecting = selection?.isActive == true
+
         Button {
-            workspace.selectChat(chat)
+            click()
         } label: {
+            HStack(spacing: 6) {
+                if isSelecting, let selection {
+                    ChatListSelectionIndicator(model: selection, groupIdHex: chat.id)
+                        .padding(.leading, 4)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+                ChatSidebarRowContent(
+                    chat: chat,
+                    isArchived: isArchived,
+                    isCollapsed: isCollapsed,
+                    searchResult: searchResult
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")
+        .contextMenu {
+            // A row's own actions would act on one chat while several are selected; the bar
+            // is where a selection is acted on.
+            if !isSelecting {
+                ChatSidebarRowMenuItems(chat: chat, isArchived: isArchived, selection: selection)
+            }
+        }
+    }
+
+    /// A plain click opens the chat; in selection mode it toggles it instead. ⌘-click starts a
+    /// selection from this row, and ⇧-click selects the range from the open chat (or the last
+    /// clicked row) to this one — the Finder and Mail conventions.
+    private func click() {
+        if let selection {
+            let modifiers = NSEvent.modifierFlags
+            if modifiers.contains(.shift) {
+                selection.extend(to: chat.id, defaultAnchor: openChatId)
+                return
+            }
+            if selection.isActive {
+                selection.toggle(chat.id)
+                return
+            }
+            if modifiers.contains(.command) {
+                selection.begin(with: chat.id)
+                return
+            }
+        }
+        workspace.selectChat(chat)
+    }
+
+    private var openChatId: String? {
+        if case .chat(let id) = workspace.selection { return id }
+        return nil
+    }
+}
+
+private struct ChatSidebarRowContent: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let chat: ChatItem
+    let isArchived: Bool
+    let isCollapsed: Bool
+    let searchResult: GlobalMessageSearchResult?
+
+    var body: some View {
+        Group {
             if isCollapsed {
                 CollapsedChatRowContent(
                     chat: chat,
@@ -561,11 +668,6 @@ private struct ChatSidebarRow: View {
                 )
             }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")
-        .contextMenu {
-            ChatSidebarRowMenuItems(chat: chat, isArchived: isArchived)
-        }
     }
 }
 
@@ -573,6 +675,7 @@ private struct ChatSidebarRowMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
     let isArchived: Bool
+    let selection: ChatListSelectionViewModel?
 
     /// Any archive in flight, not just this chat's: `setChatArchived` refuses every call while one
     /// is running, so an enabled item on another row would be a click that does nothing.
@@ -582,6 +685,17 @@ private struct ChatSidebarRowMenuItems: View {
 
     var body: some View {
         Group {
+            if let selection {
+                Button {
+                    selection.begin(with: chat.id)
+                } label: {
+                    ChatRowMenuLabel(action: .select)
+                }
+                .disabled(selection.isBusy)
+
+                Divider()
+            }
+
             Button {
                 Task {
                     await workspace.setChatManuallyUnread(
@@ -603,25 +717,12 @@ private struct ChatSidebarRowMenuItems: View {
                 .disabled(workspace.isMutatingChatPreferences(chat))
             } else {
                 Menu {
-                    Button {
-                        Task { await workspace.setChatMuted(chat, duration: 60 * 60) }
-                    } label: {
-                        Label(L10n.string("For 1 Hour"), systemImage: "clock")
-                    }
-                    Button {
-                        Task { await workspace.setChatMuted(chat, duration: 8 * 60 * 60) }
-                    } label: {
-                        Label(L10n.string("For 8 Hours"), systemImage: "clock")
-                    }
-                    Button {
-                        Task { await workspace.setChatMuted(chat, duration: 7 * 24 * 60 * 60) }
-                    } label: {
-                        Label(L10n.string("For 1 Week"), systemImage: "calendar")
-                    }
-                    Button {
-                        Task { await workspace.setChatMuted(chat, duration: nil) }
-                    } label: {
-                        Label(L10n.string("Until I Turn It Back On"), systemImage: "infinity")
+                    ForEach(ChatMuteDuration.allCases) { duration in
+                        Button {
+                            Task { await workspace.setChatMuted(chat, duration: duration.interval) }
+                        } label: {
+                            Label(L10n.string(duration.titleKey), systemImage: duration.systemImage)
+                        }
                     }
                 } label: {
                     ChatRowMenuLabel(action: .mute)
