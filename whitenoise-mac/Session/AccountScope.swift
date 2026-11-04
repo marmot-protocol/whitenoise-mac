@@ -14,6 +14,7 @@ final class AccountScope {
     @ObservationIgnored let runtime: any MarmotRuntime
     let settingsModel: SettingsViewModel
     let chatListModel: ChatListViewModel
+    let chatListSelection: ChatListSelectionViewModel
     let attentionModel: AccountAttentionViewModel
     let attachmentPolicy: AttachmentPolicyController
     let avatarAssets: AvatarAssetStore
@@ -22,7 +23,7 @@ final class AccountScope {
     let historyNotices: HistoryNoticesViewModel
     /// Asks before a group change MDK refused as advisory (`GroupCatchingUp`,
     /// `GroupCommitUndelivered`) is acknowledged and retried.
-    let groupChangeAdvisory = GroupChangeAdvisoryPrompter()
+    let groupChangeAdvisory: GroupChangeAdvisoryPrompter
     let productAnalytics: ProductAnalyticsRecorder
     private(set) var selectedConversationModel: ConversationViewModel?
     @ObservationIgnored private var attachmentPolicyTask: Task<Void, Never>?
@@ -35,11 +36,13 @@ final class AccountScope {
         account: AccountItem,
         runtime: any MarmotRuntime,
         relayListsDidChange: @escaping @MainActor () -> Void = {},
-        attachmentsDidChange: @escaping @MainActor () async -> Void = {}
+        attachmentsDidChange: @escaping @MainActor () async -> Void = {},
+        chatsDidChange: @escaping @MainActor (_ departedGroupIds: Set<String>) async -> Void = { _ in }
     ) {
         let attachmentPolicy = AttachmentPolicyController(accountRef: account.accountRef, runtime: runtime)
         let blockedUsers = BlockedUsersViewModel(accountRef: account.accountRef, runtime: runtime)
         let productAnalytics = ProductAnalyticsRecorder()
+        let groupChangeAdvisory = GroupChangeAdvisoryPrompter()
         let chatListModel = ChatListViewModel(
             account: account,
             runtime: runtime,
@@ -47,6 +50,7 @@ final class AccountScope {
         )
         self.account = account
         self.runtime = runtime
+        self.groupChangeAdvisory = groupChangeAdvisory
         self.settingsModel = SettingsViewModel(
             account: account,
             runtime: runtime,
@@ -58,6 +62,12 @@ final class AccountScope {
             attachmentsDidChange: attachmentsDidChange
         )
         self.chatListModel = chatListModel
+        self.chatListSelection = ChatListSelectionViewModel(
+            accountRef: account.accountRef,
+            runtime: runtime,
+            advisory: groupChangeAdvisory,
+            chatsDidChange: chatsDidChange
+        )
         self.attentionModel = AccountAttentionViewModel(runtime: runtime)
         self.attachmentPolicy = attachmentPolicy
         self.avatarAssets = AvatarAssetStore(accountRef: account.accountRef, runtime: runtime)
@@ -83,9 +93,10 @@ final class AccountScope {
         addCancellation {
             [
                 chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, productAnalytics,
-                settingsModel, groupChangeAdvisory
+                settingsModel, groupChangeAdvisory, chatListSelection
             ] in
             chatListModel.stop()
+            chatListSelection.stop()
             attentionModel.stop()
             blockedUsers.stop()
             onboarding.stop()

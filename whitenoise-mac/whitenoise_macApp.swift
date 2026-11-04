@@ -118,6 +118,20 @@ struct whitenoise_macApp: App {
             // would otherwise keep showing as downloaded. Open conversations re-read through MDK.
             attachmentsDidChange: { [weak workspace] in
                 await workspace?.clearMediaCache()
+            },
+            // A bulk action from the chat-list selection ran against MDK directly; bring the
+            // legacy chat state along, as each single-row action does after its own mutation.
+            chatsDidChange: { [weak workspace] departedGroupIds in
+                guard let workspace, let accountID = activatingAccountID,
+                    workspace.activeAccountId == accountID
+                else { return }
+                for groupIdHex in departedGroupIds {
+                    workspace.clearMediaReferenceResolutionCache(forAccountId: accountID, groupIdHex: groupIdHex)
+                }
+                if let open = workspace.groupDetailsSnapshot?.groupIdHex, departedGroupIds.contains(open) {
+                    workspace.closeGroupDetails()
+                }
+                await workspace.reloadChats(forceFreshSnapshot: true)
             }
         )
         guard let scope = session.accountScope else { return }

@@ -19,7 +19,8 @@ final class SessionState {
         runtime: (any MarmotRuntime)?,
         connectivityAvailable: Bool,
         relayListsDidChange: @escaping @MainActor () -> Void = {},
-        attachmentsDidChange: @escaping @MainActor () async -> Void = {}
+        attachmentsDidChange: @escaping @MainActor () async -> Void = {},
+        chatsDidChange: @escaping @MainActor (_ departedGroupIds: Set<String>) async -> Void = { _ in }
     ) async {
         guard let account, let runtime else {
             await deactivate()
@@ -37,7 +38,8 @@ final class SessionState {
             account: account,
             runtime: runtime,
             relayListsDidChange: relayListsDidChange,
-            attachmentsDidChange: attachmentsDidChange
+            attachmentsDidChange: attachmentsDidChange,
+            chatsDidChange: chatsDidChange
         )
         accountScope = scope
         scope.start(connectivityAvailable: connectivityAvailable)

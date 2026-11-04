@@ -8,6 +8,8 @@ import SwiftUI
 ///
 /// Glyphs and tints mirror `whitenoise-ios`'s `ChatListSwipeAction`: blue for read state, indigo
 /// for muting, orange for pinning, gray for the archive, red for leaving or dropping the chat.
+/// `select` — entering selection mode — has no swipe counterpart (iOS starts it with a long
+/// press), and takes the accent blue of the read-state pair.
 nonisolated enum ChatRowMenuAction: String, CaseIterable, Identifiable, Sendable {
     case markUnread
     case clearUnread
@@ -19,6 +21,7 @@ nonisolated enum ChatRowMenuAction: String, CaseIterable, Identifiable, Sendable
     case unarchive
     case leave
     case deleteLocally
+    case select
 
     var id: String { rawValue }
 
@@ -34,6 +37,7 @@ nonisolated enum ChatRowMenuAction: String, CaseIterable, Identifiable, Sendable
         case .unarchive: "tray.and.arrow.up.fill"
         case .leave: "rectangle.portrait.and.arrow.right"
         case .deleteLocally: "trash.fill"
+        case .select: "checkmark.circle"
         }
     }
 
@@ -49,6 +53,7 @@ nonisolated enum ChatRowMenuAction: String, CaseIterable, Identifiable, Sendable
         case .unarchive: "Unarchive"
         case .leave: "Leave Chat"
         case .deleteLocally: "Delete From This Device"
+        case .select: "Select"
         }
     }
 }
@@ -58,7 +63,7 @@ extension ChatRowMenuAction {
     /// `NSColor(SwiftUI.Color)` would freeze a dynamic token to one appearance.
     var tint: NSColor {
         switch self {
-        case .markUnread, .clearUnread: .systemBlue
+        case .markUnread, .clearUnread, .select: .systemBlue
         case .mute, .unmute: .systemIndigo
         case .pin, .unpin: .systemOrange
         case .archive, .unarchive: .systemGray

@@ -39,7 +39,7 @@ struct ChatRowMenuActionTests {
         #expect(
             ChatRowMenuAction.allCases.map(\.titleKey) == [
                 "Mark as Unread", "Clear Unread Reminder", "Mute", "Unmute", "Pin to Top", "Unpin",
-                "Archive", "Unarchive", "Leave Chat", "Delete From This Device",
+                "Archive", "Unarchive", "Leave Chat", "Delete From This Device", "Select",
             ])
     }
 }
