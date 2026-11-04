@@ -139,14 +139,6 @@ nonisolated final class RemoteMediaDNSSlots: @unchecked Sendable {
         lock.unlock()
     }
 
-    func claim() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard inUse < limit, queue.isEmpty else { return false }
-        inUse += 1
-        return true
-    }
-
     func release() {
         lock.lock()
         inUse = max(0, inUse - 1)

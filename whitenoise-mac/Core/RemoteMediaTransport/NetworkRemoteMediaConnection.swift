@@ -22,9 +22,8 @@ nonisolated struct NetworkRemoteMediaConnectionFactory: RemoteMediaConnectionFac
     /// endpoint we dial. For a literal origin no name is set, so the certificate must carry the
     /// literal address as an IP SAN, exactly as before.
     ///
-    /// `preferNoProxies` asks Network.framework to ignore enabled system proxies, so the
-    /// address admitted here is the address dialed rather than one a proxy resolves again. It
-    /// is a preference; see docs/remote-media-transport.md for the native qualification gap.
+    /// System proxies are honored, as they were under `URLSession`: the proxy is handed the
+    /// already-admitted numeric endpoint, so it has no name to resolve again.
     static func parameters(tlsServerName: String?) -> NWParameters {
         let tls = NWProtocolTLS.Options()
         let security = tls.securityProtocolOptions
@@ -37,9 +36,7 @@ nonisolated struct NetworkRemoteMediaConnectionFactory: RemoteMediaConnectionFac
         let tcp = NWProtocolTCP.Options()
         tcp.connectionTimeout = Int(RemoteImageURLPolicy.downloadStallTimeout)
 
-        let parameters = NWParameters(tls: tls, tcp: tcp)
-        parameters.preferNoProxies = true
-        return parameters
+        return NWParameters(tls: tls, tcp: tcp)
     }
 
     /// Builds the endpoint host from address *bytes* through the typed initializers, so no

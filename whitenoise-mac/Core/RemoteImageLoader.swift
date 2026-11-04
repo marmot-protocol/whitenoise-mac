@@ -712,37 +712,19 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     private var cacheGenerations: [CacheScope: Int] = [.remote: 0, .local: 0]
     private var localCacheKeys = Set<String>()
     private var primedSources: [PrimedSource] = []
-    /// Raw response bodies, memory only (never disk), bounded to 16 MiB / 512 entries, holding
-    /// only complete `200`s with explicit freshness. Guarded by `cacheStateLock`; insertion is
-    /// gated on the existing remote cache generation so `clearCache()` also refuses a late
-    /// insertion from a fetch that was already in flight.
-    private var responseCache = RemoteMediaResponseCache()
     /// The only way this loader reaches the network. There is no URLSession path.
     private let transport: RemoteMediaTransport
 
     var decodedCacheCountLimit: Int { cache.countLimit }
     var decodedCacheTotalCostLimit: Int { cache.totalCostLimit }
 
-    convenience init(
+    /// Tests pass a transport built from fake resolver/connection/clock doubles; admission,
+    /// answer validation, framing and size bounds still run, only sockets and time are fake.
+    init(
+        transport: RemoteMediaTransport = .live,
         cacheCountLimit: Int = RemoteImageLoader.defaultDecodedCacheCountLimit,
         cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit
     ) {
-        self.init(transport: .live, cacheCountLimit: cacheCountLimit, cacheTotalCostLimit: cacheTotalCostLimit)
-    }
-
-    #if DEBUG
-        /// Test seam: a transport built from fake resolver/connection/clock doubles. Admission,
-        /// answer validation, framing and size bounds still run; only sockets and time are fake.
-        convenience init(
-            testingTransport transport: RemoteMediaTransport,
-            cacheCountLimit: Int = RemoteImageLoader.defaultDecodedCacheCountLimit,
-            cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit
-        ) {
-            self.init(transport: transport, cacheCountLimit: cacheCountLimit, cacheTotalCostLimit: cacheTotalCostLimit)
-        }
-    #endif
-
-    private init(transport: RemoteMediaTransport, cacheCountLimit: Int, cacheTotalCostLimit: Int) {
         self.transport = transport
         cache.countLimit = cacheCountLimit
         cache.totalCostLimit = cacheTotalCostLimit
@@ -795,7 +777,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         let key = Self.inFlightKey(scope: .remote, forCacheKey: "raw|\(url.absoluteString)", generation: generation)
         let task = rawInFlight.task(for: key) {
             Task { [self] in
-                let data = await download(url, cacheGeneration: generation)
+                let data = await download(url)
                 guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
                 return data
             }
@@ -805,18 +787,18 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
     /// Fetches a web page for a link preview through the same pinned protections as an image:
     /// `RemoteImageURLPolicy` on the URL and on every redirect, the response-size cap, and the
-    /// pinned, cookieless transport. Returns the body with the final response, so the caller can
-    /// check the MIME type and resolve relative URLs against where the redirects ended. Nil means
-    /// the fetch itself failed (disallowed, non-2xx, oversized, cancelled, or a network error).
+    /// pinned, cookieless transport. Only the request's `Accept` header is forwarded. Returns the
+    /// body with the final response, so the caller can check the MIME type and resolve relative
+    /// URLs against where the redirects ended. Nil means the fetch itself failed (disallowed, non-2xx, oversized, cancelled, or a network error).
     func page(for request: URLRequest) async -> (Data, URLResponse)? {
         guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else { return nil }
-        guard let fetched = try? await transport.fetch(url),
-            let head = fetched.head,
+        let accept = request.value(forHTTPHeaderField: "Accept") ?? "*/*"
+        guard let fetched = try? await transport.fetch(url, accept: accept),
             let response = HTTPURLResponse(
                 url: fetched.url,
-                statusCode: head.statusCode,
-                httpVersion: "HTTP/1.\(head.minorVersion)",
-                headerFields: Dictionary(grouping: head.fields, by: \.name).mapValues {
+                statusCode: fetched.head.statusCode,
+                httpVersion: "HTTP/1.\(fetched.head.minorVersion)",
+                headerFields: Dictionary(grouping: fetched.head.fields, by: \.name).mapValues {
                     $0.map(\.value).joined(separator: ", ")
                 }
             )
@@ -963,8 +945,6 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         }
         cache.removeAllObjects()
         localCacheKeys.removeAll(keepingCapacity: true)
-        // Raw remote bytes go too; the generation bump above refuses any in-flight insertion.
-        responseCache.removeAll()
         // The privacy wipes this serves must not leave the user's own uploaded picture behind
         // in the process either, and a primed URL that outlived its account would go on serving
         // bytes no fetch could have produced.
@@ -992,12 +972,6 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     #if DEBUG
         func primedSourceByteCount(for url: URL) -> Int? {
             primedSource(for: url)?.count
-        }
-
-        func hasCachedResponse(for url: URL) -> Bool {
-            cacheStateLock.lock()
-            defer { cacheStateLock.unlock() }
-            return responseCache.contains(url)
         }
 
         func inFlightWaiterCount(for url: URL, maxPixelSize: CGFloat) -> Int {
@@ -1033,7 +1007,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         if let primed = primedSource(for: url) {
             source = primed
         } else {
-            guard let downloaded = await download(url, cacheGeneration: generation) else { return nil }
+            guard let downloaded = await download(url) else { return nil }
             source = downloaded
         }
         guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
@@ -1124,44 +1098,9 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// `RemoteMediaTransport` re-admits every redirect hop, pins every connection to an admitted
     /// numeric address, and enforces the size, deadline and idle bounds; any failure is `nil`.
     /// Task cancellation (the last coalesced waiter leaving, or `clearCache()`) reaches the
-    /// transport and closes the socket without waiting for it. Fresh bodies are served from and
-    /// stored to `responseCache` only while `generation` is still the current remote generation.
-    private func download(_ url: URL, cacheGeneration generation: Int) async -> Data? {
-        do {
-            let result = try await transport.fetch(url) { [self] hop in
-                cachedResponseBody(for: hop, cacheGeneration: generation)
-            }
-            if let head = result.head {
-                storeResponse(result, head: head, cacheGeneration: generation)
-            }
-            return result.body
-        } catch {
-            return nil
-        }
-    }
-
-    private func cachedResponseBody(for url: URL, cacheGeneration generation: Int) -> Data? {
-        let now = transport.now()
-        cacheStateLock.lock()
-        defer { cacheStateLock.unlock() }
-        guard cacheGenerations[.remote, default: 0] == generation else { return nil }
-        return responseCache.body(for: url, now: now)
-    }
-
-    private func storeResponse(
-        _ result: RemoteMediaFetchResult,
-        head: RemoteMediaHTTPResponseHead,
-        cacheGeneration generation: Int
-    ) {
-        let freshness = RemoteMediaCachePolicy.freshness(
-            for: head,
-            wallClockAtResponse: result.responseWallClockAtHead,
-            responseDelay: result.requestSentAt.duration(to: result.responseReceivedAt)
-        )
-        cacheStateLock.lock()
-        defer { cacheStateLock.unlock() }
-        guard cacheGenerations[.remote, default: 0] == generation else { return }
-        responseCache.store(result.body, for: result.url, freshness: freshness, now: result.responseReceivedAt)
+    /// transport and closes the socket without waiting for it.
+    private func download(_ url: URL) async -> Data? {
+        try? await transport.fetch(url).body
     }
 
     /// Decoded-pixel ceiling for one source image — a small compressed body can declare
