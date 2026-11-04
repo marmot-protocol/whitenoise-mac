@@ -270,7 +270,12 @@ nonisolated struct TranscriptRowContext: Equatable {
 /// One row of the transcript table.
 nonisolated enum TranscriptRow: Identifiable, Equatable {
     case loadingOlder(isLoading: Bool)
-    case message(TimelineMessageDisplayItem, showsUnreadDivider: Bool, context: TranscriptRowContext)
+    case message(
+        TimelineMessageDisplayItem,
+        showsUnreadDivider: Bool,
+        isSearchMatch: Bool,
+        context: TranscriptRowContext
+    )
     case loadingNewer(isLoading: Bool)
     case pending(PendingOutgoingMessageRow)
     case footer
@@ -287,7 +292,7 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
     var id: String {
         switch self {
         case .loadingOlder: "transcript-loading-older"
-        case .message(let item, _, _): item.message.id
+        case .message(let item, _, _, _): item.message.id
         case .loadingNewer: "transcript-loading-newer"
         case .pending(let row): "transcript-pending-\(row.id.uuidString)"
         case .footer: "transcript-footer"
@@ -298,9 +303,12 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         switch (lhs, rhs) {
         case (.loadingOlder(let a), .loadingOlder(let b)), (.loadingNewer(let a), .loadingNewer(let b)):
             return a == b
-        case (.message(let a, let dividerA, let contextA), .message(let b, let dividerB, let contextB)):
+        case (
+            .message(let a, let dividerA, let matchA, let contextA),
+            .message(let b, let dividerB, let matchB, let contextB)
+        ):
             return a.message == b.message && a.dayLabel == b.dayLabel && dividerA == dividerB
-                && contextA == contextB
+                && matchA == matchB && contextA == contextB
         case (.pending(let a), .pending(let b)):
             return a == b
         case (.footer, .footer):
@@ -317,6 +325,7 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         paging: TimelinePagingState,
         pendingOutgoingRows: [PendingOutgoingMessageRow],
         unreadDividerMessageId: String?,
+        searchMatchMessageId: String? = nil,
         context: TranscriptRowContext
     ) -> [TranscriptRow] {
         var rows: [TranscriptRow] = []
@@ -324,7 +333,12 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         if paging.hasMoreBefore { rows.append(.loadingOlder(isLoading: paging.isLoadingBefore)) }
         for item in displayItems {
             rows.append(
-                .message(item, showsUnreadDivider: item.message.id == unreadDividerMessageId, context: context))
+                .message(
+                    item,
+                    showsUnreadDivider: item.message.id == unreadDividerMessageId,
+                    isSearchMatch: item.message.id == searchMatchMessageId,
+                    context: context
+                ))
         }
         if paging.hasMoreAfter { rows.append(.loadingNewer(isLoading: paging.isLoadingAfter)) }
         rows += pendingOutgoingRows.map(TranscriptRow.pending)
@@ -355,7 +369,7 @@ private struct TranscriptRowCell: View {
             switch row {
             case .loadingOlder(let isLoading), .loadingNewer(let isLoading):
                 TimelinePageLoadingRow(isLoading: isLoading)
-            case .message(let item, let showsUnreadDivider, let context):
+            case .message(let item, let showsUnreadDivider, let isSearchMatch, let context):
                 VStack(spacing: 12) {
                     if showsUnreadDivider {
                         UnreadMessagesDivider()
@@ -374,6 +388,11 @@ private struct TranscriptRowCell: View {
                         onOpenImageGallery: onOpenImageGallery,
                         onNavigateToMessage: onNavigateToMessage
                     )
+                    .background {
+                        if isSearchMatch {
+                            TranscriptSearchMatchHighlight()
+                        }
+                    }
                 }
             case .pending(.text(let message)):
                 PendingOutgoingTextBubble(
@@ -405,6 +424,34 @@ private struct TranscriptRowCell: View {
         .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
         .environment(\.composerFocusRequester, composerFocusRequester)
     }
+}
+
+/// Marks the search match the reader is on. Drawn into the cell's own padding, so it never changes
+/// the row's measured height.
+private struct TranscriptSearchMatchHighlight: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(WNColor.intentionWarningBackground)
+            .padding(.horizontal, -12)
+            .padding(.vertical, -4)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+#Preview("Search match highlight") {
+    Text(verbatim: "Lunch at noon?")
+        .padding(12)
+        .background {
+            TranscriptSearchMatchHighlight()
+        }
+        .padding(24)
+}
+
+/// What an open search must re-read the chat's history for: a change to its newest message.
+private struct ConversationSearchHistoryKey: Equatable {
+    let updatedAt: Date?
+    let preview: String
 }
 
 private struct TranscriptOpeningKey: Equatable {
@@ -463,6 +510,9 @@ private struct ConversationView: View {
     @State private var composerFocusRequester = ComposerFocusRequester()
     /// True during a live scroll (the user dragging or flinging). Read marking waits for it to end.
     @State private var isActivelyScrolling = false
+    /// Brings the latest search match on screen. Each one waits for the one before it, because two
+    /// window jumps quoting the same revision would leave the loser stale.
+    @State private var searchRevealTask: Task<Void, Never>?
     let chat: ChatItem
     let model: ConversationViewModel
     let chatListModel: ChatListViewModel
@@ -495,6 +545,7 @@ private struct ConversationView: View {
             paging: paging,
             pendingOutgoingRows: pendingOutgoingRows,
             unreadDividerMessageId: model.unreadDivider?.messageIdHex,
+            searchMatchMessageId: model.search.isActive ? model.search.currentMatchMessageId : nil,
             context: TranscriptRowContext(
                 canVoteInPolls: canUseComposer,
                 showsDebugMetadata: workspace.streamingDebugEnabled,
@@ -506,7 +557,7 @@ private struct ConversationView: View {
 
         ZStack {
             VStack(spacing: 0) {
-                ConversationHeader(chat: chat)
+                ConversationHeader(chat: chat, onSearch: openSearch)
                     .messageDeletionConfirmation()
                     .messageEditHistory(model: model)
                     .pollVotesSheet(
@@ -515,6 +566,12 @@ private struct ConversationView: View {
                         voterDisplay: { workspace.reactionReactorDisplay(accountIdHex: $0) }
                     )
                 GlassSeparator(axis: .horizontal)
+
+                if model.search.isActive {
+                    ConversationSearchBar(model: model.search, onClose: closeSearch)
+                        .background { MessagesHeaderBackground() }
+                    GlassSeparator(axis: .horizontal)
+                }
 
                 Group {
                     if messageIDs.isEmpty && pendingOutgoingRows.isEmpty {
@@ -638,6 +695,16 @@ private struct ConversationView: View {
                         }
                     }
                     workspace.completePendingMessageNavigation(target)
+                }
+                .onChange(of: model.search.navigation) { _, navigation in
+                    guard let navigation else { return }
+                    revealSearchMatch(navigation)
+                }
+                .onChange(of: ConversationSearchHistoryKey(updatedAt: chat.updatedAt, preview: chat.preview)) {
+                    model.search.historyDidChange()
+                }
+                .onChange(of: model.search.isActive ? searchExclusions : nil) { _, exclusions in
+                    if let exclusions { model.search.exclusions = exclusions }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if hasLanded && !isPinnedToBottom {
@@ -1073,6 +1140,41 @@ private struct ConversationView: View {
             ? L10n.string("Voice message") : L10n.string("A voice message is sent on its own")
     }
 
+    /// What the transcript hides from this chat, which search must skip as well.
+    private var searchExclusions: ConversationSearchExclusions {
+        ConversationSearchExclusions(
+            blockedSenders: blockedUsersModel.blockedAccountIDs,
+            hiddenMessageIds: workspace.activeAccountId.map {
+                workspace.hiddenMessageIds(accountId: $0, groupIdHex: chat.id)
+            } ?? []
+        )
+    }
+
+    private func openSearch() {
+        model.search.exclusions = searchExclusions
+        model.search.activate()
+    }
+
+    private func closeSearch() {
+        searchRevealTask?.cancel()
+        searchRevealTask = nil
+        model.search.end()
+        composerFocusRequester.request()
+    }
+
+    private func revealSearchMatch(_ navigation: ConversationSearchNavigation) {
+        let previous = searchRevealTask
+        let search = model.search
+        searchRevealTask = Task {
+            await previous?.value
+            // A later step superseded this one while the previous jump ran.
+            guard !Task.isCancelled, search.navigation == navigation else { return }
+            if await revealMessage(navigation.messageId) == nil, search.navigation == navigation {
+                search.matchUnavailable(navigation.messageId)
+            }
+        }
+    }
+
     /// Scrolls to a message, jumping the window to it first when it is not loaded. Returns the
     /// scroll request, or nil when the message could not be brought into the window.
     @discardableResult
@@ -1100,6 +1202,8 @@ private struct ConversationView: View {
     }
 
     private func resetForNewChat() {
+        searchRevealTask?.cancel()
+        searchRevealTask = nil
         isPinnedToBottom = false
         scrollRequest = nil
         openingRequestId = nil

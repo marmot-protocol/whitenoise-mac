@@ -65,8 +65,18 @@ nonisolated enum GlobalMessageSearchText {
     }
 
     static func matches(_ text: String, tokens: [String]) -> Bool {
+        matches(searchableText: searchableText(text), tokens: tokens)
+    }
+
+    /// `text` folded the way `tokens(in:)` folds a query. Normalizing once and matching many
+    /// queries against the result is what keeps an in-chat search's keystrokes cheap.
+    static func searchableText(_ text: String) -> String {
+        normalize(text)
+    }
+
+    /// `matches(_:tokens:)` for text already passed through `searchableText(_:)`.
+    static func matches(searchableText normalized: String, tokens: [String]) -> Bool {
         guard !tokens.isEmpty else { return false }
-        let normalized = normalize(text)
         var searchStart = normalized.startIndex
         for token in tokens {
             guard let range = normalized.range(of: token, range: searchStart..<normalized.endIndex) else {
