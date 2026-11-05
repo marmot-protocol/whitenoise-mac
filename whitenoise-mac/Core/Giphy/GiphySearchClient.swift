@@ -3,7 +3,24 @@ import Foundation
 nonisolated struct GiphySearchResult: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
-    let media: RemoteGiphyMedia
+    /// The renditions worth trying, best first and never empty. GIPHY's metadata cannot say
+    /// whether a rendition passes `GIFPlaybackAdmission` — it under-reports frames — so the
+    /// picker sends whichever one actually played, not simply the first.
+    let candidates: [RemoteGiphyMedia]
+
+    /// The preferred rendition.
+    var media: RemoteGiphyMedia { candidates[0] }
+
+    init(id: String, title: String, candidates: [RemoteGiphyMedia]) {
+        precondition(!candidates.isEmpty, "a search result needs at least one rendition")
+        self.id = id
+        self.title = title
+        self.candidates = candidates
+    }
+
+    init(id: String, title: String, media: RemoteGiphyMedia) {
+        self.init(id: id, title: title, candidates: [media])
+    }
 }
 
 nonisolated enum GiphySearchError: LocalizedError, Equatable {
@@ -11,6 +28,8 @@ nonisolated enum GiphySearchError: LocalizedError, Equatable {
     case queryTooLong
     case invalidRequest
     case badResponse
+    /// A lookup answered, but the item has no GIF rendition the app can animate.
+    case unsupportedMedia
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +39,8 @@ nonisolated enum GiphySearchError: LocalizedError, Equatable {
             L10n.string("That GIF search is too long.")
         case .invalidRequest, .badResponse:
             L10n.string("GIF search is temporarily unavailable.")
+        case .unsupportedMedia:
+            L10n.string("This GIF isn't supported.")
         }
     }
 }
@@ -54,9 +75,9 @@ nonisolated struct GiphySearchClient: Sendable {
         return try Self.decodeResults(from: data)
     }
 
-    /// Resolves a legacy MP4 envelope to the GIF rendition of the same GIPHY item, which is what
-    /// the bubble can actually animate.
-    func resolveAnimatedMedia(for legacyURL: URL) async throws -> RemoteGiphyMedia {
+    /// Resolves a legacy MP4 envelope to the GIF renditions of the same GIPHY item, best first,
+    /// which is what the bubble can actually animate.
+    func resolveAnimatedCandidates(for legacyURL: URL) async throws -> [RemoteGiphyMedia] {
         guard let id = Self.giphyID(from: legacyURL),
             let url = Self.lookupURL(id: id, apiKey: apiKey)
         else { throw GiphySearchError.invalidRequest }
@@ -107,21 +128,20 @@ nonisolated struct GiphySearchClient: Sendable {
         return response.data.prefix(maximumResultCount).compactMap(result(from:))
     }
 
-    static func decodeLookupResult(from data: Data) throws -> RemoteGiphyMedia {
+    static func decodeLookupResult(from data: Data) throws -> [RemoteGiphyMedia] {
         let response: LookupResponse
         do {
             response = try JSONDecoder().decode(LookupResponse.self, from: data)
         } catch {
             throw GiphySearchError.badResponse
         }
-        guard let result = result(from: response.data),
-            result.media.url.pathExtension.lowercased() == "gif"
-        else { throw GiphySearchError.badResponse }
-        return result.media
+        guard let result = result(from: response.data) else { throw GiphySearchError.unsupportedMedia }
+        return result.candidates
     }
 
     private static func result(from item: Item) -> GiphySearchResult? {
-        guard let media = mediaRendition(from: item.images) else { return nil }
+        let renditions = mediaRenditions(from: item.images)
+        guard !renditions.isEmpty else { return nil }
 
         let rawAttribution =
             item.user?.displayName?.nilIfBlank
@@ -135,12 +155,9 @@ nonisolated struct GiphySearchClient: Sendable {
         return GiphySearchResult(
             id: String(item.id.prefix(128)),
             title: title,
-            media: RemoteGiphyMedia(
-                url: media.url,
-                width: media.width,
-                height: media.height,
-                attribution: attribution
-            )
+            candidates: renditions.map {
+                RemoteGiphyMedia(url: $0.url, width: $0.width, height: $0.height, attribution: attribution)
+            }
         )
     }
 
@@ -151,10 +168,12 @@ nonisolated struct GiphySearchClient: Sendable {
             }
     }
 
-    /// The largest GIF rendition under the preferred byte budget, or the smallest one when every
-    /// rendition is over it. Only `.gif` URLs are considered: ImageIO animates GIF data
-    /// natively, and the MP4 renditions would need a video player per bubble.
-    private static func mediaRendition(from images: Images) -> (url: URL, width: Int, height: Int)? {
+    /// The GIF renditions worth trying, best first: the largest under the preferred byte budget
+    /// (or the smallest when every rendition is over it), then the two downsampled renditions,
+    /// which are the likeliest to pass admission when the preferred one does not. Only `.gif`
+    /// URLs are considered: ImageIO animates GIF data natively, and the MP4 renditions would need
+    /// a video player per bubble.
+    private static func mediaRenditions(from images: Images) -> [(url: URL, width: Int, height: Int)] {
         let renditions = [
             images.original,
             images.downsizedMedium,
@@ -169,7 +188,14 @@ nonisolated struct GiphySearchClient: Sendable {
         let selected =
             preferred.max { ($0.width * $0.height) < ($1.width * $1.height) }
             ?? candidates.min { $0.byteCount < $1.byteCount }
-        return selected.map { ($0.url, $0.width, $0.height) }
+        guard let selected else { return [] }
+        let fallbacks = [images.fixedHeightDownsampled, images.fixedWidthDownsampled]
+            .compactMap { $0 }
+            .compactMap(candidate(from:))
+        var seen = Set<URL>()
+        return ([selected] + fallbacks)
+            .filter { seen.insert($0.url).inserted }
+            .map { ($0.url, $0.width, $0.height) }
     }
 
     private static func candidate(from rendition: Rendition) -> (url: URL, width: Int, height: Int, byteCount: Int)? {

@@ -187,8 +187,16 @@ nonisolated struct StableGiphyDisplayGeometry: Equatable, Sendable {
 nonisolated enum GiphyPlaybackState: Equatable, Sendable {
     case idle
     case loading
+    /// A transient failure: the bubble offers Retry.
     case failed
+    /// Refused for good — by admission, ImageIO, or the URL itself. Retrying would download the
+    /// same bytes and refuse them again, so the bubble says so instead of offering Retry.
+    case unsupported
     case playing(GiphyRemoteMediaLoader.PreparedPlayback)
+
+    static func failure(for error: Error) -> GiphyPlaybackState {
+        GiphyRemoteMediaLoader.isPermanent(error) ? .unsupported : .failed
+    }
 }
 
 /// A received or sent GIPHY GIF inside its bubble.
@@ -313,7 +321,7 @@ struct RemoteGiphyMediaView: View {
             // would clobber a newer load's spinner. The task that found the bubble ineligible
             // already put it back to `.idle`.
             guard !Task.isCancelled, !(error is CancellationError) else { return }
-            state = .failed
+            state = .failure(for: error)
         }
     }
 
@@ -324,7 +332,8 @@ struct RemoteGiphyMediaView: View {
     }
 }
 
-/// What fills the GIF's frame: the animation, a spinner, or the click-to-load / retry control.
+/// What fills the GIF's frame: the animation, a spinner, the click-to-load / retry control, or the
+/// notice for a GIF that can never play.
 private struct GiphyPlaybackContent: View {
     let state: GiphyPlaybackState
     let url: URL
@@ -341,6 +350,17 @@ private struct GiphyPlaybackContent: View {
             ProgressView()
                 .controlSize(.small)
                 .tint(.white)
+        case .unsupported:
+            VStack(spacing: 8) {
+                Image(systemName: "photo.badge.exclamationmark")
+                    .wnFont(.medium18)
+                Text(L10n.string("This GIF isn't supported."))
+                    .wnFont(.semiBold12)
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(.white)
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .idle, .failed:
             Button(action: onLoad) {
                 VStack(spacing: 8) {
@@ -454,36 +474,49 @@ private struct GiphySearchResultsContent: View {
         } else {
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(model.results) { result in
-                    Button {
-                        Task {
-                            if await model.select(result) { onDismiss() }
-                        }
-                    } label: {
-                        GiphySearchResultTile(
-                            result: result,
-                            isSending: model.sendingResultID == result.id
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(model.sendingResultID != nil)
-                    .help(result.title)
-                    .accessibilityLabel(result.title)
+                    GiphySearchResultButton(model: model, result: result, onDismiss: onDismiss)
                 }
             }
         }
     }
 }
 
+/// One result. It can be chosen only once its preview plays: that is the rendition `select` sends.
+private struct GiphySearchResultButton: View {
+    let model: GiphySearchViewModel
+    let result: GiphySearchResult
+    let onDismiss: () -> Void
+
+    var body: some View {
+        let preview = model.preview(for: result)
+        let label = preview == .unsupported ? L10n.string("This GIF isn't supported.") : result.title
+        Button {
+            Task {
+                if await model.select(result) { onDismiss() }
+            }
+        } label: {
+            GiphySearchResultTile(
+                result: result,
+                preview: preview,
+                isSending: model.sendingResultID == result.id
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(model.sendingResultID != nil || preview.playableMedia == nil)
+        .help(label)
+        .accessibilityLabel(label)
+        .task(id: result.id) { await model.loadPreview(for: result) }
+    }
+}
+
 private struct GiphySearchResultTile: View {
     let result: GiphySearchResult
+    let preview: GiphySearchViewModel.Preview
     let isSending: Bool
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Keyed on the URL so a new rendition rebuilds the preview, whose init re-reads the
-            // cache, instead of keeping the old GIF playing under the new URL.
-            GiphySearchPreview(media: result.media)
-                .id(result.media.url)
+            GiphySearchPreview(preview: preview)
 
             if let attribution = result.media.attribution {
                 Text(verbatim: attribution)
@@ -513,52 +546,36 @@ private struct GiphySearchResultTile: View {
     }
 }
 
-/// A search result's animation. Loaded without a click: the user asked GIPHY for these results,
-/// and the picker says so above them.
+/// A search result's animation. Loaded without a click — the user asked GIPHY for these results,
+/// and the picker says so above them — by `GiphySearchViewModel.loadPreview(for:)`.
 ///
 /// Results share `GiphyPlaybackCache` with the bubbles, so a GIF sent from here plays in its
 /// bubble at once, from where the preview was.
 private struct GiphySearchPreview: View {
-    let media: RemoteGiphyMedia
-
-    @State private var state: GiphyPlaybackState
-
-    init(media: RemoteGiphyMedia) {
-        self.media = media
-        _state = State(initialValue: GiphyPlaybackCache.shared.playback(for: media.url).map { .playing($0) } ?? .idle)
-    }
+    let preview: GiphySearchViewModel.Preview
 
     var body: some View {
         ZStack {
             WNColor.fillSecondary
-            switch state {
-            case .playing(let prepared):
+            switch preview {
+            case .playing(let media, let prepared):
+                // Keyed on the URL so a different rendition rebuilds the player instead of
+                // keeping the old GIF playing under the new URL.
                 GiphyAnimatedImage(data: prepared.data, url: media.url, cache: .shared)
+                    .id(media.url)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failed:
                 Image(systemName: "photo")
                     .foregroundStyle(WNColor.backgroundContentSecondary)
-            case .idle, .loading:
+            case .unsupported:
+                Image(systemName: "photo.badge.exclamationmark")
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+            case .loading:
                 ProgressView()
                     .controlSize(.small)
             }
         }
-        .task(id: media.url) {
-            if case .playing = state { return }
-            state = .loading
-            do {
-                let prepared = try await GiphyRemoteMediaLoader.preparePlayback(for: media)
-                GiphyPlaybackCache.shared.insert(prepared, for: media.url)
-                // Awaiting the detached validation does not observe cancellation; a newer task
-                // owns `state` now.
-                try Task.checkCancellation()
-                state = .playing(prepared)
-            } catch is CancellationError {
-                return
-            } catch {
-                state = .failed
-            }
-        }
+        .opacity(preview == .unsupported ? 0.5 : 1)
     }
 }
 
@@ -607,6 +624,21 @@ struct PoweredByGiphyMark: View {
         mayLoadAutomatically: true,
         loadingPreference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: "giphy-preview")!),
         initialState: .failed
+    )
+    .padding()
+}
+
+#Preview("GIF bubble, unsupported") {
+    RemoteGiphyMediaView(
+        media: RemoteGiphyMedia(
+            url: URL(string: "https://media.giphy.com/media/abc/giphy.gif")!,
+            width: 4,
+            height: 3,
+            attribution: "Creator"
+        ),
+        mayLoadAutomatically: true,
+        loadingPreference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: "giphy-preview")!),
+        initialState: .unsupported
     )
     .padding()
 }
