@@ -63,9 +63,9 @@ struct ContactBlockingSection: View {
             ),
             titleVisibility: .visible
         ) {
-            if pendingIntent == true, let reporter, reporter.isAvailable {
+            if pendingIntent == true, let reporter = availableReporter, let reportedAccountId {
                 Button(L10n.string("Block and Report"), role: .destructive) {
-                    reporter.startBlocking(accountIdHex: accountID.lowercased(), reporting: true)
+                    reporter.startBlocking(accountIdHex: reportedAccountId, reporting: true)
                 }
             }
             if let intent = pendingIntent {
@@ -79,9 +79,20 @@ struct ContactBlockingSection: View {
             Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
             if pendingIntent == true {
-                BlockUserConfirmationMessage(reportsToTeam: reporter?.isAvailable == true)
+                BlockUserConfirmationMessage(reportsToTeam: availableReporter != nil)
             }
         }
+    }
+
+    /// The reporter, when this build can reach the White Noise team about this contact's key.
+    private var availableReporter: ModerationReporter? {
+        guard let reporter, reporter.isAvailable, reportedAccountId != nil else { return nil }
+        return reporter
+    }
+
+    /// Only a well-formed key can be reported, matching the message path.
+    private var reportedAccountId: String? {
+        MessageModerationEligibility.normalizedAccountId(accountID)
     }
 
     private var isBlocked: Bool {
