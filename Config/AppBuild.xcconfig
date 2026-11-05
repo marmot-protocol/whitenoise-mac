@@ -12,4 +12,11 @@ WN_PRODUCT_ANALYTICS_RETENTION =
 GIPHY_API_KEY_WN_MAC =
 WN_GIPHY_API_KEY = $(GIPHY_API_KEY_WN_MAC)
 
+// IPF's moderation-reports key (an npub, public by design). "Report" and "Block and Report"
+// gift-wrap a private copy to it. Debug uses the staging key so test reports never reach the
+// production queue. Leave it empty to hide the report-to-White-Noise options.
+WN_MODERATION_REPORT_PUBKEY_Debug = npub1vnlg8lzm48f3awy0lqqhff66rzaxxyqf85twvyrnj6ycjtfy47rsk52fml
+WN_MODERATION_REPORT_PUBKEY_Release = npub1cwlgauttl8fr3va4gy0sawq62sjt8hrz4wc200pvkrz6fjdj7tlseeq8rl
+WN_MODERATION_REPORT_PUBKEY = $(WN_MODERATION_REPORT_PUBKEY_$(CONFIGURATION))
+
 #include? "AppSecrets.xcconfig"

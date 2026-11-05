@@ -20,6 +20,8 @@ final class AccountScope {
     let blockedUsers: BlockedUsersViewModel
     let onboarding: OnboardingCoordinator
     let historyNotices: HistoryNoticesViewModel
+    /// Reports to the White Noise team and Block and Report, with their transient feedback.
+    let moderationReporter: ModerationReporter
     /// Asks before a group change MDK refused as advisory (`GroupCatchingUp`,
     /// `GroupCommitUndelivered`) is acknowledged and retried.
     let groupChangeAdvisory = GroupChangeAdvisoryPrompter()
@@ -69,6 +71,12 @@ final class AccountScope {
             runtime: runtime
         )
         self.productAnalytics = productAnalytics
+        self.moderationReporter = ModerationReporter(
+            accountRef: account.accountRef,
+            accountIdHex: account.accountIdHex,
+            runtime: runtime,
+            blockedUsers: blockedUsers
+        )
     }
 
     func start(connectivityAvailable: Bool) {
@@ -83,7 +91,7 @@ final class AccountScope {
         addCancellation {
             [
                 chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, productAnalytics,
-                settingsModel, groupChangeAdvisory
+                settingsModel, groupChangeAdvisory, moderationReporter
             ] in
             chatListModel.stop()
             attentionModel.stop()
@@ -94,6 +102,7 @@ final class AccountScope {
             groupChangeAdvisory.cancelPending()
             productAnalytics.deactivate()
             settingsModel.deactivate()
+            moderationReporter.stop()
         }
         own(diagnosticsTask)
         updateConnectivity(available: connectivityAvailable)
@@ -201,7 +210,8 @@ final class AccountScope {
             accountRef: account.accountRef,
             groupIdHex: groupIdHex,
             runtime: runtime,
-            historyNotices: historyNotices
+            historyNotices: historyNotices,
+            moderation: moderationReporter
         )
         groupSafety[groupIdHex] = model
         return model

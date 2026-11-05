@@ -5,6 +5,8 @@ import SwiftUI
 struct ContactBlockingSection: View {
     let model: BlockedUsersViewModel?
     let accountID: String
+    /// Adds Block and Report when this build can reach the White Noise team.
+    var reporter: ModerationReporter? = nil
 
     @State private var pendingIntent: Bool?
 
@@ -61,6 +63,11 @@ struct ContactBlockingSection: View {
             ),
             titleVisibility: .visible
         ) {
+            if pendingIntent == true, let reporter, reporter.isAvailable {
+                Button(L10n.string("Block and Report"), role: .destructive) {
+                    reporter.startBlocking(accountIdHex: accountID.lowercased(), reporting: true)
+                }
+            }
             if let intent = pendingIntent {
                 Button(
                     intent ? L10n.string("Block User") : L10n.string("Unblock User"),
@@ -70,6 +77,10 @@ struct ContactBlockingSection: View {
                 }
             }
             Button(L10n.string("Cancel"), role: .cancel) {}
+        } message: {
+            if pendingIntent == true {
+                BlockUserConfirmationMessage(reportsToTeam: reporter?.isAvailable == true)
+            }
         }
     }
 

@@ -39,6 +39,8 @@
 	</array>
 	<key>WhiteNoiseGiphyAPIKey</key>
 	<string>$(WN_GIPHY_API_KEY)</string>
+	<key>WhiteNoiseModerationReportPubkey</key>
+	<string>$(WN_MODERATION_REPORT_PUBKEY)</string>
 	<key>WhiteNoiseAuditLogBearerToken</key>
 	<string>$(WN_AUDIT_LOG_BEARER_TOKEN)</string>
 	<key>WhiteNoiseAuditOTLPEndpoint</key>

@@ -21,6 +21,9 @@ final class GroupSafetyViewModel {
     /// The account's notices, for the cause behind this group's `historyNoticeIds` and for
     /// routing their dismissal. `nil` only where no account scope exists (previews).
     let historyNotices: HistoryNoticesViewModel?
+    /// The account's White Noise reporting and blocking. `nil` only where no account scope exists
+    /// (previews), which leaves just the in-group report.
+    let moderation: ModerationReporter?
 
     @ObservationIgnored private let accountRef: String
     @ObservationIgnored private let runtime: any MarmotRuntime
@@ -29,12 +32,29 @@ final class GroupSafetyViewModel {
         accountRef: String,
         groupIdHex: String,
         runtime: any MarmotRuntime,
-        historyNotices: HistoryNoticesViewModel? = nil
+        historyNotices: HistoryNoticesViewModel? = nil,
+        moderation: ModerationReporter? = nil
     ) {
         self.accountRef = accountRef
         self.groupIdHex = groupIdHex
         self.runtime = runtime
         self.historyNotices = historyNotices
+        self.moderation = moderation
+    }
+
+    /// Which report and block actions `message`'s menu offers in this conversation.
+    func moderationEligibility(for message: MessageItem, isDirectChat: Bool) -> MessageModerationEligibility {
+        let author = MessageModerationEligibility.otherAuthor(
+            of: message,
+            activeAccountIdHex: moderation?.accountIdHex
+        )
+        return MessageModerationEligibility.resolve(
+            for: message,
+            isDirectChat: isDirectChat,
+            teamReportingAvailable: moderation?.isAvailable == true,
+            activeAccountIdHex: moderation?.accountIdHex,
+            canBlock: author.map { moderation?.canBlock(accountIdHex: $0) == true } ?? false
+        )
     }
 
     /// This group's own "history may be incomplete" occurrences, oldest first. Empty unless the
@@ -92,8 +112,9 @@ final class GroupSafetyViewModel {
         }
     }
 
-    func report(messageID: String, reason: ReportReasonFfi, explanation: String) async throws {
-        _ = try await runtime.reportMessage(
+    @discardableResult
+    func report(messageID: String, reason: ReportReasonFfi, explanation: String) async throws -> SendSummaryFfi {
+        try await runtime.reportMessage(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
             messageId: messageID,

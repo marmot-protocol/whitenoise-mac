@@ -159,6 +159,13 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             groupIdHex: String, messageId: String, reason: ReportReasonFfi, explanation: String
         )] = []
     private(set) var dismissedReportIDs: [[String]] = []
+    var isModerationReportingAvailable = false
+    var moderationReportError: Error?
+    var moderationReportDisposition: SendAcceptDispositionFfi = .published
+    private(set) var moderationReportRequests:
+        [(
+            reportedPubkey: String, reason: ReportReasonFfi, explanation: String, origin: ModerationReportOriginFfi
+        )] = []
     private(set) var forgottenGroupIDs: [String] = []
     var onboardingState: OnboardingSnapshotFfi?
     var onboardingUpdates: [OnboardingSnapshotFfi] = []
@@ -1892,6 +1899,25 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     ) async throws -> SendSummaryFfi {
         reportRequests.append((groupIdHex, messageId, reason, explanation))
         return SendSummaryFfi(published: 1, messageIds: ["report"])
+    }
+
+    func moderationReportingAvailable() -> Bool {
+        isModerationReportingAvailable
+    }
+
+    func submitModerationReport(
+        accountRef: String,
+        reportedPubkey: String,
+        reason: ReportReasonFfi,
+        explanation: String,
+        origin: ModerationReportOriginFfi
+    ) async throws -> ModerationReportOutcomeFfi {
+        if let moderationReportError { throw moderationReportError }
+        moderationReportRequests.append((reportedPubkey, reason, explanation, origin))
+        return ModerationReportOutcomeFfi(
+            reportId: "moderation-report-\(moderationReportRequests.count)",
+            acceptDisposition: moderationReportDisposition
+        )
     }
 
     func contentReports(

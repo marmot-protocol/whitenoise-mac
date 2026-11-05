@@ -1,111 +1,89 @@
 import MarmotKit
 import SwiftUI
 
-nonisolated enum ReportPresentation {
-    static let reasons: [ReportReasonFfi] = [
-        .spam, .nudity, .malware, .profanity, .illegal, .impersonation, .other,
-    ]
-
-    static func title(_ reason: ReportReasonFfi) -> String {
-        switch reason {
-        case .spam: L10n.string("Spam")
-        case .nudity: L10n.string("Nudity")
-        case .malware: L10n.string("Malware")
-        case .profanity: L10n.string("Profanity")
-        case .illegal: L10n.string("Illegal content")
-        case .impersonation: L10n.string("Impersonation")
-        case .other: L10n.string("Other")
-        }
-    }
-}
-
+/// Reports one message: to the group's members, privately to the White Noise team, or both.
+/// What goes where is `ReportMessageViewModel`'s; this view only lays it out.
 struct ReportMessageSheet: View {
-    let message: MessageItem
-    let model: GroupSafetyViewModel
+    let model: ReportMessageViewModel
     let dismiss: () -> Void
-    @State private var reason: ReportReasonFfi = .spam
-    @State private var explanation = ""
-    @State private var isSending = false
-    @State private var error: String?
     @State private var operation: Task<Void, Never>?
 
     var body: some View {
+        @Bindable var model = model
         VStack(alignment: .leading, spacing: 18) {
             Text(L10n.string("Report Message"))
                 .wnFont(.semiBold18)
 
-            Picker(L10n.string("Reason"), selection: $reason) {
-                ForEach(ReportPresentation.reasons, id: \.self) { reason in
-                    Text(ReportPresentation.title(reason)).tag(reason)
-                }
-            }
+            ReportReasonPicker(reason: $model.reason)
+                .disabled(model.isLocked)
 
             TextField(
                 L10n.string("Explanation (optional)"),
-                text: $explanation,
+                text: $model.explanation,
                 axis: .vertical
             )
             .lineLimit(3...6)
-            .onChange(of: explanation) { _, value in
-                explanation = String(value.prefix(1_000))
+            .disabled(model.isLocked)
+
+            if model.reportsToGroup {
+                ReportSheetFootnote(
+                    text: L10n.string(
+                        "Reports are shared inside this encrypted group. Group members can read your report and explanation."
+                    )
+                )
             }
 
-            Text(
-                L10n.string(
-                    "Reports are shared inside this encrypted group. Group members can read your report and explanation."
-                )
-            )
-            .wnFont(.medium10)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
-            .fixedSize(horizontal: false, vertical: true)
+            if model.canReportToTeam {
+                VStack(alignment: .leading, spacing: 6) {
+                    if model.reportsToGroup {
+                        Toggle(L10n.string("Send to White Noise"), isOn: $model.sendsToTeam)
+                            .toggleStyle(.checkbox)
+                            .disabled(model.isLocked)
+                    }
+                    if model.reportsToTeam {
+                        ReportSheetFootnote(
+                            text: L10n.string(
+                                "Your report and the sender’s public key are sent privately to the White Noise team. The message itself isn’t shared, and the sender isn’t notified."
+                            )
+                        )
+                    }
+                }
+            }
 
-            if let error {
+            if let error = model.error {
                 SettingsErrorView(error: error)
             }
 
             HStack {
                 Button(L10n.string("Cancel"), action: dismiss)
-                    .disabled(isSending)
+                    .disabled(model.isSending)
                 Spacer()
+                if model.isSending {
+                    ProgressView()
+                        .controlSize(.small)
+                }
                 Button(L10n.string("Report")) {
-                    operation = Task { await submit() }
+                    operation = Task {
+                        await model.submit()
+                        if model.isSubmitted { dismiss() }
+                    }
                 }
                 .nativeGlassProminentButtonStyle()
-                .disabled(isSending || !message.canReport)
+                .disabled(!model.canSubmit)
             }
         }
         .padding(24)
         .frame(width: 520)
-        .interactiveDismissDisabled(isSending)
+        .interactiveDismissDisabled(model.isSending)
         .onDisappear {
             operation?.cancel()
             operation = nil
         }
     }
-
-    private func submit() async {
-        guard !isSending, message.canReport else { return }
-        isSending = true
-        error = nil
-        defer { isSending = false }
-        do {
-            try await model.report(
-                messageID: message.id,
-                reason: reason,
-                explanation: explanation
-            )
-            try Task.checkCancellation()
-            dismiss()
-        } catch is CancellationError {
-            return
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
 }
 
-private struct ReportReasonPickerPreview: View {
-    @State private var reason: ReportReasonFfi = .spam
+private struct ReportReasonPicker: View {
+    @Binding var reason: ReportReasonFfi
 
     var body: some View {
         Picker(L10n.string("Reason"), selection: $reason) {
@@ -113,11 +91,46 @@ private struct ReportReasonPickerPreview: View {
                 Text(ReportPresentation.title(reason)).tag(reason)
             }
         }
-        .padding()
-        .frame(width: 360)
     }
 }
 
-#Preview {
-    ReportReasonPickerPreview()
+private struct ReportSheetFootnote: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .wnFont(.medium10)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+#Preview("Group and White Noise") {
+    ReportMessageSheet(
+        model: ReportMessageViewModel(
+            eligibility: MessageModerationEligibility(
+                reportsToGroup: true,
+                reportsToTeam: true,
+                canBlockAuthor: true,
+                authorAccountIdHex: String(repeating: "a", count: 64)
+            ),
+            dependencies: .inert
+        ),
+        dismiss: {}
+    )
+}
+
+#Preview("Direct chat") {
+    ReportMessageSheet(
+        model: ReportMessageViewModel(
+            eligibility: MessageModerationEligibility(
+                reportsToGroup: false,
+                reportsToTeam: true,
+                canBlockAuthor: true,
+                authorAccountIdHex: String(repeating: "a", count: 64)
+            ),
+            dependencies: .inert
+        ),
+        dismiss: {}
+    )
 }
