@@ -107,7 +107,9 @@ struct OutgoingMediaAttachmentPolicyTests {
         #expect(OutgoingMediaAttachmentPolicy.isSupported(mediaType: "video/mp4"))
         #expect(OutgoingMediaAttachmentPolicy.isSupported(mediaType: "audio/mpeg"))
         #expect(OutgoingMediaAttachmentPolicy.isSupported(mediaType: "application/pdf"))
-        for mediaType in ["text/markdown", "application/zip", "application/yaml", "application/xml", "text/xml"] {
+        for mediaType in [
+            "text/markdown", "application/zip", "application/yaml", "application/xml", "text/xml", "text/html",
+        ] {
             #expect(OutgoingMediaAttachmentPolicy.isSupported(mediaType: mediaType), "\(mediaType)")
         }
         // SVG is an image type the app cannot decode safely, so it is never offered as one.
@@ -118,6 +120,13 @@ struct OutgoingMediaAttachmentPolicyTests {
             OutgoingMediaAttachmentPolicy.isSupported(mediaType: "application/octet-stream", fileName: "Report.PDF")
         )
         #expect(OutgoingMediaAttachmentPolicy.isSupported(mediaType: "application/octet-stream", fileName: "ci.yml"))
+        #expect(
+            OutgoingMediaAttachmentPolicy.isSupported(mediaType: "application/octet-stream", fileName: "index.HTM"))
+        #expect(
+            OutgoingMediaAttachmentPolicy.mediaType(typeIdentifier: nil, fileName: "page.html", fallbackKind: nil)
+                == "text/html")
+        // `.xhtml` is XML first (`public.xhtml` is not a `public.html`), so it stays off the list.
+        #expect(!OutgoingMediaAttachmentPolicy.isSupported(mediaType: "application/xhtml+xml", fileName: "page.xhtml"))
     }
 
     @Test func fileImporterOffersEveryDocumentExtensionWithoutDuplicates() {
@@ -130,7 +139,7 @@ struct OutgoingMediaAttachmentPolicyTests {
             let type = UTType(filenameExtension: ext)
             #expect(type.map { resolved in types.contains { resolved.conforms(to: $0) } } ?? true)
         }
-        for ext in ["md", "zip", "yaml", "yml", "xml"] {
+        for ext in ["md", "zip", "yaml", "yml", "xml", "html", "htm"] {
             let type = UTType(filenameExtension: ext)
             #expect(type.map { resolved in types.contains { resolved.conforms(to: $0) } } == true, "\(ext)")
         }
@@ -145,6 +154,8 @@ struct OutgoingMediaAttachmentPolicyTests {
             "config.yaml",
             "workflow.yml",
             "feed.xml",
+            "Landing Page.html",
+            "index.htm",
         ])
     func addedDocumentFormatsAttachUnchangedFromTheFilePicker(fileName: String) async throws {
         let directory = try Self.temporaryDirectory()
