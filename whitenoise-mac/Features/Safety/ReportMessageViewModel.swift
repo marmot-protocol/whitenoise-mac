@@ -122,7 +122,6 @@ final class ReportMessageViewModel: Identifiable {
         if plan.toGroup {
             do {
                 let disposition = try await dependencies.reportToGroup(reason, explanation)
-                try Task.checkCancellation()
                 groupOutcome = ReportPresentation.groupOutcome(disposition)
             } catch is CancellationError {
                 return
@@ -136,7 +135,6 @@ final class ReportMessageViewModel: Identifiable {
         if plan.toTeam, let reportToTeam = dependencies.reportToTeam {
             do {
                 teamDisposition = try await reportToTeam(reason, explanation)
-                try Task.checkCancellation()
             } catch is CancellationError {
                 return
             } catch {
