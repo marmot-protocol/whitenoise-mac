@@ -441,8 +441,9 @@ private struct ConversationView: View {
     /// when it closes one.
     @State private var forwardModel: MessageForwardViewModel?
     @State private var isFileDropTargeted = false
-    /// The files the last staging batch could not attach. Replaced by the next batch, so a
-    /// selection that fully succeeds clears the notice for the files the user just fixed.
+    /// The files the last staging batch could not attach, shown as failed tiles in the staging
+    /// strip. Replaced by the next batch, so a selection that fully succeeds clears the tiles
+    /// for the files the user just fixed.
     @State private var attachmentRejections: ComposerAttachmentRejections?
     /// The staging batch allowed to set or clear `attachmentRejections`: the most recent one.
     /// Batches overlap (a second drop while the first is still preparing) and finish in any
@@ -605,10 +606,11 @@ private struct ConversationView: View {
                 // `sendDraft()` and call `jumpToNewest()` themselves.
                 .onChange(of: workspace.outgoingSendScrollGeneration) { _, _ in
                     guard workspace.selectedChat?.id == chat.id else { return }
-                    // The files it named belonged to the message that just went out. Cleared on
-                    // the send rather than on the staging strip emptying, which also happens when
-                    // every file was refused and the notice is all the user has. A batch still
-                    // preparing keeps its claim: its result is about the next message.
+                    // The refused tiles belonged to the message that just went out. Cleared on
+                    // the send rather than when the staged files leave the strip, which also
+                    // happens when every file was refused and the failed tiles are all the user
+                    // has. A batch still preparing keeps its claim: its result is about the next
+                    // message.
                     if attachmentRejections?.chatId == chat.id {
                         attachmentRejections = nil
                     }
@@ -847,21 +849,15 @@ private struct ConversationView: View {
         let rejections = await stage()
         // `chat` is this view value's copy; the workspace knows which chat is on screen now. A
         // batch whose chat was switched away returns nothing and must not clear the new chat's
-        // notice, and an older batch must not replace a newer one's.
+        // failed tiles, and an older batch must not replace a newer one's.
         guard latestAttachmentStagingBatch == batch, workspace.selectedChat?.id == chatId else { return }
         attachmentRejections =
-            rejections.isEmpty ? nil : ComposerAttachmentRejections(chatId: chatId, items: rejections)
+            rejections.isEmpty ? nil : ComposerAttachmentRejections(chatId: chatId, rejections: rejections)
     }
 
     @ViewBuilder
     private var composerControls: some View {
         @Bindable var workspace = workspace
-
-        if let attachmentRejections, attachmentRejections.chatId == chat.id {
-            ComposerAttachmentRejectionNotice(rejections: attachmentRejections.items) {
-                self.attachmentRejections = nil
-            }
-        }
 
         if let editingMessageContext = workspace.editingMessageContext {
             EditComposerContextView(context: editingMessageContext)
@@ -872,13 +868,25 @@ private struct ConversationView: View {
         }
 
         // A staged recording is presented by the voice-draft bar below, not as a thumbnail.
-        if !workspace.pendingMediaAttachments.isEmpty, workspace.stagedVoiceMessage == nil {
+        // Refused files sit in the same strip as failed tiles, so a selection where every file
+        // was refused still shows the strip.
+        let rejectedItems = attachmentRejections.flatMap { $0.chatId == chat.id ? $0.items : nil } ?? []
+        if !workspace.pendingMediaAttachments.isEmpty || !rejectedItems.isEmpty,
+            workspace.stagedVoiceMessage == nil
+        {
             PendingMediaDraftStrip(
                 attachments: workspace.pendingMediaAttachments,
                 uploadStates: workspace.pendingMediaUploadStates,
                 isSending: workspace.isSending,
                 onRemove: workspace.removePendingMediaAttachment,
-                onRetryUpload: workspace.retryPendingMediaUpload
+                onRetryUpload: workspace.retryPendingMediaUpload,
+                rejections: rejectedItems,
+                onDismissRejection: { id in
+                    attachmentRejections?.remove(id)
+                    if attachmentRejections?.items.isEmpty == true {
+                        attachmentRejections = nil
+                    }
+                }
             )
         }
 
