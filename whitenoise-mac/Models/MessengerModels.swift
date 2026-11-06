@@ -3445,6 +3445,9 @@ enum SettingsPage: Equatable {
     case donate
     case developerMode
     case quarantinedGroups
+    /// Sign out and wipe the active profile off this Mac, reached from the drawer's destructive
+    /// card beside Sign Out rather than from either page group — the `whitenoise-ios` hub's shape.
+    case deleteProfile
 
     /// The drawer's cards, ported from `wn-ios-prototype`'s hub: a group of destinations per
     /// question the reader is asking. One flat column of ten rows gave no signal that Relays and
@@ -3511,6 +3514,21 @@ enum SettingsPage: Equatable {
         }
     }
 
+    /// Where a reader on this page lands when the active identity changes under them.
+    ///
+    /// Every page is re-answered for the new identity except Delete Profile: it is about one
+    /// particular profile, and leaving it open after a switch — or after the deletion itself
+    /// handed the app another identity — would put the next profile's deletion one confirmation
+    /// away from someone who never asked for it. iOS pops the page for the same reason.
+    var pageAfterActiveAccountChange: SettingsPage {
+        switch self {
+        case .deleteProfile:
+            .overview
+        default:
+            self
+        }
+    }
+
     /// Localized against an explicit locale rather than the stored language preference, so
     /// the settings sidebar can localize with the `\.locale` environment value and be
     /// re-rendered on a language switch instead of showing the previous language until the
@@ -3555,6 +3573,8 @@ enum SettingsPage: Equatable {
             "Developer mode"
         case .quarantinedGroups:
             "Quarantined Groups"
+        case .deleteProfile:
+            "Delete Profile"
         }
     }
 
@@ -3596,6 +3616,8 @@ enum SettingsPage: Equatable {
             "wrench.and.screwdriver"
         case .quarantinedGroups:
             "exclamationmark.shield"
+        case .deleteProfile:
+            "trash"
         }
     }
 }

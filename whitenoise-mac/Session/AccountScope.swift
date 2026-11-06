@@ -37,7 +37,8 @@ final class AccountScope {
         account: AccountItem,
         runtime: any MarmotRuntime,
         relayListsDidChange: @escaping @MainActor () -> Void = {},
-        attachmentsDidChange: @escaping @MainActor () async -> Void = {}
+        attachmentsDidChange: @escaping @MainActor () async -> Void = {},
+        removeAccount: DeleteProfileViewModel.RemoveAccount? = nil
     ) {
         let attachmentPolicy = AttachmentPolicyController(accountRef: account.accountRef, runtime: runtime)
         let blockedUsers = BlockedUsersViewModel(accountRef: account.accountRef, runtime: runtime)
@@ -57,7 +58,8 @@ final class AccountScope {
             productAnalytics: productAnalytics,
             chatListModel: chatListModel,
             relayListsDidChange: relayListsDidChange,
-            attachmentsDidChange: attachmentsDidChange
+            attachmentsDidChange: attachmentsDidChange,
+            removeAccount: removeAccount
         )
         self.chatListModel = chatListModel
         self.attentionModel = AccountAttentionViewModel(runtime: runtime)
