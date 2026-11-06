@@ -99,10 +99,12 @@ struct WNInput<Accessory: View>: View {
     @ViewBuilder
     private var field: some View {
         if lineLimit > 1 {
-            TextField(prompt, text: $text, axis: .vertical)
+            TextField(text: $text, prompt: Text(prompt), axis: .vertical) { Text(label) }
+                .labelsHidden()
                 .lineLimit(lineLimit, reservesSpace: true)
         } else {
-            TextField(prompt, text: $text)
+            TextField(text: $text, prompt: Text(prompt)) { Text(label) }
+                .labelsHidden()
                 .lineLimit(1)
         }
     }

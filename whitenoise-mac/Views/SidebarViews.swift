@@ -797,14 +797,40 @@ struct SettingsSidebarRow: View {
 /// — a dialog cannot hold the wipe toggle, the note that rewrites itself, or the type-to-confirm
 /// field the destructive half needs. This is why the Profile Keys page no longer carries an
 /// Account Removal group: leaving an account and erasing it are one task with one switch in it.
+///
+/// Delete Profile shares the card, above Sign Out, the way `whitenoise-ios`'s Settings puts the
+/// two exits in one section. It opens a page (`SettingsPage.deleteProfile`) rather than the sheet:
+/// someone who came to delete their profile gets a row that says so and a page that spells out
+/// what goes, while the sheet's toggle stays the quick way to leave and erase at once.
 struct SettingsSignOutRow: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     @State private var isSigningOut = false
 
+    private var isDeleteProfileOpen: Bool {
+        workspace.selection == .settings(.deleteProfile)
+    }
+
     var body: some View {
         if let account = workspace.activeAccount {
             SettingsSidebarGroupCard {
+                Button {
+                    workspace.showSettingsPage(.deleteProfile)
+                } label: {
+                    SettingsSidebarRowLabel(
+                        systemImage: SettingsPage.deleteProfile.systemImage,
+                        title: SettingsPage.deleteProfile.title(in: locale),
+                        tint: WNColor.backgroundContentDestructive
+                    )
+                    .background {
+                        SettingsSidebarRowBackground(isSelected: isDeleteProfileOpen)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(workspace.isAccountMutationInProgress)
+
+                SettingsSidebarRowSeparator()
+
                 Button {
                     isSigningOut = true
                 } label: {

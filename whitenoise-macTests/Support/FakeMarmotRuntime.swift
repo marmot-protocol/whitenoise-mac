@@ -860,6 +860,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var productAnalyticsRuntimeConfigError: Error?
     private(set) var removedAccountRefs: [String] = []
     var removeAccountError: Error?
+    /// Fails `accountRelayLists` for these accounts only, so a settings load can fail for one
+    /// identity while another loads cleanly.
+    var accountRelayListsErrorByAccountRef: [String: Error] = [:]
     private(set) var didDeleteAllLocalData = false
     var deleteAllLocalDataError: Error?
     var signOutError: Error?
@@ -1312,6 +1315,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         // and a later switch/reinstall cannot retroactively change them (issue #283).
         let result = relayLists
         accountRelayListsGate.passIfArmed()
+        if let error = accountRelayListsErrorByAccountRef[accountRef] { throw error }
         return result
     }
 

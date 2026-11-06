@@ -62,6 +62,14 @@ struct SettingsPanelView: View {
                 DeveloperModeSettingsView(model: model.diagnostics)
             case .quarantinedGroups:
                 QuarantinedGroupsSettingsView(model: model.quarantinedGroups)
+            case .deleteProfile:
+                if let account = workspace.activeAccount {
+                    DeleteProfileSettingsView(
+                        model: model.deleteProfile,
+                        account: account,
+                        isAccountMutationInProgress: workspace.isAccountMutationInProgress
+                    )
+                }
             }
         }
         // The same surface the transcript and the group/contact detail panes draw on, rather than
@@ -92,7 +100,7 @@ private extension SettingsPage {
         case .overview, .profile, .identityKeys, .notifications:
             true
         case .preferences, .relays, .keyPackages, .appearance, .privacySecurity, .blockedUsers, .storage,
-            .manageStorage, .agents, .support, .donate, .developerMode, .quarantinedGroups:
+            .manageStorage, .agents, .support, .donate, .developerMode, .quarantinedGroups, .deleteProfile:
             false
         }
     }

@@ -15,7 +15,7 @@ struct DisplayCopyTests {
     private static let settingsPages: [SettingsPage] = [
         .overview, .preferences, .profile, .identityKeys, .relays, .keyPackages, .appearance,
         .privacySecurity, .blockedUsers, .notifications, .storage, .agents, .support, .donate,
-        .developerMode, .quarantinedGroups,
+        .developerMode, .quarantinedGroups, .deleteProfile,
     ]
 
     /// A mistyped SF Symbol name compiles and renders as empty space, so the only place it can be
