@@ -358,6 +358,101 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(!fileManager.fileExists(atPath: url.path))
     }
 
+    @Test func mediaPlaybackTempStoreHandoffRemovesWhatTheOpeningAppWroteBesideIt() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let archive = try MediaPlaybackTempStore.materializeHandoff(
+            data: Data("zip bytes".utf8),
+            id: "archive",
+            mediaType: "application/octet-stream",
+            fileName: "archive.zip",
+            directory: directory
+        )
+        let otherOpen = try MediaPlaybackTempStore.materializeHandoff(
+            data: Data("pdf bytes".utf8),
+            id: "report",
+            mediaType: "application/pdf",
+            directory: directory
+        )
+        #expect(archive.pathExtension == "zip")
+        #expect(archive.deletingLastPathComponent().deletingLastPathComponent().path == directory.path)
+        #expect(archive.deletingLastPathComponent() != otherOpen.deletingLastPathComponent())
+
+        // Archive Utility expands into the archive's own folder.
+        let expanded = archive.deletingLastPathComponent().appendingPathComponent("archive", isDirectory: true)
+        try fileManager.createDirectory(at: expanded, withIntermediateDirectories: true)
+        try Data("plaintext".utf8).write(to: expanded.appendingPathComponent("notes.txt"))
+
+        MediaPlaybackTempStore.removeHandoff(at: archive)
+
+        #expect(!fileManager.fileExists(atPath: archive.path))
+        #expect(!fileManager.fileExists(atPath: expanded.path))
+        #expect(!fileManager.fileExists(atPath: archive.deletingLastPathComponent().path))
+        #expect(fileManager.fileExists(atPath: directory.path))
+        #expect(try Data(contentsOf: otherOpen) == Data("pdf bytes".utf8))
+
+        // Removing an already-removed handoff is a no-op.
+        MediaPlaybackTempStore.removeHandoff(at: archive)
+    }
+
+    @Test func mediaPlaybackTempStoreHandoffRemovesItsDirectoryWhenTheWriteFails() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let uniqueID = UUID()
+        let handoffDirectory = directory.appendingPathComponent("handoff-\(uniqueID.uuidString)", isDirectory: true)
+        // A non-empty directory where the scratch file should go makes the write fail.
+        let blocker =
+            handoffDirectory
+            .appendingPathComponent("\(MediaPlaybackTempStore.stableStem(for: "report"))-\(uniqueID.uuidString)")
+            .appendingPathExtension("pdf")
+        try fileManager.createDirectory(at: blocker, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: blocker.appendingPathComponent("inside"))
+
+        #expect(throws: (any Error).self) {
+            try MediaPlaybackTempStore.materializeHandoff(
+                data: Data("pdf bytes".utf8),
+                id: "report",
+                mediaType: "application/pdf",
+                directory: directory,
+                uniqueID: uniqueID
+            )
+        }
+
+        #expect(!fileManager.fileExists(atPath: handoffDirectory.path))
+        #expect(fileManager.fileExists(atPath: directory.path))
+    }
+
+    @Test func mediaPlaybackTempStoreRemoveHandoffNeverDeletesTheSharedDirectory() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let plain = try MediaPlaybackTempStore.materialize(
+            data: Data("a".utf8),
+            id: "one",
+            mediaType: "text/plain",
+            directory: directory
+        )
+        let neighbor = try MediaPlaybackTempStore.materialize(
+            data: Data("b".utf8),
+            id: "two",
+            mediaType: "text/plain",
+            directory: directory
+        )
+
+        MediaPlaybackTempStore.removeHandoff(at: plain)
+
+        #expect(!fileManager.fileExists(atPath: plain.path))
+        #expect(fileManager.fileExists(atPath: directory.path))
+        #expect(try Data(contentsOf: neighbor) == Data("b".utf8))
+    }
+
     @Test func mediaPlaybackTempStorePurgesDirectory() throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory

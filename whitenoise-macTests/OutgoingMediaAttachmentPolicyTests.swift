@@ -281,6 +281,54 @@ struct OutgoingMediaAttachmentPolicyTests {
                 == "bin")
     }
 
+    @Test func scratchFileExtensionKeepsSupportedDocumentSuffixesForGenericTypes() {
+        func suffix(_ mediaType: String, _ fileName: String?) -> String {
+            OutgoingMediaAttachmentPolicy.scratchFileExtension(for: mediaType, fileName: fileName)
+        }
+        // Supported document suffixes with no MIME mapping survive a generic type.
+        #expect(suffix("application/octet-stream", "notes.MD") == "md")
+        #expect(suffix("application/octet-stream", "notes.markdown") == "markdown")
+        #expect(suffix("", "archive.zip") == "zip")
+        #expect(suffix("application/octet-stream", "config.yaml") == "yaml")
+        #expect(suffix("application/octet-stream", "config.yml") == "yml")
+        #expect(suffix("application/octet-stream", "feed.xml") == "xml")
+        #expect(suffix("application/octet-stream", "index.HTM") == "htm")
+        // Allowlisted extensions still resolve through their media type.
+        #expect(suffix("application/octet-stream", "photo.JPEG") == "jpg")
+        #expect(suffix("application/octet-stream", "report.pdf") == "pdf")
+        // Unsupported suffixes still fall back, and a concrete type stays authoritative.
+        #expect(suffix("application/octet-stream", "setup.exe") == "bin")
+        #expect(suffix("application/octet-stream", nil) == "bin")
+        #expect(suffix("application/pdf", "notes.md") == "pdf")
+    }
+
+    @Test func scratchFileExtensionMapsConcreteDocumentTypes() {
+        func suffix(_ mediaType: String, _ fileName: String?) -> String {
+            OutgoingMediaAttachmentPolicy.scratchFileExtension(for: mediaType, fileName: fileName)
+        }
+        // Own sends carry the concrete type `UTType.preferredMIMEType` reports.
+        #expect(suffix("text/markdown", "notes.md") == "md")
+        #expect(suffix("text/x-markdown", nil) == "md")
+        #expect(suffix("application/zip", nil) == "zip")
+        #expect(suffix("application/x-zip-compressed", "archive.zip") == "zip")
+        #expect(suffix("application/x-yaml", "c.yml") == "yaml")
+        #expect(suffix("application/yaml", nil) == "yaml")
+        #expect(suffix("text/yaml", nil) == "yaml")
+        #expect(suffix("text/x-yaml", nil) == "yaml")
+        #expect(suffix("application/xml", nil) == "xml")
+        #expect(suffix("text/xml", nil) == "xml")
+        #expect(suffix("text/html", nil) == "html")
+    }
+
+    @Test func everySupportedDocumentMediaTypeHasASuffix() {
+        for mediaType in OutgoingMediaAttachmentPolicy.supportedDocumentMediaTypes.sorted() {
+            #expect(
+                OutgoingMediaAttachmentPolicy.fileExtension(for: mediaType) != "bin",
+                "\(mediaType) has no suffix mapping"
+            )
+        }
+    }
+
     private static func temporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("OutgoingMediaAttachmentPolicyTests-\(UUID().uuidString)", isDirectory: true)

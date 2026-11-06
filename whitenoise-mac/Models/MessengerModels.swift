@@ -1792,6 +1792,16 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
             return "ppt"
         case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
             return "pptx"
+        case "text/markdown", "text/x-markdown":
+            return "md"
+        case "application/zip", "application/x-zip-compressed":
+            return "zip"
+        case "application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml":
+            return "yaml"
+        case "application/xml", "text/xml":
+            return "xml"
+        case "text/html":
+            return "html"
         default:
             return "bin"
         }
@@ -1801,16 +1811,21 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
     ///
     /// Peer `fileName` is consulted only when `mediaType` is empty or generic
     /// (`application/octet-stream`). In that case an allowlisted extension maps to a known
-    /// media type and the returned suffix is always app-controlled; peer basename or
-    /// extension text is never copied into the path.
+    /// media type, and a supported document extension with no mapping (`md`, `zip`, …) is
+    /// kept as is so Launch Services can still pick an app. The returned suffix is always a
+    /// member of an app-controlled list; peer basename text is never copied into the path.
     static func scratchFileExtension(for mediaType: String, fileName: String?) -> String {
         let canonical = canonicalMediaType(mediaType)
         if shouldInferKindFromFileName(canonicalMediaType: canonical),
             let fileName,
-            case let fileExtension = (fileName as NSString).pathExtension, !fileExtension.isEmpty,
-            let resolved = allowlistedMediaType(forFileExtension: fileExtension)
+            case let fileExtension = (fileName as NSString).pathExtension.lowercased(), !fileExtension.isEmpty
         {
-            return Self.fileExtension(for: canonicalMediaType(resolved))
+            if let resolved = allowlistedMediaType(forFileExtension: fileExtension) {
+                return Self.fileExtension(for: canonicalMediaType(resolved))
+            }
+            if supportedDocumentExtensions.contains(fileExtension) {
+                return fileExtension
+            }
         }
         return fileExtension(for: canonical)
     }

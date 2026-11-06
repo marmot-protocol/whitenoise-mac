@@ -1684,17 +1684,18 @@ struct MessageDocumentAttachmentRow: View {
     @MainActor
     private func openHostExport() async {
         guard
-            let url = await MessageMediaPlaybackFileStore.fileURL(
+            let url = await MessageMediaPlaybackFileStore.handoffFileURL(
                 attachment: attachment,
                 download: download
             )
         else { return }
         // Delete shortly after so we don't leave decrypted plaintext on disk, while giving the
-        // app a brief window to read the bytes.
+        // app a brief window to read the bytes. The whole handoff directory goes, so anything
+        // the app wrote beside the file (Archive Utility's expanded `.zip`) goes with it.
         let didOpen = NSWorkspace.shared.open(url)
         let cleanupDelay: TimeInterval = didOpen ? Self.cleanupDelaySeconds : 0
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + cleanupDelay) {
-            MediaPlaybackTempStore.remove(at: url)
+            MediaPlaybackTempStore.removeHandoff(at: url)
         }
     }
 
@@ -2319,6 +2320,22 @@ enum MessageMediaPlaybackFileStore {
     /// the consuming action (open/playback) finishes.
     @MainActor
     static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) async -> URL? {
+        await materialize(attachment: attachment, download: download, forHandoff: false)
+    }
+
+    /// Like `fileURL`, but for a file handed to another app: it lives in its own directory,
+    /// which the caller deletes with `MediaPlaybackTempStore.removeHandoff(at:)`.
+    @MainActor
+    static func handoffFileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) async -> URL? {
+        await materialize(attachment: attachment, download: download, forHandoff: true)
+    }
+
+    @MainActor
+    private static func materialize(
+        attachment: MessageMediaAttachment,
+        download: MessageMediaDownload,
+        forHandoff: Bool
+    ) async -> URL? {
         let resolvedFileName = download.fileName.nilIfBlank ?? attachment.fileName
         let resolvedMediaType = download.mediaType.nilIfBlank ?? attachment.mediaType
         let attachmentID = attachment.id
@@ -2327,6 +2344,15 @@ enum MessageMediaPlaybackFileStore {
         return await Task.detached(priority: .utility) {
             do {
                 let directory = try MediaPlaybackTempStore.directoryURL()
+                if forHandoff {
+                    return try MediaPlaybackTempStore.materializeHandoff(
+                        data: data,
+                        id: attachmentID,
+                        mediaType: resolvedMediaType,
+                        fileName: resolvedFileName,
+                        directory: directory
+                    )
+                }
                 return try MediaPlaybackTempStore.materialize(
                     data: data,
                     id: attachmentID,
