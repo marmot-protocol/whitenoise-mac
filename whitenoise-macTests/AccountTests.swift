@@ -1430,6 +1430,37 @@ struct AccountTests: WorkspaceTestSupport {
         )
     }
 
+    /// Settings → Delete Profile removes the active profile. When another identity survives, the
+    /// app lands on the settings overview for it — never on the next profile's deletion page.
+    @MainActor
+    @Test func deletingTheActiveProfileFromItsPageLeavesThePage() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let active = try #require(state.activeAccount)
+        #expect(active.id == "Desktop Account")
+
+        state.showSettingsPage(.deleteProfile)
+        await state.removeAccount(active)
+
+        #expect(runtime.removedAccountRefs == ["Desktop Account"])
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(state.selection == .settings(.overview))
+        #expect(state.lastError == nil)
+    }
+
     @MainActor
     @Test func failedActiveAccountMutationsRestartChatAndTimelineListeners() async throws {
         let account = desktopAccount()

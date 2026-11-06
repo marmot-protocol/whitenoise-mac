@@ -118,7 +118,9 @@ struct whitenoise_macApp: App {
             // would otherwise keep showing as downloaded. Open conversations re-read through MDK.
             attachmentsDidChange: { [weak workspace] in
                 await workspace?.clearMediaCache()
-            }
+            },
+            // Settings → Delete Profile.
+            removeAccount: DeleteProfileRemoval.remover(for: workspace)
         )
         guard let scope = session.accountScope else { return }
         if scenePhase == .active {

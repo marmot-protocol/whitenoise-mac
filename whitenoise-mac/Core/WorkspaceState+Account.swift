@@ -172,7 +172,7 @@ extension WorkspaceState {
     /// on the profile overview when the mutation came from the account rail instead.
     var settingsSelectionAfterAccountMutation: WorkspaceSelection {
         if case .settings(let page) = selection {
-            return .settings(page)
+            return .settings(page.pageAfterActiveAccountChange)
         }
         return .settings(.overview)
     }
