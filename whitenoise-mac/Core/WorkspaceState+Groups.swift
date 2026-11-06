@@ -1697,6 +1697,7 @@ extension WorkspaceState {
             || mutatingGroupMemberId != nil
             || isUpdatingDisappearingMessages
             || isLeavingGroup
+            || isEndingGroup
             || isSavingGroupImage
             // A successor promotion is a group commit like any other. Included even though the
             // handoff may target a chat other than the one on screen, matching `isLeavingGroup`,

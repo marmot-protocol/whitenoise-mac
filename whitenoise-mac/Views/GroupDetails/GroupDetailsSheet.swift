@@ -27,6 +27,7 @@ struct GroupDetailsSheet: View {
     let conversationModel: ConversationViewModel
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
+    let disbandModel: GroupDisbandViewModel
     /// Whether the account blocked this account id hex, for the add-members sheet.
     let isBlocked: (String) -> Bool
 
@@ -132,6 +133,16 @@ struct GroupDetailsSheet: View {
                             onForgotten: { workspace.closeGroupDetails() }
                         )
                         GroupMembershipStatusSections(snapshot: snapshot)
+                        GroupDisbandStatusSection(
+                            status: snapshot.disband.status,
+                            isDismissing: disbandModel.isDismissingFailure,
+                            onDismiss: {
+                                Task {
+                                    await disbandModel.dismissFailure()
+                                    await workspace.reloadSelectedGroupDetails()
+                                }
+                            }
+                        )
 
                         if let contactAccountIdHex = chat.directPeerAccountIdHex {
                             Section(L10n.string("Contact")) {
@@ -173,7 +184,7 @@ struct GroupDetailsSheet: View {
                         .disabled(workspace.hasInFlightGroupCommit)
 
                         GroupDetailsAdvancedSection(relays: snapshot.relays, groupIdHex: snapshot.groupIdHex)
-                        GroupDetailsLeaveSection(chat: chat, snapshot: snapshot)
+                        GroupDetailsLeaveSection(chat: chat, snapshot: snapshot, disbandModel: disbandModel)
 
                         if workspace.developerMode {
                             GroupDeveloperSection(

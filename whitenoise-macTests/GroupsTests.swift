@@ -2091,6 +2091,10 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.hasInFlightGroupCommit)
         state.isLeavingGroup = false
 
+        state.isEndingGroup = true
+        #expect(state.hasInFlightGroupCommit)
+        state.isEndingGroup = false
+
         state.isSavingGroupImage = true
         #expect(state.hasInFlightGroupCommit)
         state.isSavingGroupImage = false
@@ -3308,6 +3312,32 @@ struct GroupsTests: WorkspaceTestSupport {
 
         #expect(runtime.selfDemoteAdminDetailedCallCount == 1)
         #expect(state.mutatingGroupMemberId == nil)
+    }
+
+    /// End Group runs up to two commits outside `WorkspaceState`; while it does, the group changes
+    /// that guard on `hasInFlightGroupCommit` must not start one of their own.
+    @MainActor
+    @Test func groupChangesWaitForAnInFlightEndGroup() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(
+                selfAccountIdHex: account.accountIdHex,
+                otherIsAdmin: true
+            ))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first { !$0.isSelf })
+
+        state.isEndingGroup = true
+        await state.selfDemoteSelectedGroupAdmin()
+        await state.mutateGroupMember(member, action: .demote)
+
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.demoteAdminDetailedCallCount == 0)
+
+        state.isEndingGroup = false
+        await state.selfDemoteSelectedGroupAdmin()
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 1)
     }
 
     @MainActor

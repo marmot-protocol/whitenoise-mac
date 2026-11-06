@@ -2,7 +2,8 @@
 //  GroupDetailsLeaveSection.swift
 //  whitenoise-mac
 //
-//  The foot of group info: stepping down as admin, and leaving or removing the chat.
+//  The foot of group info: ending the group, stepping down as admin, and leaving or removing the
+//  chat.
 //
 
 import SwiftUI
@@ -11,18 +12,51 @@ struct GroupDetailsLeaveSection: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     @State private var showSelfDemoteConfirmation = false
+    @State private var showEndGroupConfirmation = false
     let chat: ChatItem
     let snapshot: GroupDetailsSnapshot
+    let disbandModel: GroupDisbandViewModel
 
     private var isLeaving: Bool { workspace.leavingChatId == snapshot.groupIdHex }
     private var isRemoving: Bool { workspace.deletingChatId == snapshot.groupIdHex }
 
+    /// Ends the group, then reads back what MDK now reports — on failure as well, since enabling
+    /// disbanding can commit even when the disband after it is refused.
+    ///
+    /// Up to two commits run here, so the whole flow holds `isEndingGroup`: every other group change
+    /// guards on `hasInFlightGroupCommit`, and none may start against this group until it is done.
+    private func endGroup() async {
+        guard !workspace.hasInFlightGroupCommit else { return }
+        workspace.isEndingGroup = true
+        defer { workspace.isEndingGroup = false }
+        let accepted = await disbandModel.endGroup(
+            snapshot.disband, advisory: session.accountScope?.groupChangeAdvisory)
+        await workspace.reloadSelectedGroupDetails()
+        if accepted {
+            await workspace.reloadChats(forceFreshSnapshot: true)
+        }
+    }
+
     var body: some View {
         Section {
+            // Ending the group is offered to admins only, and stays on screen (disabled) when
+            // members on old clients hold it back, so the footer can say who has to update.
+            if snapshot.disband.showsEndGroup {
+                DetailsDestructiveRow(
+                    title: disbandModel.isEnding ? L10n.string("Ending group…") : L10n.string("End Group"),
+                    systemImage: "xmark.circle",
+                    isInProgress: disbandModel.isEnding
+                ) {
+                    showEndGroupConfirmation = true
+                }
+                .disabled(
+                    !snapshot.disband.canEndGroup || disbandModel.isBusy || workspace.hasInFlightGroupCommit)
+            }
+
             // Giving up your own admin rights is reversible by another admin, so it stays
             // neutral: `group_member_screen.dart` builds "remove admin role" as `outline` and
             // keeps `destructive` for removing someone from the group.
-            if snapshot.isSelfAdmin {
+            if snapshot.isSelfAdmin, snapshot.disband.lifecycle == .active {
                 Button {
                     showSelfDemoteConfirmation = true
                 } label: {
@@ -77,9 +111,42 @@ struct GroupDetailsLeaveSection: View {
             // apart. `leaveGuidance` rather than `leaveBlocker` because the sole admin of a group
             // with someone to promote is not blocked — they are one extra step from leaving, and
             // the footer says which step.
-            if let guidance = snapshot.leaveGuidance {
-                SettingsFooterText(guidance.message)
+            VStack(alignment: .leading, spacing: 4) {
+                if let blocker = snapshot.disband.blockerMessage {
+                    SettingsFooterText(blocker)
+                }
+                if snapshot.disband.lifecycle == .ended {
+                    SettingsFooterText(L10n.string("Deletes this chat's local history from this device."))
+                } else if let guidance = snapshot.leaveGuidance {
+                    SettingsFooterText(guidance.message)
+                }
             }
+        }
+        .confirmationDialog(
+            GroupDisbandPresentation.confirmationTitle,
+            isPresented: $showEndGroupConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.string("End Group"), role: .destructive) {
+                Task { await endGroup() }
+            }
+            Button(L10n.string("Cancel"), role: .cancel) {}
+        } message: {
+            Text(GroupDisbandPresentation.confirmationMessage)
+        }
+        .alert(
+            disbandModel.alert?.title ?? "",
+            isPresented: Binding(
+                get: { disbandModel.alert != nil },
+                set: { presented in
+                    if !presented { disbandModel.alert = nil }
+                }
+            ),
+            presenting: disbandModel.alert
+        ) { _ in
+            Button(L10n.string("OK"), role: .cancel) {}
+        } message: { alert in
+            Text(alert.message)
         }
         .confirmationDialog(
             L10n.string("Step down as admin?"),

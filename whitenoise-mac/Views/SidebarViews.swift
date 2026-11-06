@@ -858,6 +858,8 @@ struct ChatRowContent: View {
                     // Precedence lives in `ChatRowStatus` so the badge and the row's
                     // destructive menu item are decided by one rule.
                     switch rowStatus {
+                    case .groupLifecycle(let lifecycle):
+                        GroupLifecycleBadge(lifecycle: lifecycle)
                     case .leaving:
                         LeavingGroupBadge()
                     case .membershipEnded(let membership)

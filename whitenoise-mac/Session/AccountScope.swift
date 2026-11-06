@@ -32,6 +32,7 @@ final class AccountScope {
     @ObservationIgnored private var conversations: [String: (model: ConversationViewModel, cancellation: UUID)] = [:]
     @ObservationIgnored private var attachments: [String: (model: AttachmentViewModel, cancellation: UUID)] = [:]
     @ObservationIgnored private var groupSafety: [String: GroupSafetyViewModel] = [:]
+    @ObservationIgnored private var groupDisband: [String: GroupDisbandViewModel] = [:]
 
     init(
         account: AccountItem,
@@ -186,6 +187,7 @@ final class AccountScope {
         owned.model.stop()
         releaseAttachments(groupIdHex: groupIdHex)
         groupSafety[groupIdHex] = nil
+        groupDisband[groupIdHex] = nil
     }
 
     func attachmentModel(groupIdHex: String) -> AttachmentViewModel {
@@ -217,6 +219,13 @@ final class AccountScope {
         return model
     }
 
+    func disbandModel(groupIdHex: String) -> GroupDisbandViewModel {
+        if let existing = groupDisband[groupIdHex] { return existing }
+        let model = GroupDisbandViewModel(accountRef: account.accountRef, groupIdHex: groupIdHex, runtime: runtime)
+        groupDisband[groupIdHex] = model
+        return model
+    }
+
     func cancelAll() async {
         attachmentPolicyTask?.cancel()
         attachmentPolicyTask = nil
@@ -226,6 +235,7 @@ final class AccountScope {
         conversations.removeAll()
         attachments.removeAll()
         groupSafety.removeAll()
+        groupDisband.removeAll()
         for cancel in pending {
             cancel()
         }
