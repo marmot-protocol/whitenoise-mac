@@ -95,7 +95,8 @@ struct NIP05Resolver: NIP05Resolving {
 /// redirects, so without this a public well-known host could 3xx the lookup to a private/
 /// loopback/link-local address the up-front guard blocks. Also caps the redirect-hop count so a
 /// malicious host cannot loop the lookup between public hosts until the resource timeout fires.
-/// Mirrors the avatar path's CappedImageDownloadDelegate.
+/// Each hop is checked with `RemoteImageURLPolicy` on the URL text only; unlike remote media
+/// (`RemoteMediaTransport`), a NIP-05 lookup is not pinned to a resolved public address.
 final class NIP05RedirectPolicy: NSObject, URLSessionTaskDelegate {
     private static let maxRedirectHops = 5
 

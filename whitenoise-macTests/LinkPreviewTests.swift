@@ -112,7 +112,6 @@ struct LinkPreviewTests {
         let finalURL = URL(string: "https://final.example.com/dir/page")!
 
         let parsed = await LinkPreviewLoader.fetchMetadata(for: base) { request in
-            #expect(request.httpShouldHandleCookies == false)
             #expect(request.value(forHTTPHeaderField: "Accept")?.hasPrefix("text/html") == true)
             return (html, Self.htmlResponse(finalURL))
         }

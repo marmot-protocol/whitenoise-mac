@@ -101,10 +101,10 @@ final class LinkPreviewLoader {
         return .loaded(metadata)
     }
 
+    /// Only `Accept` is honored: the pinned transport sends no cookies and keeps no HTTP cache,
+    /// so the request carries nothing else.
     nonisolated static func request(for url: URL) -> URLRequest {
         var request = URLRequest(url: url)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.httpShouldHandleCookies = false
         request.setValue(acceptHeader, forHTTPHeaderField: "Accept")
         return request
     }
