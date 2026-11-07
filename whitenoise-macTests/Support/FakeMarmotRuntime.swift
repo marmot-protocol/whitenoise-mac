@@ -3598,6 +3598,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var signedOutAccountRefs: [String] = []
     var signInAccountCallCount = 0
     var revealNsecCallCount = 0
+    var revealNsecError: (any Error)?
     var exportEncryptedSecretKeyCallCount = 0
     var deleteGroupLocalCallCount = 0
     var locallyDeletedGroupIds: [String] = []
@@ -3705,6 +3706,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func revealNsec(accountRef: String) throws -> String {
         revealNsecCallCount += 1
+        if let revealNsecError { throw revealNsecError }
         return "nsec1fake"
     }
 
