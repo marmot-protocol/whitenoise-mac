@@ -280,6 +280,45 @@ struct ModerationReportTests {
         #expect(calls.notices.count == 1)
     }
 
+    /// The sheet cancels its task when the message row is torn down mid-send, but a UniFFI call keeps
+    /// going: a report the group already accepted must still be recorded, the team copy the user asked
+    /// for must still go out, and the outcome must still be announced.
+    @Test func aReportThatOutlivesItsSheetStillRecordsAndFinishesBothCopies() async {
+        let calls = ReportCalls()
+        let (groupStarted, groupStartedContinuation) = AsyncStream<CheckedContinuation<SendAcceptDispositionFfi, Never>>
+            .makeStream()
+        let model = ReportMessageViewModel(
+            eligibility: Self.eligibility(Self.message()),
+            dependencies: ReportMessageDependencies(
+                reportToGroup: { _, _ in
+                    calls.group += 1
+                    return await withCheckedContinuation { groupStartedContinuation.yield($0) }
+                },
+                reportToTeam: { _, _ in
+                    calls.team += 1
+                    return .published
+                },
+                present: { calls.notices.append($0) }
+            )
+        )
+
+        let task = Task { await model.submit() }
+        var started = groupStarted.makeAsyncIterator()
+        guard let groupCall = await started.next() else {
+            Issue.record("The group report never started")
+            return
+        }
+        task.cancel()
+        groupCall.resume(returning: .published)
+        await task.value
+
+        #expect(calls.group == 1)
+        #expect(calls.team == 1)
+        #expect(model.isSubmitted)
+        #expect(calls.notices.count == 1)
+        #expect(model.groupOutcome == ReportPresentation.groupOutcome(.published))
+    }
+
     @Test func explanationsAreCappedAtOneThousandCharacters() {
         let model = ReportMessageViewModel(eligibility: Self.eligibility(Self.message()), dependencies: .inert)
         model.explanation = String(repeating: "x", count: 1_200)
