@@ -59,6 +59,8 @@ final class ConversationViewModel {
     let groupIdHex: String
     /// Images for this conversation's NIP-30 custom emoji, in message text and reactions.
     let customEmojiImages: CustomEmojiImageStore
+    /// Search within this conversation's history; ends when the conversation goes away.
+    let search: ConversationSearchViewModel
     private(set) var snapshot: ConversationWindowSnapshotFfi?
     private(set) var pendingSends: [String: PendingDurableSend] = [:]
     private(set) var isLoading = false
@@ -123,6 +125,11 @@ final class ConversationViewModel {
             groupIdHex: groupIdHex,
             runtime: runtime
         )
+        self.search = ConversationSearchViewModel(
+            runtime: runtime,
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex
+        )
     }
 
     func start(mode: ConversationOpenModeFfi = .automatic, messageIdHex: String? = nil) {
@@ -146,6 +153,7 @@ final class ConversationViewModel {
         reactionDetails?.cancel()
         reactionDetails = nil
         customEmojiImages.cancelAll()
+        search.end()
     }
 
     /// Ends the window subscription only, so `start` can reopen it without restarting emoji loads.

@@ -1855,6 +1855,8 @@ struct ProfileImageAvatarView: View {
 struct ConversationHeader: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
+    /// Opens search within this conversation (⌘F); nil hides the control.
+    var onSearch: (() -> Void)?
 
     /// Under the chat title: the disappearing-message timer as a bare clock icon + duration (no
     /// "Disappearing messages:" label) when it's on, otherwise the usual member/DM subtitle.
@@ -1924,6 +1926,21 @@ struct ConversationHeader: View {
                 .help(L10n.string("Chat info"))
 
                 Spacer()
+
+                if let onSearch {
+                    Button(action: onSearch) {
+                        Image(systemName: "magnifyingglass")
+                            .wnFont(.semiBold16)
+                            .frame(width: 34, height: 34)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("f", modifiers: .command)
+                    .help(L10n.string("Search messages"))
+                    .accessibilityIdentifier("conversation.search.open")
+                }
 
                 // Changing the group image is a send (commit) under the hood, which the
                 // core rejects until the invite is accepted, or once the local account is
