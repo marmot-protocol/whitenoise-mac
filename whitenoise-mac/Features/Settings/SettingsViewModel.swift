@@ -11,6 +11,7 @@ final class SettingsViewModel {
     let storage: StorageSettingsViewModel
     let manageStorage: ManageStorageViewModel
     let diagnostics: DiagnosticsSettingsViewModel
+    let deleteProfile: DeleteProfileViewModel
 
     init(
         account: AccountItem,
@@ -20,7 +21,8 @@ final class SettingsViewModel {
         productAnalytics: ProductAnalyticsRecorder? = nil,
         chatListModel: ChatListViewModel? = nil,
         relayListsDidChange: @escaping @MainActor () -> Void = {},
-        attachmentsDidChange: @escaping @MainActor () async -> Void = {}
+        attachmentsDidChange: @escaping @MainActor () async -> Void = {},
+        removeAccount: DeleteProfileViewModel.RemoveAccount? = nil
     ) {
         agentSettings = AgentSettingsViewModel(account: account, runtime: runtime)
         self.blockedUsersModel = blockedUsersModel
@@ -47,6 +49,7 @@ final class SettingsViewModel {
             runtime: runtime,
             productAnalytics: productAnalytics
         )
+        deleteProfile = DeleteProfileViewModel(removeAccount: removeAccount)
     }
 
     static func preview() -> SettingsViewModel {
