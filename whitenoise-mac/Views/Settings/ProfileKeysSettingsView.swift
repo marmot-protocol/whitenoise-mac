@@ -24,14 +24,22 @@ import SwiftUI
 
 struct ProfileKeysSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    let model: ProfileKeysViewModel
 
     var body: some View {
         SettingsScaffold(title: L10n.string("Profile Keys")) {
             if let account = workspace.activeAccount {
                 ProfileKeysPublicKeySection(account: account)
-                ProfileKeysPrivateKeySection(account: account)
+                ProfileKeysPrivateKeySection(model: model, localSigning: account.localSigning)
                 if account.localSigning {
-                    ProfileKeysExportSection()
+                    ProfileKeysBackupSection(
+                        isExporting: workspace.isExportingPrivateKey,
+                        exportWithoutPassword: {
+                            model.hidePrivateKey()
+                            await workspace.exportActiveAccountPrivateKey(.raw)
+                        },
+                        willExportWithPassword: model.hidePrivateKey
+                    )
                 }
             } else {
                 SettingsSection {
@@ -40,6 +48,9 @@ struct ProfileKeysSettingsView: View {
                 }
             }
         }
+        // Revealing is per-visit. The model outlives the page (it is account-scoped), so leaving
+        // Settings must put the key back behind its bullets and drop any read still in flight.
+        .onDisappear { model.reset() }
     }
 }
 
@@ -99,17 +110,17 @@ private struct ProfileKeysPublicKeySection: View {
 /// The key you never hand to anyone: concealed by default, revealed by the eye, and copyable
 /// without being revealed at all.
 ///
-/// The footer carries two sentences and both are load-bearing. The first is the prototype's, and
-/// it is the warning. The second is this app's audit-log disclosure, which the sheet this section
-/// replaced used to carry: on macOS every one of these three actions goes through the core's
-/// `revealNsec`, which writes a per-account audit line and downgrades that account's audit data
-/// mode. A reader tapping an eye has no way to know that, so the page says it.
-private struct ProfileKeysPrivateKeySection: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let account: AccountItem
-
-    @State private var revealedNsec: String?
-    @State private var isRevealing = false
+/// Laid out like the iOS client's private-key row (whitenoise-ios #1264): the value, the copy
+/// control inside the row, and the eye beside it — the same shape as the public-key row above, so
+/// the two keys read as a pair. Both controls ask first; see `ProfileKeysViewModel`.
+///
+/// The footer carries two sentences and both are load-bearing. The first is the warning. The
+/// second is this app's audit-log disclosure: on macOS every reveal, copy and export goes through
+/// the core's `revealNsec`, which writes a per-account audit line and downgrades that account's
+/// audit data mode. A reader tapping an eye has no way to know that, so the page says it.
+struct ProfileKeysPrivateKeySection: View {
+    let model: ProfileKeysViewModel
+    let localSigning: Bool
 
     private var footer: String {
         // Two sentences, one footer. `SettingsFooterText` wraps, so the blank line is what keeps
@@ -127,11 +138,17 @@ private struct ProfileKeysPrivateKeySection: View {
     var body: some View {
         SettingsSection(
             title: L10n.string("Private Key"),
-            footer: account.localSigning ? footer : nil
+            footer: localSigning ? footer : nil
         ) {
-            if account.localSigning {
-                keyRow
-                PrivateKeyCopyButton()
+            if localSigning {
+                PrivateKeyRow(model: model)
+                if let error = model.error {
+                    SettingsStatusNote(
+                        text: error,
+                        intention: .failure,
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                }
             } else {
                 // One answer for both the watch-only and the external-signer case, because it is
                 // the same answer: there is no key here to conceal, copy or export. Which of the
@@ -142,105 +159,111 @@ private struct ProfileKeysPrivateKeySection: View {
                 )
             }
         }
-        // Revealing is per-visit. Leaving the key on screen for the next person to open Settings
-        // undoes the point of concealing it, and the value is a copy of secret material held in
-        // this view's state for no longer than it is being looked at.
-        .onDisappear { revealedNsec = nil }
-        .onChange(of: account.id) { _, _ in revealedNsec = nil }
-    }
-
-    private var keyRow: some View {
-        HStack(spacing: 12) {
-            Group {
-                if let revealedNsec {
-                    Text(revealedNsec)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                } else {
-                    ConcealedKeyBullets()
-                }
+        .alert(
+            L10n.string(model.pendingConfirmation?.confirmationTitleKey ?? ""),
+            isPresented: Binding(
+                get: { model.pendingConfirmation != nil },
+                set: { if !$0 { model.cancelRequest() } }
+            ),
+            presenting: model.pendingConfirmation
+        ) { action in
+            Button(L10n.string("Cancel"), role: .cancel) { model.cancelRequest() }
+            Button(L10n.string(action.confirmButtonKey), role: .destructive) {
+                model.confirm(action)
             }
-            .font(.system(.callout, design: .monospaced))
-            .foregroundStyle(WNColor.backgroundContentSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .clipped()
-            .privacySensitive()
-            // Hidden from speech even while it is on screen: a screen reader reading an nsec
-            // aloud is the one disclosure the eye control cannot take back.
-            .accessibilityHidden(true)
-
-            Button {
-                Task { await toggleReveal() }
-            } label: {
-                if isRevealing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: revealedNsec == nil ? "eye" : "eye.slash")
-                        .contentTransition(.symbolEffect(.replace))
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
-                }
-            }
-            .buttonStyle(.borderless)
-            .disabled(isRevealing)
-            .help(
-                revealedNsec == nil
-                    ? L10n.string("Show private key")
-                    : L10n.string("Hide private key")
-            )
-            .accessibilityLabel(
-                Text(
-                    revealedNsec == nil
-                        ? L10n.string("Show private key")
-                        : L10n.string("Hide private key")))
+        } message: { _ in
+            Text(L10n.string(ProfileKeysViewModel.PrivateKeyAction.confirmationMessageKey))
         }
-    }
-
-    private func toggleReveal() async {
-        guard revealedNsec == nil else {
-            revealedNsec = nil
-            return
-        }
-        isRevealing = true
-        defer { isRevealing = false }
-        revealedNsec = await workspace.revealActiveAccountNsec()
     }
 }
 
-/// Copies the private key without revealing it.
-///
-/// Its own view rather than a `CopyToClipboardButton`, because that control is handed the value up
-/// front and the value here does not exist until the core is asked for it. The confirmation window
-/// is the same `CopyConfirmation`, so this button and every other copy affordance in the app agree
-/// about how long a checkmark stays up.
-private struct PrivateKeyCopyButton: View {
-    @Environment(WorkspaceState.self) private var workspace
-
-    @State private var confirmation = CopyConfirmation()
-    @State private var isCopying = false
+/// The value, its copy control, and the eye — one row, like the public key's.
+private struct PrivateKeyRow: View {
+    let model: ProfileKeysViewModel
 
     var body: some View {
-        Button {
-            Task { await copy() }
-        } label: {
-            Label(
-                L10n.string("Copy Private Key"),
-                systemImage: confirmation.isConfirming ? "checkmark" : "doc.on.doc"
-            )
-            .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.wnSecondary)
-        .disabled(isCopying)
-        .accessibilityLabel(Text(L10n.string("Copy Private Key")))
-    }
+        HStack(spacing: 12) {
+            PrivateKeyValue(revealedNsec: model.revealedNsec)
 
-    private func copy() async {
-        isCopying = true
-        defer { isCopying = false }
-        guard let nsec = await workspace.revealActiveAccountNsec() else { return }
-        workspace.copyText(nsec, concealed: true)
-        confirmation.confirm()
-        AccessibilityNotification.Announcement(L10n.string("Copied")).post()
+            Button {
+                model.request(.copy)
+            } label: {
+                PrivateKeyControlGlyph(
+                    systemImage: model.copyConfirmation.isConfirming ? "checkmark" : "doc.on.doc",
+                    tint: model.copyConfirmation.isConfirming
+                        ? WNColor.intentionSuccessContent
+                        : WNColor.backgroundContentPrimary,
+                    isLoading: model.actionInFlight == .copy
+                )
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.actionInFlight != nil)
+            .help(L10n.string("Copy Private Key"))
+            .accessibilityLabel(
+                Text(model.copyConfirmation.isConfirming ? L10n.string("Copied") : L10n.string("Copy Private Key")))
+
+            Button {
+                model.request(.reveal)
+            } label: {
+                PrivateKeyControlGlyph(
+                    systemImage: model.isRevealed ? "eye.slash" : "eye",
+                    tint: WNColor.backgroundContentPrimary,
+                    isLoading: model.actionInFlight == .reveal
+                )
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.actionInFlight != nil)
+            .help(model.isRevealed ? L10n.string("Hide private key") : L10n.string("Show private key"))
+            .accessibilityLabel(
+                Text(model.isRevealed ? L10n.string("Hide private key") : L10n.string("Show private key")))
+        }
+    }
+}
+
+/// The key itself, or as many bullets as fit where it would be.
+private struct PrivateKeyValue: View {
+    let revealedNsec: String?
+
+    var body: some View {
+        Group {
+            if let revealedNsec {
+                Text(revealedNsec)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    // Disabled outright, not merely left unset: ContentView turns selection on for
+                    // the whole window, and a selectable key could be copied without passing the
+                    // "Copy Private Key?" confirmation or getting the concealed pasteboard marker.
+                    .textSelection(.disabled)
+            } else {
+                ConcealedKeyBullets()
+            }
+        }
+        .font(.system(.callout, design: .monospaced))
+        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .privacySensitive()
+        // Hidden from speech even while it is on screen: a screen reader reading an nsec
+        // aloud is the one disclosure the eye control cannot take back.
+        .accessibilityHidden(true)
+    }
+}
+
+/// A row control's glyph, swapped for a spinner of the same footprint while its read is out, so
+/// the row does not shift when the core answers.
+private struct PrivateKeyControlGlyph: View {
+    let systemImage: String
+    let tint: Color
+    let isLoading: Bool
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .contentTransition(.symbolEffect(.replace))
+            .foregroundStyle(tint)
+            .opacity(isLoading ? 0 : 1)
+            .overlay {
+                if isLoading { ProgressView().controlSize(.small) }
+            }
     }
 }
 
@@ -276,52 +299,96 @@ private struct ConcealedKeyBullets: View {
     }
 }
 
-/// The two ways the private key becomes a file: password-protected first, plaintext second.
+/// The two ways the private key becomes a file, under the iOS client's framing: a backup, with the
+/// password-protected one first and recommended.
 ///
-/// Ordered rather than presented as equals. The encrypted export is a NIP-49 `ncryptsec1` file that
-/// is useless to whoever finds it without the password; the raw one is the account itself, in a
-/// file, and it goes behind a confirmation that says so.
-private struct ProfileKeysExportSection: View {
-    @Environment(WorkspaceState.self) private var workspace
+/// Ordered rather than presented as equals. The password-protected backup is a NIP-49
+/// `ncryptsec1` file that is useless to whoever finds it without the password; the other one is
+/// the account itself, in a file, and it goes behind a confirmation that says so.
+struct ProfileKeysBackupSection: View {
+    let isExporting: Bool
+    let exportWithoutPassword: @MainActor () async -> Void
+    /// Runs as the password sheet opens, so a revealed key is not left on the page behind it.
+    var willExportWithPassword: @MainActor () -> Void = {}
 
     @State private var isShowingEncryptedExport = false
     @State private var isConfirmingRawExport = false
 
     var body: some View {
-        SettingsSection(title: L10n.string("Export")) {
-            Button {
-                isShowingEncryptedExport = true
-            } label: {
-                Label(L10n.string("Export Encrypted Private Key"), systemImage: "lock.doc")
-            }
-            .buttonStyle(.wnSecondary)
-            .disabled(workspace.isExportingPrivateKey)
+        SettingsSection(title: L10n.string("Back Up Your Private Key")) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(
+                    L10n.string(
+                        "Keep your private key somewhere safe. If you lose it, White Noise can't recover it. We recommend protecting your backup with a password."
+                    )
+                )
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Button {
-                isConfirmingRawExport = true
-            } label: {
-                Label(L10n.string("Export Private Key"), systemImage: "arrow.down.doc")
+                VStack(alignment: .leading, spacing: 10) {
+                    Button {
+                        willExportWithPassword()
+                        isShowingEncryptedExport = true
+                    } label: {
+                        Label(L10n.string("Back Up With a Password"), systemImage: "lock.doc")
+                    }
+                    .buttonStyle(.wnSecondary)
+
+                    Button {
+                        isConfirmingRawExport = true
+                    } label: {
+                        Label(L10n.string("Back Up Without a Password"), systemImage: "arrow.down.doc")
+                    }
+                    .buttonStyle(.wnSecondary)
+                }
+                .disabled(isExporting)
             }
-            .buttonStyle(.wnSecondary)
-            .disabled(workspace.isExportingPrivateKey)
+            .padding(.vertical, 4)
         }
         .sheet(isPresented: $isShowingEncryptedExport) {
             EncryptedPrivateKeyExportSheet()
         }
         .confirmationDialog(
-            L10n.string("Keep your private key safe"),
+            L10n.string("Export Without a Password?"),
             isPresented: $isConfirmingRawExport,
             titleVisibility: .visible
         ) {
-            Button(L10n.string("Export Private Key"), role: .destructive) {
-                Task { await workspace.exportActiveAccountPrivateKey(.raw) }
+            Button(L10n.string("Export Key"), role: .destructive) {
+                Task { await exportWithoutPassword() }
             }
             Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
             Text(
                 L10n.string(
-                    "This file holds your key in plain text. Anyone who opens it controls this account. The encrypted export or a trusted password manager is safer."
+                    "We recommend exporting with a password to protect your private key. Without one, anyone with the exported key can use your profile. Keep it safe and don't share it."
                 ))
         }
     }
+}
+
+#Preview("Private key, concealed") {
+    Form {
+        ProfileKeysPrivateKeySection(model: .preview(), localSigning: true)
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+}
+
+#Preview("Private key, revealed") {
+    Form {
+        ProfileKeysPrivateKeySection(
+            model: .preview(revealedNsec: "nsec1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0jqxz3xm"),
+            localSigning: true
+        )
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+}
+
+#Preview("Backup") {
+    Form {
+        ProfileKeysBackupSection(isExporting: false, exportWithoutPassword: {})
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
 }
