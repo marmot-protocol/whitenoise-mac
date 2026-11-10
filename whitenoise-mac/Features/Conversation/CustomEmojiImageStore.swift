@@ -96,7 +96,11 @@ final class CustomEmojiImageStore {
     func reactionImage(for reaction: MessageReaction) -> NSImage? {
         guard let shortcode = reaction.customEmojiShortcode, let messageIdHex = reaction.reactionMessageIdHex
         else { return nil }
-        if let reference = reactionReferences[messageIdHex] { return image(for: reference) }
+        // Until its own image decodes, a built-in shortcode keeps the bundled glyph rather than
+        // flipping back to text while a late-found image downloads.
+        if let reference = reactionReferences[messageIdHex] {
+            return image(for: reference) ?? CustomEmojiBuiltinImages.image(for: shortcode)
+        }
         guard reactionsWithoutArtwork.contains(messageIdHex) else { return nil }
         return CustomEmojiBuiltinImages.image(for: shortcode)
     }
@@ -210,7 +214,7 @@ final class CustomEmojiImageStore {
 
     /// The loadable image MDK resolved for a reaction: an accepted image attachment of that same
     /// kind-7. Anything else (no entry, another event's slot, a rejected or non-image attachment)
-    /// leaves the reaction drawn as its literal shortcode.
+    /// counts as no artwork: the built-in of that name, or else the literal shortcode.
     nonisolated static func reactionReference(
         _ entry: AttachmentEntryFfi?, reactionMessageIdHex: String
     ) -> MediaAttachmentReferenceFfi? {

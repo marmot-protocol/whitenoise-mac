@@ -345,6 +345,34 @@ struct CustomEmojiTests {
         #expect(store.reactionImage(for: party) == nil)
     }
 
+    /// A kind-7 can project before its image, so a built-in reaction first drawn as the bundled
+    /// glyph keeps it while the image MDK later finds is still downloading, never falling back to
+    /// the literal `:marmot:` in between.
+    @MainActor
+    @Test func aBuiltinReactionKeepsTheBuiltInWhileItsLateImageDownloads() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        var clock = Date(timeIntervalSince1970: 1_000)
+        let store = CustomEmojiImageStore(
+            accountId: "account", accountRef: "account", groupIdHex: "group", runtime: runtime,
+            diskCache: MessageMediaDiskCache.makeIsolated(), now: { clock })
+        let marmot = MessageReaction(emoji: ":marmot:", count: 1, isOwn: false, reactionMessageIdHex: "kind7")
+        store.loadReactions([marmot])
+        #expect(await waitFor { store.reactionImage(for: marmot) != nil })
+
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "marmot.png")
+        try Self.installReactionArtwork(runtime, reactionMessageIdHex: "kind7", reference: reference)
+        runtime.mediaDownloadGateEnabled = true
+        clock += CustomEmojiImageStore.unresolvedReactionRetryInterval + 1
+        store.loadReactions([marmot])
+        #expect(await waitFor { runtime.didReachMediaDownloadGate })
+
+        #expect(store.reactionReferences["kind7"] == reference)
+        #expect(store.reactionImage(for: marmot) != nil)
+        runtime.releaseMediaDownloadGate()
+        #expect(await waitFor { store.image(for: reference) != nil })
+        #expect(store.reactionImage(for: marmot) === store.image(for: reference))
+    }
+
     @MainActor
     @Test func reactionImagesResolveThroughReactionAttachmentAndLoad() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
