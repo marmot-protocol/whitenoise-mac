@@ -130,14 +130,15 @@ final class ConversationViewModel {
         self.productAnalytics = productAnalytics
         self.stickers = stickers
         self.emojiSets = emojiSets
-        self.customEmojiSender = ConversationCustomEmojiSender(
-            accountRef: account.accountRef, groupIdHex: groupIdHex, runtime: runtime)
-        self.customEmojiImages = CustomEmojiImageStore(
+        let customEmojiImages = CustomEmojiImageStore(
             accountId: account.id,
             accountRef: account.accountRef,
             groupIdHex: groupIdHex,
             runtime: runtime
         )
+        self.customEmojiImages = customEmojiImages
+        self.customEmojiSender = ConversationCustomEmojiSender(
+            accountRef: account.accountRef, groupIdHex: groupIdHex, runtime: runtime, images: customEmojiImages)
     }
 
     /// What the pickers and composer can send here: the built-ins, the account's installed set

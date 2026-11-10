@@ -186,6 +186,65 @@ struct CustomEmojiSendingTests {
         #expect(sender.uploadCount == 1)
     }
 
+    /// MDK serves a sender's own attachment locally only once the message is confirmed, so the
+    /// sent emoji draw from the bytes just uploaded rather than a `downloadMedia` round trip that
+    /// leaves the literal `:shortcode:` showing until a retry.
+    @MainActor
+    @Test func ownSentEmojiDrawFromTheUploadedBytesWithoutADownload() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let images = CustomEmojiImageStore(
+            accountId: "account", accountRef: "account", groupIdHex: Self.group, runtime: runtime,
+            diskCache: .makeIsolated())
+        let sender = ConversationCustomEmojiSender(
+            accountRef: "account", groupIdHex: Self.group, runtime: runtime, images: images)
+        let wn = try #require(CustomEmojiSendCatalog.sendables(installed: [], chat: []).last)
+
+        try await sender.sendMessage(text: ":wn:", replyTargetId: nil, emoji: [wn])
+        let reference = try #require(runtime.taggedMediaSends.first?.attachments.first)
+        images.load(reference)
+
+        #expect(images.image(for: reference) != nil)
+        #expect(!images.isUnavailable(reference))
+        #expect(runtime.downloadMediaCallCount == 0)
+    }
+
+    /// MDK may not link a just-sent kind-7 to its image yet, so the sender names the artwork it
+    /// attached to the ids MDK returned and the reaction chip draws at once.
+    @MainActor
+    @Test func anOwnCustomReactionDrawsAsSoonAsItIsSent() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let images = CustomEmojiImageStore(
+            accountId: "account", accountRef: "account", groupIdHex: Self.group, runtime: runtime,
+            diskCache: .makeIsolated())
+        let sender = ConversationCustomEmojiSender(
+            accountRef: "account", groupIdHex: Self.group, runtime: runtime, images: images)
+        let wn = try #require(CustomEmojiSendCatalog.sendables(installed: [], chat: []).last)
+
+        try await sender.sendReaction(wn, to: "target")
+        let reaction = MessageReaction(emoji: ":wn:", count: 1, isOwn: true, reactionMessageIdHex: "media-reaction-1")
+
+        #expect(images.reactionImage(for: reaction) != nil)
+        #expect(runtime.reactionAttachmentRequests.isEmpty)
+        #expect(runtime.downloadMediaCallCount == 0)
+    }
+
+    @MainActor
+    @Test func adoptedBytesReplaceAFailedDownloadsFallback() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let images = CustomEmojiImageStore(
+            accountId: "account", accountRef: "account", groupIdHex: Self.group, runtime: runtime,
+            diskCache: .makeIsolated())
+        let wn = try #require(CustomEmojiBuiltins.builtin("wn"))
+        let reference = Self.reference("wn", plaintext: wn.data)
+
+        images.load(reference)
+        #expect(await waitFor { images.isUnavailable(reference) })
+        await images.adopt(wn.data, plaintextSha256: wn.plaintextSha256)
+
+        #expect(images.image(for: reference) != nil)
+        #expect(!images.isUnavailable(reference))
+    }
+
     @MainActor
     @Test func aStaleEpochReencryptsOnceAndSends() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])

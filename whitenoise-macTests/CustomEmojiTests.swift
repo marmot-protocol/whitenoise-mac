@@ -328,6 +328,23 @@ struct CustomEmojiTests {
         #expect(await waitFor { store.image(for: reference) != nil })
     }
 
+    /// As on iOS: a `:marmot:` or `:wn:` reaction MDK holds no image for draws the built-in of
+    /// that name, while any other shortcode with no image stays text.
+    @MainActor
+    @Test func aBuiltinReactionWithNoArtworkDrawsTheBuiltIn() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let store = Self.store(runtime: runtime)
+        let marmot = MessageReaction(emoji: ":marmot:", count: 1, isOwn: false, reactionMessageIdHex: "kind7-a")
+        let party = MessageReaction(emoji: ":party:", count: 1, isOwn: false, reactionMessageIdHex: "kind7-b")
+
+        #expect(store.reactionImage(for: marmot) == nil)
+        store.loadReactions([marmot, party])
+
+        #expect(await waitFor { store.reactionImage(for: marmot) != nil })
+        #expect(await waitFor { runtime.reactionAttachmentRequests.count == 2 })
+        #expect(store.reactionImage(for: party) == nil)
+    }
+
     @MainActor
     @Test func reactionImagesResolveThroughReactionAttachmentAndLoad() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])

@@ -26,6 +26,9 @@ final class CustomEmojiImageStore {
     private(set) var unavailable: Set<String> = []
     /// Reaction kind-7 id → the image attachment `reactionAttachment` resolved for it.
     private(set) var reactionReferences: [String: MediaAttachmentReferenceFfi] = [:]
+    /// Reaction kind-7 ids MDK holds no image for. A built-in shortcode among them draws the
+    /// bundled image, as on iOS; any other stays its literal `:shortcode:`.
+    private(set) var reactionsWithoutArtwork: Set<String> = []
 
     /// Large enough for the bubble-free single-emoji treatment at 2x; inline text uses far less.
     static let maxPixelSize: CGFloat = 160
@@ -88,12 +91,27 @@ final class CustomEmojiImageStore {
         unavailable.contains(Self.key(for: reference))
     }
 
-    /// The image for a reaction, once its kind-7's attachment has been resolved and loaded.
+    /// The image for a reaction, once its kind-7's attachment has been resolved and loaded, or
+    /// the built-in of that name when the reaction carries no image.
     func reactionImage(for reaction: MessageReaction) -> NSImage? {
-        guard reaction.customEmojiShortcode != nil, let messageIdHex = reaction.reactionMessageIdHex,
-            let reference = reactionReferences[messageIdHex]
+        guard let shortcode = reaction.customEmojiShortcode, let messageIdHex = reaction.reactionMessageIdHex
         else { return nil }
-        return image(for: reference)
+        if let reference = reactionReferences[messageIdHex] { return image(for: reference) }
+        guard reactionsWithoutArtwork.contains(messageIdHex) else { return nil }
+        return CustomEmojiBuiltinImages.image(for: shortcode)
+    }
+
+    /// Names the image this device attached to its own reaction, under the ids MDK returned for
+    /// it. Right after the send MDK may not link the kind-7 to its image yet, and a miss is only
+    /// looked up again after `unresolvedReactionRetryInterval`.
+    func recordOwnReaction(messageIds: [String], reference: MediaAttachmentReferenceFfi) {
+        for messageIdHex in messageIds where !messageIdHex.isEmpty {
+            reactionReferences[messageIdHex] = reference
+            reactionsWithoutArtwork.remove(messageIdHex)
+            unresolvedReactionIds[messageIdHex] = nil
+            pendingReactionIds.remove(messageIdHex)
+        }
+        load(reference)
     }
 
     /// Starts loading `reference` unless it is loaded, loading, waiting to retry, or given up.
@@ -103,6 +121,25 @@ final class CustomEmojiImageStore {
         loading[key] = Task { [weak self] in
             await self?.fetch(reference, key: key)
         }
+    }
+
+    /// Draws `plaintext` for every attachment with this digest, with no download: the bytes of an
+    /// emoji this device just uploaded. MDK serves a sender's own attachment locally only once the
+    /// message is confirmed, and `downloadMedia` would fetch it back from the server, so without
+    /// this the sent message shows its literal `:shortcode:` until a retry.
+    func adopt(_ plaintext: Data, plaintextSha256: String) async {
+        let key = plaintextSha256.lowercased()
+        guard images[key] == nil else { return }
+        let payload = DownloadedMediaPayload(id: "custom-emoji-\(UUID().uuidString)", data: plaintext)
+        guard let loaded = await RemoteImageLoader.shared.image(for: payload, maxPixelSize: Self.maxPixelSize),
+            images[key] == nil
+        else { return }
+        retries[key]?.cancel()
+        retries[key] = nil
+        attempts[key] = nil
+        permanentlyFailed.remove(key)
+        unavailable.remove(key)
+        images[key] = loaded.nsImage
     }
 
     /// Stops every download, retry and lookup. The conversation is going away, or its account is.
@@ -157,13 +194,16 @@ final class CustomEmojiImageStore {
                 unresolvedReactionIds[reactionMessageIdHex] = now()
                 continue
             }
-            guard !Task.isCancelled else { return }
+            // Recorded by this device's own send while the read was in flight.
+            guard !Task.isCancelled, reactionReferences[reactionMessageIdHex] == nil else { continue }
             if let reference = Self.reactionReference(entry, reactionMessageIdHex: reactionMessageIdHex) {
                 unresolvedReactionIds[reactionMessageIdHex] = nil
+                reactionsWithoutArtwork.remove(reactionMessageIdHex)
                 reactionReferences[reactionMessageIdHex] = reference
                 load(reference)
             } else {
                 unresolvedReactionIds[reactionMessageIdHex] = now()
+                reactionsWithoutArtwork.insert(reactionMessageIdHex)
             }
         }
     }
@@ -209,6 +249,7 @@ final class CustomEmojiImageStore {
             let loaded = await RemoteImageLoader.shared.image(for: payload, maxPixelSize: Self.maxPixelSize)
         else {
             // The bytes arrived and are not an image: no retry will change that.
+            guard images[key] == nil else { return }
             permanentlyFailed.insert(key)
             unavailable.insert(key)
             return
@@ -236,6 +277,8 @@ final class CustomEmojiImageStore {
     /// Shows the literal shortcode while the next attempt waits, then tries again; gives up once
     /// `retryDelays` is spent.
     private func scheduleRetry(_ reference: MediaAttachmentReferenceFfi, key: String) {
+        // Adopted while this download was failing: there is an image to draw.
+        guard images[key] == nil else { return }
         unavailable.insert(key)
         let attempt = attempts[key, default: 0]
         guard attempt < retryDelays.count else {
