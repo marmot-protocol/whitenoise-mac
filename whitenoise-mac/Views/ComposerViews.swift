@@ -1858,6 +1858,7 @@ struct ProfileImageAvatarView: View {
 
 struct ConversationHeader: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     let chat: ChatItem
     var recoveryStatus: AccountRecoveryStatusViewModel?
 
@@ -1965,6 +1966,7 @@ struct ConversationHeader: View {
         }
         .sheet(isPresented: $workspace.isGroupImagePickerPresented) {
             GroupImagePickerSheet()
+                .environment(\.endingGroupIds, endingGroupIds)
         }
     }
 }

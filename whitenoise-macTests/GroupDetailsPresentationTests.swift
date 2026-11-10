@@ -269,10 +269,32 @@ struct GroupDetailsPermissionsTests {
         #expect(permissions.showsAdminOnlyNote)
     }
 
+    /// The status section says group changes are off while a group ends, so nothing may be offered
+    /// then — not even on the admin flag that stands in before the header loads, which a disband
+    /// leaves set.
+    @Test func anEndingOrEndedGroupOffersNoChanges() {
+        for lifecycle in [GroupLifecycle.ending, .ended] {
+            for capabilities in [nil, capabilities(canEditGroup: true)] {
+                let permissions = GroupDetailsPermissions(
+                    snapshot: snapshot(isSelfAdmin: true, canInvite: true, lifecycle: lifecycle),
+                    capabilities: capabilities,
+                    isDirect: false
+                )
+
+                #expect(!permissions.canEditGroup)
+                #expect(!permissions.canEditProfile)
+                #expect(!permissions.canInvite)
+                // Nobody can add anyone, so "only admins can" is not the reason to give.
+                #expect(!permissions.showsAdminOnlyNote)
+            }
+        }
+    }
+
     private func snapshot(
         isSelfAdmin: Bool,
         canInvite: Bool = false,
-        membership: ChatSelfMembership = .member
+        membership: ChatSelfMembership = .member,
+        lifecycle: GroupLifecycle = .active
     ) -> GroupDetailsSnapshot {
         GroupDetailsSnapshot(
             groupIdHex: "group",
@@ -295,7 +317,8 @@ struct GroupDetailsPermissionsTests {
             canInvite: canInvite,
             canLeave: true,
             requiresSelfDemoteBeforeLeave: false,
-            disappearingMessageSecs: 0
+            disappearingMessageSecs: 0,
+            disband: GroupDisbandState(lifecycle: lifecycle, isSelfAdmin: isSelfAdmin)
         )
     }
 

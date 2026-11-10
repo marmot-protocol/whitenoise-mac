@@ -157,6 +157,7 @@ private struct DetailPaneView: View {
                                 chatListModel: scope.chatListModel,
                                 attachmentModel: scope.attachmentModel(groupIdHex: chat.id),
                                 safetyModel: scope.safetyModel(groupIdHex: chat.id),
+                                disbandModel: scope.disbandModel(groupIdHex: chat.id),
                                 blockedUsersModel: scope.blockedUsers,
                                 avatarAssets: scope.avatarAssets
                             )
@@ -474,6 +475,7 @@ private struct ConversationView: View {
     let chatListModel: ChatListViewModel
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
+    let disbandModel: GroupDisbandViewModel
     let blockedUsersModel: BlockedUsersViewModel
     /// Avatar bytes for the snapshot's identities, so the mention picker draws the same pictures
     /// the transcript does.
@@ -675,6 +677,10 @@ private struct ConversationView: View {
                     // reply/media drafts included — gives way to an explanatory notice.
                     if workspace.isTimelineSelectionMode {
                         MessageSelectionToolbar()
+                    } else if let notice = chat.lifecycle.composerNotice {
+                        // A disband ends the group for everyone, members included, so it
+                        // outranks where this account stood in it.
+                        GroupLifecycleComposerNotice(lifecycle: chat.lifecycle, message: notice)
                     } else if chat.isNoLongerMember {
                         MembershipEndedComposerNotice(membership: chat.selfMembership)
                     } else if isBlockedDirectPeer {
@@ -755,6 +761,7 @@ private struct ConversationView: View {
                     conversationModel: model,
                     attachmentModel: attachmentModel,
                     safetyModel: safetyModel,
+                    disbandModel: disbandModel,
                     blockedUsersModel: blockedUsersModel
                 )
                 .transition(.move(edge: .trailing))
@@ -1311,6 +1318,7 @@ private struct GroupDetailsPane: View {
     let conversationModel: ConversationViewModel
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
+    let disbandModel: GroupDisbandViewModel
     let blockedUsersModel: BlockedUsersViewModel
 
     var body: some View {
@@ -1319,6 +1327,7 @@ private struct GroupDetailsPane: View {
             conversationModel: conversationModel,
             attachmentModel: attachmentModel,
             safetyModel: safetyModel,
+            disbandModel: disbandModel,
             isBlocked: { blockedUsersModel.isBlocked(accountID: $0) }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

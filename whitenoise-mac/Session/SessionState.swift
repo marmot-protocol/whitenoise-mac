@@ -20,7 +20,8 @@ final class SessionState {
         connectivityAvailable: Bool,
         relayListsDidChange: @escaping @MainActor () -> Void = {},
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
-        removeAccount: DeleteProfileViewModel.RemoveAccount? = nil
+        removeAccount: DeleteProfileViewModel.RemoveAccount? = nil,
+        groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks()
     ) async {
         guard let account, let runtime else {
             await deactivate()
@@ -39,7 +40,8 @@ final class SessionState {
             runtime: runtime,
             relayListsDidChange: relayListsDidChange,
             attachmentsDidChange: attachmentsDidChange,
-            removeAccount: removeAccount
+            removeAccount: removeAccount,
+            groupDisbandHooks: groupDisbandHooks
         )
         accountScope = scope
         scope.start(connectivityAvailable: connectivityAvailable)

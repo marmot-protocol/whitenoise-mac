@@ -14,6 +14,7 @@ import SwiftUI
 
 struct ChatAdminHandoffSheet: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     @Environment(SessionState.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -31,6 +32,11 @@ struct ChatAdminHandoffSheet: View {
 
     private var selectedMember: GroupMemberItem? {
         target.candidates.first { $0.id == selectedMemberId }
+    }
+
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
     }
 
     var body: some View {
@@ -105,7 +111,7 @@ struct ChatAdminHandoffSheet: View {
             // Only the leave half is destructive, and it is the half the confirmation below the
             // button already describes — so the affordance stays a plain prominent action rather
             // than shouting at a user whose alternative is being stuck in the group forever.
-            .disabled(selectedMember == nil || workspace.hasInFlightGroupCommit)
+            .disabled(selectedMember == nil || isGroupCommitInFlight)
         }
         .padding(16)
     }

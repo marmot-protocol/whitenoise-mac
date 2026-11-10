@@ -3382,6 +3382,54 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.mutatingGroupMemberId == nil)
     }
 
+    /// End Group runs in its own model, not on `WorkspaceState`, so it joins the inspector's
+    /// one-commit-at-a-time rule through the hook the shell installs: while a workspace commit is in
+    /// flight it does not start, and once that commit is done it does.
+    @MainActor
+    @Test func endGroupWaitsForAnInFlightWorkspaceGroupCommit() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let managementState = GroupManagementStateFfi(
+            myAccountIdHex: account.accountIdHex,
+            isSelfAdmin: true,
+            isLastAdmin: true,
+            canInvite: true,
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            leaveRequestPending: false,
+            leaveRequestedAtMs: nil,
+            leaveBlocked: false,
+            canCancelLeave: false,
+            lifecycleState: .stable,
+            disbandingEnabled: true,
+            disbanding: false,
+            canEnableDisbanding: false,
+            canDisband: true,
+            disbandingBlockers: [],
+            disbandRequest: nil,
+            memberActions: []
+        )
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex), managementState: managementState)
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let snapshot = try #require(state.groupDetailsSnapshot)
+        let model = GroupDisbandViewModel(
+            accountRef: account.accountIdHex,
+            groupIdHex: snapshot.groupIdHex,
+            runtime: runtime,
+            hooks: GroupDisbandHooks(isOtherGroupCommitInFlight: { state.hasInFlightGroupCommit })
+        )
+
+        state.isSavingGroupProfile = true
+        #expect(!(await model.endGroup(snapshot.disband, advisory: nil)))
+        #expect(runtime.disbandGroupCallCount == 0)
+        #expect(model.alert == nil)
+
+        state.isSavingGroupProfile = false
+        #expect(await model.endGroup(snapshot.disband, advisory: nil))
+        #expect(runtime.disbandGroupCallCount == 1)
+    }
+
     @MainActor
     @Test func selfDemoteAdminUsesFallbackMutexWhenSelfMemberIsMissing() async throws {
         let account = desktopAccount()

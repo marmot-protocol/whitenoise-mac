@@ -93,7 +93,8 @@ nonisolated enum ChatListOrdering {
             leaveBlocked: chat.leaveBlocked,
             latestMessageDelivery: chat.latestMessageDelivery,
             pendingConfirmation: chat.pendingConfirmation,
-            selfMembership: chat.selfMembership
+            selfMembership: chat.selfMembership,
+            lifecycle: chat.lifecycle
         )
     }
 

@@ -53,6 +53,7 @@ struct GroupDiagnosticsValueRow: View {
 
 struct GroupMemberRow: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     @Environment(SessionState.self) private var session
     @State private var showRemoveConfirmation = false
     let member: GroupMemberItem
@@ -64,6 +65,11 @@ struct GroupMemberRow: View {
 
     private var hasActions: Bool {
         member.canPromote || member.canDemote || member.canRemove
+    }
+
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
     }
 
     var body: some View {
@@ -160,7 +166,7 @@ struct GroupMemberRow: View {
                         .frame(width: 28, height: 28)
                 }
                 .menuStyle(.borderlessButton)
-                .disabled(workspace.hasInFlightGroupCommit)
+                .disabled(isGroupCommitInFlight)
             }
         }
         .confirmationDialog(
@@ -173,7 +179,7 @@ struct GroupMemberRow: View {
                     await workspace.removeGroupMember(member, advisory: session.accountScope?.groupChangeAdvisory)
                 }
             }
-            .disabled(workspace.hasInFlightGroupCommit)
+            .disabled(isGroupCommitInFlight)
             Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
             Text(
@@ -248,6 +254,7 @@ struct ContactFollowControl: View {
 
 struct GroupImagePickerSheet: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     @State private var isFileImporterPresented = false
     @State private var cropModel: AvatarCropViewModel?
     /// One prompter per host: Clear asks from this sheet, a crop commit from the crop sheet over it.
@@ -257,6 +264,11 @@ struct GroupImagePickerSheet: View {
     private let columns = [
         GridItem(.adaptive(minimum: 132, maximum: 168), spacing: 12)
     ]
+
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
+    }
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -300,7 +312,7 @@ struct GroupImagePickerSheet: View {
                         } label: {
                             Label(L10n.string("Choose from Mac"), systemImage: "photo.badge.plus")
                         }
-                        .disabled(workspace.hasInFlightGroupCommit)
+                        .disabled(isGroupCommitInFlight)
 
                         Text(L10n.string("or search the web"))
                             .wnFont(.medium10)
@@ -350,7 +362,7 @@ struct GroupImagePickerSheet: View {
                                 Label(L10n.string("Clear"), systemImage: "xmark.circle")
                             }
                             .controlSize(.small)
-                            .disabled(workspace.hasInFlightGroupCommit)
+                            .disabled(isGroupCommitInFlight)
                         }
                     }
                     .frame(minHeight: 24)
@@ -379,7 +391,7 @@ struct GroupImagePickerSheet: View {
                                         GroupImageResultTile(result: result)
                                     }
                                     .buttonStyle(.plain)
-                                    .disabled(workspace.hasInFlightGroupCommit)
+                                    .disabled(isGroupCommitInFlight)
                                 }
                             }
                             .padding(.vertical, 2)

@@ -10,11 +10,17 @@ import SwiftUI
 
 struct GroupDetailsSettingsSection: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     @Environment(SessionState.self) private var session
     @State private var isTimerPresented = false
     @State private var showArchiveConfirmation = false
     let snapshot: GroupDetailsSnapshot
     let permissions: GroupDetailsPermissions
+
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
+    }
 
     var body: some View {
         SettingsSection(
@@ -27,7 +33,7 @@ struct GroupDetailsSettingsSection: View {
                 value: DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs).label,
                 action: permissions.canEditGroup ? { isTimerPresented = true } : nil
             )
-            .disabled(workspace.hasInFlightGroupCommit)
+            .disabled(isGroupCommitInFlight)
             .popover(isPresented: $isTimerPresented, arrowEdge: .trailing) {
                 DisappearingTimerPopover(currentSeconds: snapshot.disappearingMessageSecs) { seconds in
                     isTimerPresented = false
