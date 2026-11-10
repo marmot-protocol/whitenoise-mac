@@ -9,12 +9,56 @@ import Testing
 struct AccountRecoveryStatusTests: WorkspaceTestSupport {
     private static let account = AccountItem.samples[0]
 
-    private func makeModel(_ runtime: FakeMarmotRuntime) -> AccountRecoveryStatusViewModel {
+    private func makeModel(_ runtime: FakeMarmotRuntime, showDelay: Duration = .zero) -> AccountRecoveryStatusViewModel
+    {
         AccountRecoveryStatusViewModel(
             accountRef: Self.account.accountRef,
             accountIdHex: Self.account.accountIdHex,
-            runtime: runtime
+            runtime: runtime,
+            showDelay: showDelay
         )
+    }
+
+    /// MDK reports every short fetch its recovery runner makes, so a chat it touches for a moment
+    /// must not blink "Catching up": only a stretch of at least `showDelay` without a break shows.
+    @Test func aBriefCatchUpNeverShowsAndAnInterruptionRestartsTheWait() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = makeModel(runtime, showDelay: .seconds(1))
+
+        runtime.catchingUpGroupIds = ["group"]
+        await model.refresh()
+        #expect(!model.isCatchingUp(groupIdHex: "group"))
+        try await Task.sleep(for: .milliseconds(700))
+        runtime.catchingUpGroupIds = []
+        await model.refresh()
+        runtime.catchingUpGroupIds = ["group"]
+        await model.refresh()
+        // Past a second since the first report, well short of one since the interruption.
+        try await Task.sleep(for: .milliseconds(450))
+
+        #expect(!model.isCatchingUp(groupIdHex: "group"))
+        #expect(!model.isCatchingUp)
+        model.stop()
+    }
+
+    @Test func aSustainedCatchUpShowsAfterTheDelayAndHidesAsSoonAsItEnds() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.catchingUpGroupIds = ["group"]
+        runtime.inboxCatchingUp = true
+        let model = makeModel(runtime, showDelay: .milliseconds(100))
+
+        await model.refresh()
+        #expect(!model.isCatchingUp)
+        await Self.waitUntil { model.isCatchingUp(groupIdHex: "group") }
+        #expect(model.isCatchingUp)
+
+        runtime.catchingUpGroupIds = []
+        runtime.inboxCatchingUp = false
+        await model.refresh()
+
+        #expect(!model.isCatchingUp(groupIdHex: "group"))
+        #expect(!model.isCatchingUp)
+        model.stop()
     }
 
     @Test func catchingUpGroupsAreMatchedWhateverTheirCase() async {
@@ -82,13 +126,14 @@ struct AccountRecoveryStatusTests: WorkspaceTestSupport {
         await session.activate(account: AccountItem.samples[0], runtime: runtime, connectivityAvailable: true)
         let first = try #require(session.accountScope?.recoveryStatus)
         await first.refresh()
-        #expect(first.isCatchingUp)
+        #expect(first.catchingUpGroupIds == ["group"])
 
         runtime.catchingUpGroupIds = []
         await session.activate(account: AccountItem.samples[1], runtime: runtime, connectivityAvailable: true)
         let second = try #require(session.accountScope?.recoveryStatus)
 
         #expect(second !== first)
+        #expect(second.catchingUpGroupIds.isEmpty)
         #expect(!second.isCatchingUp)
         await session.deactivate()
     }
