@@ -12,7 +12,6 @@ import SwiftUI
 /// send in both states, so no input is offered; the transcript stays readable.
 struct GroupLifecycleComposerNotice: View {
     let lifecycle: GroupLifecycle
-    let message: String
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -20,7 +19,7 @@ struct GroupLifecycleComposerNotice: View {
                 .wnFont(.semiBold14)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
 
-            Text(message)
+            Text(lifecycle.composerNotice ?? "")
                 .wnFont(.semiBold12)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -53,8 +52,8 @@ struct GroupLifecycleBadge: View {
 
 #Preview("Composer notice") {
     VStack(spacing: 12) {
-        GroupLifecycleComposerNotice(lifecycle: .ending, message: GroupLifecycle.ending.composerNotice ?? "")
-        GroupLifecycleComposerNotice(lifecycle: .ended, message: GroupLifecycle.ended.composerNotice ?? "")
+        GroupLifecycleComposerNotice(lifecycle: .ending)
+        GroupLifecycleComposerNotice(lifecycle: .ended)
     }
     .padding()
     .frame(width: 480)

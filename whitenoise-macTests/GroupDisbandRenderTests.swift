@@ -39,7 +39,7 @@ import Testing
     func theComposerNoticeAndSidebarBadgeDraw(appearance: NSAppearance.Name) throws {
         for lifecycle in [GroupLifecycle.ending, .ended] {
             let notice = try Self.drawnHeight(
-                GroupLifecycleComposerNotice(lifecycle: lifecycle, message: lifecycle.composerNotice ?? "")
+                GroupLifecycleComposerNotice(lifecycle: lifecycle)
                     .frame(width: 480),
                 in: appearance)
             let badge = try Self.drawnHeight(GroupLifecycleBadge(lifecycle: lifecycle), in: appearance)

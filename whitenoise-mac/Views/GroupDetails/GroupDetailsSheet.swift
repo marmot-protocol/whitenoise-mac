@@ -92,9 +92,8 @@ struct GroupDetailsSheet: View {
                 != snapshot.description
     }
 
-    /// A group commit — the workspace's, or an End Group run — is in flight.
     private var isGroupCommitInFlight: Bool {
-        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
+        GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: endingGroupIds)
     }
 
     var body: some View {
