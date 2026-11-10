@@ -16,11 +16,17 @@ import SwiftUI
 /// grey footer style, so "Settings" read as a caption under the quick actions.
 struct GroupDetailsIdentitySection: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     let chat: ChatItem
     let snapshot: GroupDetailsSnapshot
     let permissions: GroupDetailsPermissions
     let onEditProfile: () -> Void
     let onAddMembers: () -> Void
+
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
+    }
 
     var body: some View {
         Section {
@@ -42,7 +48,7 @@ struct GroupDetailsIdentitySection: View {
                         isSelected: false
                     )
                 }
-                .disabled(workspace.hasInFlightGroupCommit)
+                .disabled(isGroupCommitInFlight)
 
                 GroupDetailsQuickActionsRow(
                     chat: chat,

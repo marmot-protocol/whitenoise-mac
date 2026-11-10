@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ContactDetailsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     @Environment(SessionState.self) private var session
     let contact: NewChatRecipient
     let blockedUsersModel: BlockedUsersViewModel
@@ -38,6 +39,11 @@ struct ContactDetailsView: View {
         ) {
             workspace.closeContactDetails()
         }
+    }
+
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
     }
 
     var body: some View {
@@ -83,7 +89,7 @@ struct ContactDetailsView: View {
                 if let groupMember {
                     ContactGroupActionsSection(
                         member: groupMember,
-                        isBusy: workspace.hasInFlightGroupCommit,
+                        isBusy: isGroupCommitInFlight,
                         isMutating: workspace.mutatingGroupMemberId == groupMember.id,
                         onPromote: {
                             Task {

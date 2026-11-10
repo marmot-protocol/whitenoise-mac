@@ -50,6 +50,7 @@ private struct ChatDestructiveActionsConfirmationModifier: ViewModifier {
             // the leave can start from a sidebar row whose menu is already torn down.
             .sheet(item: $workspace.chatPendingAdminHandoff) { target in
                 ChatAdminHandoffSheet(target: target)
+                    .environment(\.endingGroupIds, session.accountScope?.endingGroupIds ?? [])
             }
             .confirmationDialog(
                 localDeleteTitle(workspace.chatPendingLocalDelete),

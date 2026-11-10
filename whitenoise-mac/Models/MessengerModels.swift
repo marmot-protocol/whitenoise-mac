@@ -201,6 +201,9 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let latestMessageDelivery: ChatMessageDeliveryState
     let pendingConfirmation: Bool
     let selfMembership: ChatSelfMembership
+    /// Whether the group is still in use, being ended, or over. Independent of membership: a
+    /// disband ends the group for everyone at once, members included.
+    let lifecycle: GroupLifecycle
     /// Precomputed once from `updatedAt` (which is immutable for a given value) to
     /// avoid re-formatting the date on every chat-row render.
     let timestampLabel: String
@@ -212,7 +215,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     var isNoLongerMember: Bool { selfMembership != .member }
 
     /// True when the local account can use the outbound composer for this chat.
-    var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember }
+    var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember && lifecycle.allowsMessaging }
 
     /// What the row draws where the last message would go, whenever something other than the last
     /// message belongs there. `nil` means `preview` speaks for itself.
@@ -410,7 +413,8 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         leaveBlocked: Bool = false,
         latestMessageDelivery: ChatMessageDeliveryState = .notApplicable,
         pendingConfirmation: Bool = false,
-        selfMembership: ChatSelfMembership = .member
+        selfMembership: ChatSelfMembership = .member,
+        lifecycle: GroupLifecycle = .active
     ) {
         self.id = id
         self.title = title
@@ -445,6 +449,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.latestMessageDelivery = latestMessageDelivery
         self.pendingConfirmation = pendingConfirmation
         self.selfMembership = selfMembership
+        self.lifecycle = lifecycle
         if let updatedAt {
             self.timestampLabel = DisplayText.relativeTimestamp(for: updatedAt)
         } else {
@@ -759,6 +764,8 @@ struct GroupDetailsSnapshot: Hashable {
     let canCancelLeave: Bool
     /// Per-group disappearing-message timer in seconds; `0` means messages never expire.
     let disappearingMessageSecs: UInt64
+    /// Whether this group is being ended for everyone, and whether this account may end it.
+    let disband: GroupDisbandState
 
     init(
         groupIdHex: String,
@@ -785,7 +792,8 @@ struct GroupDetailsSnapshot: Hashable {
         leaveRequestedAtMs: UInt64? = nil,
         leaveBlocked: Bool = false,
         canCancelLeave: Bool = false,
-        disappearingMessageSecs: UInt64
+        disappearingMessageSecs: UInt64,
+        disband: GroupDisbandState = .inactive
     ) {
         self.groupIdHex = groupIdHex
         self.endpoint = endpoint
@@ -811,6 +819,7 @@ struct GroupDetailsSnapshot: Hashable {
         self.leaveRequestedAtMs = leaveRequestedAtMs
         self.leaveBlocked = leaveBlocked
         self.canCancelLeave = canCancelLeave
+        self.disband = disband
         self.disappearingMessageSecs = disappearingMessageSecs
     }
 

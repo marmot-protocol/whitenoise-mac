@@ -15,12 +15,18 @@ import SwiftUI
 /// the row leaves it out rather than offer a button that searches every chat.
 struct GroupDetailsQuickActionsRow: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     @Environment(SessionState.self) private var session
     @State private var isTimerPresented = false
     let chat: ChatItem
     let snapshot: GroupDetailsSnapshot
     let permissions: GroupDetailsPermissions
     let onAddMembers: () -> Void
+
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -34,7 +40,7 @@ struct GroupDetailsQuickActionsRow: View {
             GroupDetailsQuickAction(title: L10n.string("Disappearing"), systemImage: "timer") {
                 isTimerPresented = true
             }
-            .disabled(workspace.hasInFlightGroupCommit || !permissions.canEditGroup)
+            .disabled(isGroupCommitInFlight || !permissions.canEditGroup)
             .popover(isPresented: $isTimerPresented, arrowEdge: .bottom) {
                 DisappearingTimerPopover(currentSeconds: snapshot.disappearingMessageSecs, onSelect: setTimer)
                     // Popovers are hosted outside this view's hierarchy and inherit nothing from
@@ -46,7 +52,7 @@ struct GroupDetailsQuickActionsRow: View {
                 GroupDetailsQuickAction(
                     title: L10n.string("Add"), systemImage: "person.badge.plus", action: onAddMembers
                 )
-                .disabled(workspace.hasInFlightGroupCommit)
+                .disabled(isGroupCommitInFlight)
             }
         }
     }

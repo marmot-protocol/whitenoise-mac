@@ -1937,7 +1937,8 @@ final class WorkspaceState {
             leaveRequestedAtMs: managementState.leaveRequestedAtMs,
             leaveBlocked: managementState.leaveBlocked,
             canCancelLeave: managementState.canCancelLeave,
-            disappearingMessageSecs: details.group.disappearingMessageSecs
+            disappearingMessageSecs: details.group.disappearingMessageSecs,
+            disband: GroupDisbandState(managementState: managementState, group: details.group)
         )
     }
 

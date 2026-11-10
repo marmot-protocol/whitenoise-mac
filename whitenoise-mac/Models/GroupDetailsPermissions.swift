@@ -26,10 +26,16 @@ struct GroupDetailsPermissions: Equatable {
     let showsAdminOnlyNote: Bool
 
     init(snapshot: GroupDetailsSnapshot, capabilities: ConversationCapabilitiesFfi?, isDirect: Bool) {
-        let isMember = snapshot.selfMembership == .member
-        canEditGroup = isMember && (capabilities?.canEditGroup ?? snapshot.isSelfAdmin)
+        // A group that is ending or has ended takes no more changes from anyone. MDK already
+        // reports `canEditGroup` / `canInvite` false while disbanding, but the admin flag that
+        // stands in before the header loads survives a disband — and the inspector's status copy
+        // promises group changes are off, so it is decided here rather than trusted to arrive.
+        let canChange = snapshot.selfMembership == .member && snapshot.disband.lifecycle == .active
+        canEditGroup = canChange && (capabilities?.canEditGroup ?? snapshot.isSelfAdmin)
         canEditProfile = !isDirect && canEditGroup
-        canInvite = isMember && snapshot.canInvite
-        showsAdminOnlyNote = isMember && !snapshot.canInvite
+        canInvite = canChange && snapshot.canInvite
+        // Nobody can add anyone to an ending group, admins included, so "only admins can add"
+        // would be the wrong reason.
+        showsAdminOnlyNote = canChange && !snapshot.canInvite
     }
 }

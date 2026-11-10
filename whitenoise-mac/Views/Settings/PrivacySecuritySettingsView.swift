@@ -37,6 +37,8 @@ struct PrivacySecuritySettingsView: View {
 
             RemoteGIFLoadingSection(preference: .shared)
 
+            StickerLoadingSection(preference: .shared)
+
             LinkPreviewSettingsSection(preference: .shared)
 
             DiagnosticsAndImprovementsSections(model: model)
@@ -130,6 +132,39 @@ struct RemoteGIFLoadingSection: View {
     Form {
         RemoteGIFLoadingSection(
             preference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: "gif-settings-preview")!)
+        )
+    }
+    .formStyle(.grouped)
+    .frame(width: 520, height: 200)
+}
+
+/// Whether a received sticker from a pack the viewer has not installed loads without a click,
+/// with a footer saying what it gives away.
+struct StickerLoadingSection: View {
+    let preference: StickerLoadingPreference
+
+    var body: some View {
+        SettingsSection(
+            footer: L10n.string(
+                "When enabled, opening a conversation can tell a sticker pack’s server your IP address and which sticker was requested. Otherwise, stickers from packs you haven’t installed load only when you click them."
+            )
+        ) {
+            WNToggle(
+                L10n.string("Automatically Load Stickers"),
+                systemImage: "face.smiling",
+                isOn: Binding(
+                    get: { preference.automaticallyLoads },
+                    set: { preference.setAutomaticallyLoads($0) }
+                )
+            )
+        }
+    }
+}
+
+#Preview("Sticker loading") {
+    Form {
+        StickerLoadingSection(
+            preference: StickerLoadingPreference(defaults: UserDefaults(suiteName: "sticker-settings-preview")!)
         )
     }
     .formStyle(.grouped)

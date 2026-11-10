@@ -89,6 +89,7 @@ private struct StickerPlaceholder: View {
 /// A sticker message's sticker: the image alone, without a bubble.
 struct MessageStickerView: View {
     let library: StickerLibrary
+    let loadingPreference: StickerLoadingPreference
     let sticker: StickerKey
     let isOutgoing: Bool
 
@@ -98,7 +99,8 @@ struct MessageStickerView: View {
             sticker: sticker,
             loadsAutomatically: StickerLoadPolicy.loadsAutomatically(
                 isFromMe: isOutgoing,
-                packInstalled: library.isInstalled(sticker.packCoordinate)
+                packInstalled: library.isInstalled(sticker.packCoordinate),
+                loadsEverySticker: loadingPreference.automaticallyLoads
             ),
             placeholderLabel: L10n.string("Click to load sticker")
         )
@@ -727,6 +729,7 @@ private enum StickerPreviewData {
 #Preview("Received sticker") {
     MessageStickerView(
         library: .preview(),
+        loadingPreference: StickerLoadingPreference(defaults: UserDefaults(suiteName: "sticker-preview")!),
         sticker: StickerKey(StickerPreviewData.pack.stickers[0]),
         isOutgoing: false
     )

@@ -33,17 +33,21 @@ final class ConversationCustomEmojiSender {
     @ObservationIgnored private let accountRef: String
     @ObservationIgnored private let groupIdHex: String
     @ObservationIgnored private let runtime: any MarmotRuntime
+    /// The chat's emoji images, handed each image as it is uploaded so this device's own message
+    /// draws it at once (`CustomEmojiImageStore.adopt`).
+    @ObservationIgnored private let images: CustomEmojiImageStore?
     @ObservationIgnored private var uploaded: [String: MediaAttachmentReferenceFfi] = [:]
     @ObservationIgnored private var uploadOrder: [String] = []
-    @ObservationIgnored private var inFlight: [String: Task<MediaAttachmentReferenceFfi, Error>] = [:]
+    @ObservationIgnored private var inFlight: [String: Task<(MediaAttachmentReferenceFfi, Data), Error>] = [:]
     @ObservationIgnored private var isStopped = false
     /// Upload calls made, for tests asserting a retry never re-uploads.
     @ObservationIgnored private(set) var uploadCount = 0
 
-    init(accountRef: String, groupIdHex: String, runtime: any MarmotRuntime) {
+    init(accountRef: String, groupIdHex: String, runtime: any MarmotRuntime, images: CustomEmojiImageStore? = nil) {
         self.accountRef = accountRef
         self.groupIdHex = groupIdHex
         self.runtime = runtime
+        self.images = images
     }
 
     // MARK: - Composer and reaction entry points
@@ -137,13 +141,15 @@ final class ConversationCustomEmojiSender {
             let tags = [try CustomEmojiTags.emojiTag(emoji.shortcode, reference: reference)]
             try CustomEmojiTags.validate(tags)
             try self.ensureRunning()
+            let summary: SendSummaryFfi
             do {
-                _ = try await self.runtime.reactWithMedia(
+                summary = try await self.runtime.reactWithMedia(
                     accountRef: self.accountRef, groupIdHex: self.groupIdHex, targetMessageId: targetMessageId,
                     emoji: emoji.token, tags: tags, attachments: [reference])
             } catch {
                 throw self.classify(error, references: [reference])
             }
+            self.images?.recordOwnReaction(messageIds: summary.messageIds, reference: reference)
         }
     }
 
@@ -170,8 +176,8 @@ final class ConversationCustomEmojiSender {
         try ensureRunning()
         let key = sendable.plaintextSha256
         if let cached = uploaded[key] { return cached }
-        if let pending = inFlight[key] { return try await pending.value }
-        let task = Task { [runtime, accountRef, groupIdHex] () throws -> MediaAttachmentReferenceFfi in
+        if let pending = inFlight[key] { return try await pending.value.0 }
+        let task = Task { [runtime, accountRef, groupIdHex] () throws -> (MediaAttachmentReferenceFfi, Data) in
             let request = try await Self.request(
                 for: sendable, runtime: runtime, accountRef: accountRef, groupIdHex: groupIdHex)
             try Task.checkCancellation()
@@ -190,14 +196,16 @@ final class ConversationCustomEmojiSender {
                 reference.plaintextSha256.lowercased() == key,
                 reference.locators.first.map({ !$0.value.isEmpty }) == true
             else { throw CustomEmojiSendError.uploadFailed }
-            return reference
+            return (reference, request.plaintext)
         }
         inFlight[key] = task
         uploadCount += 1
         defer { inFlight[key] = nil }
-        let reference = try await task.value
+        let (reference, plaintext) = try await task.value
         try ensureRunning()
         store(reference, for: key)
+        // Before the send, so the row MDK projects for it already has its image.
+        await images?.adopt(plaintext, plaintextSha256: key)
         return reference
     }
 

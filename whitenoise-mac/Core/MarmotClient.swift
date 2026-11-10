@@ -274,6 +274,15 @@ nonisolated protocol MarmotRuntime: Sendable {
     func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
         -> GroupMutationResultFfi
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi
+    /// Installs the lifecycle component a group needs before it can be disbanded, in one admin
+    /// commit. Required once per group, when `canEnableDisbanding` is set and `canDisband` is not.
+    func enableGroupDisbanding(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi
+    /// Durably accepts an irreversible request to end the group for everyone. Completion arrives
+    /// through ordinary group-state updates, not through this call's return.
+    func disbandGroup(accountRef: String, groupIdHex: String) async throws -> DisbandRequestFfi
+    /// Clears a `failed` disband request once the user has seen it. `false` means there was no
+    /// failure left to clear.
+    func acknowledgeDisbandFailure(accountRef: String, groupIdHex: String) async throws -> Bool
     /// Admits one group-change attempt after the user accepts a `GroupCatchingUp` refusal. Not
     /// persisted; `false` means the group is no longer catching up, and retrying is still correct.
     func acknowledgeGroupCatchingUp(accountRef: String, groupIdHex: String) async throws -> Bool
@@ -1311,6 +1320,18 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
         try await marmot.selfDemoteAdminDetailed(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func enableGroupDisbanding(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+        try await marmot.enableGroupDisbanding(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func disbandGroup(accountRef: String, groupIdHex: String) async throws -> DisbandRequestFfi {
+        try await marmot.disbandGroup(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func acknowledgeDisbandFailure(accountRef: String, groupIdHex: String) async throws -> Bool {
+        try await marmot.acknowledgeDisbandFailure(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
     func acknowledgeGroupCatchingUp(accountRef: String, groupIdHex: String) async throws -> Bool {

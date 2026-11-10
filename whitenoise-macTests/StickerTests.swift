@@ -35,10 +35,25 @@ struct StickerTests {
 
     // MARK: - Presentation
 
-    @Test func onlyOwnStickersAndInstalledPacksLoadWithoutAClick() {
-        #expect(StickerLoadPolicy.loadsAutomatically(isFromMe: true, packInstalled: false))
-        #expect(StickerLoadPolicy.loadsAutomatically(isFromMe: false, packInstalled: true))
-        #expect(!StickerLoadPolicy.loadsAutomatically(isFromMe: false, packInstalled: false))
+    @Test func onlyOwnStickersAndInstalledPacksLoadWithoutAClickUnlessEveryStickerDoes() {
+        #expect(StickerLoadPolicy.loadsAutomatically(isFromMe: true, packInstalled: false, loadsEverySticker: false))
+        #expect(StickerLoadPolicy.loadsAutomatically(isFromMe: false, packInstalled: true, loadsEverySticker: false))
+        #expect(!StickerLoadPolicy.loadsAutomatically(isFromMe: false, packInstalled: false, loadsEverySticker: false))
+        #expect(StickerLoadPolicy.loadsAutomatically(isFromMe: false, packInstalled: false, loadsEverySticker: true))
+    }
+
+    @MainActor
+    @Test func theStickerLoadingChoiceIsOffByDefaultPersistsAndErases() throws {
+        let defaults = try #require(UserDefaults(suiteName: UUID().uuidString))
+        #expect(!StickerLoadingPreference(defaults: defaults).automaticallyLoads)
+
+        StickerLoadingPreference(defaults: defaults).setAutomaticallyLoads(true)
+        let relaunched = StickerLoadingPreference(defaults: defaults)
+        #expect(relaunched.automaticallyLoads)
+
+        relaunched.reset()
+        #expect(!relaunched.automaticallyLoads)
+        #expect(!StickerLoadingPreference(defaults: defaults).automaticallyLoads)
     }
 
     @Test func aStickerLabelUsesItsEmojiOnlyWhenItIsOne() {

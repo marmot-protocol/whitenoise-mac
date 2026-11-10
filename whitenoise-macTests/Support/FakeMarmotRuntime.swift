@@ -552,6 +552,15 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private(set) var selfDemotedGroupIdHex: String?
     private(set) var selfDemoteAdminDetailedCallCount = 0
     private(set) var removedMemberRefs: [String] = []
+    private(set) var enableGroupDisbandingCallCount = 0
+    private(set) var disbandGroupCallCount = 0
+    private(set) var acknowledgeDisbandFailureCallCount = 0
+    var enableGroupDisbandingError: Error?
+    var disbandGroupError: Error?
+    var acknowledgeDisbandFailureError: Error?
+    /// What `enableGroupDisbanding` leaves `canDisband` at. A core that installs the lifecycle
+    /// component but still finds a blocker reports `false` here.
+    var canDisbandAfterEnabling = true
     private(set) var removeMembersDetailedCallCount = 0
     private(set) var lastPackageFetchBootstrapRelays: [String] = []
     private(set) var lastPublishedProfileDefaultRelays: [String] = []
@@ -2651,6 +2660,79 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-self-demote")
     }
 
+    func enableGroupDisbanding(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+        enableGroupDisbandingCallCount += 1
+        groupMutationOrder.append("enableDisbanding")
+        await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
+        if let enableGroupDisbandingError { throw enableGroupDisbandingError }
+        guard let details = groupDetailsById[groupIdHex] else {
+            throw FakeMarmotRuntimeError.unused
+        }
+        var state = groupManagementStateById[groupIdHex] ?? defaultGroupManagementState(for: details)
+        state.disbandingEnabled = true
+        state.canEnableDisbanding = false
+        state.canDisband = state.isSelfAdmin && canDisbandAfterEnabling
+        groupManagementStateById[groupIdHex] = state
+        return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-enable-disbanding")
+    }
+
+    /// Mirrors the core's durable acceptance: the request is recorded and every ordinary group
+    /// action shuts off at once, while the group itself only reaches `.disbanded` later.
+    func disbandGroup(accountRef: String, groupIdHex: String) async throws -> DisbandRequestFfi {
+        disbandGroupCallCount += 1
+        groupMutationOrder.append("disband")
+        await groupMutationGate.passIfArmed()
+        try admitGroupChange(groupIdHex: groupIdHex)
+        if let disbandGroupError { throw disbandGroupError }
+        guard var details = groupDetailsById[groupIdHex] else {
+            throw FakeMarmotRuntimeError.unused
+        }
+        let request = DisbandRequestFfi.pending(requestedAtMs: 1_700_000_000_000)
+        details.group.disbanding = true
+        details.group.disbandRequest = request
+        groupDetailsById[groupIdHex] = details
+        if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+            groups[index].disbanding = true
+            groups[index].disbandRequest = request
+        }
+        var state = groupManagementStateById[groupIdHex] ?? defaultGroupManagementState(for: details)
+        state.disbanding = true
+        state.disbandRequest = request
+        state.canDisband = false
+        state.canEnableDisbanding = false
+        state.canInvite = false
+        state.canLeave = false
+        state.requiresSelfDemoteBeforeLeave = false
+        // The core derives every member action from `can_edit_group`, which disbanding turns off.
+        state.memberActions = state.memberActions.map { action in
+            var action = action
+            action.canRemove = false
+            action.canPromote = false
+            action.canDemote = false
+            return action
+        }
+        groupManagementStateById[groupIdHex] = state
+        return request
+    }
+
+    func acknowledgeDisbandFailure(accountRef: String, groupIdHex: String) async throws -> Bool {
+        acknowledgeDisbandFailureCallCount += 1
+        if let acknowledgeDisbandFailureError { throw acknowledgeDisbandFailureError }
+        guard var state = groupManagementStateById[groupIdHex],
+            case .failed = state.disbandRequest
+        else { return false }
+        state.disbandRequest = nil
+        state.disbanding = false
+        groupManagementStateById[groupIdHex] = state
+        if var details = groupDetailsById[groupIdHex] {
+            details.group.disbandRequest = nil
+            details.group.disbanding = false
+            groupDetailsById[groupIdHex] = details
+        }
+        return true
+    }
+
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi {
         setGroupArchivedCallCount += 1
         await groupMutationGate.passIfArmed()
@@ -4155,7 +4237,10 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             // The shared `groups` are not per account, so any account's pin applies; a row
             // that always said "unpinned" would erase the pin on the next snapshot.
             pinned: pinnedPosition != nil,
-            pinnedPosition: pinnedPosition
+            pinnedPosition: pinnedPosition,
+            lifecycleState: group.disbanded ? .disbanded : .stable,
+            disbanding: group.disbanding,
+            disbandRequest: group.disbandRequest
         )
     }
 }
