@@ -68,12 +68,8 @@ private struct ChatDestructiveActionsConfirmationModifier: ViewModifier {
                 }
                 .disabled(workspace.isDeletingGroupLocally)
                 Button(L10n.string("Cancel"), role: .cancel) {}
-            } message: { _ in
-                Text(
-                    L10n.string(
-                        "This deletes the local copy only. Other members are not notified, and you can be re-added later."
-                    )
-                )
+            } message: { target in
+                Text(target.confirmationMessage)
             }
             .alert(
                 workspace.chatActionAlert?.title ?? "",

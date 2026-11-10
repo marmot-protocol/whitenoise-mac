@@ -295,8 +295,21 @@ struct ChatAdminHandoffTarget: Equatable, Identifiable {
 nonisolated struct ChatLocalDeleteTarget: Equatable, Identifiable {
     let groupIdHex: String
     let subject: ChatConfirmationSubject
+    var lifecycle: GroupLifecycle = .active
 
     var id: String { groupIdHex }
+    var confirmationMessage: String {
+        switch lifecycle {
+        // Nobody can re-add this account while the group is ending, and nobody ever can once it
+        // has ended, so only the plain local-history wording is true for either.
+        case .ending, .ended:
+            L10n.string("Deletes this chat's local history from this device.")
+        case .active:
+            L10n.string(
+                "This deletes the local copy only. Other members are not notified, and you can be re-added later."
+            )
+        }
+    }
 }
 
 /// A destructive chat action's outcome that needs reporting.

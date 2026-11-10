@@ -128,7 +128,7 @@ final class GroupDisbandViewModel {
         } catch is CancellationError {
             return false
         } catch {
-            alert = .disbandFailureDismissFailed(error.localizedDescription)
+            alert = .disbandFailureDismissFailed(UserFacingError.message(for: error))
             return false
         }
     }
