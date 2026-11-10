@@ -215,7 +215,7 @@ final class AttachmentViewModel {
         } catch let featureError as AttachmentFeatureError {
             error = featureError
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -305,7 +305,7 @@ final class AttachmentViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -341,7 +341,7 @@ final class AttachmentViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 

@@ -173,7 +173,7 @@ struct GroupDetailsSheet: View {
                         .disabled(workspace.hasInFlightGroupCommit)
 
                         GroupDetailsAdvancedSection(relays: snapshot.relays, groupIdHex: snapshot.groupIdHex)
-                        GroupDetailsLeaveSection(chat: chat, snapshot: snapshot)
+                        GroupDetailsLeaveSection(chat: chat, snapshot: snapshot, conversationModel: conversationModel)
 
                         if workspace.developerMode {
                             GroupDeveloperSection(

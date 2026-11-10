@@ -309,6 +309,7 @@ struct GroupDetailsPermissionsTests {
             canEditGroup: canEditGroup,
             canLeave: true,
             requiresSelfDemoteBeforeLeave: false,
+            canCancelLeave: false,
             canEnableDisbanding: false,
             canDisband: false
         )

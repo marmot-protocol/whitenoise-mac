@@ -13,12 +13,31 @@ struct GroupDetailsLeaveSection: View {
     @State private var showSelfDemoteConfirmation = false
     let chat: ChatItem
     let snapshot: GroupDetailsSnapshot
+    /// The open conversation's model, which runs a blocked leave's cancel.
+    var conversationModel: ConversationViewModel?
 
     private var isLeaving: Bool { workspace.leavingChatId == snapshot.groupIdHex }
     private var isRemoving: Bool { workspace.deletingChatId == snapshot.groupIdHex }
 
     var body: some View {
         Section {
+            if BlockedLeavePresentation.isBlocked(
+                leaveRequestPending: snapshot.leaveRequestPending, leaveBlocked: snapshot.leaveBlocked)
+            {
+                BlockedLeaveNotice(
+                    canCancel: snapshot.canCancelLeave && conversationModel != nil,
+                    isCancelling: conversationModel?.isCancellingLeave == true,
+                    failure: conversationModel?.cancelLeaveFailure,
+                    onCancel: {
+                        Task {
+                            await conversationModel?.cancelBlockedLeave {
+                                await workspace.loadGroupDetails(groupIdHex: snapshot.groupIdHex)
+                            }
+                        }
+                    }
+                )
+            }
+
             // Giving up your own admin rights is reversible by another admin, so it stays
             // neutral: `group_member_screen.dart` builds "remove admin role" as `outline` and
             // keeps `destructive` for removing someone from the group.

@@ -145,7 +145,7 @@ extension WorkspaceState {
                     break
                 }
             }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             setPendingOutgoingTextMessageState(.failed, for: id, in: draftKey)
             return
         }

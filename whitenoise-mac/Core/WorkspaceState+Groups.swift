@@ -423,7 +423,7 @@ extension WorkspaceState {
                 isGroupDetailsPresented,
                 groupDetailsSnapshot?.groupIdHex == groupIdHex
             else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -470,7 +470,7 @@ extension WorkspaceState {
             await reloadChats(forceFreshSnapshot: true)
             await loadGroupDetails(groupIdHex: snapshot.groupIdHex)
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -624,7 +624,7 @@ extension WorkspaceState {
                 if error is GroupChangeAdvisoryDeclined || GroupChangeAdvisory(error: error) != nil {
                     // Nothing was committed and nobody was refused: the group itself is what the
                     // core held back, so there is no one to probe for.
-                    lastError = error.localizedDescription
+                    lastError = UserFacingError.message(for: error)
                     return false
                 }
                 if case .needsAppUpdate = ChatCreationFailure(error) {
@@ -784,8 +784,13 @@ extension WorkspaceState {
         await acceptGroupInvite(groupIdHex: chat.id)
     }
 
-    func declineGroupInvite(for chat: ChatItem) async {
-        await declineGroupInvite(groupIdHex: chat.id)
+    func declineGroupInvite(
+        for chat: ChatItem,
+        confirmAdminStepDown: (@MainActor () async -> Bool)? = nil,
+        advisory: GroupChangeAdvisoryPrompter? = nil
+    ) async {
+        await declineGroupInvite(
+            groupIdHex: chat.id, confirmAdminStepDown: confirmAdminStepDown, advisory: advisory)
     }
 
     func acceptSelectedGroupInvite() async {
@@ -793,9 +798,13 @@ extension WorkspaceState {
         await acceptGroupInvite(groupIdHex: snapshot.groupIdHex)
     }
 
-    func declineSelectedGroupInvite() async {
+    func declineSelectedGroupInvite(
+        confirmAdminStepDown: (@MainActor () async -> Bool)? = nil,
+        advisory: GroupChangeAdvisoryPrompter? = nil
+    ) async {
         guard let snapshot = groupDetailsSnapshot else { return }
-        await declineGroupInvite(groupIdHex: snapshot.groupIdHex)
+        await declineGroupInvite(
+            groupIdHex: snapshot.groupIdHex, confirmAdminStepDown: confirmAdminStepDown, advisory: advisory)
     }
 
     func promoteGroupMember(_ member: GroupMemberItem, advisory: GroupChangeAdvisoryPrompter? = nil) async {
@@ -855,7 +864,7 @@ extension WorkspaceState {
                     groupIdHex: groupIdHex
                 )
             else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1348,7 +1357,7 @@ extension WorkspaceState {
         } catch {
             guard isCurrentGroupImageSearch(generation: searchGeneration, query: query) else { return }
             groupImageResults = []
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1406,7 +1415,7 @@ extension WorkspaceState {
             }
             await finishGroupImageUpdate(context)
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1494,17 +1503,47 @@ extension WorkspaceState {
                 await loadGroupDetails(groupIdHex: groupIdHex)
             }
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
-    func declineGroupInvite(groupIdHex: String) async {
+    /// Declines a pending invite. Since MarmotKit 0.15 an invitee the inviter made an admin must step
+    /// down first (`requiresSelfDemoteBeforeLeave`), or MDK refuses the decline with
+    /// `AdminCannotSelfRemove`; `confirmAdminStepDown` asks the user before that step-down is sent.
+    func declineGroupInvite(
+        groupIdHex: String,
+        confirmAdminStepDown: (@MainActor () async -> Bool)? = nil,
+        advisory: GroupChangeAdvisoryPrompter? = nil
+    ) async {
         guard let client, let activeAccount, !isDecliningGroupInvite, !isAcceptingGroupInvite else { return }
+        let accountId = activeAccount.id
         lastError = nil
         isDecliningGroupInvite = true
         defer { isDecliningGroupInvite = false }
 
+        // Unreadable state is no reason to block the decline: MDK still refuses one that needed the
+        // step-down, and that refusal is reported below.
+        let state = try? await client.groupManagementState(accountRef: activeAccount.accountRef, groupIdHex: groupIdHex)
+        guard activeAccountId == accountId else { return }
+        let stepDownFirst = state.map(AdminInviteDecline.requiresStepDown) ?? false
+        if stepDownFirst {
+            guard let confirmAdminStepDown, await confirmAdminStepDown() else { return }
+            guard activeAccountId == accountId else { return }
+        }
+
         do {
+            if stepDownFirst {
+                _ = try await GroupChangeAdvisoryRetry.perform(
+                    prompter: advisory, runtime: client, accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex
+                ) {
+                    try await client.selfDemoteAdminDetailed(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: groupIdHex
+                    )
+                }
+                guard activeAccountId == accountId else { return }
+            }
             _ = try await client.declineGroupInvite(
                 accountRef: activeAccount.accountRef,
                 groupIdHex: groupIdHex
@@ -1519,8 +1558,13 @@ extension WorkspaceState {
                 pruneMessageCache(keeping: nil)
             }
             await reloadChats(forceFreshSnapshot: true)
+        } catch let declined as GroupChangeAdvisoryDeclined {
+            // The user chose Wait on the step-down: nothing was sent, and the invite is still open.
+            guard activeAccountId == accountId else { return }
+            chatActionAlert = declined.advisory.waitedAlert
         } catch {
-            lastError = error.localizedDescription
+            guard activeAccountId == accountId else { return }
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1581,7 +1625,7 @@ extension WorkspaceState {
                 await loadGroupDetails(groupIdHex: groupIdHex)
             }
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1597,7 +1641,7 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex
             )
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1641,7 +1685,7 @@ extension WorkspaceState {
             if reportsToChatAlert {
                 chatActionAlert = .localDeleteFailed()
             } else {
-                lastError = error.localizedDescription
+                lastError = UserFacingError.message(for: error)
             }
         }
     }
@@ -1687,7 +1731,7 @@ extension WorkspaceState {
             applyGroupDetails(details, managementState: managementState)
         } catch {
             guard ownsGroupDetailsLoad(generation: generation) else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1767,7 +1811,7 @@ extension WorkspaceState {
                     groupIdHex: groupIdHex
                 )
             else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 

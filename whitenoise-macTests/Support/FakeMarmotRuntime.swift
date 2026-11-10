@@ -1,3 +1,9 @@
+import CryptoKit
+import Foundation
+import MarmotKit
+
+@testable import whitenoise_mac
+
 //
 //  FakeMarmotRuntime.swift
 //  whitenoise-macTests
@@ -7,11 +13,6 @@
 //  that one can drive a fake core. `internal`, not `private`: a file-scoped
 //  `private` here would be invisible to every other test file.
 //
-
-import Foundation
-import MarmotKit
-
-@testable import whitenoise_mac
 
 nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private var storedAccounts: [AccountSummaryFfi]
@@ -148,6 +149,50 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var historyNoticesError: Error?
     private(set) var historyNoticesCallCount = 0
     private(set) var dismissedHistoryNoticeIds: [String] = []
+    /// `accountRecoveryStatus`: catching-up groups and inbox. Notices come from `historyNoticeRecords`.
+    var catchingUpGroupIds: [String] = []
+    var inboxCatchingUp = false
+    var accountRecoveryStatusError: Error?
+    private(set) var accountRecoveryStatusCallCount = 0
+    /// `cancelLeave`: the groups it was called for, and an optional refusal.
+    private(set) var cancelLeaveGroupIds: [String] = []
+    var cancelLeaveError: Error?
+    /// `reactionAttachment`, keyed by reaction message id.
+    var reactionAttachments: [String: AttachmentEntryFfi] = [:]
+    private(set) var reactionAttachmentRequests: [String] = []
+    /// Every stored sticker pack; `installed` marks the account's installed ones.
+    var stickerPackStore: [StickerPackFfi] = []
+    var stickerPacksError: Error?
+    var syncStickerPacksError: Error?
+    private(set) var syncStickerPacksCallCount = 0
+    /// Packs `fetchStickerPack` resolves, keyed by the pasted input.
+    var fetchableStickerPacks: [String: StickerPackFfi] = [:]
+    var stickerPackActionError: Error?
+    var stickerAssets: [String: Data] = [:]
+    var fetchStickerAssetError: Error?
+    private(set) var fetchStickerAssetRequests: [StickerRefFfi] = []
+    var sendStickerError: Error?
+    private(set) var sentStickers: [(groupIdHex: String, ref: StickerRefFfi)] = []
+    /// Every stored emoji set; `installed` marks installed ones.
+    var emojiSetStore: [EmojiSetFfi] = []
+    var fetchableEmojiSets: [String: EmojiSetFfi] = [:]
+    var emojiSetActionError: Error?
+    private(set) var syncEmojiSetsCallCount = 0
+    /// Bytes for every emoji, keyed by shortcode, served for previews and installs.
+    var emojiSetAssetBytes: [String: Data] = [:]
+    /// Held installs wait here until released, so a test can observe progress and cancel.
+    let installEmojiSetGate = AsyncFfiGate()
+    private(set) var installEmojiSetControls: [EmojiSetInstallControlFfi] = []
+    private(set) var taggedMediaSends:
+        [(groupIdHex: String, caption: String?, attachments: [MediaAttachmentReferenceFfi], tags: [[String]])] = []
+    /// Thrown by the next `sendTaggedMedia` calls, one per call, in order.
+    var sendTaggedMediaErrors: [Error] = []
+    private(set) var mediaReactions:
+        [(
+            groupIdHex: String, target: String, emoji: String, attachments: [MediaAttachmentReferenceFfi],
+            tags: [[String]]
+        )] = []
+    var reactWithMediaError: Error?
     let eventHub = FakeEventHub()
     var contentReportPage = ContentReportPageFfi(reports: [], nextCursor: nil)
     private(set) var contentReportRequests: [(groupIdHex: String, messageId: String?)] = []
@@ -1861,6 +1906,225 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         guard let index = historyNoticeRecords.firstIndex(where: { $0.noticeId == noticeId }) else { return false }
         historyNoticeRecords.remove(at: index)
         return true
+    }
+
+    func accountRecoveryStatus(accountRef: String) async throws -> AccountRecoveryStatusFfi {
+        accountRecoveryStatusCallCount += 1
+        if let accountRecoveryStatusError { throw accountRecoveryStatusError }
+        return AccountRecoveryStatusFfi(
+            catchingUpGroupIdsHex: catchingUpGroupIds, inboxCatchingUp: inboxCatchingUp,
+            notices: historyNoticeRecords)
+    }
+
+    func cancelLeave(accountRef: String, groupIdHex: String) async throws {
+        cancelLeaveGroupIds.append(groupIdHex)
+        if let cancelLeaveError { throw cancelLeaveError }
+    }
+
+    func reactionAttachment(
+        accountRef: String, groupIdHex: String, reactionMessageIdHex: String
+    ) async throws -> AttachmentEntryFfi? {
+        reactionAttachmentRequests.append(reactionMessageIdHex)
+        return reactionAttachments[reactionMessageIdHex]
+    }
+
+    func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws
+        -> [StickerPackFfi]
+    {
+        if let stickerPacksError { throw stickerPacksError }
+        let needle = search?.lowercased()
+        let packs = stickerPackStore.filter { pack in
+            (!installedOnly || pack.installed)
+                && (needle.map { pack.title.lowercased().contains($0) } ?? true)
+        }
+        return limit.map { Array(packs.prefix(Int($0))) } ?? packs
+    }
+
+    func syncStickerPacks(accountRef: String) async throws -> StickerSyncResultFfi {
+        syncStickerPacksCallCount += 1
+        if let syncStickerPacksError { throw syncStickerPacksError }
+        return StickerSyncResultFfi(
+            discovered: UInt32(stickerPackStore.count), updated: 0,
+            installed: UInt32(stickerPackStore.filter(\.installed).count), pendingOperations: 0)
+    }
+
+    func fetchStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+        if let stickerPackActionError { throw stickerPackActionError }
+        guard let pack = fetchableStickerPacks[input] ?? stickerPackStore.first(where: { $0.coordinate == input })
+        else { throw MarmotKitError.StickerNotFound }
+        if !stickerPackStore.contains(where: { $0.coordinate == pack.coordinate }) {
+            stickerPackStore.append(pack)
+        }
+        return pack
+    }
+
+    func installStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+        if let stickerPackActionError { throw stickerPackActionError }
+        guard let index = stickerPackStore.firstIndex(where: { $0.coordinate == input }) else {
+            throw MarmotKitError.StickerNotFound
+        }
+        stickerPackStore[index].installed = true
+        return stickerPackStore[index]
+    }
+
+    func uninstallStickerPack(accountRef: String, input: String) async throws {
+        if let stickerPackActionError { throw stickerPackActionError }
+        guard let index = stickerPackStore.firstIndex(where: { $0.coordinate == input }) else {
+            throw MarmotKitError.StickerNotFound
+        }
+        stickerPackStore[index].installed = false
+    }
+
+    func fetchStickerAsset(accountRef: String, stickerRef: StickerRefFfi) async throws -> StickerAssetFfi {
+        fetchStickerAssetRequests.append(stickerRef)
+        if let fetchStickerAssetError { throw fetchStickerAssetError }
+        guard let bytes = stickerAssets[stickerRef.plaintextSha256],
+            let sticker = stickerPackStore.lazy.flatMap(\.stickers).first(where: {
+                $0.packCoordinate == stickerRef.packCoordinate && $0.shortcode == stickerRef.shortcode
+            })
+        else { throw MarmotKitError.StickerNotFound }
+        return StickerAssetFfi(sticker: sticker, bytes: bytes)
+    }
+
+    func sendSticker(accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi) async throws
+        -> SendSummaryFfi
+    {
+        if let sendStickerError { throw sendStickerError }
+        sentStickers.append((groupIdHex, stickerRef))
+        return SendSummaryFfi(published: 1, messageIds: ["sticker-\(sentStickers.count)"])
+    }
+
+    func emojiSet(accountRef: String, coordinate: String) async throws -> EmojiSetFfi? {
+        emojiSetStore.first { $0.coordinate == coordinate }
+    }
+
+    func emojiSets(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) async throws
+        -> [EmojiSetFfi]
+    {
+        let needle = search?.lowercased()
+        let sets = emojiSetStore.filter { set in
+            (!installedOnly || set.installed != nil)
+                && (needle.map { (set.title ?? set.identifier).lowercased().contains($0) } ?? true)
+        }
+        return limit.map { Array(sets.prefix(Int($0))) } ?? sets
+    }
+
+    func syncEmojiSets(accountRef: String, search: String?) async throws -> EmojiSetSyncResultFfi {
+        syncEmojiSetsCallCount += 1
+        if let emojiSetActionError { throw emojiSetActionError }
+        return EmojiSetSyncResultFfi(discovered: UInt32(emojiSetStore.count), updated: 0, complete: true)
+    }
+
+    func fetchEmojiSet(accountRef: String, input: String) async throws -> EmojiSetFfi {
+        if let emojiSetActionError { throw emojiSetActionError }
+        guard let set = fetchableEmojiSets[input] ?? emojiSetStore.first(where: { $0.coordinate == input }) else {
+            throw MarmotKitError.EmojiSetNotFound
+        }
+        if !emojiSetStore.contains(where: { $0.coordinate == set.coordinate }) { emojiSetStore.append(set) }
+        return set
+    }
+
+    func fetchEmojiSetAsset(
+        accountRef: String, coordinate: String, expectedEventIdHex: String, shortcode: String
+    ) async throws -> EmojiSetAssetFfi {
+        guard let set = emojiSetStore.first(where: { $0.coordinate == coordinate }) else {
+            throw MarmotKitError.EmojiSetNotFound
+        }
+        guard set.eventIdHex == expectedEventIdHex else {
+            throw MarmotKitError.EmojiSetChanged(currentEventIdHex: set.eventIdHex)
+        }
+        guard let bytes = emojiSetAssetBytes[shortcode] else { throw MarmotKitError.EmojiSetNetwork(details: "x") }
+        return EmojiSetAssetFfi(
+            setCoordinate: coordinate, shortcode: shortcode, mime: "image/png", width: 8, height: 8, frames: 1,
+            sha256: hexSHA256Fake(bytes), bytes: bytes)
+    }
+
+    func fetchEmojiSetCover(accountRef: String, coordinate: String, expectedEventIdHex: String) async throws
+        -> EmojiSetCoverFfi
+    {
+        throw MarmotKitError.EmojiSetNotFound
+    }
+
+    func installEmojiSet(
+        accountRef: String, coordinate: String, expectedEventIdHex: String, control: EmojiSetInstallControlFfi
+    ) async throws -> EmojiSetInstallResultFfi {
+        installEmojiSetControls.append(control)
+        await installEmojiSetGate.passIfArmed()
+        if control.isCancelled() { throw MarmotKitError.EmojiSetInstallCancelled }
+        if let emojiSetActionError { throw emojiSetActionError }
+        guard let index = emojiSetStore.firstIndex(where: { $0.coordinate == coordinate }) else {
+            throw MarmotKitError.EmojiSetNotFound
+        }
+        guard emojiSetStore[index].eventIdHex == expectedEventIdHex else {
+            throw MarmotKitError.EmojiSetChanged(currentEventIdHex: emojiSetStore[index].eventIdHex)
+        }
+        let set = emojiSetStore[index]
+        emojiSetStore[index].installed = InstalledEmojiSetStateFfi(
+            eventIdHex: set.eventIdHex, createdAt: set.createdAt, installedAt: 1,
+            emojiCount: UInt32(set.emoji.count), byteLen: 0, updateAvailable: false)
+        return EmojiSetInstallResultFfi(
+            set: emojiSetStore[index], installedCount: UInt32(set.emoji.count), skipped: [])
+    }
+
+    func uninstallEmojiSet(accountRef: String, coordinate: String) async throws -> Bool {
+        if let emojiSetActionError { throw emojiSetActionError }
+        guard let index = emojiSetStore.firstIndex(where: { $0.coordinate == coordinate }) else { return false }
+        let wasInstalled = emojiSetStore[index].installed != nil
+        emojiSetStore[index].installed = nil
+        return wasInstalled
+    }
+
+    var userEmojiListSets: [EmojiSetFfi] = []
+
+    func userEmojiList(accountRef: String) async throws -> UserEmojiListFfi {
+        UserEmojiListFfi(
+            eventIdHex: nil, createdAt: nil, ownEmoji: nil, sets: userEmojiListSets, missingSetCoordinates: [],
+            complete: true)
+    }
+
+    func installedCustomEmoji(accountRef: String) async throws -> [InstalledCustomEmojiFfi] {
+        emojiSetStore.filter { $0.installed != nil }.flatMap { set in
+            set.emoji.map { emoji in
+                let bytes = emojiSetAssetBytes[emoji.shortcode] ?? Data()
+                return InstalledCustomEmojiFfi(
+                    setCoordinate: set.coordinate, setTitle: set.title, authorPubkeyHex: set.authorPubkeyHex,
+                    shortcode: emoji.shortcode, mime: "image/png", width: 8, height: 8, frames: 1,
+                    sha256: hexSHA256Fake(bytes), byteLen: UInt64(bytes.count), shortcodeCollision: false)
+            }
+        }
+    }
+
+    func readInstalledCustomEmoji(accountRef: String, coordinate: String, shortcode: String) async throws
+        -> InstalledCustomEmojiAssetFfi
+    {
+        guard
+            let emoji = try await installedCustomEmoji(accountRef: accountRef).first(where: {
+                $0.setCoordinate == coordinate && $0.shortcode == shortcode
+            }), let bytes = emojiSetAssetBytes[shortcode]
+        else { throw MarmotKitError.EmojiSetNotFound }
+        return InstalledCustomEmojiAssetFfi(emoji: emoji, bytes: bytes)
+    }
+
+    func sendTaggedMedia(
+        accountRef: String, groupIdHex: String, attachments: [MediaAttachmentReferenceFfi], caption: String?,
+        tags: [[String]]
+    ) async throws -> SendSummaryFfi {
+        if !sendTaggedMediaErrors.isEmpty { throw sendTaggedMediaErrors.removeFirst() }
+        taggedMediaSends.append((groupIdHex, caption, attachments, tags))
+        return SendSummaryFfi(published: 1, messageIds: ["tagged-\(taggedMediaSends.count)"])
+    }
+
+    func reactWithMedia(
+        accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String, tags: [[String]],
+        attachments: [MediaAttachmentReferenceFfi]
+    ) async throws -> SendSummaryFfi {
+        if let reactWithMediaError { throw reactWithMediaError }
+        mediaReactions.append((groupIdHex, targetMessageId, emoji, attachments, tags))
+        return SendSummaryFfi(published: 1, messageIds: ["media-reaction-\(mediaReactions.count)"])
+    }
+
+    private func hexSHA256Fake(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     func subscribeEvents() -> EventsSubscription {
@@ -3704,7 +3968,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
                 localSigning: true,
                 externalSigning: false,
                 signedOut: false,
-                running: true
+                running: true,
+                unlinked: false
             )
     }
 

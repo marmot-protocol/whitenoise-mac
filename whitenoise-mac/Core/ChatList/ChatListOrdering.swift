@@ -90,6 +90,7 @@ nonisolated enum ChatListOrdering {
             muted: chat.muted,
             mutedUntilMs: chat.mutedUntilMs,
             leaveRequestPending: chat.leaveRequestPending,
+            leaveBlocked: chat.leaveBlocked,
             latestMessageDelivery: chat.latestMessageDelivery,
             pendingConfirmation: chat.pendingConfirmation,
             selfMembership: chat.selfMembership

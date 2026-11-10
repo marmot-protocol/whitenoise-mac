@@ -159,7 +159,7 @@ extension WorkspaceState {
             beginProfileNostrAddressCheck()
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             profileDraft = ProfileDraft(fallbackName: fallbackName)
             // A profile that could not be read is not a profile with unsaved edits in it. Without
             // this the page would open showing Cancel and Save over a form nobody has touched.
@@ -185,7 +185,7 @@ extension WorkspaceState {
             relaySettings = RelaySettingsSnapshot(lists: lists)
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             relaySettings = .defaults
         }
 
@@ -286,7 +286,7 @@ extension WorkspaceState {
             }
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             return
         }
 
@@ -314,7 +314,7 @@ extension WorkspaceState {
             // The snapshot keeps saying native push is on, because in the core it is. The pane
             // still draws that switch off — it reads local alerts first — so the reader is not
             // told about a wake-up that can no longer reach them, and the next load reconciles.
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -338,7 +338,7 @@ extension WorkspaceState {
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -381,7 +381,7 @@ extension WorkspaceState {
             beginProfileNostrAddressCheck()
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -646,7 +646,7 @@ extension WorkspaceState {
             // A search that failed answered nothing, so the empty state goes back to asking for
             // one rather than blaming the spelling of a query that was never run.
             profileImageResultsQuery = nil
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -778,7 +778,7 @@ extension WorkspaceState {
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             notificationSettings = .defaults
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 

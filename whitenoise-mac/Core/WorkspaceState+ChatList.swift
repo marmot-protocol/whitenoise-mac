@@ -41,7 +41,7 @@ extension WorkspaceState {
             }
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -65,7 +65,7 @@ extension WorkspaceState {
             await reloadChats(forceFreshSnapshot: true)
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -82,7 +82,7 @@ extension WorkspaceState {
             await reloadChats(forceFreshSnapshot: true)
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -158,7 +158,7 @@ extension WorkspaceState {
             return
         } catch {
             guard ownsChatListReload(generation: generation, accountId: accountId) else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -678,6 +678,7 @@ extension WorkspaceState {
             muted: current.muted,
             mutedUntilMs: current.mutedUntilMs,
             leaveRequestPending: current.leaveRequestPending,
+            leaveBlocked: current.leaveBlocked,
             latestMessageDelivery: current.latestMessageDelivery,
             pendingConfirmation: current.pendingConfirmation,
             selfMembership: current.selfMembership
@@ -965,6 +966,10 @@ extension WorkspaceState {
                     query: TimelineMessageQueryFfi(
                         groupIdHex: groupIdHex,
                         search: nil,
+                        sender: nil,
+                        since: nil,
+                        until: nil,
+                        cursorGroupId: nil,
                         before: nil,
                         beforeMessageId: nil,
                         after: nil,

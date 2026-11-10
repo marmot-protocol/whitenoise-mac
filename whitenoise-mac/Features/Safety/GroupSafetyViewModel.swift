@@ -108,7 +108,7 @@ final class GroupSafetyViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -137,7 +137,7 @@ final class GroupSafetyViewModel {
             reports.removeAll { reportIDs.contains($0.reportIdHex) }
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
             throw error
         }
     }
@@ -163,7 +163,7 @@ final class GroupSafetyViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -208,7 +208,7 @@ final class GroupSafetyViewModel {
             error = nil
             return forgotten
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
             throw error
         }
     }

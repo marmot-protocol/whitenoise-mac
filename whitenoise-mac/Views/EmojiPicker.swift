@@ -190,37 +190,52 @@ enum ChatEmojiRecents {
 
 struct ChatEmojiPicker: View {
     let disabledEmoji: Set<String>
+    /// Custom emoji and emoji sets, offered where a pick can send one: a conversation's composer and
+    /// reactions. A custom pick reaches `onPick` as its `:shortcode:` token.
+    let custom: CustomEmojiPickerContent?
     let onPick: (String) -> Void
 
     @StateObject private var model = ChatEmojiPickerModel()
     @State private var query = ""
     @State private var selectedCategory = 0
     @State private var recentEmoji = ChatReactionDefaults.quick
+    @State private var isBrowsingEmojiSets = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 8)
 
     init(
         disabledEmoji: Set<String> = [],
+        custom: CustomEmojiPickerContent? = nil,
         onPick: @escaping (String) -> Void
     ) {
         self.disabledEmoji = disabledEmoji
+        self.custom = custom
         self.onPick = onPick
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            VStack(spacing: 0) {
-                searchField
-                Divider()
-                emojiGrid
-                Divider()
-                categoryRail(proxy: proxy)
+        Group {
+            if isBrowsingEmojiSets, let library = custom?.emojiSets {
+                EmojiSetBrowser(library: library, onBack: { isBrowsingEmojiSets = false })
+            } else {
+                ScrollViewReader { proxy in
+                    VStack(spacing: 0) {
+                        searchField
+                        Divider()
+                        emojiGrid
+                        Divider()
+                        categoryRail(proxy: proxy)
+                    }
+                }
             }
         }
         .frame(width: 420, height: 430)
         .background(.regularMaterial)
         .task {
             recentEmoji = ChatEmojiRecents.values()
+        }
+        .task {
+            await custom?.emojiSets?.loadInstalledIfNeeded()
         }
         .task(id: query) {
             await model.load()
@@ -260,6 +275,29 @@ struct ChatEmojiPicker: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
+                    if let custom {
+                        if query.isEmpty {
+                            let groups = CustomEmojiSendCatalog.pickerGroups(custom.sendables)
+                            ForEach(groups) { group in
+                                CustomEmojiPickerSection(
+                                    title: group.title, emoji: group.emoji, content: custom,
+                                    disabledEmoji: disabledEmoji, onPick: pickCustom
+                                )
+                                // The rail's Custom Emoji control scrolls to the first group.
+                                .id(group.id == groups.first?.id ? "custom" : "custom-\(group.id)")
+                            }
+                            if custom.emojiSets != nil {
+                                CustomEmojiManageSetsButton { isBrowsingEmojiSets = true }
+                            }
+                        } else {
+                            let matches = custom.matching(query)
+                            if !matches.isEmpty {
+                                CustomEmojiPickerSection(
+                                    title: L10n.string("Custom Emoji"), emoji: matches, content: custom,
+                                    disabledEmoji: disabledEmoji, onPick: pickCustom)
+                            }
+                        }
+                    }
                     if query.isEmpty {
                         let recents = model.catalog.recents(from: recentEmoji)
                         if !recents.isEmpty {
@@ -315,8 +353,22 @@ struct ChatEmojiPicker: View {
         }
     }
 
+    private func pickCustom(_ sendable: CustomEmojiSendable) {
+        onPick(sendable.token)
+    }
+
     private func categoryRail(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 2) {
+            if custom != nil {
+                railButton(
+                    systemImage: "sparkles",
+                    label: L10n.string("Custom Emoji"),
+                    selected: false
+                ) {
+                    proxy.scrollTo("custom", anchor: .top)
+                }
+                .help(L10n.string("Custom Emoji"))
+            }
             railButton(
                 systemImage: "clock.fill",
                 label: L10n.string("Recently used"),

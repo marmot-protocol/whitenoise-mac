@@ -139,7 +139,7 @@ private struct GroupModerationSheet: View {
             try await model.dismiss(reportIDs: [report.reportIdHex], explanation: "")
             actionError = nil
         } catch {
-            actionError = error.localizedDescription
+            actionError = UserFacingError.message(for: error)
         }
     }
 
@@ -149,7 +149,7 @@ private struct GroupModerationSheet: View {
                 onForgotten()
             }
         } catch {
-            actionError = error.localizedDescription
+            actionError = UserFacingError.message(for: error)
         }
     }
 }

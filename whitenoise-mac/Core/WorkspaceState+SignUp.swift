@@ -180,7 +180,7 @@ extension WorkspaceState {
             await activateReadyState()
             presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 }

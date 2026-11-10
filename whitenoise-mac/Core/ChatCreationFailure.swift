@@ -34,7 +34,7 @@ nonisolated enum ChatCreationFailure: Equatable {
 
     init(_ error: Error) {
         guard let marmotError = error as? MarmotKitError else {
-            self = .other(message: error.localizedDescription)
+            self = .other(message: UserFacingError.message(for: error))
             return
         }
         switch marmotError {
@@ -53,7 +53,7 @@ nonisolated enum ChatCreationFailure: Equatable {
         case .InvalidKeyPackageEvent, .InvalidIdentity:
             self = .notOnWhiteNoise(account: nil)
         default:
-            self = .other(message: marmotError.localizedDescription)
+            self = .other(message: UserFacingError.message(for: marmotError))
         }
     }
 

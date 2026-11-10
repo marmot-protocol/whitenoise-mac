@@ -35,7 +35,7 @@ final class AvatarAssetStore {
         } catch is CancellationError {
             return
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -55,7 +55,7 @@ final class AvatarAssetStore {
         } catch is CancellationError {
             return
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
         if !unrequested.isEmpty {
             await request(targets: unrequested.map(\.target))
@@ -83,7 +83,7 @@ final class AvatarAssetStore {
             bytesByReference.removeAll()
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 }

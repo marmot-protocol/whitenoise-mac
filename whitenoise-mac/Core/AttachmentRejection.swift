@@ -37,7 +37,7 @@ nonisolated struct AttachmentRejection: Equatable, Sendable {
 
         init(_ error: any Error) {
             guard let failure = error as? OutgoingMediaDraftProcessor.Failure else {
-                self = .other(error.localizedDescription)
+                self = .other(UserFacingError.message(for: error))
                 return
             }
             switch failure {

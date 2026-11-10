@@ -137,7 +137,7 @@ final class GiphySearchViewModel {
             guard !Task.isCancelled else { return }
             results = []
             isLoading = false
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(for: error)
         }
     }
 
@@ -154,7 +154,7 @@ final class GiphySearchViewModel {
             try await send(media)
             return true
         } catch {
-            sendErrorMessage = error.localizedDescription
+            sendErrorMessage = UserFacingError.message(for: error)
             return false
         }
     }

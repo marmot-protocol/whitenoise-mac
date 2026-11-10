@@ -270,7 +270,7 @@ final class OnboardingCoordinator {
             isBusy = false
         } catch {
             isBusy = false
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -289,7 +289,7 @@ final class OnboardingCoordinator {
             return true
         } catch {
             isBusy = false
-            if !(error is CancellationError) { self.error = error.localizedDescription }
+            if !(error is CancellationError) { self.error = UserFacingError.message(for: error) }
             return false
         }
     }
@@ -340,7 +340,7 @@ final class OnboardingCoordinator {
             return
         } catch {
             isObserving = false
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -355,7 +355,7 @@ final class OnboardingCoordinator {
             isBusy = false
             return
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
         isBusy = false
         runAutomaticallyIfNeeded()

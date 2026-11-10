@@ -60,6 +60,9 @@ nonisolated enum ChatSelfMembership: Hashable {
     case member
     case left
     case removed
+    /// This device left the chat, but the account is still in it through another of its devices.
+    /// MDK asks hosts not to call that a removal: the person was not removed, this Mac was.
+    case deviceRemoved
 
     /// Short badge label for sidebar rows, `nil` while still a member.
     var sidebarBadgeLabel: String? {
@@ -70,6 +73,8 @@ nonisolated enum ChatSelfMembership: Hashable {
             return L10n.string("Left")
         case .removed:
             return L10n.string("Removed")
+        case .deviceRemoved:
+            return L10n.string("Device removed")
         }
     }
 
@@ -89,6 +94,8 @@ nonisolated enum ChatSelfMembership: Hashable {
             return L10n.string("You left this group", locale: locale)
         case .removed:
             return L10n.string("You were removed from this group", locale: locale)
+        case .deviceRemoved:
+            return L10n.string("This device is no longer in this chat", locale: locale)
         }
     }
 
@@ -113,6 +120,8 @@ nonisolated enum ChatSelfMembership: Hashable {
             return "rectangle.portrait.and.arrow.right"
         case .removed:
             return "person.fill.xmark"
+        case .deviceRemoved:
+            return "laptopcomputer.slash"
         }
     }
 
@@ -186,6 +195,9 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// Absolute Unix epoch milliseconds for a finite mute; nil means indefinite while muted.
     let mutedUntilMs: Int64?
     let leaveRequestPending: Bool
+    /// A pending leave MDK cannot finish because this account became the group's last active admin
+    /// after the leave was accepted (MarmotKit 0.15). Cancelling it keeps the chat.
+    let leaveBlocked: Bool
     let latestMessageDelivery: ChatMessageDeliveryState
     let pendingConfirmation: Bool
     let selfMembership: ChatSelfMembership
@@ -395,6 +407,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         muted: Bool = false,
         mutedUntilMs: Int64? = nil,
         leaveRequestPending: Bool = false,
+        leaveBlocked: Bool = false,
         latestMessageDelivery: ChatMessageDeliveryState = .notApplicable,
         pendingConfirmation: Bool = false,
         selfMembership: ChatSelfMembership = .member
@@ -428,6 +441,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.muted = muted
         self.mutedUntilMs = mutedUntilMs
         self.leaveRequestPending = leaveRequestPending
+        self.leaveBlocked = leaveBlocked
         self.latestMessageDelivery = latestMessageDelivery
         self.pendingConfirmation = pendingConfirmation
         self.selfMembership = selfMembership
@@ -739,6 +753,10 @@ struct GroupDetailsSnapshot: Hashable {
     let requiresSelfDemoteBeforeLeave: Bool
     let leaveRequestPending: Bool
     let leaveRequestedAtMs: UInt64?
+    /// The pending leave cannot finish: this account became the last active admin (MarmotKit 0.15).
+    let leaveBlocked: Bool
+    /// MDK will cancel that blocked leave on this device (`cancelLeave`).
+    let canCancelLeave: Bool
     /// Per-group disappearing-message timer in seconds; `0` means messages never expire.
     let disappearingMessageSecs: UInt64
 
@@ -765,6 +783,8 @@ struct GroupDetailsSnapshot: Hashable {
         requiresSelfDemoteBeforeLeave: Bool,
         leaveRequestPending: Bool = false,
         leaveRequestedAtMs: UInt64? = nil,
+        leaveBlocked: Bool = false,
+        canCancelLeave: Bool = false,
         disappearingMessageSecs: UInt64
     ) {
         self.groupIdHex = groupIdHex
@@ -789,6 +809,8 @@ struct GroupDetailsSnapshot: Hashable {
         self.requiresSelfDemoteBeforeLeave = requiresSelfDemoteBeforeLeave
         self.leaveRequestPending = leaveRequestPending
         self.leaveRequestedAtMs = leaveRequestedAtMs
+        self.leaveBlocked = leaveBlocked
+        self.canCancelLeave = canCancelLeave
         self.disappearingMessageSecs = disappearingMessageSecs
     }
 
@@ -2689,6 +2711,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let id: String
     let groupIdHex: String
     let sourceMessageIdHex: String?
+    /// MDK proved delivery of an own send that failed with no relay acceptance on record: a peer
+    /// reacted to it. Such a row keeps a nil `sourceMessageIdHex`, so it must read as delivered.
+    let recipientConfirmed: Bool
     /// Authenticated MLS epoch and pinned retention decision for this exact message.
     let sourceEpoch: UInt64?
     let retentionSeconds: UInt64?
@@ -2743,6 +2768,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     }
     var replyContext: MessageReplyContext?
     let mediaAttachments: [MessageMediaAttachment]
+    /// The Sonar sticker this kind-9 carries, drawn on its own above any caption. Not an
+    /// attachment and not a custom emoji: it names an image in a public pack.
+    let sticker: StickerKey?
     /// The message's NIP-30 `emoji` tags, kept so an edit can re-resolve them against new text.
     let customEmojiTags: [CustomEmojiTag]
     /// Shortcode → the attachment the text draws inline in its place. See `CustomEmojiTag`.
@@ -2933,6 +2961,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         id: String,
         groupIdHex: String = "",
         sourceMessageIdHex: String? = nil,
+        recipientConfirmed: Bool = false,
         sourceEpoch: UInt64? = nil,
         retentionSeconds: UInt64? = nil,
         retentionExpiresAt: UInt64? = nil,
@@ -2961,6 +2990,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         omittedReactionKinds: Int = 0,
         replyContext: MessageReplyContext? = nil,
         mediaAttachments: [MessageMediaAttachment] = [],
+        sticker: StickerKey? = nil,
         customEmojiTags: [CustomEmojiTag] = [],
         presentation: MessagePresentation = .chat,
         poll: MessagePoll? = nil,
@@ -2975,6 +3005,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.id = id
         self.groupIdHex = groupIdHex
         self.sourceMessageIdHex = Self.nonBlank(sourceMessageIdHex)
+        self.recipientConfirmed = recipientConfirmed
         self.sourceEpoch = sourceEpoch
         self.retentionSeconds = retentionSeconds
         self.retentionExpiresAt = retentionExpiresAt
@@ -3028,6 +3059,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.omittedReactionKinds = omittedReactionKinds
         self.replyContext = replyContext
         self.mediaAttachments = mediaAttachments
+        self.sticker = sticker
         self.customEmojiTags = customEmojiTags
         self.customEmoji = customEmoji
         self.contentMediaAttachments = contentMediaAttachments
@@ -3045,7 +3077,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
                 statusLabel = L10n.string("Not delivered")
             } else if invalidationStatus != nil {
                 statusLabel = L10n.string("May not have reached everyone")
-            } else if isOutgoing && Self.nonBlank(sourceMessageIdHex) == nil {
+            } else if isOutgoing && Self.nonBlank(sourceMessageIdHex) == nil && !recipientConfirmed {
                 statusLabel = L10n.string("Not delivered")
             } else {
                 statusLabel = isOutgoing ? L10n.string("Sent") : nil
@@ -3082,6 +3114,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             id: id,
             groupIdHex: groupIdHex,
             sourceMessageIdHex: sourceMessageIdHex,
+            recipientConfirmed: recipientConfirmed,
             sourceEpoch: sourceEpoch,
             retentionSeconds: retentionSeconds,
             retentionExpiresAt: retentionExpiresAt,
@@ -3115,6 +3148,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             omittedReactionKinds: omittedReactionKinds,
             replyContext: replyContext,
             mediaAttachments: mediaAttachments,
+            sticker: sticker,
             customEmojiTags: customEmojiTags,
             presentation: presentation,
             poll: poll
@@ -3205,6 +3239,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             && !isDeleted
             && invalidationStatus == nil
             && sourceMessageIdHex == nil
+            && !recipientConfirmed
     }
 
     /// Whether this row may be re-driven to the relays at `now`.
@@ -3397,6 +3432,8 @@ extension MessageItem {
         lhs.id == rhs.id
             && lhs.groupIdHex == rhs.groupIdHex
             && lhs.sourceMessageIdHex == rhs.sourceMessageIdHex
+            && lhs.recipientConfirmed == rhs.recipientConfirmed
+            && lhs.sticker == rhs.sticker
             && lhs.replyTargetIdHex == rhs.replyTargetIdHex
             && lhs.senderAccountIdHex == rhs.senderAccountIdHex
             && lhs.senderName == rhs.senderName

@@ -21,7 +21,8 @@ struct AttachmentRejectionTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(

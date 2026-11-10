@@ -103,7 +103,7 @@ struct SharedMediaViewerOverlay: View {
                 try await saveRetainedAttachment(item, model: model)
             } catch is CancellationError {
             } catch {
-                saveError = error.localizedDescription
+                saveError = UserFacingError.message(for: error)
             }
         }
     }

@@ -152,8 +152,14 @@ struct ChatListDrawerView: View {
     @Environment(\.locale) private var locale
     let model: ChatListViewModel?
     let historyNotices: HistoryNoticesViewModel?
+    let recoveryStatus: AccountRecoveryStatusViewModel?
 
-    init(model: ChatListViewModel? = nil, historyNotices: HistoryNoticesViewModel? = nil) {
+    init(
+        model: ChatListViewModel? = nil,
+        historyNotices: HistoryNoticesViewModel? = nil,
+        recoveryStatus: AccountRecoveryStatusViewModel? = nil
+    ) {
+        self.recoveryStatus = recoveryStatus
         self.model = model
         self.historyNotices = historyNotices
     }
@@ -195,6 +201,10 @@ struct ChatListDrawerView: View {
 
                 if !isCollapsed, let historyNotices {
                     AccountHistoryNoticesView(model: historyNotices)
+                }
+
+                if !isCollapsed, let recoveryStatus {
+                    AccountCatchingUpRow(model: recoveryStatus)
                 }
 
                 ScrollView {

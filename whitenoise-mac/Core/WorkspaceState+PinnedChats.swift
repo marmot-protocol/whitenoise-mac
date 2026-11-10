@@ -96,7 +96,7 @@ extension WorkspaceState {
             mirrorPinnedChatIds(Set(state.orderedGroupIds), forAccountId: accountId)
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 

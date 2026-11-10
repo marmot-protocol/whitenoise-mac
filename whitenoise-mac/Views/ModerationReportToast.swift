@@ -83,3 +83,38 @@ struct ModerationReportToastContent: View {
     )
     .padding()
 }
+
+/// A queued send MDK dropped once its group settled (`QueuedIntentRefused`). Same chrome and
+/// placement as the report toast; non-interactive for the same reason.
+struct RefusedIntentToast: View {
+    let model: RefusedIntentNoticesViewModel?
+
+    var body: some View {
+        Group {
+            if let model, let notice = model.notice {
+                ModerationReportToastContent(notice: notice)
+                    .padding(.leading, 16)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .task(id: notice.id) {
+                        try? await Task.sleep(for: RefusedIntentNoticesViewModel.displayDuration)
+                        guard !Task.isCancelled else { return }
+                        model.dismissNotice(notice.id)
+                    }
+            }
+        }
+        .allowsHitTesting(false)
+        .animation(.smooth(duration: 0.2), value: model?.notice)
+    }
+}
+
+#Preview("Queued change refused") {
+    ModerationReportToastContent(
+        notice: ModerationReportNotice(
+            kind: .failure,
+            title: RefusedIntentPresentation.title(intentKind: "invite"),
+            message: RefusedIntentPresentation.message(reason: "not_group_admin")
+        )
+    )
+    .padding()
+}

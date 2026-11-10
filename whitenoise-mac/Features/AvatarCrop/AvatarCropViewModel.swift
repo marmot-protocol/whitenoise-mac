@@ -87,7 +87,7 @@ final class AvatarCropViewModel: Identifiable {
         } catch is CancellationError {
             return
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(UserFacingError.message(for: error))
         }
     }
 
@@ -154,7 +154,7 @@ final class AvatarCropViewModel: Identifiable {
         } catch is CancellationError {
             return false
         } catch {
-            saveError = error.localizedDescription
+            saveError = UserFacingError.message(for: error)
             return false
         }
     }

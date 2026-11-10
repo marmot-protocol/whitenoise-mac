@@ -200,6 +200,10 @@ nonisolated enum ConversationTranscriptExport {
                 query: TimelineMessageQueryFfi(
                     groupIdHex: groupIdHex,
                     search: nil,
+                    sender: nil,
+                    since: nil,
+                    until: nil,
+                    cursorGroupId: nil,
                     before: before,
                     beforeMessageId: beforeMessageId,
                     after: nil,

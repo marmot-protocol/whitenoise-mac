@@ -295,7 +295,7 @@ struct RetainedMediaTile: View {
         } catch is CancellationError {
             return
         } catch {
-            actionError = error.localizedDescription
+            actionError = UserFacingError.message(for: error)
         }
     }
 
@@ -431,7 +431,7 @@ private struct RetainedFileRow: View {
         do {
             try await saveRetainedAttachment(item, model: model)
         } catch {
-            actionError = error.localizedDescription
+            actionError = UserFacingError.message(for: error)
         }
     }
 }

@@ -196,7 +196,7 @@ extension WorkspaceState {
             return
         } catch {
             guard ownsTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex) else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -263,7 +263,7 @@ extension WorkspaceState {
                 activeTimelineGroupId == groupIdHex,
                 activeTimelineSubscription === subscription
             else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -307,7 +307,7 @@ extension WorkspaceState {
                 activeTimelineGroupId == groupIdHex,
                 activeTimelineSubscription === subscription
             else { return }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -810,7 +810,7 @@ extension WorkspaceState {
                 client: client
             )
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -965,7 +965,7 @@ extension WorkspaceState {
                 emoji: emoji
             )
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -987,7 +987,7 @@ extension WorkspaceState {
                 targetMessageId: message.id
             )
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1019,7 +1019,7 @@ extension WorkspaceState {
             )
             clearComposerContextTargeting(message.id, target: target)
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1112,7 +1112,7 @@ extension WorkspaceState {
                 editContext.preservedMediaUploadStates.isEmpty ? nil : editContext.preservedMediaUploadStates
             await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -1409,7 +1409,7 @@ extension WorkspaceState {
                 return
             } catch {
                 if activeAccountId == account.id, selectedChat?.id == groupIdHex {
-                    setBackgroundStatus(error.localizedDescription)
+                    setBackgroundStatus(UserFacingError.message(for: error))
                 }
             }
 
@@ -1423,7 +1423,7 @@ extension WorkspaceState {
                 return
             } catch {
                 if activeAccountId == account.id, selectedChat?.id == groupIdHex {
-                    setBackgroundStatus(error.localizedDescription)
+                    setBackgroundStatus(UserFacingError.message(for: error))
                 }
             }
             reconnectAttempt += 1
@@ -1512,6 +1512,10 @@ extension WorkspaceState {
                     query: TimelineMessageQueryFfi(
                         groupIdHex: groupIdHex,
                         search: nil,
+                        sender: nil,
+                        since: nil,
+                        until: nil,
+                        cursorGroupId: nil,
                         before: nil,
                         beforeMessageId: nil,
                         after: nil,
@@ -1532,7 +1536,7 @@ extension WorkspaceState {
             guard
                 canApplyTimelineWindow(groupIdHex: groupIdHex, accountId: account.id, owner: owner)
             else { return }
-            setBackgroundStatus(error.localizedDescription)
+            setBackgroundStatus(UserFacingError.message(for: error))
         }
     }
 
@@ -1666,7 +1670,7 @@ extension WorkspaceState {
                 confirmed: lastConfirmedReadMarkers[groupIdHex]
             )
             if selectedChat?.id == groupIdHex {
-                setBackgroundStatus(error.localizedDescription)
+                setBackgroundStatus(UserFacingError.message(for: error))
             }
         }
     }

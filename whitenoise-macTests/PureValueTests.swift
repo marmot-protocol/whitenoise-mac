@@ -3438,7 +3438,8 @@ struct PureValueTests {
                 localSigning: true,
                 externalSigning: false,
                 signedOut: false,
-                running: true
+                running: true,
+                unlinked: false
             )
         )
 

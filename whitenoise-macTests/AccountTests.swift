@@ -46,7 +46,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
         let state = WorkspaceState(clientFactory: { runtime })
@@ -84,7 +85,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: loggedIn)
         let state = WorkspaceState(clientFactory: { runtime })
@@ -113,7 +115,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: loggedIn)
         runtime.onboardingState = OnboardingSnapshotFfi(
@@ -169,7 +172,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [signedOut], createdAccount: reactivated)
         UserDefaults.standard.set(signedOut.label, forKey: WorkspaceState.activeAccountKey)
@@ -204,7 +208,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
         let state = WorkspaceState(clientFactory: { runtime })
@@ -238,7 +243,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: loggedIn)
         let state = WorkspaceState(clientFactory: { runtime })
@@ -309,7 +315,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
         let state = WorkspaceState(improvementsPromptStore: store, clientFactory: { runtime })
@@ -342,7 +349,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: false,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: watched)
         let state = WorkspaceState(clientFactory: { runtime })
@@ -558,7 +566,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let store = FakeImprovementsPromptStore()
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -655,7 +664,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -692,7 +702,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -721,7 +732,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -739,7 +751,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         runtime.createdAccount = secondary
         state.composeContacts = [
@@ -781,7 +794,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -795,7 +809,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         runtime.createdAccount = secondary
         await state.signUp()
@@ -824,7 +839,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -844,7 +860,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         runtime.createdAccount = secondary
         runtime.startError = FakeMarmotRuntimeError.unused
@@ -875,7 +892,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -891,7 +909,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         runtime.createdAccount = secondary
         runtime.startError = FakeMarmotRuntimeError.unused
@@ -967,7 +986,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: summary)
         let state = WorkspaceState(clientFactory: { runtime })
@@ -990,7 +1010,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [summary])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -1237,7 +1258,8 @@ struct AccountTests: WorkspaceTestSupport {
                 localSigning: true,
                 externalSigning: false,
                 signedOut: false,
-                running: true
+                running: true,
+                unlinked: false
             )
         ])
     }
@@ -1287,7 +1309,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -1295,7 +1318,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1318,7 +1342,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -1326,7 +1351,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1379,7 +1405,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -1387,7 +1414,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1443,7 +1471,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary])
         UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
@@ -1547,7 +1576,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -1555,7 +1585,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1598,7 +1629,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         // Ordered before "Backup Account" so the old `accounts.first(where:)` recovery would
         // pick this account rather than the one the user raced to.
@@ -1608,7 +1640,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let backup = AccountSummaryFfi(
             label: "Backup Account",
@@ -1616,7 +1649,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, other, backup])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1657,7 +1691,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         // Naive code would unconditionally activate the just-signed-in "Backup Account",
         // discarding the user's explicit mid-flight selection of "Other Account".
@@ -1667,7 +1702,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let signedOut = AccountSummaryFfi(
             label: "Backup Account",
@@ -1675,7 +1711,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: true,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, other, signedOut])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1721,7 +1758,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let signedOut = AccountSummaryFfi(
             label: "Backup Account",
@@ -1729,7 +1767,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: true,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, signedOut])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1763,7 +1802,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let other = AccountSummaryFfi(
             label: "Other Account",
@@ -1771,7 +1811,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, other])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1800,7 +1841,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -1808,7 +1850,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1838,7 +1881,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let other = AccountSummaryFfi(
             label: "Other Account",
@@ -1846,7 +1890,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let signedOut = AccountSummaryFfi(
             label: "Backup Account",
@@ -1854,7 +1899,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: true,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, other, signedOut])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1884,7 +1930,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -1892,7 +1939,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1922,7 +1970,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let signedOut = AccountSummaryFfi(
             label: "Backup Account",
@@ -1930,7 +1979,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: true,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, signedOut])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -1962,7 +2012,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -1970,7 +2021,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let signedOut = AccountSummaryFfi(
             label: "Signed Out Account",
@@ -1978,7 +2030,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: true,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary, signedOut])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -2014,7 +2067,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
@@ -2022,7 +2076,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -2051,7 +2106,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -2081,7 +2137,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         runtime.installGroups([messageGroup()])
@@ -2130,7 +2187,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let contact = String(repeating: "2", count: 64)
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
@@ -2185,7 +2243,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -2314,7 +2373,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -2348,7 +2408,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let backup = AccountSummaryFfi(
             label: "Backup Account",
@@ -2356,7 +2417,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let primaryAccount = AccountItem(summary: primary)
         let backupAccount = AccountItem(summary: backup)
@@ -2424,7 +2486,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, backup])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: primary.accountIdHex))
@@ -2469,7 +2532,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, backup])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: primary.accountIdHex))
@@ -3026,7 +3090,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "secondary-account",
@@ -3034,7 +3099,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let senderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
@@ -3128,7 +3194,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -3182,7 +3249,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -3233,7 +3301,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let signedOut = AccountSummaryFfi(
             label: "signed-out-account",
@@ -3241,7 +3310,8 @@ struct AccountTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: true,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, signedOut])
         runtime.installDirectGroup(

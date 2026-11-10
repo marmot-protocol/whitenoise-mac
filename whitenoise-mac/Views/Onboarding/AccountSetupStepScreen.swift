@@ -381,7 +381,7 @@ struct AccountSetupDeviceStep: View {
 
         AccountSetupStepLayout(step: .singleDevice) {
             AccountSetupCallout(
-                titleKey: hasFailure ? "Couldn’t check for other devices" : "Using one device",
+                titleKey: hasFailure ? "Couldn’t check for other devices" : "Chats on this device",
                 symbol: "laptopcomputer",
                 isError: hasFailure,
                 isLoading: model.isBusy && active == nil

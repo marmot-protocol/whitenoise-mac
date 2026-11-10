@@ -365,6 +365,7 @@ struct PollVotesTests: WorkspaceTestSupport {
                     contentTokens: emptyMarkdownDocument(),
                     kind: kind,
                     tags: [MessageTagFfi(values: ["e", "poll"])],
+                    sticker: nil,
                     sourceEpoch: 1,
                     retentionSeconds: nil,
                     retentionExpiresAt: nil,

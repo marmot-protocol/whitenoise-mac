@@ -169,7 +169,7 @@ extension WorkspaceState {
                     break
                 }
             }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             setPendingOutgoingMediaMessageState(.failed, for: id, in: draftKey)
             return
         }

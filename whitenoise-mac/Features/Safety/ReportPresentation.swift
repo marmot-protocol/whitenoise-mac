@@ -51,18 +51,6 @@ nonisolated enum ReportPresentation {
     }
 
     static func errorMessage(for error: Error) -> String {
-        guard let marmotError = error as? MarmotKitError else { return error.localizedDescription }
-        switch marmotError {
-        case .ModerationReportingNotConfigured, .InvalidModerationReportConfig:
-            return L10n.string("Reporting to White Noise isn’t available in this version of the app.")
-        case .ModerationReportRateLimited:
-            return L10n.string("You’ve sent a lot of reports recently. Try again later.")
-        case .CannotReportSelf:
-            return L10n.string("You can’t report yourself.")
-        case .InvalidReportedPublicKey:
-            return L10n.string("This person can’t be reported.")
-        default:
-            return error.localizedDescription
-        }
+        UserFacingError.message(for: error)
     }
 }

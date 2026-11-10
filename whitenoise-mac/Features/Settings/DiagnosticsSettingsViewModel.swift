@@ -62,7 +62,7 @@ final class DiagnosticsSettingsViewModel {
             return
         } catch {
             productAnalytics?.deactivate()
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -83,7 +83,7 @@ final class DiagnosticsSettingsViewModel {
             return
         } catch {
             productAnalytics?.deactivate()
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -100,7 +100,7 @@ final class DiagnosticsSettingsViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -118,7 +118,7 @@ final class DiagnosticsSettingsViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -135,7 +135,7 @@ final class DiagnosticsSettingsViewModel {
             return
         } catch {
             auditLogFiles = []
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -152,7 +152,7 @@ final class DiagnosticsSettingsViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
         await loadAuditLogs()
     }
@@ -170,7 +170,7 @@ final class DiagnosticsSettingsViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 

@@ -135,6 +135,7 @@ nonisolated extension AppGroupRecordFfi {
             selfMembership: selfMembership,
             leaveRequestPending: false,
             leaveRequestedAtMs: nil,
+            leaveBlocked: false,
             disbanding: false,
             disbandRequest: nil,
             disbanded: false,
@@ -196,6 +197,7 @@ nonisolated extension ChatListMessagePreviewFfi {
             plaintext: plaintext,
             contentTokens: contentTokens,
             kind: kind,
+            sticker: nil,
             timelineAt: timelineAt,
             retentionSeconds: nil,
             retentionExpiresAt: nil,
@@ -293,7 +295,8 @@ nonisolated extension ChatListRowFfi {
             muted: false,
             mutedUntilMs: nil,
             leaveRequestPending: leaveRequestPending,
-            leaveRequestedAtMs: leaveRequestPending ? 1_700_000_000_000 : nil
+            leaveRequestedAtMs: leaveRequestPending ? 1_700_000_000_000 : nil,
+            leaveBlocked: false
         )
     }
 }
@@ -319,6 +322,8 @@ nonisolated extension GroupManagementStateFfi {
             requiresSelfDemoteBeforeLeave: requiresSelfDemoteBeforeLeave,
             leaveRequestPending: leaveRequestPending,
             leaveRequestedAtMs: leaveRequestedAtMs,
+            leaveBlocked: false,
+            canCancelLeave: false,
             lifecycleState: .stable,
             disbandingEnabled: false,
             disbanding: false,
@@ -373,6 +378,7 @@ nonisolated extension TimelineMessageRecordFfi {
             contentTokens: contentTokens,
             kind: kind,
             tags: tags,
+            sticker: nil,
             timelineAt: timelineAt,
             receivedAt: receivedAt,
             replyToMessageIdHex: replyToMessageIdHex,
@@ -388,7 +394,10 @@ nonisolated extension TimelineMessageRecordFfi {
             deleted: deleted,
             deletionSource: .unknown,
             deletedByMessageIdHex: deletedByMessageIdHex,
-            invalidationStatus: invalidationStatus
+            invalidationStatus: invalidationStatus,
+            recipientConfirmed: false,
+            importedFrom: nil,
+            historyImportProvenance: nil
         )
     }
 }
@@ -412,6 +421,7 @@ nonisolated extension TimelineReplyPreviewFfi {
             plaintext: plaintext,
             contentTokens: contentTokens,
             kind: kind,
+            sticker: nil,
             mediaJson: mediaJson,
             media: media.enumerated().map {
                 .accepted(attachmentIndex: UInt32(clamping: $0.offset), reference: $0.element)

@@ -82,7 +82,7 @@ struct ProfileImageSourceMenu<Label: View>: View {
                     guard let url = urls.first else { return }
                     cropFile(at: url)
                 case .failure(let error):
-                    workspace.reportUserActionError(error.localizedDescription)
+                    workspace.reportUserActionError(UserFacingError.message(for: error))
                 }
             }
             .avatarCropSheet($cropModel)

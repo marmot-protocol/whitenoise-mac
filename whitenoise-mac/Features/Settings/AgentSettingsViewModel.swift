@@ -76,7 +76,7 @@ final class AgentSettingsViewModel {
             await publisher.cancel()
             pendingPublisher = nil
             pendingPublisherInfo = nil
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
             throw error
         }
 
@@ -120,7 +120,7 @@ final class AgentSettingsViewModel {
         } catch {
             // MDK seals and retains the exact final request on this handle. Keep it alive so a
             // retry cannot create a second stream or change the final message bytes.
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
             throw error
         }
     }

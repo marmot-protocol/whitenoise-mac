@@ -33,7 +33,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -103,7 +104,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -141,7 +143,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         var group = messageGroup()
@@ -175,7 +178,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -241,7 +245,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -268,7 +273,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -307,7 +313,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -348,7 +355,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -1663,7 +1671,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceHex = String(repeating: "a", count: 64)
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
@@ -1695,7 +1704,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -2148,7 +2158,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, backup])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: primary.accountIdHex))
@@ -2399,6 +2410,67 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(runtime.declineGroupInviteCallCount == 0)
         #expect(!state.isAcceptingGroupInvite)
         #expect(!state.isDecliningGroupInvite)
+    }
+
+    /// An invitee who was made admin (alongside another admin) has to step down before MDK lets
+    /// them decline. The step-down is visible to members, so it is asked for first.
+    @MainActor
+    @Test func decliningAsAnAdminInviteeStepsDownOnlyAfterConsent() async throws {
+        let account = desktopAccount()
+        var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex, otherIsAdmin: true)
+        details.group.pendingConfirmation = true
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(details)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+
+        var asked = 0
+        await state.declineGroupInvite(
+            for: groupChat,
+            confirmAdminStepDown: {
+                asked += 1
+                return false
+            })
+        #expect(asked == 1)
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.declineGroupInviteCallCount == 0)
+
+        await state.declineGroupInvite(
+            for: groupChat,
+            confirmAdminStepDown: {
+                asked += 1
+                return true
+            })
+        #expect(asked == 2)
+        #expect(runtime.selfDemotedGroupIdHex == groupChat.id)
+        #expect(runtime.declineGroupInviteCallCount == 1)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func decliningAsAMemberInviteeNeverAsksToStepDown() async throws {
+        let account = desktopAccount()
+        var details = groupDetailsFixture(
+            selfAccountIdHex: account.accountIdHex, selfIsAdmin: false, otherIsAdmin: true)
+        details.group.pendingConfirmation = true
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(details)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+
+        var asked = false
+        await state.declineGroupInvite(
+            for: groupChat,
+            confirmAdminStepDown: {
+                asked = true
+                return true
+            })
+
+        #expect(!asked)
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.declineGroupInviteCallCount == 1)
     }
 
     @MainActor
@@ -4076,7 +4148,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), second])
         runtime.installGroups([messageGroup()])
@@ -4534,7 +4607,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -4734,7 +4808,7 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(
             state.reachableDraftMembers.map(\.accountIdHex)
                 == [Self.aliceAccountIdHex, Self.carolAccountIdHex])
-        #expect(state.lastError?.contains("relay refused") == true)
+        #expect(state.lastError == UserFacingError.message(for: MarmotKitError.Publish(details: "relay refused")))
         #expect(!state.hasUnnamedGroupDraftRefusal)
     }
 
@@ -5230,7 +5304,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, backup])
         var archived = directGroup()
@@ -5317,7 +5392,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.createGroupFailure = MarmotKitError.Publish(details: "relay refused")
@@ -5389,13 +5465,15 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.lastError == nil)
     }
 
-    @Test func chatCreationFailureKeepsUnrelatedCoreErrorsIntact() {
+    @Test func chatCreationFailureShowsUnrelatedCoreErrorsAsCopyNotDiagnostics() {
         let failure = ChatCreationFailure(MarmotKitError.Publish(details: "relay refused"))
         guard case .other(let message) = failure else {
             Issue.record("expected .other, got \(failure)")
             return
         }
-        #expect(message.contains("relay refused"))
+        #expect(message == UserFacingError.message(for: MarmotKitError.Publish(details: "relay refused")))
+        #expect(!message.contains("relay refused"))
+        #expect(!message.contains("MarmotKitError"))
     }
 
     @Test func chatCreationFailureMatchesTheRefusedRecipientByEitherIdentifier() {
@@ -5555,7 +5633,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -5563,7 +5642,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -5609,7 +5689,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -6247,7 +6328,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let slowId = "1111111111111111111111111111111111111111111111111111111111111111"
         let fastId = "2222222222222222222222222222222222222222222222222222222222222222"
@@ -6306,7 +6388,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let slowId = "1111111111111111111111111111111111111111111111111111111111111111"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6544,7 +6627,8 @@ struct GroupsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount, secondary])
         runtime.userSearchUpdates = [

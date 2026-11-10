@@ -36,7 +36,8 @@ private func account(_ idHex: String) -> AccountSummaryFfi {
         localSigning: true,
         externalSigning: false,
         signedOut: false,
-        running: false
+        running: false,
+        unlinked: false
     )
 }
 

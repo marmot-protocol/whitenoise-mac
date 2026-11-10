@@ -422,7 +422,8 @@ struct whitenoise_macTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         // A background notification-listener failure must not surface on the shared
@@ -457,7 +458,8 @@ struct whitenoise_macTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationStreamEndsImmediately = true
@@ -480,7 +482,8 @@ struct whitenoise_macTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -522,7 +525,8 @@ struct whitenoise_macTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -571,7 +575,8 @@ struct whitenoise_macTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -625,7 +630,8 @@ struct whitenoise_macTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let sender = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let directory = FileManager.default.temporaryDirectory
@@ -693,7 +699,8 @@ struct whitenoise_macTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -1179,7 +1186,8 @@ struct MarmotKit0104IntegrationTests {
             muted: true,
             mutedUntilMs: nil,
             leaveRequestPending: true,
-            leaveRequestedAtMs: 1_700_000_000_000
+            leaveRequestedAtMs: 1_700_000_000_000,
+            leaveBlocked: false
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: "self")

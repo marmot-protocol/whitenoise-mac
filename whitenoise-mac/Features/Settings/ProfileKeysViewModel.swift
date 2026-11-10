@@ -136,7 +136,7 @@ final class ProfileKeysViewModel {
         } catch {
             guard !Task.isCancelled else { return }
             actionInFlight = nil
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
             return
         }
         guard !Task.isCancelled else { return }

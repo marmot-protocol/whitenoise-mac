@@ -29,7 +29,8 @@ var discoverySearcherAccount: AccountSummaryFfi {
         localSigning: true,
         externalSigning: false,
         signedOut: false,
-        running: false
+        running: false,
+        unlinked: false
     )
 }
 
@@ -1062,6 +1063,7 @@ func appMessage(
         contentTokens: contentTokens,
         kind: kind,
         tags: tags,
+        sticker: nil,
         sourceEpoch: nil,
         retentionSeconds: nil,
         retentionExpiresAt: nil,
@@ -1594,6 +1596,7 @@ func notificationUpdate(
             pictureUrl: nil
         ),
         previewText: previewText,
+        sticker: nil,
         reactionEmoji: nil,
         reactedToPreview: nil,
         timestampMs: 1_700_000_000_000,
@@ -1608,7 +1611,8 @@ func desktopAccount() -> AccountSummaryFfi {
         localSigning: true,
         externalSigning: false,
         signedOut: false,
-        running: true
+        running: true,
+        unlinked: false
     )
 }
 
@@ -1622,7 +1626,8 @@ func signedOutBackupAccount() -> AccountSummaryFfi {
         localSigning: true,
         externalSigning: false,
         signedOut: true,
-        running: false
+        running: false,
+        unlinked: false
     )
 }
 
@@ -2247,7 +2252,8 @@ func mediaDownloadFixture(
         localSigning: true,
         externalSigning: false,
         signedOut: false,
-        running: false
+        running: false,
+        unlinked: false
     )
     let runtime = FakeMarmotRuntime(accounts: [account])
     runtime.installGroup(messageGroup())

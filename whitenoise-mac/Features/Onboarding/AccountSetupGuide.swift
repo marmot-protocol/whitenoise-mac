@@ -136,7 +136,7 @@ struct AccountSetupGuide: Equatable {
         case .follows: "People you follow"
         case .relays: "Your relays"
         case .inboxRelays: "Message inbox"
-        case .singleDevice: "Using one device"
+        case .singleDevice: "Chats on this device"
         case .keyPackage: "Secure messaging"
         }
     }
@@ -150,8 +150,10 @@ struct AccountSetupGuide: Equatable {
         case .relays:
             "Read relays find public information. Write relays publish your public information. A relay can do both."
         case .inboxRelays: "Inbox relays receive invitations to new chats and groups."
+        // MDK 0.15's suggested copy: say what signing in alone restores, not that multi-device use
+        // is unsupported.
         case .singleDevice:
-            "White Noise does not yet sync conversations across devices. We recommend using this profile on one device."
+            "Signing in alone does not restore your existing chats or messages. If you use another device, keep its app and data until you’ve checked your chats here."
         case .keyPackage: "Secure messaging must be ready before you can open Chats."
         }
     }
@@ -164,11 +166,11 @@ struct AccountSetupGuide: Equatable {
     static func deviceNoticeKey(_ discovery: OnboardingDeviceDiscoveryFfi) -> String {
         switch discovery {
         case .otherInstallationPossible:
-            "We found signs of another installation. This can also happen after reinstalling. Invitations may reach only one installation, and chats will not appear on both."
+            "Other sign-in records were found. They may belong to another installation or an earlier one."
         case .noneFound:
             "No other installation was found on the sources we checked. This does not guarantee that the profile is unused elsewhere."
         case .unknown:
-            "We couldn’t determine whether another installation exists. Invitations may reach only one installation, and chats will not appear on both."
+            "Other sign-ins could not be checked."
         }
     }
 

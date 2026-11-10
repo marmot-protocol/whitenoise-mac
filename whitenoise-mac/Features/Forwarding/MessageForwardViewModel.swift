@@ -166,7 +166,7 @@ final class MessageForwardViewModel: Identifiable {
         } catch is CancellationError {
             return
         } catch {
-            dependencies.reportError(error.localizedDescription)
+            dependencies.reportError(UserFacingError.message(for: error))
             phase = .choosing
             return
         }

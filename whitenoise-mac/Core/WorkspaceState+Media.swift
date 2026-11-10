@@ -468,7 +468,7 @@ extension WorkspaceState {
                 stateStore.update(.idle)
                 return
             }
-            stateStore.update(.failed(error.localizedDescription))
+            stateStore.update(.failed(UserFacingError.message(for: error)))
         }
     }
 
@@ -740,7 +740,7 @@ extension WorkspaceState {
             } catch {
                 guard !Task.isCancelled else { return nil }
                 self?.setPendingMediaUploadState(.failed, for: attachment.id, in: draftKey)
-                self?.lastError = error.localizedDescription
+                self?.lastError = UserFacingError.message(for: error)
                 return nil
             }
         }
@@ -913,7 +913,7 @@ extension WorkspaceState {
         } catch is CancellationError {
             return
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 

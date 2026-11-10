@@ -48,7 +48,8 @@ struct MessengerShellView: View {
                             if workspace.isChatListVisible {
                                 ChatListDrawerView(
                                     model: session.accountScope?.chatListModel,
-                                    historyNotices: session.accountScope?.historyNotices
+                                    historyNotices: session.accountScope?.historyNotices,
+                                    recoveryStatus: session.accountScope?.recoveryStatus
                                 )
                                 // Deliberately un-animated: the width is dragged, so animating
                                 // it would re-wrap the non-lazy transcript on every frame of the
@@ -102,6 +103,7 @@ struct MessengerShellView: View {
         .overlay(alignment: .bottomLeading) {
             VStack(alignment: .leading, spacing: 0) {
                 ModerationReportToast(reporter: session.accountScope?.moderationReporter)
+                RefusedIntentToast(model: session.accountScope?.refusedIntents)
                 MediaDownloadFeedbackToast()
             }
         }
@@ -510,7 +512,7 @@ private struct ConversationView: View {
 
         ZStack {
             VStack(spacing: 0) {
-                ConversationHeader(chat: chat)
+                ConversationHeader(chat: chat, recoveryStatus: session.accountScope?.recoveryStatus)
                     .messageDeletionConfirmation()
                     .messageEditHistory(model: model)
                     .pollVotesSheet(
@@ -679,6 +681,15 @@ private struct ConversationView: View {
                         BlockedConversationComposerNotice()
                     } else if chat.pendingConfirmation {
                         PendingGroupInviteComposerNotice(chat: chat)
+                    } else if BlockedLeavePresentation.isBlocked(
+                        leaveRequestPending: chat.leaveRequestPending, leaveBlocked: chat.leaveBlocked)
+                    {
+                        BlockedLeaveNotice(
+                            canCancel: model.canCancelBlockedLeave,
+                            isCancelling: model.isCancellingLeave,
+                            failure: model.cancelLeaveFailure,
+                            onCancel: { Task { await model.cancelBlockedLeave() } }
+                        )
                     } else {
                         composerControls
                     }
@@ -711,7 +722,7 @@ private struct ConversationView: View {
                 case .success(let urls):
                     Task { await stageMediaAttachments { await workspace.addMediaAttachments(from: urls) } }
                 case .failure(let error):
-                    workspace.reportUserActionError(error.localizedDescription)
+                    workspace.reportUserActionError(UserFacingError.message(for: error))
                 }
             }
             .dropDestination(for: URL.self) { urls, _ in
@@ -862,6 +873,10 @@ private struct ConversationView: View {
     private var composerControls: some View {
         @Bindable var workspace = workspace
 
+        if let message = model.customEmojiSender.errorMessage {
+            CustomEmojiSendNotice(message: message, onDismiss: model.customEmojiSender.dismissError)
+        }
+
         if let editingMessageContext = workspace.editingMessageContext {
             EditComposerContextView(context: editingMessageContext)
         } else if let replyDraftContext = workspace.replyDraftContext {
@@ -947,7 +962,7 @@ private struct ConversationView: View {
                     .disabled(workspace.isSending)
                     .help(L10n.string("Emoji"))
                     .popover(isPresented: $isComposerEmojiPickerPresented, arrowEdge: .bottom) {
-                        ChatEmojiPicker { emoji in
+                        ChatEmojiPicker(custom: .conversation(model)) { emoji in
                             composerEmojiInsertion = ComposerEmojiInsertion(emoji: emoji)
                             isComposerEmojiPickerPresented = false
                         }
@@ -962,6 +977,12 @@ private struct ConversationView: View {
                         // Not a `sendDraft()`, so the send signal never moves; scroll to it here.
                         sendGIF: { media in
                             try await model.sendText(media.wireText)
+                            Task { await jumpToNewest() }
+                        },
+                        stickers: canUseComposer && !isBlockedDirectPeer && workspace.editingMessageContext == nil
+                            ? model.stickers : nil,
+                        sendSticker: { sticker in
+                            try await model.stickers?.send(sticker, groupIdHex: model.groupIdHex)
                             Task { await jumpToNewest() }
                         },
                         onCreatePoll: ComposerAttachmentOption.pollsAvailable(
@@ -1016,9 +1037,7 @@ private struct ConversationView: View {
                             await stageMediaAttachments { await workspace.addPastedMediaAttachments(attachments) }
                         }
                     },
-                    onSend: {
-                        Task { await workspace.sendDraft() }
-                    },
+                    onSend: sendComposer,
                     focusRequestID: composerFocusRequester.requestID,
                     onFocusRequestConsumed: composerFocusRequester.consume
                 )
@@ -1060,9 +1079,7 @@ private struct ConversationView: View {
                     .help(voiceRecordingButtonHelp)
                 }
 
-                Button {
-                    Task { await workspace.sendDraft() }
-                } label: {
+                Button(action: sendComposer) {
                     MessagesSendButtonLabel(
                         systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark",
                         isEnabled: workspace.canSend,
@@ -1097,6 +1114,18 @@ private struct ConversationView: View {
         let request = TranscriptScrollRequest(target: .center(id: messageId))
         scrollRequest = request
         return request.id
+    }
+
+    /// Sends the composer: a draft using custom emoji goes out with their images, anything else
+    /// through the ordinary send.
+    private func sendComposer() {
+        Task {
+            switch await CustomEmojiComposerSend.send(workspace: workspace, conversation: model) {
+            case .notCustom: await workspace.sendDraft()
+            case .sent: await jumpToNewest()
+            case .kept: break
+            }
+        }
     }
 
     /// Re-attaches any window that does not follow the tail, not only one with newer history: an

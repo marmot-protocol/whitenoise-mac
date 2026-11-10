@@ -258,7 +258,8 @@ extension WorkspaceState {
         } catch {
             composerDraftRestores[key] = nil
             setBackgroundStatus(
-                String(format: L10n.string("A saved draft could not be restored: %@"), error.localizedDescription)
+                String(
+                    format: L10n.string("A saved draft could not be restored: %@"), UserFacingError.message(for: error))
             )
         }
     }
@@ -306,7 +307,8 @@ extension WorkspaceState {
         } catch {
             guard composerDraftMutationGenerations[key] == generation else { return }
             setBackgroundStatus(
-                String(format: L10n.string("A sent draft could not be removed: %@"), error.localizedDescription)
+                String(
+                    format: L10n.string("A sent draft could not be removed: %@"), UserFacingError.message(for: error))
             )
         }
     }
@@ -382,7 +384,7 @@ extension WorkspaceState {
         } catch {
             guard composerDraftMutationGenerations[key] == generation else { return }
             setBackgroundStatus(
-                String(format: L10n.string("A draft could not be saved: %@"), error.localizedDescription)
+                String(format: L10n.string("A draft could not be saved: %@"), UserFacingError.message(for: error))
             )
         }
     }

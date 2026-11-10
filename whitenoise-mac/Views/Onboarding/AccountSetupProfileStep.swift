@@ -129,7 +129,7 @@ struct AccountSetupProfileStep: View {
                     }
                 )
             case .failure(let error):
-                photoError = error.localizedDescription
+                photoError = UserFacingError.message(for: error)
             }
         }
         .avatarCropSheet($cropModel)

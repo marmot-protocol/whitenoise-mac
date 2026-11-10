@@ -20,8 +20,16 @@ final class AccountScope {
     let blockedUsers: BlockedUsersViewModel
     let onboarding: OnboardingCoordinator
     let historyNotices: HistoryNoticesViewModel
+    /// Which groups, and whether the inbox, are still catching up after time offline.
+    let recoveryStatus: AccountRecoveryStatusViewModel
+    /// Toasts for queued sends MDK dropped once their group settled (`QueuedIntentRefused`).
+    let refusedIntents: RefusedIntentNoticesViewModel
     /// Reports to the White Noise team and Block and Report, with their transient feedback.
     let moderationReporter: ModerationReporter
+    /// Installed and discoverable sticker packs, and the sticker images this account has loaded.
+    let stickers: StickerLibrary
+    /// Installed and discoverable NIP-51 emoji sets, whose emoji every chat's picker offers.
+    let emojiSets: EmojiSetLibrary
     /// Asks before a group change MDK refused as advisory (`GroupCatchingUp`,
     /// `GroupCommitUndelivered`) is acknowledged and retried.
     let groupChangeAdvisory = GroupChangeAdvisoryPrompter()
@@ -72,6 +80,15 @@ final class AccountScope {
             accountIdHex: account.accountIdHex,
             runtime: runtime
         )
+        self.recoveryStatus = AccountRecoveryStatusViewModel(
+            accountRef: account.accountRef,
+            accountIdHex: account.accountIdHex,
+            runtime: runtime
+        )
+        self.refusedIntents = RefusedIntentNoticesViewModel(
+            accountIdHex: account.accountIdHex,
+            runtime: runtime
+        )
         self.productAnalytics = productAnalytics
         self.moderationReporter = ModerationReporter(
             accountRef: account.accountRef,
@@ -79,6 +96,8 @@ final class AccountScope {
             runtime: runtime,
             blockedUsers: blockedUsers
         )
+        self.stickers = StickerLibrary(accountRef: account.accountRef, runtime: runtime)
+        self.emojiSets = EmojiSetLibrary(accountRef: account.accountRef, runtime: runtime)
     }
 
     func start(connectivityAvailable: Bool) {
@@ -87,24 +106,31 @@ final class AccountScope {
         blockedUsers.start()
         onboarding.start()
         historyNotices.start()
+        recoveryStatus.start()
+        refusedIntents.start()
         let diagnosticsTask = Task { [settingsModel] in
             await settingsModel.diagnostics.load()
         }
         addCancellation {
             [
-                chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, productAnalytics,
-                settingsModel, groupChangeAdvisory, moderationReporter
+                chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, recoveryStatus,
+                refusedIntents, productAnalytics, settingsModel, groupChangeAdvisory, moderationReporter, stickers,
+                emojiSets
             ] in
             chatListModel.stop()
             attentionModel.stop()
             blockedUsers.stop()
             onboarding.stop()
             historyNotices.stop()
+            recoveryStatus.stop()
+            refusedIntents.stop()
             // A pending prompt belongs to this account's change: Wait it out rather than strand it.
             groupChangeAdvisory.cancelPending()
             productAnalytics.deactivate()
             settingsModel.deactivate()
             moderationReporter.stop()
+            stickers.stop()
+            emojiSets.stop()
         }
         own(diagnosticsTask)
         updateConnectivity(available: connectivityAvailable)
@@ -147,7 +173,9 @@ final class AccountScope {
             account: account,
             groupIdHex: groupIdHex,
             runtime: runtime,
-            productAnalytics: productAnalytics
+            productAnalytics: productAnalytics,
+            stickers: stickers,
+            emojiSets: emojiSets
         )
         let cancellation = addCancellation { [model] in model.stop() }
         conversations[groupIdHex] = (model, cancellation)

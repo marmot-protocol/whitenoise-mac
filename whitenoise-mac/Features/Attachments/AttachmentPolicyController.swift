@@ -51,7 +51,7 @@ final class AttachmentPolicyController {
             return
         } catch {
             effectivePermission = denied
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -113,7 +113,7 @@ final class AttachmentPolicyController {
         } catch {
             effectivePermission = AttachmentAutomaticPermissionFfi(
                 images: false, videos: false, audio: false, files: false)
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 

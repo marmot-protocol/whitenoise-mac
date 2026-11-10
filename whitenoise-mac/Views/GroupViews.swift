@@ -403,7 +403,7 @@ struct GroupImagePickerSheet: View {
                 guard let url = urls.first else { return }
                 crop { try await AvatarImageCropSource.data(fromFileURL: url) }
             case .failure(let error):
-                workspace.reportUserActionError(error.localizedDescription)
+                workspace.reportUserActionError(UserFacingError.message(for: error))
             }
         }
         .avatarCropSheet($cropModel, advisory: cropAdvisory)

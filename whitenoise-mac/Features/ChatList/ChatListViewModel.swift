@@ -85,7 +85,7 @@ final class ChatListViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -225,7 +225,7 @@ final class ChatListViewModel {
             } catch MarmotKitError.ChatWindowStale {
                 return
             } catch {
-                self.error = .unavailable(error.localizedDescription)
+                self.error = .unavailable(UserFacingError.message(for: error))
             }
         }
         windowCommandTask = command
@@ -276,7 +276,7 @@ final class ChatListViewModel {
                 return
             } catch {
                 if presentedRows.isEmpty {
-                    self.error = .unavailable(error.localizedDescription)
+                    self.error = .unavailable(UserFacingError.message(for: error))
                 }
                 isLoading = false
             }

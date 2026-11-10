@@ -208,7 +208,8 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         localSigning: true,
         externalSigning: false,
         signedOut: false,
-        running: true
+        running: true,
+        unlinked: false
     )
 
     /// A workspace signed in to the desktop account and a backup, with the desktop one active.

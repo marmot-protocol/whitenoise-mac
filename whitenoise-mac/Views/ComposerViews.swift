@@ -1665,6 +1665,7 @@ struct MembershipEndedComposerNotice: View {
 /// Replaces the composer until the user accepts or declines a pending group invite.
 struct PendingGroupInviteComposerNotice: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     let chat: ChatItem
 
     var body: some View {
@@ -1699,7 +1700,10 @@ struct PendingGroupInviteComposerNotice: View {
 
             PendingInviteActionButtons(
                 accept: { await workspace.acceptGroupInvite(for: chat) },
-                decline: { await workspace.declineGroupInvite(for: chat) }
+                decline: { confirm in
+                    await workspace.declineGroupInvite(
+                        for: chat, confirmAdminStepDown: confirm, advisory: session.accountScope?.groupChangeAdvisory)
+                }
             )
         }
         .padding(.horizontal, 12)
@@ -1855,15 +1859,23 @@ struct ProfileImageAvatarView: View {
 struct ConversationHeader: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
+    var recoveryStatus: AccountRecoveryStatusViewModel?
 
-    /// Under the chat title: the disappearing-message timer as a bare clock icon + duration (no
-    /// "Disappearing messages:" label) when it's on, otherwise the usual member/DM subtitle.
+    /// Under the chat title: "Catching up" while MDK is still fetching this chat's history,
+    /// otherwise the disappearing-message timer as a bare clock icon + duration (no "Disappearing
+    /// messages:" label) when it's on, otherwise the usual member/DM subtitle.
     private var headerSubtitle: some View {
         let metadata = workspace.conversationMetadataByChat[chat.id]
-        return DisappearingMessageHeaderSubtitle(
-            durationSeconds: metadata?.disappearingMessageSecs,
-            fallback: metadata?.subtitle ?? chat.subtitle
-        )
+        return Group {
+            if recoveryStatus?.isCatchingUp(groupIdHex: chat.id) == true {
+                CatchingUpLabel(text: L10n.string("Catching up…"))
+            } else {
+                DisappearingMessageHeaderSubtitle(
+                    durationSeconds: metadata?.disappearingMessageSecs,
+                    fallback: metadata?.subtitle ?? chat.subtitle
+                )
+            }
+        }
         .wnFont(.medium10)
         .lineLimit(1)
     }

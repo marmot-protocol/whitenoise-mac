@@ -170,6 +170,10 @@ nonisolated enum GlobalMessageSearchEngine {
                     query: TimelineMessageQueryFfi(
                         groupIdHex: scope.groupId,
                         search: nil,
+                        sender: nil,
+                        since: nil,
+                        until: nil,
+                        cursorGroupId: nil,
                         before: before,
                         beforeMessageId: beforeMessageId,
                         after: nil,
@@ -242,6 +246,10 @@ nonisolated enum GlobalMessageSearchEngine {
                     query: TimelineMessageQueryFfi(
                         groupIdHex: scope.groupId,
                         search: nil,
+                        sender: nil,
+                        since: nil,
+                        until: nil,
+                        cursorGroupId: nil,
                         before: before,
                         beforeMessageId: beforeMessageId,
                         after: nil,
@@ -423,7 +431,7 @@ extension WorkspaceState {
                 return
             } catch {
                 guard let self, self.globalMessageSearchGeneration == generation else { return }
-                self.globalMessageSearchError = error.localizedDescription
+                self.globalMessageSearchError = UserFacingError.message(for: error)
                 self.isSearchingAllMessages = false
                 self.globalMessageSearchTask = nil
             }

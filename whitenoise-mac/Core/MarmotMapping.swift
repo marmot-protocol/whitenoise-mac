@@ -152,6 +152,8 @@ extension ChatSelfMembership {
             self = .left
         case .removed:
             self = .removed
+        case .deviceRemoved:
+            self = .deviceRemoved
         }
     }
 }
@@ -250,6 +252,7 @@ extension ChatItem {
             muted: row.muted,
             mutedUntilMs: row.mutedUntilMs,
             leaveRequestPending: row.leaveRequestPending,
+            leaveBlocked: row.leaveBlocked,
             latestMessageDelivery: ChatMessageDeliveryState(row.lastMessage?.deliveryState),
             pendingConfirmation: row.pendingConfirmation,
             selfMembership: ChatSelfMembership(row.selfMembership)
@@ -315,6 +318,8 @@ extension ChatItem {
                 hasMediaAttachments: false
             )
         let sourceTextIsEmpty = preview.plaintext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isStickerOnlyChat =
+            presentation.isChatBubble && sourceTextIsEmpty && preview.sticker != nil && preview.attachmentCount == 0
         let isMediaOnlyChat =
             presentation.isChatBubble
             && sourceTextIsEmpty
@@ -325,7 +330,9 @@ extension ChatItem {
         // A captioned attachment shows its caption, so the glyph is the only thing marking the
         // row as media; a media-only preview gets it alongside the "Photo"/"2 videos" wording.
         var attachmentKind: ChatPreviewAttachmentKind?
-        if text.isEmpty || isMediaOnlyChat {
+        if isStickerOnlyChat {
+            body = L10n.string("Sticker")
+        } else if text.isEmpty || isMediaOnlyChat {
             body =
                 presentation.isChatBubble
                 ? attachmentPreview(kind: preview.attachmentKind, count: preview.attachmentCount)
@@ -545,6 +552,7 @@ nonisolated extension MessageItem {
             tags: record.tags,
             messageIdHex: record.messageIdHex
         )
+        let sticker = presentation.isChatBubble && !record.deleted ? record.sticker.map(StickerKey.init) : nil
         // A projected poll's body is the one-line label copy and search use; the card draws the
         // question and options from `poll` itself.
         let body =
@@ -561,13 +569,15 @@ nonisolated extension MessageItem {
                 deleted: record.deleted,
                 deletionSource: record.deletionSource,
                 isOutgoing: isOutgoing,
-                hasMediaAttachments: !mediaAttachments.isEmpty
+                // A sticker message's content is empty: the sticker is the message.
+                hasMediaAttachments: !mediaAttachments.isEmpty || sticker != nil
             )
 
         self.init(
             id: record.messageIdHex,
             groupIdHex: record.groupIdHex,
             sourceMessageIdHex: record.sourceMessageIdHex,
+            recipientConfirmed: record.recipientConfirmed,
             sourceEpoch: record.sourceEpoch,
             retentionSeconds: record.retentionSeconds,
             retentionExpiresAt: record.retentionExpiresAt,
@@ -614,6 +624,7 @@ nonisolated extension MessageItem {
             omittedReactionKinds: presentation.isChatBubble ? omittedReactionKinds : 0,
             replyContext: presentation.isChatBubble ? replyContext : nil,
             mediaAttachments: presentation.isChatBubble ? mediaAttachments : [],
+            sticker: sticker,
             // MarmotKit 0.12.0 keeps NIP-30 `emoji` tags on conversation-window chat rows.
             customEmojiTags: presentation.isChatBubble && !record.deleted ? CustomEmojiTag.parse(record.tags) : [],
             presentation: presentation,
@@ -1339,21 +1350,25 @@ nonisolated extension MessageItem {
             tags: [],
             messageIdHex: preview.messageIdHex
         )
+        let hasSticker = preview.sticker != nil && !preview.deleted
         let body = displayText(
             presentation: presentation(for: preview.kind),
             plaintext: preview.plaintext,
             tags: [],
             deleted: preview.deleted,
             deletionSource: preview.deletionSource,
-            hasMediaAttachments: !mediaAttachments.isEmpty
+            hasMediaAttachments: !mediaAttachments.isEmpty || hasSticker
         )
         let giphyLabel =
             preview.deleted || !mediaAttachments.isEmpty
             ? nil : RemoteGiphyMedia.envelopePreviewText(for: preview.plaintext)
+        let emptyBodyLabel =
+            hasSticker && mediaAttachments.isEmpty
+            ? L10n.string("Sticker") : MessageMediaAttachment.previewText(for: mediaAttachments)
         return MessageReplyContext(
             targetMessageId: preview.messageIdHex,
             senderName: MessageItem.displayName(for: preview.sender, profile: senderProfiles[preview.sender]),
-            body: giphyLabel ?? (body.isEmpty ? MessageMediaAttachment.previewText(for: mediaAttachments) : body)
+            body: giphyLabel ?? (body.isEmpty ? emptyBodyLabel : body)
         )
     }
 

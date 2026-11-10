@@ -10,6 +10,7 @@ import SwiftUI
 
 struct GroupMembershipStatusSections: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     let snapshot: GroupDetailsSnapshot
 
     var body: some View {
@@ -27,7 +28,10 @@ struct GroupMembershipStatusSections: View {
 
                     PendingInviteActionButtons(
                         accept: { await workspace.acceptSelectedGroupInvite() },
-                        decline: { await workspace.declineSelectedGroupInvite() }
+                        decline: { confirm in
+                            await workspace.declineSelectedGroupInvite(
+                                confirmAdminStepDown: confirm, advisory: session.accountScope?.groupChangeAdvisory)
+                        }
                     )
                 }
             }

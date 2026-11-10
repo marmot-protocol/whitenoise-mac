@@ -71,7 +71,7 @@ extension WorkspaceState {
             try await localNotificationCenter.post(request)
             rememberDeliveredNotificationKey(update.notificationKey)
         } catch {
-            setBackgroundStatus(error.localizedDescription)
+            setBackgroundStatus(UserFacingError.message(for: error))
         }
     }
 
@@ -146,7 +146,7 @@ extension WorkspaceState {
             } catch is CancellationError {
                 return
             } catch {
-                setBackgroundStatus(error.localizedDescription)
+                setBackgroundStatus(UserFacingError.message(for: error))
             }
 
             guard !Task.isCancelled else { break }
@@ -155,7 +155,7 @@ extension WorkspaceState {
             } catch is CancellationError {
                 return
             } catch {
-                setBackgroundStatus(error.localizedDescription)
+                setBackgroundStatus(UserFacingError.message(for: error))
             }
             reconnectAttempt += 1
         }
@@ -233,7 +233,7 @@ extension WorkspaceState {
             return
         }
 
-        lastError = error.localizedDescription
+        lastError = UserFacingError.message(for: error)
     }
 
     func isNotificationsNotAllowedError(_ error: Error) -> Bool {
@@ -263,7 +263,7 @@ extension WorkspaceState {
         let previewText =
             PeerDisplayText.sanitize(
                 update.previewText.map { RemoteGiphyMedia.envelopePreviewText(for: $0) ?? $0 }
-            ) ?? L10n.string("New message")
+            ) ?? (update.sticker != nil ? L10n.string("Sticker") : L10n.string("New message"))
         let previewTemplateText = PeerDisplayText.templateFragment(previewText)
 
         // For an E2EE messenger, notification content is rendered as banners,

@@ -26,7 +26,11 @@ import SwiftUI
 struct PendingInviteActionButtons: View {
     @Environment(WorkspaceState.self) private var workspace
     let accept: () async -> Void
-    let decline: () async -> Void
+    /// Declines; calls the closure it is handed to ask before stepping down as admin
+    /// (`AdminInviteDecline`), and answers `false` if the user cancels.
+    let decline: (_ confirmAdminStepDown: @escaping @MainActor () async -> Bool) async -> Void
+    /// The decline waiting on the admin step-down confirmation, if any.
+    @State private var stepDownConfirmation: CheckedContinuation<Bool, Never>?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -48,7 +52,7 @@ struct PendingInviteActionButtons: View {
             // marking it destructive while rendering it secondary is a trap — see the note in
             // `WNSecondaryButtonStyle`, which is deliberately blind to the role.
             Button {
-                Task { await decline() }
+                Task { await decline(askToStepDown) }
             } label: {
                 PendingInviteActionLabel(
                     title: L10n.string("Decline"),
@@ -65,6 +69,32 @@ struct PendingInviteActionButtons: View {
         // Answering is one commit either way, so neither button is offered while the other is
         // waiting on the core.
         .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+        .confirmationDialog(
+            AdminInviteDecline.confirmationTitle,
+            isPresented: Binding(
+                get: { stepDownConfirmation != nil },
+                set: { if !$0 { resolveStepDown(false) } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(AdminInviteDecline.confirmAction, role: .destructive) { resolveStepDown(true) }
+            Button(L10n.string("Cancel"), role: .cancel) { resolveStepDown(false) }
+        } message: {
+            Text(AdminInviteDecline.confirmationMessage)
+        }
+        // A prompt nobody can answer any more must not hold the decline open.
+        .onDisappear { resolveStepDown(false) }
+    }
+
+    private func askToStepDown() async -> Bool {
+        resolveStepDown(false)
+        return await withCheckedContinuation { stepDownConfirmation = $0 }
+    }
+
+    private func resolveStepDown(_ confirmed: Bool) {
+        guard let continuation = stepDownConfirmation else { return }
+        stepDownConfirmation = nil
+        continuation.resume(returning: confirmed)
     }
 }
 

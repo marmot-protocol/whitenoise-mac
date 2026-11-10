@@ -75,7 +75,7 @@ final class AccountAttentionViewModel {
             } catch is CancellationError {
                 return
             } catch {
-                self.error = .unavailable(error.localizedDescription)
+                self.error = .unavailable(UserFacingError.message(for: error))
             }
 
             guard !Task.isCancelled else { return }

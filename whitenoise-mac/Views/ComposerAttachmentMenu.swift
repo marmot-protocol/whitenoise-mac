@@ -5,6 +5,7 @@
 //  The composer's `+` button: every way to put something other than text into a message.
 //
 
+import MarmotKit
 import SwiftUI
 
 /// The destinations the composer's `+` button offers.
@@ -17,15 +18,20 @@ import SwiftUI
 nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Sendable {
     case files
     case gifs
+    case stickers
     case poll
 
     /// `pollsAvailable` is false only where the menu has no poll composer behind it; MDK 0.13
-    /// accepts polls in direct conversations as well as groups.
-    static func available(gifsAvailable: Bool, pollsAvailable: Bool = false) -> [Self] {
+    /// accepts polls in direct conversations as well as groups. `stickersAvailable` is false where
+    /// the conversation cannot send or has no account's sticker library behind it.
+    static func available(gifsAvailable: Bool, stickersAvailable: Bool = false, pollsAvailable: Bool = false)
+        -> [Self]
+    {
         allCases.filter { option in
             switch option {
             case .files: true
             case .gifs: gifsAvailable
+            case .stickers: stickersAvailable
             case .poll: pollsAvailable
             }
         }
@@ -42,6 +48,7 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
         switch self {
         case .files: "Files"
         case .gifs: "GIFs"
+        case .stickers: "Stickers"
         case .poll: "Poll"
         }
     }
@@ -50,6 +57,7 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
         switch self {
         case .files: "folder"
         case .gifs: "rectangle.stack.badge.play"
+        case .stickers: "face.dashed"
         case .poll: "chart.bar.xaxis"
         }
     }
@@ -66,11 +74,15 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
 /// `giphyAPIKey` is nil when this build carries no GIPHY key, or when the conversation cannot send
 /// right now; either way the GIFs entry is left out, the way the iOS menu leaves it out.
 /// `onCreatePoll` is nil where a poll cannot be sent, which leaves the Poll entry out the same way.
+/// `stickers` is nil where a sticker cannot be sent; choosing **Stickers** turns the popover into
+/// the sticker picker, as GIFs does.
 struct ComposerAttachmentMenu: View {
     let giphyAPIKey: String?
     let isDisabled: Bool
     let onAttachFiles: () -> Void
     let sendGIF: GiphySearchViewModel.Send
+    var stickers: StickerLibrary? = nil
+    var sendSticker: (StickerFfi) async throws -> Void = { _ in }
     var onCreatePoll: (() -> Void)? = nil
 
     @State private var page: ComposerAttachmentMenuPage?
@@ -103,12 +115,15 @@ struct ComposerAttachmentMenu: View {
                 ComposerAttachmentOptionList(
                     options: ComposerAttachmentOption.available(
                         gifsAvailable: giphyAPIKey != nil,
+                        stickersAvailable: stickers != nil,
                         pollsAvailable: onCreatePoll != nil
                     ),
                     onSelect: select
                 )
             case .gifs(let searchModel):
                 GiphySearchView(model: searchModel) { page = nil }
+            case .stickers(let library):
+                StickerPickerPopover(library: library, send: sendSticker) { page = nil }
             case nil:
                 EmptyView()
             }
@@ -123,6 +138,8 @@ struct ComposerAttachmentMenu: View {
         case .poll:
             page = nil
             onCreatePoll?()
+        case .stickers:
+            page = stickers.map(ComposerAttachmentMenuPage.stickers)
         case .gifs:
             guard let giphyAPIKey else {
                 page = nil
@@ -144,6 +161,7 @@ struct ComposerAttachmentMenu: View {
 private enum ComposerAttachmentMenuPage {
     case options
     case gifs(GiphySearchViewModel)
+    case stickers(StickerLibrary)
 }
 
 /// The `+` popover's option rows, drawn to read as menu items.

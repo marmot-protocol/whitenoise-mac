@@ -65,7 +65,7 @@ final class RelaySettingsViewModel {
             return
         } catch {
             guard isActive, !Task.isCancelled else { return }
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -189,7 +189,7 @@ final class RelaySettingsViewModel {
         } catch {
             guard isActive, !Task.isCancelled else { return }
             settings = published.map(RelaySettingsSnapshot.init(lists:)) ?? previous
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 

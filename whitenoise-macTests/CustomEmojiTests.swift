@@ -179,18 +179,25 @@ struct CustomEmojiTests {
         #expect(reactions.map(\.customEmojiShortcode) == ["party", nil])
     }
 
-    @Test func aReactionResolvesToItsKind7sFirstAttachment() {
-        let first = mediaAttachmentReference(mediaType: "image/png", fileName: "a.png", plaintextSha256: "a")
-        let second = mediaAttachmentReference(mediaType: "image/png", fileName: "b.png", plaintextSha256: "b")
-        let records = [
-            Self.record(messageIdHex: "kind7", index: 1, reference: second),
-            Self.record(messageIdHex: "kind7", index: 0, reference: first),
-            Self.record(messageIdHex: "other", index: 0, reference: second),
-        ]
+    @Test func onlyAnAcceptedImageOfThatSameReactionIsUsedAsItsArtwork() {
+        let image = mediaAttachmentReference(mediaType: "image/png", fileName: "a.png", plaintextSha256: "a")
+        let video = mediaAttachmentReference(mediaType: "video/mp4", fileName: "a.mp4", plaintextSha256: "v")
 
-        let resolved = CustomEmojiImageStore.reactionReferences(in: records)
-
-        #expect(resolved == ["kind7": first, "other": second])
+        #expect(
+            CustomEmojiImageStore.reactionReference(
+                Self.reactionEntry("KIND7", reference: image), reactionMessageIdHex: "kind7") == image)
+        #expect(CustomEmojiImageStore.reactionReference(nil, reactionMessageIdHex: "kind7") == nil)
+        #expect(
+            CustomEmojiImageStore.reactionReference(
+                Self.reactionEntry("other", reference: image), reactionMessageIdHex: "kind7") == nil)
+        #expect(
+            CustomEmojiImageStore.reactionReference(
+                Self.reactionEntry("kind7", reference: video, category: .video), reactionMessageIdHex: "kind7")
+                == nil)
+        var rejected = Self.reactionEntry("kind7", reference: image)
+        rejected.attachment = .rejected(
+            attachmentIndex: 0, rejection: MediaAttachmentRejectionFfi(kind: .unsupportedFormat, detail: "x"))
+        #expect(CustomEmojiImageStore.reactionReference(rejected, reactionMessageIdHex: "kind7") == nil)
     }
 
     // MARK: - Image store
@@ -322,13 +329,10 @@ struct CustomEmojiTests {
     }
 
     @MainActor
-    @Test func reactionImagesResolveThroughListMediaAndLoad() async throws {
+    @Test func reactionImagesResolveThroughReactionAttachmentAndLoad() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "party.png")
-        runtime.installMediaRecord(
-            Self.record(messageIdHex: "kind7", index: 0, reference: reference),
-            download: try Self.pngDownload()
-        )
+        try Self.installReactionArtwork(runtime, reactionMessageIdHex: "kind7", reference: reference)
         let store = Self.store(runtime: runtime)
         let reaction = MessageReaction(emoji: ":party:", count: 1, isOwn: false, reactionMessageIdHex: "kind7")
         let unicode = MessageReaction(emoji: "👍", count: 1, isOwn: false, reactionMessageIdHex: "k2")
@@ -338,32 +342,31 @@ struct CustomEmojiTests {
 
         #expect(loaded)
         #expect(store.reactionImage(for: unicode) == nil)
-        #expect(runtime.listMediaCallCount == 1)
+        #expect(runtime.reactionAttachmentRequests == ["kind7"])
+        #expect(runtime.listMediaCallCount == 0)
     }
 
     @MainActor
-    @Test func aReactionScrolledIntoViewLaterResolvesFromTheEarlierListing() async throws {
+    @Test func aResolvedReactionIsNotReadAgain() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let first = mediaAttachmentReference(mediaType: "image/png", fileName: "a.png", plaintextSha256: "a")
         let second = mediaAttachmentReference(mediaType: "image/png", fileName: "b.png", plaintextSha256: "b")
-        runtime.installMediaRecord(
-            Self.record(messageIdHex: "k1", index: 0, reference: first), download: try Self.pngDownload())
-        runtime.installMediaRecord(
-            Self.record(messageIdHex: "k2", index: 0, reference: second), download: try Self.pngDownload())
+        try Self.installReactionArtwork(runtime, reactionMessageIdHex: "k1", reference: first)
+        try Self.installReactionArtwork(runtime, reactionMessageIdHex: "k2", reference: second)
         let store = Self.store(runtime: runtime)
         let party = MessageReaction(emoji: ":party:", count: 1, isOwn: false, reactionMessageIdHex: "k1")
         let star = MessageReaction(emoji: ":star:", count: 1, isOwn: false, reactionMessageIdHex: "k2")
 
         store.loadReactions([party])
         #expect(await waitFor { store.reactionImage(for: party) != nil })
-        store.loadReactions([star])
+        store.loadReactions([party, star])
 
         #expect(await waitFor { store.reactionImage(for: star) != nil })
-        #expect(runtime.listMediaCallCount == 1)
+        #expect(runtime.reactionAttachmentRequests == ["k1", "k2"])
     }
 
     @MainActor
-    @Test func anUnresolvedReactionIsNotListedAgainUntilTheRetryInterval() async throws {
+    @Test func anUnresolvedReactionIsNotReadAgainUntilTheRetryInterval() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         var clock = Date(timeIntervalSince1970: 1_000)
         let store = CustomEmojiImageStore(
@@ -377,17 +380,17 @@ struct CustomEmojiTests {
         let reaction = MessageReaction(emoji: ":party:", count: 1, isOwn: false, reactionMessageIdHex: "kind7")
 
         store.loadReactions([reaction])
-        #expect(await waitFor { runtime.listMediaCallCount == 1 })
+        #expect(await waitFor { runtime.reactionAttachmentRequests.count == 1 })
         // Let the lookup finish recording the miss.
         try await Task.sleep(nanoseconds: 50_000_000)
         store.loadReactions([reaction])
         try await Task.sleep(nanoseconds: 50_000_000)
-        #expect(runtime.listMediaCallCount == 1)
+        #expect(runtime.reactionAttachmentRequests.count == 1)
 
         clock = clock.addingTimeInterval(CustomEmojiImageStore.unresolvedReactionRetryInterval + 1)
         store.loadReactions([reaction])
 
-        #expect(await waitFor { runtime.listMediaCallCount == 2 })
+        #expect(await waitFor { runtime.reactionAttachmentRequests.count == 2 })
     }
 
     // MARK: - Helpers
@@ -398,6 +401,34 @@ struct CustomEmojiTests {
             reference: mediaAttachmentReference(
                 mediaType: mediaType, fileName: fileName, plaintextSha256: "sha-\(fileName)")
         )
+    }
+
+    private static func reactionEntry(
+        _ messageIdHex: String,
+        reference: MediaAttachmentReferenceFfi,
+        category: AttachmentCategoryFfi = .image
+    ) -> AttachmentEntryFfi {
+        AttachmentEntryFfi(
+            messageIdHex: messageIdHex,
+            sourceMessageIdHex: messageIdHex,
+            sender: "alice",
+            timelineAt: 10,
+            receivedAt: 10,
+            sourceEpoch: 1,
+            category: category,
+            role: .inlineEmoji,
+            attachment: .accepted(attachmentIndex: 0, reference: reference)
+        )
+    }
+
+    /// What MDK resolves for the reaction, plus the bytes `downloadMedia` returns for it.
+    @MainActor
+    private static func installReactionArtwork(
+        _ runtime: FakeMarmotRuntime, reactionMessageIdHex: String, reference: MediaAttachmentReferenceFfi
+    ) throws {
+        runtime.reactionAttachments[reactionMessageIdHex] = reactionEntry(reactionMessageIdHex, reference: reference)
+        runtime.installMediaRecord(
+            record(messageIdHex: reactionMessageIdHex, index: 0, reference: reference), download: try pngDownload())
     }
 
     private static func record(

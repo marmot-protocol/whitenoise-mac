@@ -641,7 +641,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -672,7 +673,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -742,7 +744,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -782,7 +785,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -826,7 +830,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -863,7 +868,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -975,7 +981,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -1041,7 +1048,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(selfMembership: .removed), directGroup()])
@@ -1125,7 +1133,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let otherAccountIdHex = "1111111111111111111111111111111111111111111111111111111111111111"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -1889,7 +1898,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let group = AppGroupRecordFfi(
@@ -2020,7 +2030,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2478,7 +2489,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [summary])
@@ -3055,7 +3067,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3120,7 +3133,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3547,7 +3561,8 @@ struct ChatListTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [summary])

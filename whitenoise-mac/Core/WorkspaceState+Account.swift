@@ -88,8 +88,8 @@ extension WorkspaceState {
                 durationMs: Self.elapsedMilliseconds(since: splashStartedAt),
                 outcome: .failure
             )
-            phase = .failed(error.localizedDescription)
-            lastError = error.localizedDescription
+            phase = .failed(UserFacingError.message(for: error))
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -409,7 +409,7 @@ extension WorkspaceState {
             await activateReadyState()
             presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -500,7 +500,7 @@ extension WorkspaceState {
         do {
             return try await FFIExecutor.run { try client.revealNsec(accountRef: accountRef) }
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             return nil
         }
     }
@@ -516,7 +516,7 @@ extension WorkspaceState {
                 try client.exportEncryptedSecretKey(accountRef: accountRef, passphrase: passphrase)
             }
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             return nil
         }
     }
@@ -578,7 +578,7 @@ extension WorkspaceState {
             )
             return true
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             return false
         }
     }
@@ -693,7 +693,7 @@ extension WorkspaceState {
             if wasActive, activeAccountId == removedAccountId {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -820,7 +820,7 @@ extension WorkspaceState {
             if wasActive, activeAccountId == account.id {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -854,7 +854,7 @@ extension WorkspaceState {
                 }
             }
         } catch {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
         }
     }
 
@@ -889,7 +889,7 @@ extension WorkspaceState {
         do {
             try await client.deleteAllLocalData()
         } catch {
-            let errorMessage = error.localizedDescription
+            let errorMessage = UserFacingError.message(for: error)
             if let deletionError = error as? MarmotLocalDataDeletionError,
                 case .runtimeInvalidated = deletionError
             {
@@ -950,7 +950,7 @@ extension WorkspaceState {
     func clientForAuthentication() async -> (any MarmotRuntime)? {
         if let client { return client }
         if let error = await recreateClientForOnboarding() {
-            lastError = error.localizedDescription
+            lastError = UserFacingError.message(for: error)
             return nil
         }
         return client

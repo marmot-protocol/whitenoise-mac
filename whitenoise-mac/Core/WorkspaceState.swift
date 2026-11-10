@@ -1935,6 +1935,8 @@ final class WorkspaceState {
             requiresSelfDemoteBeforeLeave: managementState.requiresSelfDemoteBeforeLeave,
             leaveRequestPending: managementState.leaveRequestPending,
             leaveRequestedAtMs: managementState.leaveRequestedAtMs,
+            leaveBlocked: managementState.leaveBlocked,
+            canCancelLeave: managementState.canCancelLeave,
             disappearingMessageSecs: details.group.disappearingMessageSecs
         )
     }
@@ -1977,7 +1979,7 @@ final class WorkspaceState {
         do {
             try await configureObservabilityRuntime()
         } catch {
-            setBackgroundStatus(error.localizedDescription)
+            setBackgroundStatus(UserFacingError.message(for: error))
         }
     }
 

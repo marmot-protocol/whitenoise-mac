@@ -43,7 +43,7 @@ final class KeyPackageSettingsViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -73,7 +73,7 @@ final class KeyPackageSettingsViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 

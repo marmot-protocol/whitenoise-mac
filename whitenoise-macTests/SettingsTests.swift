@@ -160,7 +160,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: false,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [watchOnly])
         var didAskForDestination = false
@@ -201,7 +202,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), other])
         var state: WorkspaceState!
@@ -306,7 +308,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let imageSourceLoader = FakeGroupImageSourceLoader(
@@ -359,7 +362,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -392,7 +396,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -425,7 +430,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
         let state = WorkspaceState(clientFactory: { runtime })
@@ -650,7 +656,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         runtime.installGroup(messageGroup())
@@ -920,7 +927,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -945,7 +953,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -976,7 +985,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -1003,7 +1013,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let gate = GatedLocalNotificationCenter()
@@ -1048,7 +1059,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -1076,7 +1088,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -1084,7 +1097,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installNotificationSettings(
@@ -1136,7 +1150,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -1144,7 +1159,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installNotificationSettings(
@@ -1200,7 +1216,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -1208,7 +1225,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installNotificationSettings(
@@ -1261,7 +1279,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -1269,7 +1288,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installNotificationSettings(
@@ -1328,7 +1348,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -1336,7 +1357,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installNotificationSettings(
@@ -1563,7 +1585,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "secondary-account",
@@ -1571,7 +1594,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         runtime.installProfile(
@@ -1649,7 +1673,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.setAuditOtlpConfigV5Error = FakeMarmotRuntimeError.auditOtlpConfigRejected
@@ -1676,7 +1701,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let secondary = AccountSummaryFfi(
             label: "Secondary Account",
@@ -1684,7 +1710,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
         runtime.installProfile(
@@ -1744,7 +1771,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: false)
@@ -1774,7 +1802,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -1803,7 +1832,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(
@@ -1837,7 +1867,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -1861,7 +1892,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(
@@ -1898,7 +1930,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -1924,7 +1957,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: false)
@@ -1960,7 +1994,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: false)
@@ -1996,7 +2031,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: false)
@@ -2027,7 +2063,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -2099,7 +2136,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installNotificationSettings(
@@ -2214,7 +2252,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -2261,7 +2300,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: false)
@@ -2309,7 +2349,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -2362,7 +2403,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -2370,7 +2412,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let sharedGroup = directGroup()
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
@@ -2431,7 +2474,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -2439,7 +2483,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installNotificationSettings(
@@ -2498,7 +2543,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -2546,7 +2592,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -2586,7 +2633,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -2629,7 +2677,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let publishRelays = ["wss://published.example"]
         let bootstrapRelays = ["wss://bootstrap.example"]
@@ -2673,7 +2722,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installProfile(
@@ -2737,7 +2787,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installProfile(
@@ -2799,7 +2850,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installProfile(
@@ -2852,7 +2904,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.accountIdsMissingProfiles.insert(accountIdHex)
@@ -2884,7 +2937,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -2925,7 +2979,8 @@ struct SettingsTests: WorkspaceTestSupport {
                 localSigning: true,
                 externalSigning: false,
                 signedOut: false,
-                running: true
+                running: true,
+                unlinked: false
             )
             let runtime = FakeMarmotRuntime(accounts: [account])
             runtime.installProfile(
@@ -2966,7 +3021,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installProfile(
@@ -3005,7 +3061,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installProfile(
@@ -3050,7 +3107,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: [account]) })
 
@@ -3084,7 +3142,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let second = AccountSummaryFfi(
             label: "Second",
@@ -3092,7 +3151,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [first, second])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -3121,7 +3181,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -3129,7 +3190,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installRelayLists(
@@ -3192,7 +3254,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -3200,7 +3263,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installRelayLists(
@@ -3273,7 +3337,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountB = AccountSummaryFfi(
             label: "Backup Account",
@@ -3281,7 +3346,8 @@ struct SettingsTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
         runtime.installRelayLists(

@@ -199,6 +199,8 @@ struct MessageReactionDetailsDependencies {
     var removeOwnReaction: ((MessageReaction) -> Void)?
     /// The configured quick reactions, offered by the viewer's React control.
     var quickReactions: [String] = []
+    /// The chat's custom emoji, offered in the React control's full picker. Nil offers Unicode only.
+    var customEmoji: CustomEmojiPickerContent?
     /// Sends a React-control pick, already resolved against the complete list the popover shows:
     /// an emoji the viewer holds is a removal. Nil where the viewer cannot react, which hides the
     /// React control. The picker's selection marks come from the same list, never from the caller.
@@ -249,7 +251,8 @@ struct MessageReactionDetailsView: View {
                     if let react = dependencies.react {
                         MessageReactionAddButton(
                             quickReactions: dependencies.quickReactions,
-                            selectedEmojis: details.selectedEmojis
+                            selectedEmojis: details.selectedEmojis,
+                            customEmoji: dependencies.customEmoji
                         ) { emoji in
                             react(details.pick(emoji))
                         }
@@ -366,6 +369,7 @@ private struct MessageReactionAddButton: View {
     @State private var isPickerPresented = false
     let quickReactions: [String]
     let selectedEmojis: Set<String>
+    let customEmoji: CustomEmojiPickerContent?
     let onPick: (String) -> Void
 
     var body: some View {
@@ -385,7 +389,9 @@ private struct MessageReactionAddButton: View {
         .accessibilityLabel(L10n.string("React"))
         .help(L10n.string("React"))
         .popover(isPresented: $isPickerPresented, arrowEdge: .bottom) {
-            QuickReactionPicker(emojis: quickReactions, selectedEmojis: selectedEmojis) { emoji in
+            QuickReactionPicker(
+                emojis: quickReactions, selectedEmojis: selectedEmojis, customEmoji: customEmoji
+            ) { emoji in
                 isPickerPresented = false
                 onPick(emoji)
             }

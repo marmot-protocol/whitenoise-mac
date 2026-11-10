@@ -126,7 +126,8 @@ struct TimelineTests: WorkspaceTestSupport {
         // The hover popover and the reaction details' React control share one picker, which
         // takes the configured reactions as a value; the bubble hands the details popover the
         // same preference rather than the defaults.
-        #expect(popoverSource.contains("QuickReactionPicker(emojis: workspace.quickReactions"))
+        #expect(popoverSource.contains("QuickReactionPicker("))
+        #expect(popoverSource.contains("emojis: workspace.quickReactions"))
         #expect(bubbleSource.contains("quickReactions: workspace.quickReactions"))
         #expect(pickerSource.contains("QuickReactionButtons(emojis: emojis"))
         #expect(menuSource.contains("QuickReactionButtons("))
@@ -361,6 +362,36 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(pending.deliveryIndicator(at: afterGrace) == .failed)
         #expect(pending.statusLabel(for: pending.deliveryIndicator(at: afterGrace)) == "Not delivered")
         #expect(pending.metadataLabel(at: afterGrace).contains("Not delivered"))
+    }
+
+    /// MarmotKit 0.15: a peer reacting to an own send that failed with no relay acceptance proves
+    /// delivery. MDK leaves `sourceMessageIdHex` nil on that row and sets `recipientConfirmed`, so
+    /// reading only the source id would paint a delivered message as "Not delivered".
+    @MainActor
+    @Test func recipientConfirmedSendReadsAsDeliveredDespiteMissingSourceEvent() async throws {
+        let recordedAt: UInt64 = 1_800_000_000
+        var confirmed = timelineMessage(
+            id: "confirmed", direction: "outbound", groupIdHex: "group", sender: "self",
+            plaintext: "hello", recordedAt: recordedAt
+        )
+        confirmed.recipientConfirmed = true
+        let unconfirmed = timelineMessage(
+            id: "unconfirmed", direction: "outbound", groupIdHex: "group", sender: "self",
+            plaintext: "hello", recordedAt: recordedAt
+        )
+        let page = TimelinePageFfi(messages: [confirmed, unconfirmed], hasMoreBefore: false, hasMoreAfter: false)
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let afterGrace = Date(timeIntervalSince1970: TimeInterval(recordedAt) + MessageItem.pendingDeliveryGrace + 60)
+
+        let delivered = try #require(messages.first { $0.id == "confirmed" })
+        #expect(delivered.sourceMessageIdHex == nil)
+        #expect(!delivered.isPendingDelivery)
+        #expect(delivered.deliveryIndicator(at: afterGrace) == .delivered)
+        #expect(delivered.statusLabel == "Sent")
+
+        let failed = try #require(messages.first { $0.id == "unconfirmed" })
+        #expect(failed.deliveryIndicator(at: afterGrace) == .failed)
+        #expect(failed.statusLabel == "Not delivered")
     }
 
     @MainActor
@@ -1019,7 +1050,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountItem = AccountItem(summary: account)
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -1959,7 +1991,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -2010,7 +2043,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -2074,7 +2108,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -2138,7 +2173,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -2354,7 +2390,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2674,7 +2711,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2760,7 +2798,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2808,7 +2847,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3042,7 +3082,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -3105,7 +3146,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3161,7 +3203,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3215,7 +3258,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -3261,7 +3305,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -3320,7 +3365,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -3379,7 +3425,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let account = AccountItem(
             id: accountSummary.label,
@@ -3447,7 +3494,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let backupSummary = AccountSummaryFfi(
             label: "Backup Account",
@@ -3455,7 +3503,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let primaryAccount = AccountItem(
             id: primarySummary.label,
@@ -3574,7 +3623,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3633,7 +3683,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3690,7 +3741,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4566,7 +4618,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4643,7 +4696,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4751,7 +4805,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
@@ -4817,7 +4872,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4896,7 +4952,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4986,7 +5043,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let aliceNpub = "npub1alyce"
@@ -5073,7 +5131,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
@@ -5178,7 +5237,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
@@ -5239,7 +5299,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5298,7 +5359,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let reactorId = "carol1234567890carol1234567890carol1234567890carol1234567890"
@@ -5370,7 +5432,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let reactorId = "carol1234567890carol1234567890carol1234567890carol1234567890"
@@ -5449,7 +5512,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -5481,7 +5545,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5556,7 +5621,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5616,7 +5682,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5646,7 +5713,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
         let carolId = "caro1234567890caro1234567890caro1234567890caro1234567890caro"
@@ -5696,7 +5764,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let second = AccountSummaryFfi(
             label: "Second Account",
@@ -5704,7 +5773,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
         let runtime = FakeMarmotRuntime(accounts: [first, second])
@@ -5751,7 +5821,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let second = AccountSummaryFfi(
             label: "Second Account",
@@ -5759,7 +5830,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
         let runtime = FakeMarmotRuntime(accounts: [first, second])
@@ -5802,7 +5874,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5890,7 +5963,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5976,7 +6050,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -6022,7 +6097,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -6073,7 +6149,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -6198,7 +6275,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -6289,7 +6367,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -6342,7 +6421,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -6412,7 +6492,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -8446,7 +8527,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -8496,7 +8578,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -8551,7 +8634,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         var removedGroup = messageGroup()
@@ -8615,7 +8699,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -8667,7 +8752,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -8739,7 +8825,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -8789,7 +8876,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -8838,7 +8926,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -8883,7 +8972,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -8970,7 +9060,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -9046,7 +9137,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -9104,7 +9196,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -9156,7 +9249,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -9542,7 +9636,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -9593,7 +9688,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -9649,7 +9745,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -9694,7 +9791,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installDirectGroup(
@@ -10359,7 +10457,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
@@ -10415,7 +10514,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -10474,7 +10574,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -10840,7 +10941,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
@@ -10911,7 +11013,8 @@ struct TimelineTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup()])

@@ -169,7 +169,7 @@ extension ConversationMessageRow {
                     try await conversationModel.votePoll(option: optionId, messageIdHex: message.id, poll: poll)
                 } catch {
                     workspace.reportUserActionError(
-                        "\(L10n.string("Vote failed")): \(error.localizedDescription)"
+                        "\(L10n.string("Vote failed")): \(UserFacingError.message(for: error))"
                     )
                 }
             }
@@ -344,6 +344,12 @@ struct MessageBubble: View {
                     attachment: attachment,
                     isOutgoing: message.isOutgoing
                 )
+            }
+
+            // A sticker stands alone, above any caption or quote that came with it.
+            if let sticker = message.sticker, let stickers = conversationModel.stickers {
+                MessageStickerView(library: stickers, sticker: sticker, isOutgoing: message.isOutgoing)
+                    .padding(.horizontal, 4)
             }
 
             if showsDebugMetadata || message.hasBubbleContent {
@@ -538,6 +544,16 @@ struct MessageBubble: View {
     /// the account's other reactions with it. `completeRead` is the details popover's model when
     /// the pick was resolved against its complete list.
     private func handleReactionPick(_ pick: MessageReactionPick, completeRead: MessageReactionsViewModel?) {
+        // A custom emoji goes out with its image, so clients without it still draw it.
+        if case .add(let emoji) = pick,
+            let sendable = CustomEmojiSendCatalog.sendable(
+                forReaction: emoji, in: conversationModel.customEmojiSendables)
+        {
+            Task { [conversationModel, message] in
+                await conversationModel.customEmojiSender.react(with: sendable, to: message.id)
+            }
+            return
+        }
         guard pick.needsConfirmation(on: message) else {
             Task { await pick.perform(on: message, in: workspace) }
             return
@@ -643,6 +659,7 @@ struct MessageBubble: View {
                 handleReactionPick(.remove(reaction), completeRead: reactionDetailsModel)
             },
             quickReactions: workspace.quickReactions,
+            customEmoji: .conversation(conversationModel),
             // The popover resolves the pick against its complete list; the bubble only confirms
             // and sends it, so a selected emoji is taken back rather than re-sent as a no-op.
             react: message.canReact ? { pick in handleReactionPick(pick, completeRead: reactionDetailsModel) } : nil
@@ -687,7 +704,8 @@ struct MessageBubble: View {
                 isPresentationActive: $isInlineActionPresentationActive,
                 message: message,
                 onReactionPick: pickReaction,
-                moderation: moderationActions
+                moderation: moderationActions,
+                customEmoji: .conversation(conversationModel)
             )
             // The strip is an overlay on the bubble's edge, pushed clear of it by the width
             // SwiftUI measured — not by a count of the controls kept in step with the row's `if`
@@ -2623,6 +2641,7 @@ struct MessageInlineActions: View {
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
     let moderation: MessageModerationActions
+    var customEmoji: CustomEmojiPickerContent?
 
     var body: some View {
         HStack(spacing: 4) {
@@ -2635,7 +2654,8 @@ struct MessageInlineActions: View {
                 .buttonStyle(.plain)
                 .popover(isPresented: $isEmojiPickerPresented, arrowEdge: .bottom) {
                     MessageEmojiPickerPopover(
-                        selectedEmojis: MessageReactionPick.selectedEmojis(in: message.reactions)
+                        selectedEmojis: MessageReactionPick.selectedEmojis(in: message.reactions),
+                        customEmoji: customEmoji
                     ) { emoji in
                         isEmojiPickerPresented = false
                         onReactionPick(emoji)
@@ -2805,10 +2825,13 @@ struct MessageEmojiPickerPopover: View {
     @Environment(WorkspaceState.self) private var workspace
     /// The emoji the viewing account already reacted with, drawn selected.
     let selectedEmojis: Set<String>
+    var customEmoji: CustomEmojiPickerContent?
     let onPick: (String) -> Void
 
     var body: some View {
-        QuickReactionPicker(emojis: workspace.quickReactions, selectedEmojis: selectedEmojis, onPick: onPick)
+        QuickReactionPicker(
+            emojis: workspace.quickReactions, selectedEmojis: selectedEmojis,
+            customEmoji: customEmoji, onPick: onPick)
     }
 }
 
@@ -2821,6 +2844,8 @@ struct QuickReactionPicker: View {
     /// The emoji the viewing account already reacted with, drawn selected. Required, so no caller
     /// can offer the picker without the mark that tells a second click takes the reaction back.
     let selectedEmojis: Set<String>
+    /// The conversation's custom emoji, offered in the full picker.
+    var customEmoji: CustomEmojiPickerContent?
     let onPick: (String) -> Void
 
     var body: some View {
@@ -2857,7 +2882,7 @@ struct QuickReactionPicker: View {
             .buttonStyle(.plain)
             .accessibilityLabel(L10n.string("More emoji"))
             .popover(isPresented: $isFullPickerPresented, arrowEdge: .bottom) {
-                ChatEmojiPicker { emoji in
+                ChatEmojiPicker(custom: customEmoji) { emoji in
                     isFullPickerPresented = false
                     onPick(emoji)
                 }

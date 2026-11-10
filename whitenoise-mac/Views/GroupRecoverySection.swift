@@ -137,7 +137,7 @@ private struct GroupRejoinInvitationSheet: View {
             }
             dismiss()
         } catch {
-            actionError = error.localizedDescription
+            actionError = UserFacingError.message(for: error)
         }
     }
 }

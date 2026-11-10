@@ -59,6 +59,12 @@ final class ConversationViewModel {
     let groupIdHex: String
     /// Images for this conversation's NIP-30 custom emoji, in message text and reactions.
     let customEmojiImages: CustomEmojiImageStore
+    /// The account's sticker packs and images; nil only where no account scope built this model.
+    let stickers: StickerLibrary?
+    /// The account's emoji sets, whose installed emoji the pickers offer.
+    let emojiSets: EmojiSetLibrary?
+    /// Sends custom emoji messages and reactions into this chat.
+    let customEmojiSender: ConversationCustomEmojiSender
     private(set) var snapshot: ConversationWindowSnapshotFfi?
     private(set) var pendingSends: [String: PendingDurableSend] = [:]
     private(set) var isLoading = false
@@ -95,6 +101,9 @@ final class ConversationViewModel {
     /// because the window carries only a bounded reactor preview: a changed reactor list need not
     /// change the row.
     private(set) var reactionDetails: MessageReactionsViewModel?
+    /// A blocked leave's cancel in flight (MarmotKit 0.15 `cancelLeave`), and why the last one failed.
+    private(set) var isCancellingLeave = false
+    private(set) var cancelLeaveFailure: String?
 
     @ObservationIgnored private let runtime: any MarmotRuntime
     @ObservationIgnored private let productAnalytics: ProductAnalyticsRecorder?
@@ -111,18 +120,54 @@ final class ConversationViewModel {
         account: AccountItem,
         groupIdHex: String,
         runtime: any MarmotRuntime,
-        productAnalytics: ProductAnalyticsRecorder? = nil
+        productAnalytics: ProductAnalyticsRecorder? = nil,
+        stickers: StickerLibrary? = nil,
+        emojiSets: EmojiSetLibrary? = nil
     ) {
         self.account = account
         self.groupIdHex = groupIdHex
         self.runtime = runtime
         self.productAnalytics = productAnalytics
+        self.stickers = stickers
+        self.emojiSets = emojiSets
+        self.customEmojiSender = ConversationCustomEmojiSender(
+            accountRef: account.accountRef, groupIdHex: groupIdHex, runtime: runtime)
         self.customEmojiImages = CustomEmojiImageStore(
             accountId: account.id,
             accountRef: account.accountRef,
             groupIdHex: groupIdHex,
             runtime: runtime
         )
+    }
+
+    /// What the pickers and composer can send here: the built-ins, the account's installed set
+    /// emoji, then emoji this window already holds, each shortcode once.
+    var customEmojiSendables: [CustomEmojiSendable] {
+        CustomEmojiSendCatalog.sendables(
+            installed: emojiSets?.installedEmoji ?? [],
+            chat: CustomEmojiChatCatalog.entries(snapshot?.messages.map(\.timeline) ?? [])
+        )
+    }
+
+    /// Whether the header says this chat's leave is blocked and MDK will cancel it here.
+    var canCancelBlockedLeave: Bool {
+        snapshot?.header.capabilities.canCancelLeave == true
+    }
+
+    /// Cancels a blocked leave on this device. The conversation subscription delivers the rejoined
+    /// state; `refresh` re-reads anything else that shows the leave (group info).
+    func cancelBlockedLeave(refresh: () async -> Void = {}) async {
+        guard !isCancellingLeave else { return }
+        isCancellingLeave = true
+        cancelLeaveFailure = nil
+        defer { isCancellingLeave = false }
+        let outcome = await BlockedLeaveCancellation.perform(
+            cancelLeave: { [runtime, account, groupIdHex] in
+                try await runtime.cancelLeave(accountRef: account.accountRef, groupIdHex: groupIdHex)
+            },
+            refresh: refresh
+        )
+        cancelLeaveFailure = BlockedLeaveCancellation.failureMessage(for: outcome)
     }
 
     func start(mode: ConversationOpenModeFfi = .automatic, messageIdHex: String? = nil) {
@@ -146,6 +191,7 @@ final class ConversationViewModel {
         reactionDetails?.cancel()
         reactionDetails = nil
         customEmojiImages.cancelAll()
+        customEmojiSender.stop()
     }
 
     /// Ends the window subscription only, so `start` can reopen it without restarting emoji loads.
@@ -242,7 +288,7 @@ final class ConversationViewModel {
                 }
                 remainingStaleRetries -= 1
             } catch {
-                self.error = .unavailable(error.localizedDescription)
+                self.error = .unavailable(UserFacingError.message(for: error))
                 return
             }
         }
@@ -260,7 +306,7 @@ final class ConversationViewModel {
         } catch is CancellationError {
             return
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -285,7 +331,7 @@ final class ConversationViewModel {
                 }
                 remainingStaleRetries -= 1
             } catch {
-                self.error = .unavailable(error.localizedDescription)
+                self.error = .unavailable(UserFacingError.message(for: error))
                 return
             }
         }
@@ -305,7 +351,7 @@ final class ConversationViewModel {
         } catch MarmotKitError.ConversationWindowStale {
             error = .staleWindow
         } catch {
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
         }
     }
 
@@ -539,7 +585,7 @@ final class ConversationViewModel {
             return
         } catch {
             productAnalytics?.recordTiming(.timelineWindow, since: timing, outcome: .failure)
-            self.error = .unavailable(error.localizedDescription)
+            self.error = .unavailable(UserFacingError.message(for: error))
             isLoading = false
         }
     }

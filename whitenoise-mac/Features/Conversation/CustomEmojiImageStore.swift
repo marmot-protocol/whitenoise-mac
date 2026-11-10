@@ -8,9 +8,9 @@ import Observation
 ///
 /// A message's emoji image is one of its own attachments, so its reference is in hand. A
 /// reaction's is the attachment of the kind-7 that `ConversationReactionFfi.reactionMessageIdHex`
-/// names, which `listMedia` resolves. Either way the bytes come through `downloadMedia` under the
-/// shared attachment-download cap, and keep their media epoch secret, so they stay decryptable
-/// after the group advances.
+/// names, which MarmotKit 0.15's `reactionAttachment` resolves with one bounded local read. Either
+/// way the bytes come through `downloadMedia` under the shared attachment-download cap, and keep
+/// their media epoch secret, so they stay decryptable after the group advances.
 ///
 /// The media disk cache is read, never written: an emoji image is small and lives in memory for
 /// as long as the conversation does. Writing would need the purge fencing `WorkspaceState` keeps
@@ -24,15 +24,14 @@ final class CustomEmojiImageStore {
     /// Keys with no image to draw right now: the bytes are not an image (final), or a download
     /// failed and is waiting to be retried. Their shortcode shows as the literal `:shortcode:`.
     private(set) var unavailable: Set<String> = []
-    /// Reaction kind-7 id → the attachment `listMedia` lists for it. Filled from whole listings, so
-    /// a reaction scrolled into view later usually resolves without another one.
+    /// Reaction kind-7 id → the image attachment `reactionAttachment` resolved for it.
     private(set) var reactionReferences: [String: MediaAttachmentReferenceFfi] = [:]
 
     /// Large enough for the bubble-free single-emoji treatment at 2x; inline text uses far less.
     static let maxPixelSize: CGFloat = 160
-    /// How long a reaction id `listMedia` did not know is left alone before it is looked up again.
+    /// How long a reaction id MDK had no artwork for is left alone before it is looked up again.
     /// The kind-7 and its media can project a moment apart, so a miss is not final, but a
-    /// transcript full of them must not turn every scroll into another full media listing.
+    /// transcript full of them must not re-read on every scroll.
     static let unresolvedReactionRetryInterval: TimeInterval = 30
     /// Waits before each retry of a failed download; once they are spent the image is given up.
     /// The attachment has no tile or Download action of its own (it draws as text), so this is
@@ -121,7 +120,7 @@ final class CustomEmojiImageStore {
         unavailable.formIntersection(permanentlyFailed)
     }
 
-    /// Resolves each custom-emoji reaction's image through `listMedia`, then loads it.
+    /// Resolves each custom-emoji reaction's image through `reactionAttachment`, then loads it.
     func loadReactions(_ reactions: [MessageReaction]) {
         for reaction in reactions {
             guard reaction.customEmojiShortcode != nil, let messageIdHex = reaction.reactionMessageIdHex else {
@@ -143,53 +142,44 @@ final class CustomEmojiImageStore {
         }
     }
 
-    /// Lists the group's media until no requested id is left waiting. Ids requested while a
-    /// listing is in flight are answered by the next pass, not by a listing taken before they
-    /// were asked for.
+    /// Reads each requested reaction's artwork, one at a time, until none is left waiting. Ids
+    /// requested while a read is in flight are picked up by the next pass.
     private func resolvePendingReactions() async {
         defer { reactionLookup = nil }
-        while !pendingReactionIds.isEmpty, !Task.isCancelled {
-            let batch = pendingReactionIds
-            pendingReactionIds.removeAll()
-            let runtime = runtime
-            let accountRef = accountRef
-            let groupIdHex = groupIdHex
-            let listed: [String: MediaAttachmentReferenceFfi]
+        while let reactionMessageIdHex = pendingReactionIds.first, !Task.isCancelled {
+            pendingReactionIds.remove(reactionMessageIdHex)
+            let entry: AttachmentEntryFfi?
             do {
-                // Built off the main actor: a long-lived group lists a lot of media.
-                listed = try await FFIExecutor.run {
-                    Self.reactionReferences(
-                        in: try runtime.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil))
-                }
+                entry = try await runtime.reactionAttachment(
+                    accountRef: accountRef, groupIdHex: groupIdHex, reactionMessageIdHex: reactionMessageIdHex)
             } catch {
-                let missedAt = now()
-                for id in batch { unresolvedReactionIds[id] = missedAt }
+                guard !Task.isCancelled else { return }
+                unresolvedReactionIds[reactionMessageIdHex] = now()
                 continue
             }
             guard !Task.isCancelled else { return }
-            reactionReferences.merge(listed) { _, latest in latest }
-            let missedAt = now()
-            for id in batch {
-                if let reference = listed[id] {
-                    unresolvedReactionIds[id] = nil
-                    load(reference)
-                } else {
-                    unresolvedReactionIds[id] = missedAt
-                }
+            if let reference = Self.reactionReference(entry, reactionMessageIdHex: reactionMessageIdHex) {
+                unresolvedReactionIds[reactionMessageIdHex] = nil
+                reactionReferences[reactionMessageIdHex] = reference
+                load(reference)
+            } else {
+                unresolvedReactionIds[reactionMessageIdHex] = now()
             }
         }
     }
 
-    /// Each message's first attachment in `records`.
-    nonisolated static func reactionReferences(in records: [MediaRecordFfi]) -> [String: MediaAttachmentReferenceFfi] {
-        var best: [String: MediaRecordFfi] = [:]
-        for record in records {
-            if let current = best[record.messageIdHex], current.attachmentIndex <= record.attachmentIndex {
-                continue
-            }
-            best[record.messageIdHex] = record
-        }
-        return best.mapValues(\.reference)
+    /// The loadable image MDK resolved for a reaction: an accepted image attachment of that same
+    /// kind-7. Anything else (no entry, another event's slot, a rejected or non-image attachment)
+    /// leaves the reaction drawn as its literal shortcode.
+    nonisolated static func reactionReference(
+        _ entry: AttachmentEntryFfi?, reactionMessageIdHex: String
+    ) -> MediaAttachmentReferenceFfi? {
+        guard let entry, entry.messageIdHex.caseInsensitiveCompare(reactionMessageIdHex) == .orderedSame,
+            entry.category == .image,
+            case .accepted(_, let reference) = entry.attachment,
+            reference.mediaType.lowercased().hasPrefix("image/")
+        else { return nil }
+        return reference
     }
 
     private func fetch(_ reference: MediaAttachmentReferenceFfi, key: String) async {

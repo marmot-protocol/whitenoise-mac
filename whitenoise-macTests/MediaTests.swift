@@ -3296,7 +3296,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let timelineReference = mediaAttachmentReference(sourceEpoch: 0, mediaType: "audio/mp4", fileName: "voice.m4a")
         let fullReference = mediaAttachmentReference(sourceEpoch: 7, mediaType: "audio/mp4", fileName: "voice.m4a")
@@ -3890,7 +3891,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let accountItem = AccountItem(summary: account)
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3981,7 +3983,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountItem = AccountItem(summary: account)
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4101,7 +4104,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountItem = AccountItem(summary: account)
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4247,7 +4251,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: true
+            running: true,
+            unlinked: false
         )
         let accountItem = AccountItem(summary: account)
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4423,7 +4428,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -4573,7 +4579,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let plaintext = Data([0x10, 0x20, 0x30, 0x40])
         let reference = mediaAttachmentReference(
@@ -4646,7 +4653,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let plaintext = Data([0x50, 0x51, 0x52, 0x53])
         let reference = mediaAttachmentReference(
@@ -4728,7 +4736,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let plaintext = Data([0x60, 0x61, 0x62, 0x63])
         let reference = mediaAttachmentReference(
@@ -4840,7 +4849,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let plaintext = Data([0x70, 0x71, 0x72, 0x73])
         let reference = mediaAttachmentReference(
@@ -4998,7 +5008,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let plaintext = Data([0xde, 0xad, 0xbe, 0xef])
         let reference = mediaAttachmentReference(
@@ -5502,7 +5513,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let plaintext = Data([0x00, 0x0F, 0xF0, 0xFF])
         let reference = mediaAttachmentReference(
@@ -5702,7 +5714,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let plaintext = Data([0x51, 0x52, 0x53])
         let timelineReference = mediaAttachmentReference(
@@ -5807,7 +5820,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let fixtureID = UUID().uuidString
         let plaintext = Data(fixtureID.utf8)
@@ -5963,7 +5977,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let stalledPlaintext = Data([0x01, 0x02, 0x03])
         let stalledReference = mediaAttachmentReference(
@@ -6159,7 +6174,8 @@ struct MediaTests: WorkspaceTestSupport {
             localSigning: true,
             externalSigning: false,
             signedOut: false,
-            running: false
+            running: false,
+            unlinked: false
         )
         let firstReference = mediaAttachmentReference(
             sourceEpoch: 0,

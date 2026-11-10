@@ -87,7 +87,7 @@ final class BlockedUsersViewModel {
                 "The block-list update could not be confirmed. Retry the same change to check its status."
             )
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -111,7 +111,7 @@ final class BlockedUsersViewModel {
             return
         } catch {
             isLoaded = false
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 

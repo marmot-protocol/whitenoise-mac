@@ -135,6 +135,61 @@ nonisolated protocol MarmotRuntime: Sendable {
     func groupRecoveryStatus(accountRef: String, groupIdHex: String) async throws -> GroupRecoveryStatusFfi
     func historyNotices(accountRef: String) async throws -> [HistoryNoticeFfi]
     func dismissHistoryNotice(accountRef: String, noticeId: String) async throws -> Bool
+    /// Groups still fetching history, whether the inbox is, and every history notice (0.15).
+    func accountRecoveryStatus(accountRef: String) async throws -> AccountRecoveryStatusFfi
+    /// Cancels a leave that became blocked (this account is now the last admin), on this device only.
+    func cancelLeave(accountRef: String, groupIdHex: String) async throws
+    /// One custom-emoji reaction's encrypted artwork as an attachment source slot, or nil.
+    func reactionAttachment(
+        accountRef: String, groupIdHex: String, reactionMessageIdHex: String
+    ) async throws -> AttachmentEntryFfi?
+    /// Sonar sticker packs (kind 30031) from MDK's encrypted local projection. A synchronous
+    /// storage read: call it off the main actor.
+    func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws
+        -> [StickerPackFfi]
+    /// Refreshes discoverable packs and the account's public installed list from relays.
+    func syncStickerPacks(accountRef: String) async throws -> StickerSyncResultFfi
+    /// Fetches a pack by Sonar link, coordinate or `naddr` into local storage without installing it.
+    func fetchStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi
+    func installStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi
+    func uninstallStickerPack(accountRef: String, input: String) async throws
+    /// Downloads and validates one sticker image from the public URL its pack names, which reveals
+    /// this device's IP address to that server. MDK keeps no copy.
+    func fetchStickerAsset(accountRef: String, stickerRef: StickerRefFfi) async throws -> StickerAssetFfi
+    func sendSticker(accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi) async throws
+        -> SendSummaryFfi
+    /// NIP-51 emoji sets (kind 30030). Stored-set reads are local; `syncEmojiSets` and
+    /// `fetchEmojiSet` contact relays (text only); asset and install calls download from the hosts
+    /// a set's author chose, revealing this device's IP address to them.
+    func emojiSet(accountRef: String, coordinate: String) async throws -> EmojiSetFfi?
+    func emojiSets(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) async throws
+        -> [EmojiSetFfi]
+    func syncEmojiSets(accountRef: String, search: String?) async throws -> EmojiSetSyncResultFfi
+    func fetchEmojiSet(accountRef: String, input: String) async throws -> EmojiSetFfi
+    func fetchEmojiSetAsset(
+        accountRef: String, coordinate: String, expectedEventIdHex: String, shortcode: String
+    ) async throws -> EmojiSetAssetFfi
+    func fetchEmojiSetCover(accountRef: String, coordinate: String, expectedEventIdHex: String) async throws
+        -> EmojiSetCoverFfi
+    func installEmojiSet(
+        accountRef: String, coordinate: String, expectedEventIdHex: String, control: EmojiSetInstallControlFfi
+    ) async throws -> EmojiSetInstallResultFfi
+    func uninstallEmojiSet(accountRef: String, coordinate: String) async throws -> Bool
+    /// The account's own kind-10030 emoji list and the sets it points to. Text only.
+    func userEmojiList(accountRef: String) async throws -> UserEmojiListFfi
+    func installedCustomEmoji(accountRef: String) async throws -> [InstalledCustomEmojiFfi]
+    func readInstalledCustomEmoji(accountRef: String, coordinate: String, shortcode: String) async throws
+        -> InstalledCustomEmojiAssetFfi
+    /// A kind-9 carrying `attachments` plus application tags, e.g. NIP-30 `emoji` tags naming them.
+    func sendTaggedMedia(
+        accountRef: String, groupIdHex: String, attachments: [MediaAttachmentReferenceFfi], caption: String?,
+        tags: [[String]]
+    ) async throws -> SendSummaryFfi
+    /// A kind-7 whose content is `:shortcode:`, carrying its image as an attachment named by `tags`.
+    func reactWithMedia(
+        accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String, tags: [[String]],
+        attachments: [MediaAttachmentReferenceFfi]
+    ) async throws -> SendSummaryFfi
     func subscribeEvents() -> EventsSubscription
     func nextEvent(subscription: EventsSubscription) async throws -> MarmotEventFfi?
     func confirmGroupRejoin(
@@ -827,6 +882,128 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func dismissHistoryNotice(accountRef: String, noticeId: String) async throws -> Bool {
         try await marmot.dismissHistoryNotice(accountRef: accountRef, noticeId: noticeId)
+    }
+
+    func accountRecoveryStatus(accountRef: String) async throws -> AccountRecoveryStatusFfi {
+        try await marmot.accountRecoveryStatus(accountRef: accountRef)
+    }
+
+    func cancelLeave(accountRef: String, groupIdHex: String) async throws {
+        try await marmot.cancelLeave(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func reactionAttachment(
+        accountRef: String, groupIdHex: String, reactionMessageIdHex: String
+    ) async throws -> AttachmentEntryFfi? {
+        try await marmot.reactionAttachment(
+            accountRef: accountRef, groupIdHex: groupIdHex, reactionMessageIdHex: reactionMessageIdHex)
+    }
+
+    func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws
+        -> [StickerPackFfi]
+    {
+        try marmot.stickerPacks(accountRef: accountRef, installedOnly: installedOnly, search: search, limit: limit)
+    }
+
+    func syncStickerPacks(accountRef: String) async throws -> StickerSyncResultFfi {
+        try await marmot.syncStickerPacks(accountRef: accountRef)
+    }
+
+    func fetchStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+        try await marmot.fetchStickerPack(accountRef: accountRef, input: input)
+    }
+
+    func installStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+        try await marmot.installStickerPack(accountRef: accountRef, input: input)
+    }
+
+    func uninstallStickerPack(accountRef: String, input: String) async throws {
+        try await marmot.uninstallStickerPack(accountRef: accountRef, input: input)
+    }
+
+    func fetchStickerAsset(accountRef: String, stickerRef: StickerRefFfi) async throws -> StickerAssetFfi {
+        try await marmot.fetchStickerAsset(accountRef: accountRef, stickerRef: stickerRef)
+    }
+
+    func sendSticker(accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi) async throws
+        -> SendSummaryFfi
+    {
+        try await marmot.sendSticker(accountRef: accountRef, groupIdHex: groupIdHex, stickerRef: stickerRef)
+    }
+
+    func emojiSet(accountRef: String, coordinate: String) async throws -> EmojiSetFfi? {
+        try await marmot.emojiSet(accountRef: accountRef, coordinate: coordinate)
+    }
+
+    func emojiSets(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) async throws
+        -> [EmojiSetFfi]
+    {
+        try await marmot.emojiSets(accountRef: accountRef, installedOnly: installedOnly, search: search, limit: limit)
+    }
+
+    func syncEmojiSets(accountRef: String, search: String?) async throws -> EmojiSetSyncResultFfi {
+        try await marmot.syncEmojiSets(accountRef: accountRef, search: search)
+    }
+
+    func fetchEmojiSet(accountRef: String, input: String) async throws -> EmojiSetFfi {
+        try await marmot.fetchEmojiSet(accountRef: accountRef, input: input)
+    }
+
+    func fetchEmojiSetAsset(
+        accountRef: String, coordinate: String, expectedEventIdHex: String, shortcode: String
+    ) async throws -> EmojiSetAssetFfi {
+        try await marmot.fetchEmojiSetAsset(
+            accountRef: accountRef, coordinate: coordinate, expectedEventIdHex: expectedEventIdHex,
+            shortcode: shortcode)
+    }
+
+    func fetchEmojiSetCover(accountRef: String, coordinate: String, expectedEventIdHex: String) async throws
+        -> EmojiSetCoverFfi
+    {
+        try await marmot.fetchEmojiSetCover(
+            accountRef: accountRef, coordinate: coordinate, expectedEventIdHex: expectedEventIdHex)
+    }
+
+    func installEmojiSet(
+        accountRef: String, coordinate: String, expectedEventIdHex: String, control: EmojiSetInstallControlFfi
+    ) async throws -> EmojiSetInstallResultFfi {
+        try await marmot.installEmojiSet(
+            accountRef: accountRef, coordinate: coordinate, expectedEventIdHex: expectedEventIdHex, control: control)
+    }
+
+    func uninstallEmojiSet(accountRef: String, coordinate: String) async throws -> Bool {
+        try await marmot.uninstallEmojiSet(accountRef: accountRef, coordinate: coordinate)
+    }
+
+    func userEmojiList(accountRef: String) async throws -> UserEmojiListFfi {
+        try await marmot.userEmojiList(accountRef: accountRef)
+    }
+
+    func installedCustomEmoji(accountRef: String) async throws -> [InstalledCustomEmojiFfi] {
+        try await marmot.installedCustomEmoji(accountRef: accountRef)
+    }
+
+    func readInstalledCustomEmoji(accountRef: String, coordinate: String, shortcode: String) async throws
+        -> InstalledCustomEmojiAssetFfi
+    {
+        try await marmot.readInstalledCustomEmoji(accountRef: accountRef, coordinate: coordinate, shortcode: shortcode)
+    }
+
+    func sendTaggedMedia(
+        accountRef: String, groupIdHex: String, attachments: [MediaAttachmentReferenceFfi], caption: String?,
+        tags: [[String]]
+    ) async throws -> SendSummaryFfi {
+        try await marmot.sendTaggedMedia(
+            accountRef: accountRef, groupIdHex: groupIdHex, attachments: attachments, caption: caption, tags: tags)
+    }
+
+    func reactWithMedia(
+        accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String, tags: [[String]],
+        attachments: [MediaAttachmentReferenceFfi]
+    ) async throws -> SendSummaryFfi {
+        try await marmot.reactWithMedia(
+            accountRef: accountRef, groupIdHex: groupIdHex, targetMessageId: targetMessageId, emoji: emoji,
+            tags: tags, attachments: attachments)
     }
 
     func subscribeEvents() -> EventsSubscription {

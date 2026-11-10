@@ -257,7 +257,7 @@ extension WorkspaceState {
                 "Couldn't reach your relays to update your follow list. Nothing changed — try again."
             )
         }
-        return error.localizedDescription
+        return UserFacingError.message(for: error)
     }
 
     nonisolated static func normalizedFollowKey(_ value: String) -> String {
