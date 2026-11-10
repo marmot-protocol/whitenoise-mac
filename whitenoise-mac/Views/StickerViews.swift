@@ -614,7 +614,7 @@ private struct StickerPackRow: View {
     }
 }
 
-private struct StickerPackDetailPage: View {
+struct StickerPackDetailPage: View {
     let library: StickerLibrary
     let pack: StickerPackFfi
     let onBack: () -> Void
