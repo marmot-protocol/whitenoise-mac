@@ -99,6 +99,8 @@ import Testing
         // and the other pack's tab cover, nothing more.
         #expect(runtime.syncStickerPacksCallCount == 1)
         #expect(Set(runtime.fetchStickerAssetRequests.map(\.shortcode)) == ["wave", "dance", "cat"])
+        // Under the stickers, whose servers they loaded from.
+        #expect(DrawnText.contains("Those servers can see your IP address", in: drawn))
 
         // The tab row's covers come first; the grid's first sticker is the first one below them.
         let tabCover = try #require(DrawnPixels.firstFixturePoint(in: drawn))
@@ -171,8 +173,9 @@ import Testing
 
         // Opening the pack is the deliberate action that loads its artwork: every sticker, drawn.
         #expect(await host.settle { library.assets.images.count == 2 })
-        #expect(await host.settleDrawing { DrawnPixels.fixturePixels(in: $0) > 0 } != nil)
+        let drawn = try #require(await host.settleDrawing { DrawnPixels.fixturePixels(in: $0) > 0 })
         #expect(Set(runtime.fetchStickerAssetRequests.map(\.shortcode)) == ["wave", "dance"])
+        #expect(DrawnText.contains("Those servers can see your IP address", in: drawn))
 
         host.clickHeaderTrailingControl()
         #expect(await host.settle { library.isInstalled(pack.coordinate) })

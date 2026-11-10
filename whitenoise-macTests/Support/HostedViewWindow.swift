@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Vision
 
 @testable import whitenoise_mac
 
@@ -220,5 +221,28 @@ enum DrawnPixels {
     /// Pixel rows carrying anything besides the ground, a measure of how much a view drew.
     static func inkedRows(_ rep: NSBitmapImageRep) -> Int {
         (0..<rep.pixelsHigh).count { isInked(rep, row: $0) }
+    }
+}
+
+/// Text read back out of a `HostedViewWindow` snapshot. For copy that must be on screen, such as a
+/// privacy disclosure, where how much a view drew cannot tell one sentence from another.
+enum DrawnText {
+    /// Whether `phrase` was drawn, ignoring case, line breaks and how the text wrapped.
+    static func contains(_ phrase: String, in rep: NSBitmapImageRep) -> Bool {
+        normalized(recognized(in: rep)).contains(normalized(phrase))
+    }
+
+    /// Every line Vision recognizes, top to bottom, joined by spaces.
+    static func recognized(in rep: NSBitmapImageRep) -> String {
+        guard let image = rep.cgImage else { return "" }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        try? VNImageRequestHandler(cgImage: image).perform([request])
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+    }
+
+    private static func normalized(_ text: String) -> String {
+        text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

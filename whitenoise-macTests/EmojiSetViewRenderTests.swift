@@ -57,6 +57,10 @@ import Testing
         let none = try #require(
             await host.settleDrawing { DrawnPixels.lastInkedRow($0) > loadingEnd + 20 })
         let noneEnd = DrawnPixels.lastInkedRow(none)
+        // The egress disclosure stays under the list: browsing is public and the author's servers
+        // see the address of whoever opens a set.
+        #expect(DrawnText.contains("reviewed by White Noise", in: none))
+        #expect(DrawnText.contains("which can see your IP address", in: none))
 
         let failing = try Self.runtime(sets: [])
         failing.emojiSetActionError = MarmotKitError.EmojiSetNetwork(details: "offline")
@@ -96,6 +100,8 @@ import Testing
         // Two of the three cells draw their image; the third offers Try Again instead.
         let drawn = try #require(await host.settleDrawing { DrawnPixels.fixturePixels(in: $0) > 0 })
         #expect(DrawnPixels.isAbout(DrawnPixels.fixturePixels(in: drawn), 2 * Self.cellPixels))
+        // The page that downloads the images says whose servers they come from.
+        #expect(DrawnText.contains("which can see your IP address", in: drawn))
     }
 
     @Test func installingShowsProgressThenReadsTheEmojiBackFromMDK() async throws {
