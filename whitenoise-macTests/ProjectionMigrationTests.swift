@@ -1198,6 +1198,26 @@ struct ProjectionMigrationTests {
         model.stop()
     }
 
+    /// A jump that loses a race with an arrival is retried once instead of failing the reveal,
+    /// which would drop a search match that still exists.
+    @Test func jumpRetriesOnceAfterAStaleReply() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(sequence: 1, title: "Group")
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+        window.staleJumpsRemaining = 1
+
+        await model.jump(to: "older-message")
+
+        #expect(window.jumpCount == 2)
+        #expect(model.error == nil)
+        model.stop()
+    }
+
     /// A page whose revision went stale because the reader returned to the latest meanwhile must
     /// not retry: paging the re-attached window would detach it from the tail again.
     @Test func aStalePageDoesNotRetryOverAReturnToLatest() async throws {

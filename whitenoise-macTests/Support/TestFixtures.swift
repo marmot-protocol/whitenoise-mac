@@ -445,6 +445,9 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
     var stalePagesRemaining = 0
     /// Fails this many `returnToLatest` calls with `ConversationWindowStale` before answering.
     var staleReturnsRemaining = 0
+    /// Fails this many `jumpToMessage` calls with `ConversationWindowStale` before answering.
+    var staleJumpsRemaining = 0
+    private(set) var jumpCount = 0
     /// What `returnToLatest` answers with, and makes current; the current snapshot when nil.
     var latestSnapshot: ConversationWindowSnapshotFfi?
     /// Runs before a stale `page` reply is thrown, for a command racing that page.
@@ -492,6 +495,11 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
         messageIdHex: String,
         timeoutMs: UInt32
     ) async throws -> ConversationWindowSnapshotFfi {
+        jumpCount += 1
+        if staleJumpsRemaining > 0 {
+            staleJumpsRemaining -= 1
+            throw MarmotKitError.ConversationWindowStale
+        }
         guard let current else { throw FakeMarmotRuntimeError.unused }
         return current
     }

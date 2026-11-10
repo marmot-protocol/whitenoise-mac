@@ -359,6 +359,8 @@ struct MessagesSearchField: View {
     var accessibilityIdentifier: String?
     var placeholder = L10n.string("Search")
     var autofocus = false
+    /// Each new value puts focus back in the field, for a search reopened while already showing.
+    var focusRequest: UUID?
     @FocusState private var isFocused: Bool
     @Environment(\.isEnabled) private var isEnabled
     /// The field had focus when a `.disabled` ancestor took it. AppKit resigns a disabled field's
@@ -401,6 +403,9 @@ struct MessagesSearchField: View {
             if autofocus {
                 isFocused = true
             }
+        }
+        .onChange(of: focusRequest) { _, _ in
+            isFocused = true
         }
         .onChange(of: isFocused) { _, focused in
             if focused {
