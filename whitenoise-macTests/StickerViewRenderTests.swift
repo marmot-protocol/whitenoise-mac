@@ -21,7 +21,7 @@ import Testing
         let runtime = try Self.runtime(packs: [Self.pack(installed: false)])
         let library = StickerLibrary(accountRef: "account", runtime: runtime)
         let host = HostedViewWindow(
-            MessageStickerView(library: library, sticker: Self.wave, isOutgoing: false), size: Self.messageSize)
+            try Self.receivedSticker(library, isOutgoing: false), size: Self.messageSize)
         defer { host.close() }
 
         #expect(await host.settle { library.hasLoadedInstalled })
@@ -37,14 +37,21 @@ import Testing
         #expect(runtime.fetchStickerAssetRequests.map(\.shortcode) == ["wave"])
     }
 
-    /// The person's own stickers were loaded to send them, and an installed pack was chosen: both
-    /// load without a click.
-    @Test(arguments: [(isOutgoing: true, installed: false), (isOutgoing: false, installed: true)])
-    func ownStickersAndInstalledPacksLoadByThemselves(isOutgoing: Bool, installed: Bool) async throws {
+    /// The person's own stickers were loaded to send them, an installed pack was chosen, and
+    /// Automatically Load Stickers is a standing choice: each loads without a click.
+    @Test(arguments: [
+        (isOutgoing: true, installed: false, loadsEverySticker: false),
+        (isOutgoing: false, installed: true, loadsEverySticker: false),
+        (isOutgoing: false, installed: false, loadsEverySticker: true),
+    ])
+    func ownStickersInstalledPacksAndTheSettingLoadByThemselves(
+        isOutgoing: Bool, installed: Bool, loadsEverySticker: Bool
+    ) async throws {
         let runtime = try Self.runtime(packs: [Self.pack(installed: installed)])
         let library = StickerLibrary(accountRef: "account", runtime: runtime)
         let host = HostedViewWindow(
-            MessageStickerView(library: library, sticker: Self.wave, isOutgoing: isOutgoing), size: Self.messageSize)
+            try Self.receivedSticker(library, isOutgoing: isOutgoing, loadsEverySticker: loadsEverySticker),
+            size: Self.messageSize)
         defer { host.close() }
 
         let drawn = try #require(await host.settleDrawing { DrawnPixels.fixturePixels(in: $0) > 0 })
@@ -61,7 +68,7 @@ import Testing
         runtime.fetchStickerAssetError = MarmotKitError.StickerNetwork(details: "offline")
         let library = StickerLibrary(accountRef: "account", runtime: runtime)
         let host = HostedViewWindow(
-            MessageStickerView(library: library, sticker: Self.wave, isOutgoing: false), size: Self.messageSize)
+            try Self.receivedSticker(library, isOutgoing: false), size: Self.messageSize)
         defer { host.close() }
 
         #expect(await host.settle { library.assets.hasFailed(Self.wave) })
@@ -230,6 +237,17 @@ import Testing
                     emoji: "🎉")
             },
             license: nil, installed: installed)
+    }
+
+    /// The fixture sticker as a message draws it, with Automatically Load Stickers read from
+    /// defaults of its own: off, the new-install default, unless `loadsEverySticker`.
+    private static func receivedSticker(
+        _ library: StickerLibrary, isOutgoing: Bool, loadsEverySticker: Bool = false
+    ) throws -> MessageStickerView {
+        let preference = StickerLoadingPreference(defaults: try #require(UserDefaults(suiteName: UUID().uuidString)))
+        preference.setAutomaticallyLoads(loadsEverySticker)
+        return MessageStickerView(
+            library: library, loadingPreference: preference, sticker: wave, isOutgoing: isOutgoing)
     }
 
     /// A runtime storing `packs`, with every sticker's image ready to serve.
