@@ -27,6 +27,15 @@ final class GroupDisbandViewModel {
     let groupIdHex: String
     private(set) var isEnding = false
     private(set) var isDismissingFailure = false
+    /// The request MDK returned when it accepted this account's End Group, held until the group's
+    /// own state reports it (`snapshotDidChange(_:)`). Surfaces read the group through
+    /// `reconciled(_:)`, so a read-back that lags the acceptance cannot offer End Group again.
+    ///
+    /// Known limit: it lives as long as this model, which `AccountScope.releaseConversation` drops
+    /// when the user leaves the chat. Coming back before MDK's projection catches up (expected to
+    /// take well under a second) shows the lagging state again; a run still in flight stays covered
+    /// by the scope's `endingGroupIds`.
+    private(set) var acceptedRequest: DisbandRequestFfi?
     /// Why the last action stopped, for the surface to present. Cleared by the surface.
     var alert: ChatActionAlert?
 
@@ -52,6 +61,25 @@ final class GroupDisbandViewModel {
     }
 
     var isBusy: Bool { isEnding || isDismissingFailure }
+
+    /// The group's state as a surface should show it: what MDK reports, with this account's
+    /// accepted request standing in until MDK reports one itself.
+    func reconciled(_ state: GroupDisbandState) -> GroupDisbandState {
+        state.merging(request: acceptedRequest)
+    }
+
+    /// Lets go of the accepted request once the group's own state reports a request or a
+    /// lifecycle past active. Holding it longer would resurrect "ending" after a failed request is
+    /// dismissed and the group reads as active again.
+    ///
+    /// This is the only release path besides a dismissed failure, on purpose: if MDK ever dropped
+    /// an accepted request without moving the lifecycle, "pending" would stay pinned for this
+    /// model's lifetime — which ends when the user leaves the chat, so it heals itself.
+    func snapshotDidChange(_ state: GroupDisbandState) {
+        if acceptedRequest != nil, state.reportsRequest {
+            acceptedRequest = nil
+        }
+    }
 
     /// Ends the group: enables disbanding first when the group predates it, then asks MDK to
     /// disband. One confirmation covers both commits, and so does one advisory consent — the user
@@ -101,7 +129,8 @@ final class GroupDisbandViewModel {
                 alert = .endGroupFailed(current.blockerMessage ?? Self.cannotEndNowMessage)
                 return false
             }
-            _ = try await performGroupChange(advisory: advisory, consents: consents) {
+            // Held before the read-back runs, so no frame shows the group as still endable.
+            acceptedRequest = try await performGroupChange(advisory: advisory, consents: consents) {
                 try await runtime.disbandGroup(accountRef: accountRef, groupIdHex: groupIdHex)
             }
             return true
@@ -124,7 +153,9 @@ final class GroupDisbandViewModel {
         isDismissingFailure = true
         defer { isDismissingFailure = false }
         do {
-            return try await runtime.acknowledgeDisbandFailure(accountRef: accountRef, groupIdHex: groupIdHex)
+            let cleared = try await runtime.acknowledgeDisbandFailure(accountRef: accountRef, groupIdHex: groupIdHex)
+            if cleared { acceptedRequest = nil }
+            return cleared
         } catch is CancellationError {
             return false
         } catch {

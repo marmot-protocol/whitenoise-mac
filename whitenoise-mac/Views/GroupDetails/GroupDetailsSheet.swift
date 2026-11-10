@@ -140,7 +140,7 @@ struct GroupDetailsSheet: View {
                         )
                         GroupMembershipStatusSections(snapshot: snapshot)
                         GroupDisbandStatusSection(
-                            status: snapshot.disband.status,
+                            status: disbandModel.reconciled(snapshot.disband).status,
                             isDismissing: disbandModel.isDismissingFailure,
                             onDismiss: {
                                 Task {

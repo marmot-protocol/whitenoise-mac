@@ -561,6 +561,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// What `enableGroupDisbanding` leaves `canDisband` at. A core that installs the lifecycle
     /// component but still finds a blocker reports `false` here.
     var canDisbandAfterEnabling = true
+    /// Whether `disbandGroup` records the request on the group's details and management state
+    /// before returning. `false` stands in for a core whose projections lag the durable acceptance.
+    var disbandGroupUpdatesState = true
     private(set) var removeMembersDetailedCallCount = 0
     private(set) var lastPackageFetchBootstrapRelays: [String] = []
     private(set) var lastPublishedProfileDefaultRelays: [String] = []
@@ -2689,6 +2692,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             throw FakeMarmotRuntimeError.unused
         }
         let request = DisbandRequestFfi.pending(requestedAtMs: 1_700_000_000_000)
+        guard disbandGroupUpdatesState else { return request }
         details.group.disbanding = true
         details.group.disbandRequest = request
         groupDetailsById[groupIdHex] = details
@@ -2719,16 +2723,24 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     func acknowledgeDisbandFailure(accountRef: String, groupIdHex: String) async throws -> Bool {
         acknowledgeDisbandFailureCallCount += 1
         if let acknowledgeDisbandFailureError { throw acknowledgeDisbandFailureError }
-        guard var state = groupManagementStateById[groupIdHex],
-            case .failed = state.disbandRequest
-        else { return false }
-        state.disbandRequest = nil
-        state.disbanding = false
-        groupManagementStateById[groupIdHex] = state
+        // `GroupDisbandState` reads a failure off either record, so either one holding it counts,
+        // and clearing it touches every record `disbandGroup` writes.
+        let stateFailed = groupManagementStateById[groupIdHex]?.disbandRequest?.isFailure == true
+        let detailsFailed = groupDetailsById[groupIdHex]?.group.disbandRequest?.isFailure == true
+        guard stateFailed || detailsFailed else { return false }
+        if var state = groupManagementStateById[groupIdHex] {
+            state.disbandRequest = nil
+            state.disbanding = false
+            groupManagementStateById[groupIdHex] = state
+        }
         if var details = groupDetailsById[groupIdHex] {
             details.group.disbandRequest = nil
             details.group.disbanding = false
             groupDetailsById[groupIdHex] = details
+        }
+        if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+            groups[index].disbandRequest = nil
+            groups[index].disbanding = false
         }
         return true
     }
