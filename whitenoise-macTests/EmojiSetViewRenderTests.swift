@@ -26,7 +26,7 @@ import Testing
         ])
         runtime.userEmojiListSets = [Self.set("30030:author:cats", title: "Cats")]
         let library = EmojiSetLibrary(accountRef: "account", runtime: runtime)
-        let host = HostedViewWindow(EmojiSetBrowser(library: library, onBack: {}), size: Self.pageSize)
+        let host = HostedViewWindow(EmojiSetBrowser(library: library, onBack: {}), size: Self.browserSize)
         defer { host.close() }
 
         // Installed, From Your Emoji List and Discover each add a titled section and a row.
@@ -38,6 +38,9 @@ import Testing
         #expect(library.images.images.isEmpty)
         #expect(library.images.failures.isEmpty)
         #expect(DrawnPixels.fixturePixels(in: listed) == 0)
+        // Under the results, where someone is about to open a set.
+        #expect(DrawnText.contains("reviewed by White Noise", in: listed))
+        #expect(DrawnText.contains("which can see your IP address", in: listed))
     }
 
     /// While relays are still being asked, the list waits rather than claiming there are none; a
@@ -150,7 +153,13 @@ import Testing
 
         host.clickHeaderTrailingControl()
         try #require(await host.settle { runtime.installEmojiSetGate.didReach })
-        library.cancelInstall(Self.coordinate)
+        let installing = try #require(
+            await host.settleDrawing { (DrawnPixels.firstFixturePoint(in: $0)?.y ?? 0) > gridTop + 20 })
+        let movedGridTop = try #require(DrawnPixels.firstFixturePoint(in: installing)).y
+        // Cancel trails the progress row, the line just above the grid that row pushed down.
+        host.click(at: CGPoint(x: Self.pageSize.width - 14 - 20, y: movedGridTop - 4 - 10 - 11))
+        let control = try #require(runtime.installEmojiSetControls.first)
+        #expect(await host.settle { control.isCancelled() })
         runtime.installEmojiSetGate.release()
 
         #expect(await host.settle { library.installProgress.isEmpty })
@@ -309,6 +318,8 @@ import Testing
     private static let coordinate = "30030:author:blobs"
     private static let eventId = String(repeating: "e", count: 64)
     private static let pageSize = CGSize(width: 420, height: 430)
+    /// Tall enough for three browser sections and the disclosure under them.
+    private static let browserSize = CGSize(width: 420, height: 600)
     private static let pickerSize = CGSize(width: 420, height: 430)
     /// Narrow enough that a sentence-long explanation wraps.
     private static let noticeSize = CGSize(width: 240, height: 120)
@@ -371,20 +382,12 @@ import Testing
         return DrawnPixels.inkedRows(drawn)
     }
 
-    /// Rows the browser draws once its first sync has finished and `predicate` holds for them.
-    private static func browserRows(
-        _ runtime: FakeMarmotRuntime, until predicate: ((Int) -> Bool)? = nil
-    ) async throws -> Int {
+    /// Rows the browser draws once its first sync has finished and its drawing has settled.
+    private static func browserRows(_ runtime: FakeMarmotRuntime) async throws -> Int {
         let library = EmojiSetLibrary(accountRef: "account", runtime: runtime)
-        let host = HostedViewWindow(EmojiSetBrowser(library: library, onBack: {}), size: pageSize)
+        let host = HostedViewWindow(EmojiSetBrowser(library: library, onBack: {}), size: browserSize)
         defer { host.close() }
         #expect(await host.settle { runtime.syncEmojiSetsCallCount == 1 && !library.isSyncing })
-        let drawn =
-            if let predicate {
-                await host.settleDrawing { predicate(DrawnPixels.inkedRows($0)) }
-            } else {
-                await host.steadyDrawing()
-            }
-        return DrawnPixels.inkedRows(try #require(drawn))
+        return DrawnPixels.inkedRows(try #require(await host.steadyDrawing()))
     }
 }

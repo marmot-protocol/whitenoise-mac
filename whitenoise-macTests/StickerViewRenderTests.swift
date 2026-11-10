@@ -145,6 +145,7 @@ import Testing
     @Test func theBrowserListsPacksAsTextAndExplainsAnEmptyOrFailedRefresh() async throws {
         let none = try await Self.browserDrawing(try Self.runtime(packs: [])) { $0 != $1 }
         let noneRows = DrawnPixels.inkedRows(none)
+        #expect(DrawnText.contains("Your installed packs are listed publicly on your relays", in: none))
 
         let listedRuntime = try Self.runtime(packs: [
             Self.pack(installed: true), Self.pack("30031:author:b", title: "Birds"),

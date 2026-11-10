@@ -15,15 +15,14 @@ final class HostedViewWindow {
     /// Snapshot pixels per point.
     static let scale: CGFloat = 2
 
-    init(_ view: some View, size: CGSize, appearance: NSAppearance.Name = .aqua) {
+    init(_ view: some View, size: CGSize) {
         window = NSWindow(
             contentRect: CGRect(origin: CGPoint(x: -10_000, y: -10_000), size: size), styleMask: [.borderless],
             backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: appearance)
-        let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
+        window.appearance = NSAppearance(named: .aqua)
         window.contentView = NSHostingView(
-            rootView: view.background(WNColor.backgroundPrimary).environment(\.colorScheme, scheme))
+            rootView: view.background(WNColor.backgroundPrimary).environment(\.colorScheme, .light))
         // Ordered in, though offscreen: a window that was never ordered in delivers no clicks.
         window.orderFrontRegardless()
         window.contentView?.layoutSubtreeIfNeeded()
