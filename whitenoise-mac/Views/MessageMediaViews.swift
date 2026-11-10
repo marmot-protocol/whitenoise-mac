@@ -348,8 +348,11 @@ struct MessageBubble: View {
 
             // A sticker stands alone, above any caption or quote that came with it.
             if let sticker = message.sticker, let stickers = conversationModel.stickers {
-                MessageStickerView(library: stickers, sticker: sticker, isOutgoing: message.isOutgoing)
-                    .padding(.horizontal, 4)
+                MessageStickerView(
+                    library: stickers, loadingPreference: .shared, sticker: sticker,
+                    isOutgoing: message.isOutgoing
+                )
+                .padding(.horizontal, 4)
             }
 
             if showsDebugMetadata || message.hasBubbleContent {

@@ -1061,6 +1061,7 @@ extension WorkspaceState {
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
         RemoteImageLoader.shared.clearCache()
         RemoteGIFLoadingPreference.shared.reset()
+        StickerLoadingPreference.shared.reset()
         LinkPreviewPreference.shared.reset()
         LinkPreviewLoader.shared.clearCache()
         settingsLoadTask?.cancel()

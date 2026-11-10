@@ -38,10 +38,11 @@ nonisolated struct StickerKey: Hashable, Sendable {
 
 nonisolated enum StickerLoadPolicy {
     /// Whether a sticker in the timeline loads without a click. Loading contacts the pack author's
-    /// server, so a received sticker loads by itself only from a pack the person installed. Their
-    /// own stickers were already loaded to send them.
-    static func loadsAutomatically(isFromMe: Bool, packInstalled: Bool) -> Bool {
-        isFromMe || packInstalled
+    /// server, so a received sticker loads by itself only from a pack the person installed, unless
+    /// they turned on "Automatically Load Stickers" (`StickerLoadingPreference`). Their own
+    /// stickers were already loaded to send them.
+    static func loadsAutomatically(isFromMe: Bool, packInstalled: Bool, loadsEverySticker: Bool) -> Bool {
+        isFromMe || packInstalled || loadsEverySticker
     }
 
     /// The text that stands in for a sticker: its emoji when the pack names one, otherwise the
