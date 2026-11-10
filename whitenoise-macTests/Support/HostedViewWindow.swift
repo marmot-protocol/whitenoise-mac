@@ -225,8 +225,8 @@ enum DrawnPixels {
 /// Text read back out of a `HostedViewWindow` snapshot. For copy that must be on screen, such as a
 /// privacy disclosure, where how much a view drew cannot tell one sentence from another.
 enum DrawnText {
-    /// Whether `phrase` was drawn, ignoring case, line breaks, how the text wrapped, and whether
-    /// its apostrophes are typographic.
+    /// Whether `phrase` was drawn, ignoring case, line breaks, how the text wrapped, whether its
+    /// apostrophes are typographic, and the narrow glyphs recognition confuses in small type.
     static func contains(_ phrase: String, in rep: NSBitmapImageRep) -> Bool {
         normalized(recognized(in: rep)).contains(normalized(phrase))
     }
@@ -250,9 +250,14 @@ enum DrawnText {
         return lines.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
     }
 
+    /// Vertical strokes that recognition swaps in 10-point type: CI's runner read "reviewed by
+    /// White Noise" as "revlewed by White Nolse". Folded to one letter on both sides of a match.
+    private static let narrowGlyphs: Set<Character> = ["i", "l", "1", "|"]
+
     private static func normalized(_ text: String) -> String {
-        text.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
+        let folded = text.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
             .replacingOccurrences(of: "\u{2018}", with: "'")
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            .map { narrowGlyphs.contains($0) ? "i" : $0 }
+        return String(folded).split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
