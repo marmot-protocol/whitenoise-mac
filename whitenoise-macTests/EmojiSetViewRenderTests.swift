@@ -48,7 +48,7 @@ import Testing
         let host = HostedViewWindow(EmojiSetBrowser(library: library, onBack: {}), size: Self.pageSize)
         defer { host.close() }
 
-        await runtime.syncEmojiSetsGate.waitUntilReached()
+        try #require(await host.settle { runtime.syncEmojiSetsGate.didReach })
         #expect(await host.settle { library.isSyncing })
         let loadingEnd = DrawnPixels.lastInkedRow(try #require(host.snapshot()))
         runtime.syncEmojiSetsGate.release()
@@ -110,7 +110,7 @@ import Testing
 
         host.clickHeaderTrailingControl()
 
-        await runtime.installEmojiSetGate.waitUntilReached()
+        try #require(await host.settle { runtime.installEmojiSetGate.didReach })
         #expect(library.installProgress[Self.coordinate]?.totalEmoji == 2)
         // The progress bar and its count and Cancel sit above the grid while the install runs.
         let installing = await host.settleDrawing { drawing in
@@ -141,7 +141,7 @@ import Testing
         let gridTop = try #require(DrawnPixels.firstFixturePoint(in: previewed)).y
 
         host.clickHeaderTrailingControl()
-        await runtime.installEmojiSetGate.waitUntilReached()
+        try #require(await host.settle { runtime.installEmojiSetGate.didReach })
         library.cancelInstall(Self.coordinate)
         runtime.installEmojiSetGate.release()
 
