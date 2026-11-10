@@ -11,6 +11,7 @@ import SwiftUI
 
 struct GroupAddMembersSheet: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     @Environment(\.dismiss) private var dismiss
     /// Owned and hosted here: the window cannot show an alert from under this sheet.
     @State private var advisory = GroupChangeAdvisoryPrompter()
@@ -34,6 +35,11 @@ struct GroupAddMembersSheet: View {
 
     private var lockedMemberIds: Set<String> {
         Set(existingMemberIds.map { $0.lowercased() })
+    }
+
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
     }
 
     var body: some View {
@@ -130,7 +136,7 @@ struct GroupAddMembersSheet: View {
             .nativeGlassProminentButtonStyle()
             .disabled(
                 (reachableStaged.isEmpty && pendingIdentifier == nil)
-                    || workspace.hasInFlightGroupCommit
+                    || isGroupCommitInFlight
                     || workspace.isResolvingNewChat
                     || isFoldingIdentifier)
         }

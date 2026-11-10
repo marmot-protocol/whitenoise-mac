@@ -257,7 +257,10 @@ nonisolated extension ChatListRowFfi {
         leaveRequestPending: Bool = false,
         conversationKind: ChatConversationKindFfi? = nil,
         pinned: Bool = false,
-        pinnedPosition: UInt32? = nil
+        pinnedPosition: UInt32? = nil,
+        lifecycleState: GroupLifecycleStateFfi = .stable,
+        disbanding: Bool = false,
+        disbandRequest: DisbandRequestFfi? = nil
     ) {
         let previewTimelineAt = lastMessage?.timelineAt ?? 0
         let activitySortAt = previewTimelineAt > 0 ? previewTimelineAt : updatedAt
@@ -267,9 +270,9 @@ nonisolated extension ChatListRowFfi {
             pinnedPosition: pinnedPosition,
             archived: archived,
             pendingConfirmation: pendingConfirmation,
-            lifecycleState: .stable,
-            disbanding: false,
-            disbandRequest: nil,
+            lifecycleState: lifecycleState,
+            disbanding: disbanding,
+            disbandRequest: disbandRequest,
             title: title,
             groupName: groupName,
             avatarUrl: avatarUrl,

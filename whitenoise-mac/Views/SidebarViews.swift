@@ -581,6 +581,7 @@ private struct ChatSidebarRow: View {
 
 private struct ChatSidebarRowMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     let chat: ChatItem
     let isArchived: Bool
 
@@ -687,10 +688,13 @@ private struct ChatSidebarRowMenuItems: View {
                 } label: {
                     ChatRowMenuLabel(action: .leave)
                 }
+                // An End Group run on this chat is a commit the row cannot see in `chat` until
+                // the read-back after it lands; a leave started meanwhile would race it.
                 .disabled(
                     workspace.leavingChatId != nil
                         || workspace.preparingChatLeaveId != nil
-                        || workspace.handingOffAdminChatId != nil)
+                        || workspace.handingOffAdminChatId != nil
+                        || endingGroupIds.contains(chat.id))
 
             case .deleteLocally:
                 Button(role: .destructive) {
@@ -894,6 +898,8 @@ struct ChatRowContent: View {
                     // Precedence lives in `ChatRowStatus` so the badge and the row's
                     // destructive menu item are decided by one rule.
                     switch rowStatus {
+                    case .groupLifecycle(let lifecycle):
+                        GroupLifecycleBadge(lifecycle: lifecycle)
                     case .leaving:
                         LeavingGroupBadge()
                     case .membershipEnded(let membership)

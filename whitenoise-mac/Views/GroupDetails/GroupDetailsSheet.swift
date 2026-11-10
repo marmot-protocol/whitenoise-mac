@@ -12,6 +12,7 @@ import SwiftUI
 
 struct GroupDetailsSheet: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.endingGroupIds) private var endingGroupIds
     @State private var isAddMembersPresented = false
     @State private var isProfileEditorPresented = false
     /// The shared-media library, pushed over the details the way iOS pushes it.
@@ -27,6 +28,7 @@ struct GroupDetailsSheet: View {
     let conversationModel: ConversationViewModel
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
+    let disbandModel: GroupDisbandViewModel
     /// Whether the account blocked this account id hex, for the add-members sheet.
     let isBlocked: (String) -> Bool
 
@@ -90,6 +92,11 @@ struct GroupDetailsSheet: View {
                 != snapshot.description
     }
 
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    private var isGroupCommitInFlight: Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
+    }
+
     var body: some View {
         @Bindable var workspace = workspace
         let snapshot = workspace.groupDetailsSnapshot
@@ -111,7 +118,7 @@ struct GroupDetailsSheet: View {
                         permissions?.canEditProfile == true ? { presentProfileEditor(snapshot) } : nil
                     }
                 )
-                .disabled(workspace.hasInFlightGroupCommit)
+                .disabled(isGroupCommitInFlight)
 
                 GlassSeparator(axis: .horizontal)
 
@@ -132,6 +139,16 @@ struct GroupDetailsSheet: View {
                             onForgotten: { workspace.closeGroupDetails() }
                         )
                         GroupMembershipStatusSections(snapshot: snapshot)
+                        GroupDisbandStatusSection(
+                            status: snapshot.disband.status,
+                            isDismissing: disbandModel.isDismissingFailure,
+                            onDismiss: {
+                                Task {
+                                    await disbandModel.dismissFailure()
+                                    await workspace.reloadSelectedGroupDetails()
+                                }
+                            }
+                        )
 
                         if let contactAccountIdHex = chat.directPeerAccountIdHex {
                             Section(L10n.string("Contact")) {
@@ -170,10 +187,12 @@ struct GroupDetailsSheet: View {
                             showsAdminOnlyNote: permissions.showsAdminOnlyNote,
                             onAddMembers: { isAddMembersPresented = true }
                         )
-                        .disabled(workspace.hasInFlightGroupCommit)
+                        .disabled(isGroupCommitInFlight)
 
                         GroupDetailsAdvancedSection(relays: snapshot.relays, groupIdHex: snapshot.groupIdHex)
-                        GroupDetailsLeaveSection(chat: chat, snapshot: snapshot, conversationModel: conversationModel)
+                        GroupDetailsLeaveSection(
+                            chat: chat, snapshot: snapshot, conversationModel: conversationModel,
+                            disbandModel: disbandModel)
 
                         if workspace.developerMode {
                             GroupDeveloperSection(
@@ -224,13 +243,14 @@ struct GroupDetailsSheet: View {
                 isBlocked: isBlocked
             )
             .environment(\.locale, workspace.preferredLocale)
+            .environment(\.endingGroupIds, endingGroupIds)
         }
         .sheet(isPresented: $isProfileEditorPresented) {
             GroupProfileEditorSheet(
                 name: $workspace.groupProfileDraftName,
                 description: $workspace.groupProfileDraftDescription,
                 isSaving: workspace.isSavingGroupProfile,
-                canSave: hasProfileChanges && !workspace.hasInFlightGroupCommit,
+                canSave: hasProfileChanges && !isGroupCommitInFlight,
                 error: workspace.lastError,
                 onSave: {
                     await workspace.saveGroupProfile(advisory: profileAdvisory)

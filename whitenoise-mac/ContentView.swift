@@ -45,6 +45,9 @@ struct ContentView: View {
             .preferredColorScheme(workspace.preferredColorScheme)
             .environment(\.locale, workspace.preferredLocale)
             .environment(\.timestampReferenceDate, timestampReferenceDate)
+            // End Group runs in a per-group model, outside `hasInFlightGroupCommit`; surfaces that
+            // start a group commit read this to hold off until it is done.
+            .environment(\.endingGroupIds, session.accountScope?.endingGroupIds ?? [])
             .environment(
                 \.openURL,
                 OpenURLAction { url in

@@ -681,7 +681,8 @@ extension WorkspaceState {
             leaveBlocked: current.leaveBlocked,
             latestMessageDelivery: current.latestMessageDelivery,
             pendingConfirmation: current.pendingConfirmation,
-            selfMembership: current.selfMembership
+            selfMembership: current.selfMembership,
+            lifecycle: current.lifecycle
         )
     }
 

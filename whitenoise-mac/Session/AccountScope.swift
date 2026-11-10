@@ -35,18 +35,25 @@ final class AccountScope {
     let groupChangeAdvisory = GroupChangeAdvisoryPrompter()
     let productAnalytics: ProductAnalyticsRecorder
     private(set) var selectedConversationModel: ConversationViewModel?
+    /// Groups whose End Group run is in flight. Kept here, observed, rather than read off the
+    /// per-group models: those are created lazily from view bodies, so a query over them would not
+    /// re-render a surface that rendered before the model existed.
+    private(set) var endingGroupIds: Set<String> = []
     @ObservationIgnored private var attachmentPolicyTask: Task<Void, Never>?
     @ObservationIgnored private var cancellations: [UUID: @MainActor () -> Void] = [:]
     @ObservationIgnored private var conversations: [String: (model: ConversationViewModel, cancellation: UUID)] = [:]
     @ObservationIgnored private var attachments: [String: (model: AttachmentViewModel, cancellation: UUID)] = [:]
     @ObservationIgnored private var groupSafety: [String: GroupSafetyViewModel] = [:]
+    @ObservationIgnored private var groupDisband: [String: GroupDisbandViewModel] = [:]
+    @ObservationIgnored private let groupDisbandHooks: GroupDisbandHooks
 
     init(
         account: AccountItem,
         runtime: any MarmotRuntime,
         relayListsDidChange: @escaping @MainActor () -> Void = {},
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
-        removeAccount: DeleteProfileViewModel.RemoveAccount? = nil
+        removeAccount: DeleteProfileViewModel.RemoveAccount? = nil,
+        groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks()
     ) {
         let attachmentPolicy = AttachmentPolicyController(accountRef: account.accountRef, runtime: runtime)
         let blockedUsers = BlockedUsersViewModel(accountRef: account.accountRef, runtime: runtime)
@@ -58,6 +65,7 @@ final class AccountScope {
         )
         self.account = account
         self.runtime = runtime
+        self.groupDisbandHooks = groupDisbandHooks
         self.settingsModel = SettingsViewModel(
             account: account,
             runtime: runtime,
@@ -216,6 +224,7 @@ final class AccountScope {
         owned.model.stop()
         releaseAttachments(groupIdHex: groupIdHex)
         groupSafety[groupIdHex] = nil
+        groupDisband[groupIdHex] = nil
     }
 
     func attachmentModel(groupIdHex: String) -> AttachmentViewModel {
@@ -247,6 +256,29 @@ final class AccountScope {
         return model
     }
 
+    func disbandModel(groupIdHex: String) -> GroupDisbandViewModel {
+        if let existing = groupDisband[groupIdHex] { return existing }
+        let model = GroupDisbandViewModel(
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex,
+            runtime: runtime,
+            hooks: groupDisbandHooks,
+            onEndingChanged: { [weak self] ending in
+                if ending {
+                    self?.endingGroupIds.insert(groupIdHex)
+                } else {
+                    self?.endingGroupIds.remove(groupIdHex)
+                }
+            }
+        )
+        groupDisband[groupIdHex] = model
+        return model
+    }
+
+    /// Whether any group's End Group run is in flight. Joins the shell's `hasInFlightGroupCommit`
+    /// on every surface that would start another group commit.
+    var isEndingAnyGroup: Bool { !endingGroupIds.isEmpty }
+
     func cancelAll() async {
         attachmentPolicyTask?.cancel()
         attachmentPolicyTask = nil
@@ -256,6 +288,7 @@ final class AccountScope {
         conversations.removeAll()
         attachments.removeAll()
         groupSafety.removeAll()
+        groupDisband.removeAll()
         for cancel in pending {
             cancel()
         }

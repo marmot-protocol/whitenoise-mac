@@ -71,6 +71,7 @@ extension GroupDetailsSnapshot {
         ChatDestructiveActions.action(
             membership: selfMembership,
             leaveRequestPending: leaveRequestPending,
+            lifecycle: disband.lifecycle,
             leaveBlocker: leaveBlocker,
             lastAdminResolution: lastAdminResolution
         )
@@ -118,7 +119,9 @@ extension GroupDetailsSnapshot {
     /// dropping the local copy of a chat nobody else is in — is told what to do rather than that
     /// they are stuck.
     var leaveGuidance: ChatDestructiveActions.LeaveGuidance? {
-        ChatDestructiveActions.leaveGuidance(
+        // An ending or ended group has no leave to explain: the disband covers this account too.
+        guard disband.lifecycle == .active else { return nil }
+        return ChatDestructiveActions.leaveGuidance(
             membership: selfMembership,
             eligibility: leaveEligibility,
             lastAdminResolution: lastAdminResolution
@@ -350,6 +353,8 @@ nonisolated struct ChatActionAlert: Equatable, Identifiable {
 /// leave is in progress and offer to leave again — nor, as it used to, show a `.leaving` badge
 /// forever while hiding the delete that would clear it.
 nonisolated enum ChatRowStatus: Equatable {
+    /// The group is being ended, or has ended, for everyone.
+    case groupLifecycle(GroupLifecycle)
     /// A leave the group has not seen yet. Genuinely transient.
     case leaving
     /// The account left or was removed. Terminal.
@@ -365,11 +370,16 @@ nonisolated enum ChatRowStatus: Equatable {
     ///
     /// An ended membership also supersedes a pending invite, so the row shows a single badge rather
     /// than a contradictory "Invite" + "Removed" pair if the FFI ever delivers both flags together.
+    ///
+    /// A group that is ending or has ended outranks all of it: that happened to everyone in the
+    /// group, which is the bigger fact than where this one account stood in it.
     static func status(
         membership: ChatSelfMembership,
         leaveRequestPending: Bool,
-        pendingConfirmation: Bool
+        pendingConfirmation: Bool,
+        lifecycle: GroupLifecycle = .active
     ) -> ChatRowStatus? {
+        if lifecycle != .active { return .groupLifecycle(lifecycle) }
         if membership != .member { return .membershipEnded(membership) }
         if leaveRequestPending { return .leaving }
         return pendingConfirmation ? .pendingInvite : nil
@@ -379,7 +389,8 @@ nonisolated enum ChatRowStatus: Equatable {
         status(
             membership: chat.selfMembership,
             leaveRequestPending: chat.leaveRequestPending,
-            pendingConfirmation: chat.pendingConfirmation
+            pendingConfirmation: chat.pendingConfirmation,
+            lifecycle: chat.lifecycle
         )
     }
 }
@@ -409,9 +420,9 @@ nonisolated enum ChatDestructiveActions {
         /// core refuses to let it promote. Hence the wording, which asks for a member rather than
         /// for a promotion: the members present are unusable as successors.
         case lastAdmin
-        /// Ordinary group actions are disabled (the group is disbanding, or its lifecycle is
-        /// terminal). Reachable from remote admin action even though this app never initiates a
-        /// disband itself.
+        /// Ordinary group actions are disabled for a reason other than a disband — a disbanding
+        /// or disbanded group never reaches a leave at all (see
+        /// `action(membership:leaveRequestPending:lifecycle:)`).
         case unavailable
 
         var message: String {
@@ -500,8 +511,19 @@ nonisolated enum ChatDestructiveActions {
     /// stranded every departed chat in a permanent "Leaving" state with no way out — the bug this
     /// split fixes. Once membership has actually ended, the departure is already on the wire and the
     /// local copy is the user's to drop.
-    static func action(membership: ChatSelfMembership, leaveRequestPending: Bool) -> Action? {
+    ///
+    /// A disband settles the question for everyone at once. Once the group has ended there is no
+    /// one left for a leave to inform and nobody a local delete could strand, so the delete is the
+    /// only way to close the chat out. While it is still ending, a member is offered nothing: the
+    /// core refuses a leave, and dropping the local copy would abandon the final commit mid-flight.
+    static func action(
+        membership: ChatSelfMembership,
+        leaveRequestPending: Bool,
+        lifecycle: GroupLifecycle = .active
+    ) -> Action? {
+        if lifecycle == .ended { return .deleteLocally }
         guard membership == .member else { return .deleteLocally }
+        guard lifecycle == .active else { return nil }
         // Still a member with a request outstanding: the SelfRemove has not reached the group, so
         // neither action is honest yet — the core rejects a repeat leave, and dropping the local
         // copy here is the exact stranding the rule above forbids.
@@ -509,7 +531,11 @@ nonisolated enum ChatDestructiveActions {
     }
 
     static func action(for chat: ChatItem) -> Action? {
-        action(membership: chat.selfMembership, leaveRequestPending: chat.leaveRequestPending)
+        action(
+            membership: chat.selfMembership,
+            leaveRequestPending: chat.leaveRequestPending,
+            lifecycle: chat.lifecycle
+        )
     }
 
     /// The roster-aware refinement, for surfaces holding eligibility and the roster up front — the
@@ -527,10 +553,11 @@ nonisolated enum ChatDestructiveActions {
     static func action(
         membership: ChatSelfMembership,
         leaveRequestPending: Bool,
+        lifecycle: GroupLifecycle = .active,
         leaveBlocker: LeaveBlocker?,
         lastAdminResolution: LastAdminResolution
     ) -> Action? {
-        let action = action(membership: membership, leaveRequestPending: leaveRequestPending)
+        let action = action(membership: membership, leaveRequestPending: leaveRequestPending, lifecycle: lifecycle)
         guard action == .leave,
             leaveBlocker == .lastAdmin,
             lastAdminResolution == .deleteLocally

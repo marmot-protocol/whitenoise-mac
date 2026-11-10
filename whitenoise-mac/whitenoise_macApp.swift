@@ -120,7 +120,20 @@ struct whitenoise_macApp: App {
                 await workspace?.clearMediaCache()
             },
             // Settings → Delete Profile.
-            removeAccount: DeleteProfileRemoval.remover(for: workspace)
+            removeAccount: DeleteProfileRemoval.remover(for: workspace),
+            // End Group runs in its own model but still has to respect, and refresh, the legacy
+            // group-details and chat-list state the workspace owns.
+            groupDisbandHooks: GroupDisbandHooks(
+                isOtherGroupCommitInFlight: { [weak workspace] in
+                    workspace?.hasInFlightGroupCommit ?? false
+                },
+                groupDetailsDidChange: { [weak workspace] in
+                    await workspace?.reloadSelectedGroupDetails()
+                },
+                chatListDidChange: { [weak workspace] in
+                    await workspace?.reloadChats(forceFreshSnapshot: true)
+                }
+            )
         )
         guard let scope = session.accountScope else { return }
         if scenePhase == .active {

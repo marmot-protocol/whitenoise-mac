@@ -255,7 +255,8 @@ extension ChatItem {
             leaveBlocked: row.leaveBlocked,
             latestMessageDelivery: ChatMessageDeliveryState(row.lastMessage?.deliveryState),
             pendingConfirmation: row.pendingConfirmation,
-            selfMembership: ChatSelfMembership(row.selfMembership)
+            selfMembership: ChatSelfMembership(row.selfMembership),
+            lifecycle: GroupLifecycle(lifecycleState: row.lifecycleState, disbanding: row.disbanding)
         )
     }
 
