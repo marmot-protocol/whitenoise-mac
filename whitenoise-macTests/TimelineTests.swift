@@ -11608,6 +11608,88 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func remoteDisbandRowUpdateStopsInProgressVoiceRecording() async throws {
+        // Another admin can end the group while this account is still a member and recording in
+        // it. The lifecycle notice replaces the composer just as the membership-ended one does,
+        // so the row update that carries `disbanding` must release the recorder too (#311).
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let selectedChatId = try #require(state.selectedChat?.id)
+        let url = try armInProgressVoiceRecording(on: state)
+
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: selectedChatId,
+                title: "Marmot Design",
+                preview: "ending",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                timelineAt: 1_700_000_000,
+                disbanding: true
+            ),
+            account: account
+        )
+
+        #expect(state.selectedChat?.selfMembership == .member)
+        #expect(state.selectedChat?.lifecycle == .ending)
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func endedGroupBulkRowsUpdateStopsInProgressVoiceRecording() async throws {
+        // Bulk snapshot sibling of the test above, for a group that has already reached its
+        // terminal state by the time a reconnect snapshot lands.
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let selectedChatId = try #require(state.selectedChat?.id)
+        let url = try armInProgressVoiceRecording(on: state)
+
+        await state.applyChatRows(
+            [
+                chatListRow(
+                    groupIdHex: selectedChatId,
+                    title: "Marmot Design",
+                    preview: "ended",
+                    sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    timelineAt: 1_700_000_000,
+                    lifecycleState: .disbanded
+                )
+            ],
+            account: account
+        )
+
+        #expect(state.selectedChat?.lifecycle == .ended)
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func anActiveGroupRowUpdateKeepsTheRecording() async throws {
+        // Negative control: an ordinary row update for the chat being recorded in leaves the
+        // recorder alone, so the widened guard is not simply cancelling on every update.
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let selectedChatId = try #require(state.selectedChat?.id)
+        _ = try armInProgressVoiceRecording(on: state)
+
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: selectedChatId,
+                title: "Marmot Design",
+                preview: "still here",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                timelineAt: 1_700_000_000
+            ),
+            account: account
+        )
+
+        #expect(state.isRecordingVoiceMessage)
+        state.cancelVoiceRecording()
+    }
+
+    @MainActor
     @Test func archivingChatPreservesComposerDraftAcrossSnapshotReload() async throws {
         // #466: a chat moved active→archived through the full-snapshot reload (`applyChatRows`)
         // must not be treated as removed — its per-conversation composer draft has to survive.

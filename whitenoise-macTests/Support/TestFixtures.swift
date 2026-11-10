@@ -1310,7 +1310,9 @@ func chatListRow(
     archived: Bool = false,
     pendingConfirmation: Bool = false,
     pinned: Bool = false,
-    pinnedPosition: UInt32? = nil
+    pinnedPosition: UInt32? = nil,
+    lifecycleState: GroupLifecycleStateFfi = .stable,
+    disbanding: Bool = false
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
@@ -1343,7 +1345,9 @@ func chatListRow(
         updatedAt: timelineAt,
         selfMembership: selfMembership,
         pinned: pinned,
-        pinnedPosition: pinnedPosition
+        pinnedPosition: pinnedPosition,
+        lifecycleState: lifecycleState,
+        disbanding: disbanding
     )
 }
 

@@ -295,12 +295,16 @@ extension WorkspaceState {
         // trigger a second one-shot unread query.
     }
 
-    /// A membership flip to left/removed swaps the selected chat's composer (its recording
-    /// Stop/Cancel controls included) for the membership-ended notice, so any chat-list
-    /// update that can carry that flip must also tear down an in-progress recorder — the
-    /// microphone must never stay hot with no visible way to stop it (#311).
+    /// Two chat-list flips swap the selected chat's composer (its recording Stop/Cancel controls
+    /// included) for a notice: this account's membership ending (left/removed), and the group
+    /// itself ending or having ended — an admin elsewhere can disband it while this account is
+    /// still a member, and the core then refuses the send anyway. Any chat-list update that can
+    /// carry either flip must also tear down an in-progress recorder — the microphone must never
+    /// stay hot with no visible way to stop it (#311).
     func cancelVoiceRecordingIfSelectedMembershipEnded() {
-        guard isRecordingVoiceMessage, selectedChat?.isNoLongerMember == true else { return }
+        guard isRecordingVoiceMessage, let chat = selectedChat,
+            chat.isNoLongerMember || !chat.lifecycle.allowsMessaging
+        else { return }
         cancelVoiceRecording()
     }
 
