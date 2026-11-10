@@ -254,7 +254,9 @@ import Testing
         let pickerRows = DrawnPixels.inkedRows(try #require(host.snapshot()))
         let fetched = runtime.fetchStickerAssetRequests.count
         host.clickHeaderTrailingControl()
-        let drawing = try #require(await host.settleDrawing { predicate(DrawnPixels.inkedRows($0), pickerRows) })
+        _ = try #require(await host.settleDrawing { predicate(DrawnPixels.inkedRows($0), pickerRows) })
+        // Every row's own tasks have run by the time the drawing stops changing.
+        let drawing = try #require(await host.steadyDrawing())
         // Browsing lists packs as text: nothing beyond what the picker had already loaded.
         #expect(runtime.fetchStickerAssetRequests.count == fetched)
         return drawing

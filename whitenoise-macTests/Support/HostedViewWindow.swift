@@ -23,8 +23,7 @@ final class HostedViewWindow {
         window.appearance = NSAppearance(named: appearance)
         let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
         window.contentView = NSHostingView(
-            rootView: view.background(WNColor.backgroundPrimary).environment(\.colorScheme, scheme)
-                .environment(WorkspaceState.preview()))
+            rootView: view.background(WNColor.backgroundPrimary).environment(\.colorScheme, scheme))
         // Ordered in, though offscreen: a window that was never ordered in delivers no clicks.
         window.orderFrontRegardless()
         window.contentView?.layoutSubtreeIfNeeded()

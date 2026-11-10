@@ -30,7 +30,9 @@ import Testing
         defer { host.close() }
 
         // Installed, From Your Emoji List and Discover each add a titled section and a row.
-        let listed = try #require(await host.settleDrawing { DrawnPixels.inkedRows($0) > none + 120 })
+        _ = try #require(await host.settleDrawing { DrawnPixels.inkedRows($0) > none + 120 })
+        // Every row's own tasks have run by the time the drawing stops changing.
+        let listed = try #require(await host.steadyDrawing())
         #expect(runtime.syncEmojiSetsCallCount == 1)
         #expect(library.installedSets.map(\.coordinate) == [Self.coordinate])
         #expect(library.images.images.isEmpty)
