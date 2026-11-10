@@ -19,29 +19,11 @@ struct AccountRecoveryStatusTests: WorkspaceTestSupport {
         )
     }
 
-    /// MDK reports every short fetch its recovery runner makes, so a chat it touches for a moment
-    /// must not blink "Catching up": only a stretch of at least `showDelay` without a break shows.
-    @Test func aBriefCatchUpNeverShowsAndAnInterruptionRestartsTheWait() async throws {
-        let runtime = FakeMarmotRuntime(accounts: [])
-        let model = makeModel(runtime, showDelay: .seconds(1))
-
-        runtime.catchingUpGroupIds = ["group"]
-        await model.refresh()
-        #expect(!model.isCatchingUp(groupIdHex: "group"))
-        try await Task.sleep(for: .milliseconds(700))
-        runtime.catchingUpGroupIds = []
-        await model.refresh()
-        runtime.catchingUpGroupIds = ["group"]
-        await model.refresh()
-        // Past a second since the first report, well short of one since the interruption.
-        try await Task.sleep(for: .milliseconds(450))
-
-        #expect(!model.isCatchingUp(groupIdHex: "group"))
-        #expect(!model.isCatchingUp)
-        model.stop()
-    }
-
-    @Test func aSustainedCatchUpShowsAfterTheDelayAndHidesAsSoonAsItEnds() async {
+    /// MDK reports every short fetch its recovery runner makes, so a chat or the inbox shows
+    /// "Catching up" only after `showDelay` without a break, hides as soon as MDK clears it, and a
+    /// break starts the wait over. No step depends on how late a sleep wakes: a model that kept
+    /// the old start time would show the re-reported group within the same `refresh()`.
+    @Test func catchingUpShowsOnlyAfterAnUnbrokenDelayAndABreakRestartsIt() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.catchingUpGroupIds = ["group"]
         runtime.inboxCatchingUp = true
@@ -55,7 +37,10 @@ struct AccountRecoveryStatusTests: WorkspaceTestSupport {
         runtime.catchingUpGroupIds = []
         runtime.inboxCatchingUp = false
         await model.refresh()
+        #expect(!model.isCatchingUp)
 
+        runtime.catchingUpGroupIds = ["group"]
+        await model.refresh()
         #expect(!model.isCatchingUp(groupIdHex: "group"))
         #expect(!model.isCatchingUp)
         model.stop()
