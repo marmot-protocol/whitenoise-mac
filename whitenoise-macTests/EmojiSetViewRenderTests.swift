@@ -39,7 +39,7 @@ import Testing
         #expect(library.images.failures.isEmpty)
         #expect(DrawnPixels.fixturePixels(in: listed) == 0)
         // Under the results, where someone is about to open a set.
-        #expect(DrawnText.contains("reviewed by White Noise", in: listed))
+        #expect(DrawnText.contains("aren't reviewed by White Noise", in: listed))
         #expect(DrawnText.contains("which can see your IP address", in: listed))
     }
 
@@ -64,7 +64,7 @@ import Testing
         let noneEnd = DrawnPixels.lastInkedRow(none)
         // The egress disclosure stays under the list: browsing is public and the author's servers
         // see the address of whoever opens a set.
-        #expect(DrawnText.contains("reviewed by White Noise", in: none))
+        #expect(DrawnText.contains("aren't reviewed by White Noise", in: none))
         #expect(DrawnText.contains("which can see your IP address", in: none))
 
         let failing = try Self.runtime(sets: [])

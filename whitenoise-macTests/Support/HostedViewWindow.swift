@@ -225,7 +225,8 @@ enum DrawnPixels {
 /// Text read back out of a `HostedViewWindow` snapshot. For copy that must be on screen, such as a
 /// privacy disclosure, where how much a view drew cannot tell one sentence from another.
 enum DrawnText {
-    /// Whether `phrase` was drawn, ignoring case, line breaks and how the text wrapped.
+    /// Whether `phrase` was drawn, ignoring case, line breaks, how the text wrapped, and whether
+    /// its apostrophes are typographic.
     static func contains(_ phrase: String, in rep: NSBitmapImageRep) -> Bool {
         normalized(recognized(in: rep)).contains(normalized(phrase))
     }
@@ -241,6 +242,8 @@ enum DrawnText {
     }
 
     private static func normalized(_ text: String) -> String {
-        text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        text.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
+            .replacingOccurrences(of: "\u{2018}", with: "'")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
