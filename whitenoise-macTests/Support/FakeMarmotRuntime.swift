@@ -178,6 +178,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var fetchableEmojiSets: [String: EmojiSetFfi] = [:]
     var emojiSetActionError: Error?
     private(set) var syncEmojiSetsCallCount = 0
+    /// Held relay syncs wait here until released, so a test can observe a browser still loading.
+    let syncEmojiSetsGate = AsyncFfiGate()
     /// Bytes for every emoji, keyed by shortcode, served for previews and installs.
     var emojiSetAssetBytes: [String: Data] = [:]
     /// Held installs wait here until released, so a test can observe progress and cancel.
@@ -2020,6 +2022,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func syncEmojiSets(accountRef: String, search: String?) async throws -> EmojiSetSyncResultFfi {
         syncEmojiSetsCallCount += 1
+        await syncEmojiSetsGate.passIfArmed()
         if let emojiSetActionError { throw emojiSetActionError }
         return EmojiSetSyncResultFfi(discovered: UInt32(emojiSetStore.count), updated: 0, complete: true)
     }

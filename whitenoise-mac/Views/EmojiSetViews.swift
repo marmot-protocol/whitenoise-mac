@@ -465,7 +465,7 @@ private struct EmojiSetRow: View {
     }
 }
 
-private struct EmojiSetDetailPage: View {
+struct EmojiSetDetailPage: View {
     let library: EmojiSetLibrary
     let onBack: () -> Void
 
