@@ -231,14 +231,23 @@ enum DrawnText {
         normalized(recognized(in: rep)).contains(normalized(phrase))
     }
 
-    /// Every line Vision recognizes, top to bottom, joined by spaces.
+    /// Every line Vision recognizes in reading order, top to bottom then left to right, joined by
+    /// spaces. Vision's own result order is not reading order, so a phrase that wraps could
+    /// otherwise come back with another line spliced into it.
     static func recognized(in rep: NSBitmapImageRep) -> String {
         guard let image = rep.cgImage else { return "" }
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: image).perform([request])
-        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+        // Vision's boxes are normalized with the origin at the bottom left; a row is the band of
+        // height one hundredth of the image its line's middle falls in.
+        let lines = (request.results ?? []).sorted { lhs, rhs in
+            let lhsRow = Int((1 - lhs.boundingBox.midY) * 100)
+            let rhsRow = Int((1 - rhs.boundingBox.midY) * 100)
+            return lhsRow != rhsRow ? lhsRow < rhsRow : lhs.boundingBox.minX < rhs.boundingBox.minX
+        }
+        return lines.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
     }
 
     private static func normalized(_ text: String) -> String {

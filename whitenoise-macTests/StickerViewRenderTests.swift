@@ -107,7 +107,9 @@ import Testing
         #expect(runtime.syncStickerPacksCallCount == 1)
         #expect(Set(runtime.fetchStickerAssetRequests.map(\.shortcode)) == ["wave", "dance", "cat"])
         // Under the stickers, whose servers they loaded from.
-        #expect(DrawnText.contains("Those servers can see your IP address", in: drawn))
+        #expect(
+            DrawnText.contains("Those servers can see your IP address", in: drawn),
+            "read: \(DrawnText.recognized(in: drawn))")
 
         // The tab row's covers come first; the grid's first sticker is the first one below them.
         let tabCover = try #require(DrawnPixels.firstFixturePoint(in: drawn))
@@ -152,7 +154,9 @@ import Testing
     @Test func theBrowserListsPacksAsTextAndExplainsAnEmptyOrFailedRefresh() async throws {
         let none = try await Self.browserDrawing(try Self.runtime(packs: [])) { $0 != $1 }
         let noneRows = DrawnPixels.inkedRows(none)
-        #expect(DrawnText.contains("Your installed packs are listed publicly on your relays", in: none))
+        #expect(
+            DrawnText.contains("Your installed packs are listed publicly on your relays", in: none),
+            "read: \(DrawnText.recognized(in: none))")
 
         let listedRuntime = try Self.runtime(packs: [
             Self.pack(installed: true), Self.pack("30031:author:b", title: "Birds"),
@@ -183,7 +187,9 @@ import Testing
         #expect(await host.settle { library.assets.images.count == 2 })
         let drawn = try #require(await host.settleDrawing { DrawnPixels.fixturePixels(in: $0) > 0 })
         #expect(Set(runtime.fetchStickerAssetRequests.map(\.shortcode)) == ["wave", "dance"])
-        #expect(DrawnText.contains("Those servers can see your IP address", in: drawn))
+        #expect(
+            DrawnText.contains("Those servers can see your IP address", in: drawn),
+            "read: \(DrawnText.recognized(in: drawn))")
 
         host.clickHeaderTrailingControl()
         #expect(await host.settle { library.isInstalled(pack.coordinate) })
