@@ -182,7 +182,11 @@ struct ComposerMentionPicker: View {
                     onSelect: { onSelect(candidate) }
                 )
                 if candidate.id != candidates.last?.id {
-                    Divider().padding(.leading, 44)
+                    // Hidden, not removed, beside the highlighted row so the rows do not shift as
+                    // the highlight moves: a hairline against the inverted fill only adds noise.
+                    Divider()
+                        .padding(.leading, 44)
+                        .opacity(index == highlightedIndex || index + 1 == highlightedIndex ? 0 : 1)
                 }
             }
         }
@@ -221,14 +225,18 @@ private struct ComposerMentionRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(candidate.displayName)
                         .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .foregroundStyle(isHighlighted ? WNColor.fillContentPrimary : WNColor.backgroundContentPrimary)
                         .lineLimit(1)
                     // Under a private nickname, who the person actually publishes as says more
                     // about which of two similarly-nicknamed contacts this is than their npub.
                     if let subtitle = candidate.publishedDisplayName ?? shortNpub {
                         Text(subtitle)
                             .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .foregroundStyle(
+                                isHighlighted
+                                    ? WNColor.fillContentPrimary.opacity(0.72)
+                                    : WNColor.backgroundContentSecondary
+                            )
                             .lineLimit(1)
                     }
                 }
@@ -238,10 +246,13 @@ private struct ComposerMentionRow: View {
             .padding(.vertical, 5)
             .contentShape(Rectangle())
             .background {
-                // The same fill a selected chat takes in the sidebar (`MessagesSidebarRowBackground`).
+                // Inverted, the way a menu marks its highlighted item: Tab and Return act on this
+                // row, so it has to read at a glance. The sidebar's selected-row wash
+                // (`fillTertiaryHover`) is one neutral step off the surface and all but vanishes
+                // over the picker's translucent material.
                 if isHighlighted {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(WNColor.fillTertiaryHover)
+                        .fill(WNColor.fillPrimary)
                         .padding(.horizontal, 4)
                 }
             }
