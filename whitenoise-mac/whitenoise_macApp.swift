@@ -110,6 +110,7 @@ struct whitenoise_macApp: App {
                 }
             }
             CommandMenu("Navigate") {
+                FindInConversationMenuButton()
                 Button(L10n.string("Search All Messages…")) {
                     workspace.presentGlobalMessageSearch()
                 }

@@ -454,6 +454,16 @@ private struct TranscriptSearchMatchHighlight: View {
         .padding(24)
 }
 
+/// How bringing a message on screen ended.
+private enum MessageRevealOutcome: Equatable {
+    /// Scrolling to it; the id is the scroll request's.
+    case shown(requestId: UUID)
+    /// The message is gone, or the transcript does not draw it.
+    case unavailable
+    /// The window could not move there right now; the message may still exist.
+    case failed
+}
+
 /// What an open search must re-read the chat's history for: a change to its newest message.
 private struct ConversationSearchHistoryKey: Equatable {
     let updatedAt: Date?
@@ -569,7 +579,9 @@ private struct ConversationView: View {
         ZStack {
             VStack(spacing: 0) {
                 ConversationHeader(
-                    chat: chat, recoveryStatus: session.accountScope?.recoveryStatus, onSearch: openSearch
+                    chat: chat,
+                    recoveryStatus: session.accountScope?.recoveryStatus,
+                    onSearch: searchCommand?.open
                 )
                 .messageDeletionConfirmation()
                 .messageEditHistory(model: model)
@@ -698,9 +710,9 @@ private struct ConversationView: View {
                         let target = workspace.pendingMessageNavigation,
                         target.groupId == chat.id
                     else { return }
-                    let requestId = await revealMessage(target.messageId)
+                    let outcome = await revealMessage(target.messageId)
                     if !hasLanded {
-                        if let requestId {
+                        if case .shown(let requestId) = outcome {
                             openingRequestId = requestId
                         } else {
                             // The jump could not bring the target into the window; the open
@@ -710,6 +722,7 @@ private struct ConversationView: View {
                     }
                     workspace.completePendingMessageNavigation(target)
                 }
+                .focusedSceneValue(\.conversationSearch, searchCommand)
                 .onChange(of: model.search.navigation) { _, navigation in
                     guard let navigation else { return }
                     revealSearchMatch(navigation)
@@ -1190,6 +1203,13 @@ private struct ConversationView: View {
         )
     }
 
+    /// Search within this chat, offered by the header button and Navigate ▸ Find in Conversation.
+    /// An invite not yet accepted has no history to search, only the invitation.
+    private var searchCommand: ConversationSearchCommand? {
+        guard !chat.pendingConfirmation else { return nil }
+        return ConversationSearchCommand(open: openSearch)
+    }
+
     private func openSearch() {
         model.search.exclusions = searchExclusions
         model.search.activate()
@@ -1211,9 +1231,9 @@ private struct ConversationView: View {
             await previous?.value
             // A later step superseded this one while the previous jump ran.
             guard !Task.isCancelled, search.navigation == navigation else { return }
-            // A chat switch mid-jump cancels this task and fails the reveal without the match
-            // being gone, so only an uncancelled failure drops it.
-            if await revealMessage(navigation.messageId) == nil, !Task.isCancelled,
+            // Only a message that is gone drops the match. A failed jump (stale twice, storage
+            // busy) or a chat switch mid-jump leaves it counted for the next step to retry.
+            if await revealMessage(navigation.messageId) == .unavailable, !Task.isCancelled,
                 search.navigation == navigation
             {
                 search.matchUnavailable(navigation.messageId)
@@ -1221,19 +1241,22 @@ private struct ConversationView: View {
         }
     }
 
-    /// Scrolls to a message, jumping the window to it first when it is not loaded. Returns the
-    /// scroll request, or nil when the message could not be brought into the window.
+    /// Scrolls to a message, jumping the window to it first when it is not loaded.
     @discardableResult
-    private func revealMessage(_ messageId: String) async -> UUID? {
+    private func revealMessage(_ messageId: String) async -> MessageRevealOutcome {
         if !workspace.selectedTimelineContainsMessage(messageId) {
-            await model.jump(to: messageId)
+            switch await model.jump(to: messageId) {
+            case .landed: break
+            case .notFound: return .unavailable
+            case .failed: return .failed
+            }
         }
-        guard workspace.selectedChat?.id == chat.id,
-            workspace.selectedTimelineContainsMessage(messageId)
-        else { return nil }
+        guard workspace.selectedChat?.id == chat.id else { return .failed }
+        // The window holds the message but the transcript does not draw it (hidden, blocked).
+        guard workspace.selectedTimelineContainsMessage(messageId) else { return .unavailable }
         let request = TranscriptScrollRequest(target: .center(id: messageId))
         scrollRequest = request
-        return request.id
+        return .shown(requestId: request.id)
     }
 
     /// Sends the composer: a draft using custom emoji goes out with their images, anything else

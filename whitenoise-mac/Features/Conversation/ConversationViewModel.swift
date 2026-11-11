@@ -21,6 +21,16 @@ struct ConversationUnreadDivider: Equatable {
     let unreadCount: UInt64
 }
 
+/// How a `ConversationViewModel.jump(to:)` ended. Only `notFound` says the message itself is gone;
+/// `failed` is the window or storage failing, and a retry later can still land.
+enum ConversationJumpOutcome: Equatable {
+    case landed
+    /// MarmotKit no longer holds the target (deleted or expired since it was found), or never did.
+    case notFound
+    /// Stale twice, cancelled, closed, busy: the message may well still exist.
+    case failed
+}
+
 struct PendingDurableSend: Identifiable, Equatable {
     let id: String
     let text: String
@@ -70,8 +80,8 @@ final class ConversationViewModel {
     private(set) var snapshot: ConversationWindowSnapshotFfi?
     private(set) var pendingSends: [String: PendingDurableSend] = [:]
     private(set) var isLoading = false
-    /// True while a page or a return to the latest is in flight. Both quote the window's current
-    /// revision, so the transcript starts neither while one is outstanding.
+    /// True while a page, a jump, or a return to the latest is in flight. Each quotes the window's
+    /// current revision, so the transcript starts no page while one is outstanding.
     var isPaging: Bool { windowCommandsInFlight > 0 }
     private var windowCommandsInFlight = 0
     private(set) var error: ConversationFeatureError?
@@ -305,9 +315,14 @@ final class ConversationViewModel {
 
     /// Moves the window to a message. A stale reply (an arrival replaced the window meanwhile,
     /// likeliest while searching a busy chat) is retried once from the current snapshot, as
-    /// `returnToLatest` does.
-    func jump(to messageIdHex: String) async {
-        guard let subscription else { return }
+    /// `returnToLatest` does. Counts as a window command, so a page cannot start over it: holding
+    /// ⌘G in a search fires a jump per step, and a page quoting the same revision would leave one
+    /// of the two stale.
+    @discardableResult
+    func jump(to messageIdHex: String) async -> ConversationJumpOutcome {
+        guard let subscription else { return .failed }
+        windowCommandsInFlight += 1
+        defer { windowCommandsInFlight -= 1 }
         var remainingStaleRetries = 1
         while let revision = snapshot?.revision {
             do {
@@ -317,19 +332,29 @@ final class ConversationViewModel {
                         messageIdHex: messageIdHex,
                         timeoutMs: 0
                     ))
-                return
+                return .landed
             } catch is CancellationError {
-                return
+                return .failed
             } catch MarmotKitError.ConversationWindowStale {
                 guard remainingStaleRetries > 0 else {
                     self.error = .staleWindow
-                    return
+                    return .failed
                 }
                 remainingStaleRetries -= 1
             } catch {
                 self.error = .unavailable(UserFacingError.message(for: error))
-                return
+                return Self.isMissingTarget(error) ? .notFound : .failed
             }
+        }
+        return .failed
+    }
+
+    /// The errors MarmotKit raises for a jump target it does not hold: one that disappeared
+    /// (deleted, expired) and one that was never a message of this window.
+    private static func isMissingTarget(_ error: Error) -> Bool {
+        switch error as? MarmotKitError {
+        case .ConversationWindowMessageNotRetained, .ConversationWindowInvalidTarget: true
+        default: false
         }
     }
 

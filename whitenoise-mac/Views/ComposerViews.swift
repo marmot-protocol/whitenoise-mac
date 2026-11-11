@@ -1872,7 +1872,8 @@ struct ConversationHeader: View {
     @Environment(\.endingGroupIds) private var endingGroupIds
     let chat: ChatItem
     var recoveryStatus: AccountRecoveryStatusViewModel?
-    /// Opens search within this conversation (⌘F); nil hides the control.
+    /// Opens search within this conversation; nil hides the control. ⌘F belongs to the Navigate
+    /// menu's Find in Conversation, which runs the same action.
     var onSearch: (() -> Void)?
 
     /// Under the chat title: "Catching up" while MDK is still fetching this chat's history,
@@ -1961,7 +1962,6 @@ struct ConversationHeader: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .keyboardShortcut("f", modifiers: .command)
                     .help(L10n.string("Search messages"))
                     .accessibilityIdentifier("conversation.search.open")
                 }

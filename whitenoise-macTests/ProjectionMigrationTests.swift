@@ -1211,10 +1211,72 @@ struct ProjectionMigrationTests {
         let window = try #require(runtime.openedConversationWindows["group"])
         window.staleJumpsRemaining = 1
 
-        await model.jump(to: "older-message")
+        let outcome = await model.jump(to: "older-message")
 
+        #expect(outcome == .landed)
         #expect(window.jumpCount == 2)
         #expect(model.error == nil)
+        model.stop()
+    }
+
+    /// Search drops a match only when the jump says the message is gone. A window that stayed
+    /// stale or storage that was busy fails the jump without saying anything about the message.
+    @Test(arguments: [
+        (MarmotKitError.ConversationWindowMessageNotRetained, ConversationJumpOutcome.notFound),
+        (MarmotKitError.ConversationWindowInvalidTarget, .notFound),
+        (MarmotKitError.StorageBusy(details: "busy"), .failed),
+        (MarmotKitError.ConversationWindowClosed, .failed),
+        (MarmotKitError.ConversationWindowStale, .failed),
+    ])
+    func jumpTellsAMissingMessageFromAFailedJump(
+        error: MarmotKitError,
+        expected: ConversationJumpOutcome
+    ) async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(sequence: 1, title: "Group")
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+        window.jumpError = error
+
+        let outcome = await model.jump(to: "older-message")
+
+        #expect(outcome == expected)
+        // The failure still reaches the reader either way.
+        #expect(model.error != nil)
+        model.stop()
+    }
+
+    /// A jump quotes the window's revision just as a page does, so while one is in flight the
+    /// model reports paging and refuses to start a page that would race it.
+    @Test func aJumpInFlightBlocksPaging() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.conversationWindowInitialSnapshots["group"] = Self.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            hasMoreAfter: true
+        )
+        let model = ConversationViewModel(account: AccountItem.samples[0], groupIdHex: "group", runtime: runtime)
+        await model.setSnapshotObserver { _ in }
+        model.start()
+        let didInstall = await waitFor { model.hasPresentedWindow }
+        #expect(didInstall)
+        let window = try #require(runtime.openedConversationWindows["group"])
+        window.jumpGate.isEnabled = true
+
+        let jump = Task { _ = await model.jump(to: "older-message") }
+        await window.jumpGate.waitUntilReached()
+
+        #expect(model.isPaging)
+        await model.page(.newer)
+        #expect(window.commands.isEmpty)
+
+        window.jumpGate.release()
+        await jump.value
+        #expect(!model.isPaging)
         model.stop()
     }
 

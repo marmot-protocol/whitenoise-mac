@@ -70,6 +70,10 @@ private struct ConversationSearchStatus: View {
                 Text(L10n.string("Searching…"))
             } else if model.didFail {
                 Text(L10n.string("Search failed"))
+            } else if !model.matches.isEmpty {
+                // A recount left no cursor: the total, with no claim about where the reader is.
+                Text(L10n.plural("%lld matches", Int64(model.matches.count)))
+                    .contentTransition(.numericText())
             } else if model.hasQuery {
                 Text(L10n.string("No matches"))
             }

@@ -237,6 +237,42 @@ struct ConversationSearchTests {
         #expect(search.currentMatchMessageId == "m1")
         #expect(search.displayPosition == 3)
         #expect(search.navigation == navigation)
+
+        // The reader's match is edited away: the recount drops the position rather than putting
+        // the cursor on a match the transcript never brought on screen.
+        corpus.replace(with: [entry("m1", "edited"), entry("m2", "deploy monday"), entry("m3", "deploy now")])
+        search.historyDidChange()
+        await waitUntil { search.matches.count == 2 }
+
+        #expect(search.currentMatchMessageId == nil)
+        #expect(search.displayPosition == nil)
+        #expect(search.navigation == navigation)
+    }
+
+    /// A query with no matches, then an arrival that matches: the count appears, but nothing moves
+    /// until the reader steps, and that step lands on the new match.
+    @MainActor
+    @Test func aMatchArrivingAfterNoMatchesWaitsForTheReadersStep() async {
+        let corpus = MutableCorpus([entry("m1", "hello")])
+        let search = makeSearch(corpus)
+        search.activate()
+        search.query = "invoice"
+        await waitUntil { !search.isSearching }
+        #expect(search.matches.isEmpty)
+
+        corpus.replace(with: [entry("m1", "hello"), entry("m2", "invoice attached")])
+        search.historyDidChange()
+        await waitUntil { search.matches.count == 1 }
+
+        #expect(search.navigation == nil)
+        #expect(search.currentIndex == nil)
+        #expect(search.displayPosition == nil)
+
+        search.goToOlderMatch()
+
+        #expect(search.currentMatchMessageId == "m2")
+        #expect(search.displayPosition == 1)
+        #expect(search.navigation?.messageId == "m2")
     }
 
     @MainActor
