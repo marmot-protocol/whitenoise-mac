@@ -51,6 +51,11 @@ struct whitenoise_macApp: App {
                 }
                 .task(id: workspace.activeAccountId) {
                     await synchronizeAccountScope()
+                }
+                // Keyed on the loaded account, not `activeAccountId`: launch restores the saved id
+                // before bootstrap loads the accounts and then keeps it, so a task on the id would
+                // run only while `activeAccount` is still nil and never again.
+                .task(id: workspace.activeAccount?.id) {
                     await requestNotificationPermissionIfUndetermined()
                 }
                 .task(id: workspace.selectedChat?.id) {
