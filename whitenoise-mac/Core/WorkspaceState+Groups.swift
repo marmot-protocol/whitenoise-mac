@@ -1277,17 +1277,23 @@ extension WorkspaceState {
     }
 
     func requestChatLocalDelete(for chat: ChatItem) {
-        requestChatLocalDelete(groupIdHex: chat.id, subject: chat.confirmationSubject)
+        requestChatLocalDelete(groupIdHex: chat.id, subject: chat.confirmationSubject, lifecycle: chat.lifecycle)
     }
 
     func requestSelectedChatLocalDelete() {
         guard let snapshot = groupDetailsSnapshot else { return }
-        requestChatLocalDelete(groupIdHex: snapshot.groupIdHex, subject: snapshot.confirmationSubject)
+        requestChatLocalDelete(
+            groupIdHex: snapshot.groupIdHex,
+            subject: snapshot.confirmationSubject,
+            lifecycle: snapshot.disband.lifecycle
+        )
     }
 
-    func requestChatLocalDelete(groupIdHex: String, subject: ChatConfirmationSubject) {
+    func requestChatLocalDelete(
+        groupIdHex: String, subject: ChatConfirmationSubject, lifecycle: GroupLifecycle = .active
+    ) {
         guard !isDeletingGroupLocally, chatPendingLocalDelete == nil else { return }
-        chatPendingLocalDelete = ChatLocalDeleteTarget(groupIdHex: groupIdHex, subject: subject)
+        chatPendingLocalDelete = ChatLocalDeleteTarget(groupIdHex: groupIdHex, subject: subject, lifecycle: lifecycle)
     }
 
     func confirmChatLocalDelete(_ target: ChatLocalDeleteTarget) async {

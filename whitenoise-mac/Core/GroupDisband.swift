@@ -206,8 +206,8 @@ nonisolated enum GroupDisbandPresentation {
         }
     }
 
-    /// The core's refusals of an End Group, in the user's terms. Anything else keeps its own
-    /// description, the way every other group change reports it.
+    /// The core's refusals of an End Group, in the user's terms. Anything else goes through
+    /// `UserFacingError`, never `localizedDescription`, which would print the case name and ids.
     static func message(for error: Error) -> String {
         switch error as? MarmotKitError {
         case .DisbandingUnsupportedMembers(_, let memberIdsHex):
@@ -217,7 +217,7 @@ nonisolated enum GroupDisbandPresentation {
         case .GroupDisbanding:
             L10n.string("This group is ending. New messages are disabled.")
         default:
-            error.localizedDescription
+            UserFacingError.message(for: error)
         }
     }
 }

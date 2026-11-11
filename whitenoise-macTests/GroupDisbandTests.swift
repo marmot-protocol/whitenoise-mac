@@ -122,6 +122,49 @@ struct GroupDisbandTests {
                 == .deleteLocally)
     }
 
+    @Test func theLocalDeleteConfirmationFitsTheGroupsLifecycle() {
+        let activeWording = L10n.string(
+            "This deletes the local copy only. Other members are not notified, and you can be re-added later.")
+        let endedWording = L10n.string("Deletes this chat's local history from this device.")
+
+        #expect(
+            ChatLocalDeleteTarget(groupIdHex: Self.groupIdHex, subject: .unnamedGroup).confirmationMessage
+                == activeWording)
+        #expect(
+            ChatLocalDeleteTarget(groupIdHex: Self.groupIdHex, subject: .unnamedGroup, lifecycle: .ending)
+                .confirmationMessage == endedWording)
+        #expect(
+            ChatLocalDeleteTarget(groupIdHex: Self.groupIdHex, subject: .unnamedGroup, lifecycle: .ended)
+                .confirmationMessage == endedWording)
+    }
+
+    @Test func aLocalDeleteRequestedFromAnEndedRowCarriesItsLifecycle() {
+        let state = WorkspaceState.preview()
+        let ended = ChatItem(
+            id: Self.groupIdHex, title: "Room", subtitle: "", preview: "", updatedAt: nil,
+            avatarSeed: Self.groupIdHex, pictureURL: nil, unreadCount: 0, lifecycle: .ended)
+
+        state.requestChatLocalDelete(for: ended)
+
+        #expect(state.chatPendingLocalDelete?.lifecycle == .ended)
+        #expect(
+            state.chatPendingLocalDelete?.confirmationMessage
+                == L10n.string("Deletes this chat's local history from this device."))
+    }
+
+    @Test(arguments: [GroupLifecycle.ending, .ended])
+    func aLocalDeleteRequestedFromTheInspectorCarriesItsLifecycle(_ lifecycle: GroupLifecycle) {
+        let state = WorkspaceState.preview()
+        state.groupDetailsSnapshot = Self.detailsSnapshot(lifecycle: lifecycle)
+
+        state.requestSelectedChatLocalDelete()
+
+        #expect(state.chatPendingLocalDelete?.lifecycle == lifecycle)
+        #expect(
+            state.chatPendingLocalDelete?.confirmationMessage
+                == L10n.string("Deletes this chat's local history from this device."))
+    }
+
     /// Mid-disband the core refuses a leave, and dropping the copy would abandon the final commit.
     @Test func anEndingGroupOffersNothingToAMember() {
         #expect(
@@ -266,15 +309,42 @@ struct GroupDisbandTests {
                 == L10n.string("Group ending isn't ready yet. Try again."))
     }
 
+    /// A refusal End Group does not single out is still worded by `UserFacingError`, never by the
+    /// error's `localizedDescription`, which names the Swift case and carries the group id.
+    @Test func anUnmappedCoreRefusalUsesTheSharedWording() async {
+        let state = Self.managementState(canDisband: true)
+        let (runtime, model) = Self.disbandableGroup(state)
+        let refusal = MarmotKitError.NotGroupAdmin(groupIdHex: Self.groupIdHex)
+        runtime.disbandGroupError = refusal
+
+        #expect(!(await model.endGroup(GroupDisbandState(managementState: state), advisory: nil)))
+
+        #expect(model.alert == .endGroupFailed(UserFacingError.message(for: refusal)))
+        #expect(model.alert?.message.contains("MarmotKitError") == false)
+        #expect(model.alert?.message != refusal.localizedDescription)
+    }
+
+    @Test func anUnmappedDismissalRefusalUsesTheSharedWording() async {
+        let failed = Self.managementState(disbandRequest: .failed(requestedAtMs: 1, reason: .noLongerAdmin))
+        let (runtime, model) = Self.disbandableGroup(failed)
+        let refusal = MarmotKitError.NotGroupAdmin(groupIdHex: Self.groupIdHex)
+        runtime.acknowledgeDisbandFailureError = refusal
+
+        #expect(!(await model.dismissFailure()))
+
+        #expect(model.alert == .disbandFailureDismissFailed(UserFacingError.message(for: refusal)))
+        #expect(model.alert?.message.contains("MarmotKitError") == false)
+    }
+
     @Test func everyRefusalAndFailureHasItsOwnWording() {
         #expect(
             GroupDisbandPresentation.message(for: MarmotKitError.GroupDisbanding(groupIdHex: Self.groupIdHex))
                 == L10n.string("This group is ending. New messages are disabled."))
-        // Anything the core does not single out keeps its own description.
-        let other = MarmotKitError.DisbandingNotEnabled(groupIdHex: Self.groupIdHex) as Error
+        // Anything the core does not single out is worded by `UserFacingError`.
+        let other = MarmotKitError.NotGroupAdmin(groupIdHex: Self.groupIdHex) as Error
         let unrelated = NSError(domain: "test", code: 7, userInfo: [NSLocalizedDescriptionKey: "boom"])
         #expect(GroupDisbandPresentation.message(for: unrelated) == "boom")
-        #expect(GroupDisbandPresentation.message(for: other) != "boom")
+        #expect(GroupDisbandPresentation.message(for: other) == UserFacingError.message(for: other))
 
         let notAdmin = GroupDisbandPresentation.failureMessage(.noLongerAdmin)
         let notMember = GroupDisbandPresentation.failureMessage(.noLongerMember)
@@ -620,6 +690,33 @@ struct GroupDisbandTests {
             groupDetailsFixture(selfAccountIdHex: account.accountIdHex), managementState: managementState)
         let model = GroupDisbandViewModel(accountRef: account.accountIdHex, groupIdHex: groupIdHex, runtime: runtime)
         return (runtime, model)
+    }
+
+    private static func detailsSnapshot(lifecycle: GroupLifecycle) -> GroupDetailsSnapshot {
+        GroupDetailsSnapshot(
+            groupIdHex: groupIdHex,
+            endpoint: "",
+            name: "Room",
+            customName: "Room",
+            description: "",
+            avatarURL: nil,
+            sanitizedAvatarURL: nil,
+            avatarDimension: nil,
+            nostrGroupIdHex: "",
+            relays: [],
+            adminIds: [],
+            archived: false,
+            pendingConfirmation: false,
+            selfMembership: .removed,
+            members: [],
+            isSelfAdmin: false,
+            isLastAdmin: false,
+            canInvite: false,
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: false,
+            disappearingMessageSecs: 0,
+            disband: GroupDisbandState(lifecycle: lifecycle)
+        )
     }
 
     private static func managementState(
