@@ -85,6 +85,22 @@ struct ApplicationBadgeTests {
         #expect(writes == ["5", nil])
     }
 
+    /// The count usually lands while the permission prompt is still up, and macOS may drop a badge
+    /// written before the app is allowed to badge. `apply` skips an unchanged label, so without a
+    /// rewrite the badge would stay missing until the count next changed.
+    @Test func dockControllerRewritesTheBadgeOncePermissionIsAnswered() {
+        var writes: [String?] = []
+        let controller = DockBadgeController { writes.append($0) }
+
+        controller.permissionDidChange()
+        controller.apply(count: 5)
+        controller.permissionDidChange()
+        controller.apply(count: 0)
+        controller.permissionDidChange()
+
+        #expect(writes == ["5", "5", nil])
+    }
+
     @Test func dockControllerClearsTheBadgeWhenTheActiveAccountSignsOut() {
         var writes: [String?] = []
         let controller = DockBadgeController { writes.append($0) }
