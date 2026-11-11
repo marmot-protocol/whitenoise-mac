@@ -448,6 +448,10 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
     /// Fails this many `jumpToMessage` calls with `ConversationWindowStale` before answering.
     var staleJumpsRemaining = 0
     private(set) var jumpCount = 0
+    /// Every `jumpToMessage` fails with this (after any stale replies) when set.
+    var jumpError: Error?
+    /// Holds the first `jumpToMessage` while armed, so a test can look at the model mid-jump.
+    let jumpGate = AsyncFfiGate()
     /// What `returnToLatest` answers with, and makes current; the current snapshot when nil.
     var latestSnapshot: ConversationWindowSnapshotFfi?
     /// Runs before a stale `page` reply is thrown, for a command racing that page.
@@ -496,10 +500,12 @@ final class FakeConversationWindowSubscription: ConversationWindowSubscription, 
         timeoutMs: UInt32
     ) async throws -> ConversationWindowSnapshotFfi {
         jumpCount += 1
+        await jumpGate.passIfArmed()
         if staleJumpsRemaining > 0 {
             staleJumpsRemaining -= 1
             throw MarmotKitError.ConversationWindowStale
         }
+        if let jumpError { throw jumpError }
         guard let current else { throw FakeMarmotRuntimeError.unused }
         return current
     }

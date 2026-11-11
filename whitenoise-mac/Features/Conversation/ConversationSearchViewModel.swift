@@ -96,7 +96,7 @@ final class ConversationSearchViewModel {
         return matches[currentIndex]
     }
 
-    /// "1" is the newest match; nil without a cursor.
+    /// "1" is the newest match; nil without a cursor, which a recount can leave even with matches.
     var displayPosition: Int? {
         guard let currentIndex, matches.indices.contains(currentIndex) else { return nil }
         return ConversationSearchEngine.displayPosition(index: currentIndex, matchCount: matches.count)
@@ -262,9 +262,10 @@ final class ConversationSearchViewModel {
             currentIndex = ConversationSearchEngine.initialIndex(matchCount: found.count)
             requestNavigation()
         } else {
-            currentIndex =
-                ConversationSearchEngine.reanchoredIndex(of: anchor, in: found)
-                ?? ConversationSearchEngine.initialIndex(matchCount: found.count)
+            // A recount never moves the reader. When their match is gone (edited, deleted, blocked)
+            // or they had none (a match arrived after "No matches"), the counter shows the total
+            // without a position, and the next step lands on the newest match.
+            currentIndex = ConversationSearchEngine.reanchoredIndex(of: anchor, in: found)
         }
     }
 }
