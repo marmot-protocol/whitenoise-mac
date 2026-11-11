@@ -15,3 +15,13 @@ extension EnvironmentValues {
     /// half of the guard, never the workspace's.
     @Entry var endingGroupIds: Set<String> = []
 }
+
+/// Whether a surface may start a group commit of its own. The one place the sources are combined,
+/// so a new commit-blocking flag is added here once rather than to every surface that reads it.
+@MainActor
+enum GroupCommitGuard {
+    /// A group commit — the workspace's, or an End Group run — is in flight.
+    static func isInFlight(workspace: WorkspaceState, endingGroupIds: Set<String>) -> Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
+    }
+}

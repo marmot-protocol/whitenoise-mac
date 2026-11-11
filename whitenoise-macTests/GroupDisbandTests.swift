@@ -422,6 +422,17 @@ struct GroupDisbandTests {
         #expect(model.alert == nil)
     }
 
+    /// Every surface that starts a group commit asks this one guard, so both halves are checked here.
+    @Test func theCommitGuardCombinesTheWorkspaceAndEndGroupRuns() {
+        let workspace = WorkspaceState.preview()
+        #expect(!GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: []))
+        #expect(GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: [Self.groupIdHex]))
+
+        workspace.isSavingGroupProfile = true
+        #expect(GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: []))
+        workspace.isSavingGroupProfile = false
+    }
+
     /// The scope is what the shell reads to disable every other group commit, so it must report the
     /// run from before the first commit until after the read-back — the window in which the
     /// inspector would otherwise still show the pre-disband capabilities.

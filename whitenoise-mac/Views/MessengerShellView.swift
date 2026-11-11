@@ -749,10 +749,10 @@ private struct ConversationView: View {
                     // reply/media drafts included — gives way to an explanatory notice.
                     if workspace.isTimelineSelectionMode {
                         MessageSelectionToolbar()
-                    } else if let notice = chat.lifecycle.composerNotice {
+                    } else if !chat.lifecycle.allowsMessaging {
                         // A disband ends the group for everyone, members included, so it
                         // outranks where this account stood in it.
-                        GroupLifecycleComposerNotice(lifecycle: chat.lifecycle, message: notice)
+                        GroupLifecycleComposerNotice(lifecycle: chat.lifecycle)
                     } else if chat.isNoLongerMember {
                         MembershipEndedComposerNotice(membership: chat.selfMembership)
                     } else if isBlockedDirectPeer {
