@@ -9,12 +9,41 @@ import Testing
 struct AccountRecoveryStatusTests: WorkspaceTestSupport {
     private static let account = AccountItem.samples[0]
 
-    private func makeModel(_ runtime: FakeMarmotRuntime) -> AccountRecoveryStatusViewModel {
+    private func makeModel(_ runtime: FakeMarmotRuntime, showDelay: Duration = .zero) -> AccountRecoveryStatusViewModel
+    {
         AccountRecoveryStatusViewModel(
             accountRef: Self.account.accountRef,
             accountIdHex: Self.account.accountIdHex,
-            runtime: runtime
+            runtime: runtime,
+            showDelay: showDelay
         )
+    }
+
+    /// MDK reports every short fetch its recovery runner makes, so a chat or the inbox shows
+    /// "Catching up" only after `showDelay` without a break, hides as soon as MDK clears it, and a
+    /// break starts the wait over. No step depends on how late a sleep wakes: a model that kept
+    /// the old start time would show the re-reported group within the same `refresh()`.
+    @Test func catchingUpShowsOnlyAfterAnUnbrokenDelayAndABreakRestartsIt() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.catchingUpGroupIds = ["group"]
+        runtime.inboxCatchingUp = true
+        let model = makeModel(runtime, showDelay: .milliseconds(100))
+
+        await model.refresh()
+        #expect(!model.isCatchingUp)
+        await Self.waitUntil { model.isCatchingUp(groupIdHex: "group") }
+        #expect(model.isCatchingUp)
+
+        runtime.catchingUpGroupIds = []
+        runtime.inboxCatchingUp = false
+        await model.refresh()
+        #expect(!model.isCatchingUp)
+
+        runtime.catchingUpGroupIds = ["group"]
+        await model.refresh()
+        #expect(!model.isCatchingUp(groupIdHex: "group"))
+        #expect(!model.isCatchingUp)
+        model.stop()
     }
 
     @Test func catchingUpGroupsAreMatchedWhateverTheirCase() async {
@@ -82,13 +111,14 @@ struct AccountRecoveryStatusTests: WorkspaceTestSupport {
         await session.activate(account: AccountItem.samples[0], runtime: runtime, connectivityAvailable: true)
         let first = try #require(session.accountScope?.recoveryStatus)
         await first.refresh()
-        #expect(first.isCatchingUp)
+        #expect(first.catchingUpGroupIds == ["group"])
 
         runtime.catchingUpGroupIds = []
         await session.activate(account: AccountItem.samples[1], runtime: runtime, connectivityAvailable: true)
         let second = try #require(session.accountScope?.recoveryStatus)
 
         #expect(second !== first)
+        #expect(second.catchingUpGroupIds.isEmpty)
         #expect(!second.isCatchingUp)
         await session.deactivate()
     }
