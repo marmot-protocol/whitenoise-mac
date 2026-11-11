@@ -286,4 +286,41 @@ struct ApplicationBadgeTests {
         #expect(model.applicationBadgeCount == 0)
         model.stop()
     }
+
+    // MARK: - Badge permission
+
+    /// macOS draws no app-icon badge without notification permission, so an install that has
+    /// never been asked is asked, and the answer is what comes back.
+    @Test func anUnaskedInstallIsAskedForPermission() async {
+        let center = FakeLocalNotificationCenter(status: .notDetermined, requestedStatus: .authorized)
+
+        let status = await NotificationPermissionPrompt.requestIfUndetermined(using: center)
+
+        #expect(center.didRequestAuthorization)
+        #expect(status == .authorized)
+    }
+
+    /// Once the user has answered, the answer stands: a refusal is changed only in System Settings,
+    /// and an app that keeps asking is one that nags.
+    @Test(arguments: [LocalNotificationAuthorizationStatus.authorized, .denied, .provisional])
+    func anAnsweredInstallIsNotAskedAgain(status: LocalNotificationAuthorizationStatus) async {
+        let center = FakeLocalNotificationCenter(status: status)
+
+        let result = await NotificationPermissionPrompt.requestIfUndetermined(using: center)
+
+        #expect(!center.didRequestAuthorization)
+        #expect(result == nil)
+    }
+
+    @Test func aFailedRequestReportsNothing() async {
+        let center = FakeLocalNotificationCenter(
+            status: .notDetermined,
+            requestError: NSError(domain: "test", code: 1)
+        )
+
+        let result = await NotificationPermissionPrompt.requestIfUndetermined(using: center)
+
+        #expect(center.didRequestAuthorization)
+        #expect(result == nil)
+    }
 }

@@ -51,6 +51,7 @@ struct whitenoise_macApp: App {
                 }
                 .task(id: workspace.activeAccountId) {
                     await synchronizeAccountScope()
+                    await requestNotificationPermissionIfUndetermined()
                 }
                 .task(id: workspace.selectedChat?.id) {
                     await synchronizeConversationProjection()
@@ -108,6 +109,19 @@ struct whitenoise_macApp: App {
 
     private var applicationBadgeCount: Int? {
         session.applicationBadgeCount(hasSignedInAccounts: !workspace.signedInAccounts.isEmpty)
+    }
+
+    /// Without notification permission macOS never draws the app-icon badge, so ask once an account
+    /// is signed in (see `NotificationPermissionPrompt`). Never from a UI fixture or a unit-test host:
+    /// both run this shell, and a system prompt would sit over the window they drive.
+    @MainActor
+    private func requestNotificationPermissionIfUndetermined() async {
+        guard shouldBootstrapWorkspace,
+            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+            workspace.activeAccount != nil,
+            await NotificationPermissionPrompt.requestIfUndetermined(using: workspace.localNotificationCenter) != nil
+        else { return }
+        await workspace.refreshNotificationAuthorizationStatus()
     }
 
     @MainActor
