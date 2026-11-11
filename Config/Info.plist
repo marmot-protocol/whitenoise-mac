@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>White Noise</string>
+	<string>$(WN_DISPLAY_NAME)</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>
@@ -30,13 +30,15 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
-			<string>dev.ipf.whitenoise.mac.marmot</string>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).marmot</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>marmot</string>
+				<string>$(WN_URL_SCHEME)</string>
 			</array>
 		</dict>
 	</array>
+	<key>WhiteNoiseBuildFlavor</key>
+	<string>$(WN_FLAVOR)</string>
 	<key>WhiteNoiseGiphyAPIKey</key>
 	<string>$(WN_GIPHY_API_KEY)</string>
 	<key>WhiteNoiseModerationReportPubkey</key>

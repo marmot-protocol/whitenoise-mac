@@ -131,6 +131,52 @@ run *ARGS:
     fi
     open "build/Build/Products/Debug/White Noise.app"
 
+# Same as `run`, for the side-by-side staging app (`White Noise Staging`, bundle id
+# dev.ipf.whitenoise.mac.staging). It has its own data directory and keychain services, so
+# `just reset-staging` wipes it without touching production. Extra args go to xcodebuild.
+# Build Debug-Staging and launch the staging app
+run-staging *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    xcodebuild build \
+        -project "{{PROJECT}}" \
+        -scheme "{{SCHEME}} (Staging)" \
+        -configuration Debug-Staging \
+        -destination "{{DESTINATION}}" \
+        -derivedDataPath build \
+        CODE_SIGNING_ALLOWED=NO \
+        {{ARGS}}
+    if pgrep -x "White Noise Staging" >/dev/null; then
+        osascript -e 'tell application id "dev.ipf.whitenoise.mac.staging" to quit'
+        while pgrep -x "White Noise Staging" >/dev/null; do sleep 0.2; done
+    fi
+    open "build/Build/Products/Debug-Staging/White Noise Staging.app"
+
+# Deletes every byte the staging app keeps -- its sandbox container (signed builds), its
+# unsandboxed Application Support directory (`just run-staging`) and its keychain items -- so the
+# next launch starts from scratch. Production's data uses different names and is never touched.
+# Keys a team-signed build put in the data-protection keychain are out of `security`'s reach; they
+# are staging-only and orphaned once the container is gone.
+# Wipe all staging app data
+reset-staging:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if pgrep -x "White Noise Staging" >/dev/null; then
+        osascript -e 'tell application id "dev.ipf.whitenoise.mac.staging" to quit'
+        while pgrep -x "White Noise Staging" >/dev/null; do sleep 0.2; done
+    fi
+    container="$HOME/Library/Containers/dev.ipf.whitenoise.mac.staging"
+    if [ -e "$container" ] && ! rm -rf "$container" 2>/dev/null; then
+        echo "warning: macOS refused to delete $container; grant your terminal App Management /" >&2
+        echo "Full Disk Access, or delete it in Finder." >&2
+    fi
+    rm -rf "$HOME/Library/Application Support/White Noise Staging"
+    defaults delete dev.ipf.whitenoise.mac.staging >/dev/null 2>&1 || true
+    for service in com.marmot.whitenoise.staging dev.ipf.whitenoise.media-cache.staging; do
+        while security delete-generic-password -s "$service" >/dev/null 2>&1; do :; done
+    done
+    echo "Staging data removed. Production (dev.ipf.whitenoise.mac) was not touched."
+
 # Repin MarmotKit to a published mdk release (version or full master SHA).
 # Not part of precommit — run it deliberately when moving the core.
 sync-bindings REF:

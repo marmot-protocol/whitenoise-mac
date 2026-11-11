@@ -1,0 +1,19 @@
+// Staging flavor (Debug-Staging / Release-Staging, scheme "whitenoise-mac (Staging)").
+// Installs side by side with production as dev.ipf.whitenoise.mac.staging, with its own sandbox
+// container, Application Support directory, keychain services and URL scheme, so it can be deleted
+// and rebuilt from scratch without touching the production app's data. See AppFlavor.swift.
+#include "AppBuild.xcconfig"
+
+WN_FLAVOR = staging
+WN_DISPLAY_NAME = WN Staging
+WN_URL_SCHEME = marmot-staging
+
+PRODUCT_BUNDLE_IDENTIFIER = dev.ipf.whitenoise.mac.staging
+PRODUCT_NAME = White Noise Staging
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Staging
+EXCLUDED_SOURCE_FILE_NAMES = AppIcon.icon
+
+WN_TELEMETRY_ENVIRONMENT = staging
+
+// Staging reports always go to IPF's staging queue, in Debug-Staging and Release-Staging alike.
+WN_MODERATION_REPORT_PUBKEY = $(WN_MODERATION_REPORT_PUBKEY_Debug)

@@ -375,7 +375,7 @@ nonisolated private enum MediaProtectedTempDirectory {
 
     static func directoryURL(baseURL: URL, directoryName: String) -> URL {
         baseURL
-            .appendingPathComponent("White Noise", isDirectory: true)
+            .appendingPathComponent(AppFlavor.current.applicationSupportDirectoryName, isDirectory: true)
             .appendingPathComponent(directoryName, isDirectory: true)
     }
 

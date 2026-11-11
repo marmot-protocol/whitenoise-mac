@@ -1,6 +1,15 @@
 // App target build settings shared by Debug and Release.
 // Put local secrets in Config/AppSecrets.xcconfig. That file is ignored.
 
+// Build flavor. These are production's values; Config/Staging.xcconfig includes this file and
+// overrides them for the side-by-side staging app (Debug-Staging / Release-Staging). The bundle
+// id and product name stay in project.pbxproj for production. See AppFlavor.swift.
+WN_FLAVOR = production
+WN_DISPLAY_NAME = White Noise
+WN_URL_SCHEME = marmot
+// The Icon Composer files live in one synchronized folder; each flavor compiles only its own.
+EXCLUDED_SOURCE_FILE_NAMES = AppIcon-Staging.icon
+
 OTLP_TOKEN_WN_MAC =
 AUDIT_LOG_TOKEN_WN_MAC =
 WN_PRODUCT_ANALYTICS_ENDPOINT =
