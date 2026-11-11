@@ -21,6 +21,14 @@ final class DockBadgeController {
         setLabel(label)
     }
 
+    /// Writes the current badge again after the notification permission prompt is answered. The
+    /// count usually arrives while the prompt is still up, macOS may drop a badge written before
+    /// the app is allowed to badge, and `apply` never rewrites an unchanged label.
+    func permissionDidChange() {
+        guard let appliedLabel else { return }
+        setLabel(appliedLabel)
+    }
+
     /// Clears the badge when the account that was active is no longer signed in, whether it
     /// signed out or was removed. The badge's last total counted the account that just left, and the replacement scope may report
     /// `nil` for a while (another account still unavailable), so keeping the label would keep

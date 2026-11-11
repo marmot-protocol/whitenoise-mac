@@ -16,6 +16,8 @@ struct whitenoise_macApp: App {
     @State private var dockBadge = DockBadgeController()
     private let shouldBootstrapWorkspace: Bool
 
+    static let mainWindowID = "main"
+
     init() {
         let configuration = AppLaunchConfiguration.current
         _workspace = State(initialValue: configuration.makeWorkspace())
@@ -31,7 +33,7 @@ struct whitenoise_macApp: App {
         // workspace — it would be a live mirror that fights the first over the same mutable
         // state. `Window` also removes the automatic File ▸ New Window (⌘N) command and
         // multi-window restoration that `WindowGroup` provides. See issue #46.
-        Window("White Noise", id: "main") {
+        Window("White Noise", id: Self.mainWindowID) {
             ContentView()
                 .environment(workspace)
                 .environment(session)
@@ -49,6 +51,14 @@ struct whitenoise_macApp: App {
                 }
                 .task(id: workspace.activeAccountId) {
                     await synchronizeAccountScope()
+                }
+                // Keyed on the messenger being on screen, not on `activeAccountId`: launch restores
+                // the saved id before bootstrap loads the accounts and then keeps it, so a task on
+                // the id would run only while nothing could be asked and never again. Waiting for
+                // the messenger also keeps the one-time system prompt off the splash screen and
+                // account setup, where a reflexive "Don't Allow" would be permanent.
+                .task(id: workspace.showsMessengerChrome ? workspace.activeAccount?.id : nil) {
+                    await requestNotificationPermissionIfUndetermined()
                 }
                 .task(id: workspace.selectedChat?.id) {
                     await synchronizeConversationProjection()
@@ -89,6 +99,16 @@ struct whitenoise_macApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                // The same condition the shell shows the messenger under: during onboarding (Add
+                // Profile) an account is still active, but selecting Settings would not show it.
+                SettingsCommandButton(
+                    isEnabled: workspace.showsMessengerChrome,
+                    locale: workspace.preferredLocale
+                ) {
+                    workspace.showSettings()
+                }
+            }
             CommandMenu("Navigate") {
                 Button(L10n.string("Search All Messages…")) {
                     workspace.presentGlobalMessageSearch()
@@ -101,6 +121,20 @@ struct whitenoise_macApp: App {
 
     private var applicationBadgeCount: Int? {
         session.applicationBadgeCount(hasSignedInAccounts: !workspace.signedInAccounts.isEmpty)
+    }
+
+    /// Without notification permission macOS never draws the app-icon badge, so ask once the
+    /// messenger is showing (see `NotificationPermissionPrompt`). Never from a UI fixture or a unit-test host:
+    /// both run this shell, and a system prompt would sit over the window they drive.
+    @MainActor
+    private func requestNotificationPermissionIfUndetermined() async {
+        guard shouldBootstrapWorkspace,
+            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+            workspace.showsMessengerChrome,
+            await NotificationPermissionPrompt.requestIfUndetermined(using: workspace.localNotificationCenter) != nil
+        else { return }
+        dockBadge.permissionDidChange()
+        await workspace.refreshNotificationAuthorizationStatus()
     }
 
     @MainActor
