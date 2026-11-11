@@ -134,6 +134,22 @@ final class ChatListViewModel {
             }
     }
 
+    /// Rows another window drew (search results), as the sidebar draws them. MDK already applied
+    /// the view, so nothing is filtered here.
+    func chatItems(
+        for rows: [PresentedChatRowFfi],
+        nicknames: ContactNicknames,
+        mentionNames: (String) -> MarkdownMentionNames = { _ in [:] }
+    ) -> [ChatItem] {
+        rows.map { presented in
+            chatItem(
+                for: presented,
+                nicknames: nicknames,
+                mentionNames: presented.previewMentionsAnyone ? mentionNames(presented.row.groupIdHex) : [:]
+            )
+        }
+    }
+
     /// The presented row for one chat, archived or not, when this account's list carries it.
     func presentedRow(groupIdHex: String) -> PresentedChatRowFfi? {
         presentedRows.first { $0.row.groupIdHex == groupIdHex }

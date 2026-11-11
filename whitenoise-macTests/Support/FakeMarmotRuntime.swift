@@ -768,6 +768,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var didReachGroupManagementStateGate: Bool {
         groupManagementStateGate.didReach
     }
+    func waitUntilGroupManagementStateGateReached() async {
+        await groupManagementStateGate.waitUntilReached()
+    }
     /// Issue #229 stale-account-test support: when armed, the first `createGroup` FFI call suspends
     /// until `releaseCreateGroupGate()` is invoked, holding `createNewChat()` in-flight so a test can
     /// switch the active account before the create resolves and assert the freshly created group is
@@ -2964,6 +2967,148 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             updates: chatListWindowUpdates.isEmpty ? mirroredLegacyUpdates : chatListWindowUpdates,
             pages: chatListWindowPageSnapshots
         )
+    }
+
+    /// Overrides the ids `chatListIds` reports for a view; a view with no entry answers from `groups`.
+    var chatListIdsByView: [ChatListViewFfi: [String]] = [:]
+    /// Thrown, one per call and in order, by `chatListIds` and `revalidateChatListIds` before they answer.
+    var chatListIdsErrors: [Error] = []
+    private(set) var chatListIdsCallCount = 0
+    private(set) var revalidateChatListIdsCalls: [(view: ChatListViewFfi, groupIds: [String])] = []
+
+    func chatListIds(accountRef: String, view: ChatListViewFfi) async throws -> [String] {
+        chatListIdsCallCount += 1
+        if !chatListIdsErrors.isEmpty { throw chatListIdsErrors.removeFirst() }
+        return fakeChatListIds(view: view)
+    }
+
+    func revalidateChatListIds(accountRef: String, view: ChatListViewFfi, groupIds: [String]) async throws
+        -> [String]
+    {
+        revalidateChatListIdsCalls.append((view, groupIds))
+        if !chatListIdsErrors.isEmpty { throw chatListIdsErrors.removeFirst() }
+        let inView = Set(fakeChatListIds(view: view))
+        var seen = Set<String>()
+        return groupIds.filter { inView.contains($0) && seen.insert($0).inserted }
+    }
+
+    /// The ids `chatListQueryIds` reports per query. An unscripted query with no filter answers as
+    /// `chatListIds` does for its view; any other unscripted query matches nothing.
+    var chatListQueryIdsByQuery: [ChatListViewQueryFfi: [String]] = [:]
+    /// Thrown, one per call and in order, by the three query calls before they answer.
+    var chatListQueryErrors: [Error] = []
+    private(set) var chatListQueryIdsCalls: [ChatListViewQueryFfi] = []
+    private(set) var revalidateChatListQueryIdsCalls: [(query: ChatListViewQueryFfi, groupIds: [String])] = []
+    private(set) var openChatListQueryWindowCalls: [(query: ChatListViewQueryFfi, initialRows: UInt32?)] = []
+    /// Every query window opened, oldest first.
+    private(set) var chatListQueryWindows: [FakeChatListWindowSubscription] = []
+    /// Shows this many rows in a query window instead of `initialRows`, so a test can page with
+    /// a handful of chats.
+    var chatListQueryWindowRowLimit: Int?
+    /// Scripted for the next query window opened, then cleared: the snapshots its `page` serves,
+    /// and the errors its `page` and `next` throw first.
+    var chatListQueryWindowPages: [ChatListWindowSnapshotFfi] = []
+    var chatListQueryWindowPageErrors: [Error] = []
+    var chatListQueryWindowNextErrors: [Error] = []
+    /// Query windows answer anchors and pages with the next sequence, as MDK does.
+    var chatListQueryWindowAdvancesSequence = false
+    /// Query windows end their `next()` stream instead of waiting, so a test can await the
+    /// observing task.
+    var chatListQueryWindowEndsWhenExhausted = false
+
+    func chatListQueryIds(accountRef: String, query: ChatListViewQueryFfi) async throws -> [String] {
+        chatListQueryIdsCalls.append(query)
+        if !chatListQueryErrors.isEmpty { throw chatListQueryErrors.removeFirst() }
+        return fakeChatListQueryIds(query)
+    }
+
+    func revalidateChatListQueryIds(accountRef: String, query: ChatListViewQueryFfi, groupIds: [String])
+        async throws -> [String]
+    {
+        revalidateChatListQueryIdsCalls.append((query, groupIds))
+        if !chatListQueryErrors.isEmpty { throw chatListQueryErrors.removeFirst() }
+        let matching = Set(fakeChatListQueryIds(query))
+        var seen = Set<String>()
+        return groupIds.filter { matching.contains($0) && seen.insert($0).inserted }
+    }
+
+    /// Mirrors MDK's refusals: a `MessageText` node, or more than 500 group ids, never opens.
+    /// Rows are the installed groups in the view whose ids a `GroupIds` node lists.
+    func openChatListQueryWindow(accountRef: String, query: ChatListViewQueryFfi, initialRows: UInt32?) async throws
+        -> ChatListWindowSubscription
+    {
+        openChatListQueryWindowCalls.append((query, initialRows))
+        if !chatListQueryErrors.isEmpty { throw chatListQueryErrors.removeFirst() }
+        var listed: [String]?
+        for node in query.filter {
+            switch node {
+            case .messageText:
+                throw MarmotKitError.InvalidChatListQuery(reason: .messageTextInWindow)
+            case .groupIds(let ids):
+                listed = (listed ?? []) + ids
+            default:
+                continue
+            }
+        }
+        if let listed, listed.count > 500 {
+            throw MarmotKitError.InvalidChatListQuery(reason: .tooManyGroupIds)
+        }
+        let inView = Set(fakeChatListIds(view: query.view))
+        let wanted = listed.map(Set.init)
+        let rows = chatListRows(includeArchived: true).filter { row in
+            inView.contains(row.groupIdHex) && wanted?.contains(row.groupIdHex) != false
+        }
+        let presented = makePresentedChatListSnapshot(rows: rows, includeArchived: true).rows
+        let limit = chatListQueryWindowRowLimit ?? Int(initialRows ?? 50)
+        let window = FakeChatListWindowSubscription(
+            initial: ChatListWindowSnapshotFfi(
+                subscriptionGeneration: "query-window-\(chatListQueryWindows.count + 1)",
+                sequence: 1,
+                view: query.view,
+                rows: Array(presented.prefix(limit)),
+                hasMoreBefore: false,
+                hasMoreAfter: presented.count > limit,
+                anchor: .top
+            ),
+            pages: chatListQueryWindowPages,
+            pageErrors: chatListQueryWindowPageErrors,
+            nextErrors: chatListQueryWindowNextErrors,
+            advancesSequence: chatListQueryWindowAdvancesSequence,
+            endsWhenExhausted: chatListQueryWindowEndsWhenExhausted
+        )
+        chatListQueryWindowPages = []
+        chatListQueryWindowPageErrors = []
+        chatListQueryWindowNextErrors = []
+        chatListQueryWindows.append(window)
+        return window
+    }
+
+    /// The installed groups' presented rows, in the order of `groupIds`, for scripting window
+    /// snapshots.
+    func presentedChatRows(groupIds: [String]) -> [PresentedChatRowFfi] {
+        let presented = makePresentedChatListSnapshot(rows: chatListRows(includeArchived: true), includeArchived: true)
+            .rows
+        return groupIds.compactMap { id in presented.first { $0.row.groupIdHex == id } }
+    }
+
+    private func fakeChatListQueryIds(_ query: ChatListViewQueryFfi) -> [String] {
+        if let scripted = chatListQueryIdsByQuery[query] { return scripted }
+        return query.filter.isEmpty ? fakeChatListIds(view: query.view) : []
+    }
+
+    private func fakeChatListIds(view: ChatListViewFfi) -> [String] {
+        if let installed = chatListIdsByView[view] { return installed }
+        return chatListRows(includeArchived: true)
+            .filter { row in
+                let isMember = row.selfMembership == .member
+                switch view {
+                case .chats: return !row.archived && isMember
+                case .unread: return !row.archived && isMember && row.hasUnread
+                case .archived: return row.archived
+                case .left: return !isMember
+                }
+            }
+            .map(\.groupIdHex)
     }
 
     func chatListWindowSnapshot(subscription: ChatListWindowSubscription) -> ChatListWindowSnapshotFfi? {

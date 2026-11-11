@@ -110,8 +110,6 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m2")?.publishedSenderName == nil)
         // The quote of the relabeled sender follows without waiting for a reprojection.
         #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m2")?.replyContext?.senderName == "Mum")
-        #expect(state.filteredChats(matching: "mum").map(\.id) == ["dm"])
-        #expect(state.filteredChats(matching: "alice").map(\.id) == ["dm"])
 
         state.setContactNickname("   ", forContactAccountIdHex: contact)
 
@@ -1673,7 +1671,6 @@ struct ChatListTests: WorkspaceTestSupport {
             await waitFor {
                 !state.isSearchingSidebarMessages && !state.sidebarMessageSearchResultsByGroupId.isEmpty
             })
-        #expect(state.sidebarSearchFilteredChats(state.activeChats).map(\.id) == [target.id])
         #expect(state.sidebarMessageSearchResult(for: target)?.snippet.match == query)
         #expect(state.globalMessageSearchQuery.isEmpty)
     }
@@ -2887,70 +2884,7 @@ struct ChatListTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func filteredChatsObservationInvalidatesOnChatListDeltaAfterCacheHit() async throws {
-        // Regression for #390: `filteredChats` is memoized through ignored cache state, but each
-        // body pass still has to read the observed chat list. Otherwise a cache-hit pass drops the
-        // sidebar's `chatsByAccount` subscription and background-chat updates do not repaint it.
-        let account = AccountItem.samples[0]
-        let selected = ChatItem(
-            id: "selected-chat",
-            title: "Selected group",
-            subtitle: "Group message",
-            preview: "selected preview",
-            updatedAt: Date(timeIntervalSince1970: 100),
-            avatarSeed: "selected-chat",
-            pictureURL: nil,
-            unreadCount: 0
-        )
-        let background = ChatItem(
-            id: "background-chat",
-            title: "Background group",
-            subtitle: "Group message",
-            preview: "old background",
-            updatedAt: Date(timeIntervalSince1970: 90),
-            avatarSeed: "background-chat",
-            pictureURL: nil,
-            unreadCount: 0
-        )
-        let state = WorkspaceState(
-            accounts: [account],
-            chatsByAccount: [account.id: [selected, background]],
-            clientFactory: { FakeMarmotRuntime(accounts: []) }
-        )
-        state.activeAccountId = account.id
-        state.selection = .chat(selected.id)
-
-        #expect(state.filteredChats.map(\.id) == [selected.id, background.id])
-
-        let invalidated = ObservationInvalidationFlag()
-        withObservationTracking {
-            _ = state.filteredChats.map(\.id)
-        } onChange: {
-            invalidated.markInvalidated()
-        }
-
-        state.upsertChat(
-            ChatItem(
-                id: background.id,
-                title: background.title,
-                subtitle: background.subtitle,
-                preview: "new background",
-                updatedAt: Date(timeIntervalSince1970: 200),
-                avatarSeed: background.avatarSeed,
-                pictureURL: background.pictureURL,
-                unreadCount: 3
-            ),
-            forAccountId: account.id
-        )
-
-        #expect(invalidated.value)
-        #expect(state.filteredChats.map(\.id) == [background.id, selected.id])
-        #expect(state.filteredChats.first?.preview == "new background")
-        #expect(state.filteredChats.first?.unreadCount == 3)
-    }
-
-    @MainActor
-    @Test func workspaceChatIndexesAndFilterCachePerformanceGuard() async throws {
+    @Test func workspaceChatIndexesPerformanceGuard() async throws {
         let account = AccountItem.samples[0]
         let chats = performanceChatItems(count: 5_000)
         let state = WorkspaceState(
@@ -2967,14 +2901,6 @@ struct ChatListTests: WorkspaceTestSupport {
         let selectedLookupMilliseconds = measuredMilliseconds {
             for _ in 0..<50_000 {
                 _ = state.selectedChat?.id
-            }
-        }
-
-        state.searchText = "launch"
-        #expect(state.filteredChats.count == 50)
-        let cachedFilterMilliseconds = measuredMilliseconds {
-            for _ in 0..<5_000 {
-                _ = state.filteredChats.count
             }
         }
 
@@ -3007,11 +2933,9 @@ struct ChatListTests: WorkspaceTestSupport {
         print(
             "PERF chat_selected_lookup_ms=\(formatMilliseconds(selectedLookupMilliseconds)) lookups=50000 chats=5000"
         )
-        print("PERF chat_filter_cached_ms=\(formatMilliseconds(cachedFilterMilliseconds)) hits=5000 chats=5000")
         print("PERF chat_indexed_upsert_ms=\(formatMilliseconds(indexedUpsertMilliseconds)) updates=1000 chats=5000")
 
         #expect(selectedLookupMilliseconds < 60 * performanceSlack)
-        #expect(cachedFilterMilliseconds < 40 * performanceSlack)
         #expect(indexedUpsertMilliseconds < 500 * performanceSlack)
         #expect(state.selectedChat?.id == "perf-chat-4999")
     }
@@ -3413,52 +3337,6 @@ struct ChatListTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func archivedChatSearchFiltersArchivedSection() async throws {
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
-        let state = WorkspaceState(clientFactory: { runtime })
-
-        await state.bootstrap()
-        guard let chat = state.activeChats.first else {
-            Issue.record("Expected a group chat")
-            return
-        }
-
-        await state.setChatArchived(chat, archived: true)
-        state.searchText = "missing"
-
-        #expect(state.filteredArchivedChats.isEmpty)
-        #expect(state.filteredChats.isEmpty)
-
-        state.searchText = chat.title.prefix(3).description
-        #expect(state.filteredArchivedChats.count == 1)
-        #expect(state.filteredArchivedChats.first?.id == chat.id)
-    }
-
-    @MainActor
-    @Test func archivedFilterCacheHitRetainsObservationDependency() async throws {
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
-        let state = WorkspaceState(clientFactory: { runtime })
-        await state.bootstrap()
-        let chat = try #require(state.activeChats.first)
-        await state.setChatArchived(chat, archived: true)
-
-        _ = state.filteredArchivedChats(matching: "")
-        let invalidated = ObservationInvalidationFlag()
-        withObservationTracking {
-            _ = state.filteredArchivedChats(matching: "")
-        } onChange: {
-            invalidated.markInvalidated()
-        }
-
-        state.archivedChatsByAccount[account.label] = []
-        #expect(invalidated.value)
-    }
-
-    @MainActor
     @Test func chatListFilterShowsArchivedChatsOnlyWhenSelected() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3472,21 +3350,21 @@ struct ChatListTests: WorkspaceTestSupport {
         }
 
         #expect(state.chatListFilter == .active)
-        #expect(state.filteredChats.count == 1)
-        #expect(state.filteredArchivedChats.isEmpty)
+        #expect(state.activeChats.count == 1)
+        #expect(state.archivedChats.isEmpty)
 
         await state.setChatArchived(chat, archived: true)
 
-        #expect(state.filteredChats.isEmpty)
-        #expect(state.filteredArchivedChats.count == 1)
+        #expect(state.activeChats.isEmpty)
+        #expect(state.archivedChats.count == 1)
 
         state.chatListFilter = .archived
-        #expect(state.filteredArchivedChats.count == 1)
-        #expect(state.filteredChats.isEmpty)
+        #expect(state.archivedChats.count == 1)
+        #expect(state.activeChats.isEmpty)
 
         state.chatListFilter = .active
-        #expect(state.filteredChats.isEmpty)
-        #expect(state.filteredArchivedChats.count == 1)
+        #expect(state.activeChats.isEmpty)
+        #expect(state.archivedChats.count == 1)
     }
 
     @MainActor

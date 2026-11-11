@@ -319,17 +319,6 @@ struct ContactNicknameValueTests {
         #expect(chatItem(id: "group", title: "Book club").rememberedDirectPeerTitle == nil)
     }
 
-    @Test func chatFilterMatchesTheNicknameAndThePublishedTitle() {
-        let nicknamed = chatItem(id: "dm", title: "Mum", publishedTitle: "Alice", isDirect: true)
-        let group = chatItem(id: "group", title: "Book club")
-        let chats = [nicknamed, group]
-
-        #expect(ChatFilter.filtered(chats, query: "mum").map(\.id) == ["dm"])
-        #expect(ChatFilter.filtered(chats, query: "alice").map(\.id) == ["dm"])
-        #expect(ChatFilter.filtered(chats, query: "book").map(\.id) == ["group"])
-        #expect(ChatFilter.filtered(chats, query: "nobody").isEmpty)
-    }
-
     @Test func applyingSenderNicknameRelabelsAndRestoresFromTheRowItself() throws {
         let message = messageItem(senderAccountIdHex: "alice", senderName: "Alice")
 

@@ -49,7 +49,9 @@ struct MessengerShellView: View {
                                 ChatListDrawerView(
                                     model: session.accountScope?.chatListModel,
                                     historyNotices: session.accountScope?.historyNotices,
-                                    recoveryStatus: session.accountScope?.recoveryStatus
+                                    recoveryStatus: session.accountScope?.recoveryStatus,
+                                    selection: session.accountScope?.chatListSelection,
+                                    search: session.accountScope?.chatListSearch
                                 )
                                 // Deliberately un-animated: the width is dragged, so animating
                                 // it would re-wrap the non-lazy transcript on every frame of the

@@ -63,13 +63,6 @@ final class WorkspaceState {
         let productAnalyticsRuntimeConfig: ProductAnalyticsRuntimeConfigFfi
     }
 
-    struct FilteredChatsCache {
-        let accountId: String
-        let generation: Int
-        let query: String
-        let result: [ChatItem]
-    }
-
     var phase: Phase = .bootstrapping
     var accounts: [AccountItem]
     var chatsByAccount: [String: [ChatItem]]
@@ -92,12 +85,8 @@ final class WorkspaceState {
     static let directPeerRecoveryScanLimit: UInt32 = 200
     @ObservationIgnored var chatLookupByAccount: [String: [String: ChatItem]] = [:]
     @ObservationIgnored var chatIndexByAccount: [String: [String: Int]] = [:]
-    @ObservationIgnored var chatListGenerationByAccount: [String: Int] = [:]
-    @ObservationIgnored var filteredChatsCache: FilteredChatsCache?
     @ObservationIgnored var archivedChatLookupByAccount: [String: [String: ChatItem]] = [:]
     @ObservationIgnored var archivedChatIndexByAccount: [String: [String: Int]] = [:]
-    @ObservationIgnored var archivedChatListGenerationByAccount: [String: Int] = [:]
-    @ObservationIgnored var filteredArchivedChatsCache: FilteredChatsCache?
     /// Ids of the chats whose transcript window is currently cached in `messageTimelineStores`.
     /// The message arrays themselves live only on the stores; tracking membership in a small set
     /// (rather than a parallel `[String: [MessageItem]]`) avoids copying the open conversation's
@@ -1374,62 +1363,6 @@ final class WorkspaceState {
         activeChats.isEmpty && archivedChats.isEmpty
     }
 
-    var filteredChats: [ChatItem] {
-        filteredChats(matching: searchText)
-    }
-
-    var filteredArchivedChats: [ChatItem] {
-        filteredArchivedChats(matching: searchText)
-    }
-
-    func filteredChats(matching query: String) -> [ChatItem] {
-        guard let activeAccountId else { return [] }
-        // Read the observed list before a cache-hit return so SwiftUI keeps invalidating the
-        // sidebar on incoming chat updates even when filtering work is memoized.
-        let chats = chatsByAccount[activeAccountId] ?? []
-        let generation = chatListGenerationByAccount[activeAccountId] ?? 0
-        if let cache = filteredChatsCache,
-            cache.accountId == activeAccountId,
-            cache.generation == generation,
-            cache.query == query
-        {
-            return cache.result
-        }
-
-        let result = ChatFilter.filtered(chats, query: query)
-        filteredChatsCache = FilteredChatsCache(
-            accountId: activeAccountId,
-            generation: generation,
-            query: query,
-            result: result
-        )
-        return result
-    }
-
-    func filteredArchivedChats(matching query: String) -> [ChatItem] {
-        guard let activeAccountId else { return [] }
-        // Read the observed list before a cache-hit return so each SwiftUI evaluation keeps the
-        // archived section subscribed to live archive and metadata updates.
-        let chats = archivedChatsByAccount[activeAccountId] ?? []
-        let generation = archivedChatListGenerationByAccount[activeAccountId] ?? 0
-        if let cache = filteredArchivedChatsCache,
-            cache.accountId == activeAccountId,
-            cache.generation == generation,
-            cache.query == query
-        {
-            return cache.result
-        }
-
-        let result = ChatFilter.filtered(chats, query: query)
-        filteredArchivedChatsCache = FilteredChatsCache(
-            accountId: activeAccountId,
-            generation: generation,
-            query: query,
-            result: result
-        )
-        return result
-    }
-
     var selectedChat: ChatItem? {
         guard case .chat(let chatId) = selection else { return nil }
         _ = selectedChatRevision
@@ -1466,7 +1399,7 @@ final class WorkspaceState {
             lookup[chat.id] = chat
             chatLookupByAccount[accountId] = lookup
         }
-        bumpChatListGeneration(forAccountId: accountId)
+        noteChatListChanged(forAccountId: accountId)
     }
 
     func removeChatFromList(chatId: String, forAccountId accountId: String) -> [ChatItem] {
@@ -1484,7 +1417,7 @@ final class WorkspaceState {
             chatIndexByAccount[accountId] = indexes
 
             reindexChats(forAccountId: accountId, startingAt: index)
-            bumpChatListGeneration(forAccountId: accountId)
+            noteChatListChanged(forAccountId: accountId)
             return chats
         }
 
@@ -1499,11 +1432,11 @@ final class WorkspaceState {
         chatsByAccount[accountId] = nil
         chatLookupByAccount[accountId] = nil
         chatIndexByAccount[accountId] = nil
-        bumpChatListGeneration(forAccountId: accountId)
+        noteChatListChanged(forAccountId: accountId)
         archivedChatsByAccount[accountId] = nil
         archivedChatLookupByAccount[accountId] = nil
         archivedChatIndexByAccount[accountId] = nil
-        bumpArchivedChatListGeneration(forAccountId: accountId)
+        noteChatListChanged(forAccountId: accountId)
     }
 
     func resetChats() {
@@ -1513,13 +1446,9 @@ final class WorkspaceState {
         chatsByAccount = [:]
         chatLookupByAccount = [:]
         chatIndexByAccount = [:]
-        chatListGenerationByAccount = [:]
-        filteredChatsCache = nil
         archivedChatsByAccount = [:]
         archivedChatLookupByAccount = [:]
         archivedChatIndexByAccount = [:]
-        archivedChatListGenerationByAccount = [:]
-        filteredArchivedChatsCache = nil
     }
 
     func rebuildChatIndexes() {
@@ -1548,7 +1477,7 @@ final class WorkspaceState {
             chats.enumerated().map { ($0.element.id, $0.offset) },
             uniquingKeysWith: { _, new in new }
         )
-        bumpChatListGeneration(forAccountId: accountId)
+        noteChatListChanged(forAccountId: accountId)
     }
 
     func reindexChats(forAccountId accountId: String, startingAt startIndex: Int) {
@@ -1579,7 +1508,7 @@ final class WorkspaceState {
             chats.enumerated().map { ($0.element.id, $0.offset) },
             uniquingKeysWith: { _, new in new }
         )
-        bumpArchivedChatListGeneration(forAccountId: accountId)
+        noteChatListChanged(forAccountId: accountId)
     }
 
     func reindexArchivedChats(forAccountId accountId: String, startingAt startIndex: Int) {
@@ -1634,7 +1563,7 @@ final class WorkspaceState {
             lookup[chat.id] = chat
             archivedChatLookupByAccount[accountId] = lookup
         }
-        bumpArchivedChatListGeneration(forAccountId: accountId)
+        noteChatListChanged(forAccountId: accountId)
     }
 
     @discardableResult
@@ -1653,7 +1582,7 @@ final class WorkspaceState {
             archivedChatIndexByAccount[accountId] = indexes
 
             reindexArchivedChats(forAccountId: accountId, startingAt: index)
-            bumpArchivedChatListGeneration(forAccountId: accountId)
+            noteChatListChanged(forAccountId: accountId)
             return chats
         }
 
@@ -1664,23 +1593,10 @@ final class WorkspaceState {
         return chats
     }
 
-    private func bumpChatListGeneration(forAccountId accountId: String) {
-        chatListGenerationByAccount[accountId, default: 0] += 1
+    /// Any change to the account's active or archived list re-reads the selected chat's chrome.
+    private func noteChatListChanged(forAccountId accountId: String) {
         if activeAccountId == accountId {
             selectedChatRevision += 1
-        }
-        if filteredChatsCache?.accountId == accountId {
-            filteredChatsCache = nil
-        }
-    }
-
-    private func bumpArchivedChatListGeneration(forAccountId accountId: String) {
-        archivedChatListGenerationByAccount[accountId, default: 0] += 1
-        if activeAccountId == accountId {
-            selectedChatRevision += 1
-        }
-        if filteredArchivedChatsCache?.accountId == accountId {
-            filteredArchivedChatsCache = nil
         }
     }
 
