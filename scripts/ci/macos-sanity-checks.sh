@@ -48,7 +48,8 @@ assert_entitlement_true() {
 }
 
 build_settings_file="$(mktemp)"
-trap 'rm -f "$build_settings_file"' EXIT
+staging_build_settings_file="$(mktemp)"
+trap 'rm -f "$build_settings_file" "$staging_build_settings_file"' EXIT
 
 xcodebuild \
   -project "$PROJECT" \
@@ -56,8 +57,15 @@ xcodebuild \
   -configuration Release \
   -showBuildSettings > "$build_settings_file"
 
+xcodebuild \
+  -project "$PROJECT" \
+  -target "$APP_TARGET" \
+  -configuration Release-Staging \
+  -showBuildSettings > "$staging_build_settings_file"
+
 build_setting() {
   local key="$1"
+  local file="${2:-$build_settings_file}"
   awk -v key="$key" '
     $1 == key && $2 == "=" {
       $1 = ""
@@ -66,7 +74,7 @@ build_setting() {
       value = $0
     }
     END { print value }
-  ' "$build_settings_file"
+  ' "$file"
 }
 
 assert_build_setting_equals() {
@@ -77,10 +85,22 @@ assert_build_setting_equals() {
   [[ "$actual" == "$expected" ]] || fail "Release build setting $key expected '$expected' but found '$actual'"
 }
 
+assert_staging_build_setting_equals() {
+  local key="$1"
+  local expected="$2"
+  local actual
+  actual="$(build_setting "$key" "$staging_build_settings_file")"
+  [[ "$actual" == "$expected" ]] || fail "Release-Staging build setting $key expected '$expected' but found '$actual'"
+}
+
 plutil -lint "$INFO_PLIST" >/dev/null
 plutil -lint "$ENTITLEMENTS" >/dev/null
 
-assert_plist_equals "$INFO_PLIST" "CFBundleDisplayName" "White Noise"
+# The display name, URL scheme and flavor come from the build flavor (Config/AppBuild.xcconfig for
+# production, Config/Staging.xcconfig for staging); their production values are asserted below.
+assert_plist_equals "$INFO_PLIST" "CFBundleDisplayName" "\$(WN_DISPLAY_NAME)"
+assert_plist_equals "$INFO_PLIST" "CFBundleURLTypes:0:CFBundleURLSchemes:0" "\$(WN_URL_SCHEME)"
+assert_plist_equals "$INFO_PLIST" "WhiteNoiseBuildFlavor" "\$(WN_FLAVOR)"
 assert_plist_equals "$INFO_PLIST" "CFBundlePackageType" "APPL"
 assert_plist_equals "$INFO_PLIST" "LSApplicationCategoryType" "public.app-category.social-networking"
 assert_plist_equals "$INFO_PLIST" "LSMinimumSystemVersion" "\$(MACOSX_DEPLOYMENT_TARGET)"
@@ -104,6 +124,23 @@ assert_build_setting_equals "ENABLE_HARDENED_RUNTIME" "YES"
 assert_build_setting_equals "ENABLE_APP_SANDBOX" "YES"
 assert_build_setting_equals "ENABLE_USER_SELECTED_FILES" "readwrite"
 assert_build_setting_equals "MACOSX_DEPLOYMENT_TARGET" "15.6"
+assert_build_setting_equals "WN_FLAVOR" "production"
+assert_build_setting_equals "WN_DISPLAY_NAME" "White Noise"
+assert_build_setting_equals "WN_URL_SCHEME" "marmot"
+assert_build_setting_equals "ASSETCATALOG_COMPILER_APPICON_NAME" "AppIcon"
+
+# The staging flavor installs side by side with production, so it must never share the bundle id
+# (sandbox container), product name, URL scheme or icon. AppFlavor.swift moves the storage roots and
+# keychain services that the bundle id alone does not separate.
+assert_staging_build_setting_equals "PRODUCT_BUNDLE_IDENTIFIER" "dev.ipf.whitenoise.mac.staging"
+assert_staging_build_setting_equals "PRODUCT_NAME" "White Noise Staging"
+assert_staging_build_setting_equals "PRODUCT_MODULE_NAME" "$(build_setting "PRODUCT_MODULE_NAME")"
+assert_staging_build_setting_equals "WN_FLAVOR" "staging"
+assert_staging_build_setting_equals "WN_URL_SCHEME" "marmot-staging"
+assert_staging_build_setting_equals "WN_TELEMETRY_ENVIRONMENT" "staging"
+assert_staging_build_setting_equals "ASSETCATALOG_COMPILER_APPICON_NAME" "AppIcon-Staging"
+assert_staging_build_setting_equals "CODE_SIGN_ENTITLEMENTS" "whitenoise-mac/whitenoise-mac.entitlements"
+assert_staging_build_setting_equals "ENABLE_APP_SANDBOX" "YES"
 
 # MarmotKit is a pinned remote binary target, so there is no XCFramework in the
 # repo to inspect. What can drift instead is the pin itself: the three `let`s in

@@ -31,6 +31,7 @@
 		1F5D02202FC5862E0016665B /* White Noise.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "White Noise.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5D022F2FC5862F0016665B /* whitenoise-macTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/AppBuild.xcconfig; sourceTree = "<group>"; };
+		5E0000000000000000000001 /* Config/Staging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Staging.xcconfig; sourceTree = "<group>"; };
 		2B616D052FCF100000010001 /* PR.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = PR.xctestplan; sourceTree = "<group>"; };
 		2B616D102FD2000000010001 /* whitenoise-macUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B616D1B2FD2000000010001 /* UIPerformance.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = UIPerformance.xctestplan; sourceTree = "<group>"; };
@@ -84,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */,
+				5E0000000000000000000001 /* Config/Staging.xcconfig */,
 				2B616D072FCF100000010001 /* TestPlans */,
 				1F5D02222FC5862E0016665B /* whitenoise-mac */,
 				1F5D02322FC5862F0016665B /* whitenoise-macTests */,
@@ -369,6 +371,74 @@
 			};
 			name = Debug;
 		};
+		5E0000000000000000000002 /* Debug-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = V8U75D7Q49;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = "Debug-Staging";
+		};
 		1F5D02422FC5862F0016665B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -429,6 +499,66 @@
 			};
 			name = Release;
 		};
+		5E0000000000000000000003 /* Release-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = V8U75D7Q49;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = "Release-Staging";
+		};
 		1F5D02442FC5862F0016665B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */;
@@ -483,6 +613,56 @@
 				WN_TELEMETRY_ENVIRONMENT = development;
 			};
 			name = Debug;
+		};
+		5E0000000000000000000004 /* Debug-Staging */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E0000000000000000000001 /* Config/Staging.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = "whitenoise-mac/whitenoise-mac.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 22;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = V8U75D7Q49;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				EXTRACT_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 2026.11.10;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					AppIntents,
+					"-framework",
+					AVKit,
+				);
+				PRODUCT_MODULE_NAME = whitenoise_mac;
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_CONST_VALUE_PROTOCOLS = "AppIntents.AppIntent AppIntents.AppEntity AppIntents.AppEnum AppIntents.AppShortcutsProvider";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				WN_AUDIT_LOG_BEARER_TOKEN = "$(AUDIT_LOG_TOKEN_WN_MAC)";
+				WN_AUDIT_OTLP_ENDPOINT = "https://otlp.whitenoise.chat/v1/logs";
+				WN_OTLP_BEARER_TOKEN = "$(OTLP_TOKEN_WN_MAC)";
+				WN_OTLP_ENDPOINT = "https://otlp.ipf.dev/v1/metrics";
+			};
+			name = "Debug-Staging";
 		};
 		1F5D02452FC5862F0016665B /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -539,6 +719,56 @@
 			};
 			name = Release;
 		};
+		5E0000000000000000000005 /* Release-Staging */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E0000000000000000000001 /* Config/Staging.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = "whitenoise-mac/whitenoise-mac.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 22;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = V8U75D7Q49;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				EXTRACT_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 2026.11.10;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					AppIntents,
+					"-framework",
+					AVKit,
+				);
+				PRODUCT_MODULE_NAME = whitenoise_mac;
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_CONST_VALUE_PROTOCOLS = "AppIntents.AppIntent AppIntents.AppEntity AppIntents.AppEnum AppIntents.AppShortcutsProvider";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				WN_AUDIT_LOG_BEARER_TOKEN = "$(AUDIT_LOG_TOKEN_WN_MAC)";
+				WN_AUDIT_OTLP_ENDPOINT = "https://otlp.whitenoise.chat/v1/logs";
+				WN_OTLP_BEARER_TOKEN = "$(OTLP_TOKEN_WN_MAC)";
+				WN_OTLP_ENDPOINT = "https://otlp.ipf.dev/v1/metrics";
+			};
+			name = "Release-Staging";
+		};
 		1F5D02472FC5862F0016665B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -569,6 +799,36 @@
 			};
 			name = Debug;
 		};
+		5E0000000000000000000006 /* Debug-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 12;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = V8U75D7Q49;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				EXTRACT_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 2026.8.25;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					AppIntents,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.ipf.whitenoise-macTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_CONST_VALUE_PROTOCOLS = "AppIntents.AppIntent AppIntents.AppEntity AppIntents.AppEnum AppIntents.AppShortcutsProvider";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/White Noise Staging.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/White Noise Staging";
+			};
+			name = "Debug-Staging";
+		};
 		1F5D02482FC5862F0016665B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -598,6 +858,36 @@
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/White Noise.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/White Noise";
 			};
 			name = Release;
+		};
+		5E0000000000000000000007 /* Release-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 12;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = V8U75D7Q49;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				EXTRACT_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 2026.8.25;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					AppIntents,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.ipf.whitenoise-macTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_CONST_VALUE_PROTOCOLS = "AppIntents.AppIntent AppIntents.AppEntity AppIntents.AppEnum AppIntents.AppShortcutsProvider";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/White Noise Staging.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/White Noise Staging";
+			};
+			name = "Release-Staging";
 		};
 		2B616D182FD2000000010001 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -632,6 +922,39 @@
 			};
 			name = Debug;
 		};
+		5E0000000000000000000008 /* Debug-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 12;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = V8U75D7Q49;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				EXTRACT_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 2026.8.25;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					AppIntents,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.ipf.whitenoise-macUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "whitenoise-mac";
+			};
+			name = "Debug-Staging";
+		};
 		2B616D192FD2000000010001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -665,6 +988,39 @@
 			};
 			name = Release;
 		};
+		5E0000000000000000000009 /* Release-Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 12;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = V8U75D7Q49;
+				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
+				EXTRACT_APP_INTENTS_METADATA = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 2026.8.25;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					AppIntents,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.ipf.whitenoise-macUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "whitenoise-mac";
+			};
+			name = "Release-Staging";
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -673,6 +1029,8 @@
 			buildConfigurations = (
 				1F5D02412FC5862F0016665B /* Debug */,
 				1F5D02422FC5862F0016665B /* Release */,
+				5E0000000000000000000002 /* Debug-Staging */,
+				5E0000000000000000000003 /* Release-Staging */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -682,6 +1040,8 @@
 			buildConfigurations = (
 				1F5D02442FC5862F0016665B /* Debug */,
 				1F5D02452FC5862F0016665B /* Release */,
+				5E0000000000000000000004 /* Debug-Staging */,
+				5E0000000000000000000005 /* Release-Staging */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -691,6 +1051,8 @@
 			buildConfigurations = (
 				1F5D02472FC5862F0016665B /* Debug */,
 				1F5D02482FC5862F0016665B /* Release */,
+				5E0000000000000000000006 /* Debug-Staging */,
+				5E0000000000000000000007 /* Release-Staging */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -700,6 +1062,8 @@
 			buildConfigurations = (
 				2B616D182FD2000000010001 /* Debug */,
 				2B616D192FD2000000010001 /* Release */,
+				5E0000000000000000000008 /* Debug-Staging */,
+				5E0000000000000000000009 /* Release-Staging */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

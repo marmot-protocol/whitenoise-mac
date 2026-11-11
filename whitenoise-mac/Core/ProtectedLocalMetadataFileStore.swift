@@ -79,7 +79,7 @@ nonisolated final class ProtectedLocalMetadataFileStore<Record: Codable> {
         )
         return
             base
-            .appendingPathComponent("White Noise", isDirectory: true)
+            .appendingPathComponent(AppFlavor.current.applicationSupportDirectoryName, isDirectory: true)
             .appendingPathComponent(directoryName, isDirectory: true)
     }
 

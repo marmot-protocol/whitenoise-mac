@@ -25,9 +25,11 @@ nonisolated enum MarmotProfileLink {
     /// Inbound URLs are untrusted (the scheme is not exclusive to this app), so
     /// only the exact profile form with a single resolvable `npub1`/`nprofile1`
     /// path component is accepted; query (`?from=qr`) is ignored, and every
-    /// other `marmot://` shape returns nil.
-    static func profileReference(from url: URL) -> String? {
-        guard url.scheme?.lowercased() == scheme,
+    /// other `marmot://` shape returns nil. A staging build also accepts the same
+    /// form under the `marmot-staging://` scheme it registers instead.
+    static func profileReference(from url: URL, flavor: AppFlavor = .current) -> String? {
+        guard let urlScheme = url.scheme?.lowercased(),
+            urlScheme == scheme || urlScheme == flavor.urlScheme,
             url.host?.lowercased() == profileHost
         else { return nil }
 

@@ -497,7 +497,8 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
                 attachmentAcquisitionMode: .hostManaged,
                 // White Noise's deployment keeps the keychain service existing installs
                 // already use (`com.marmot.whitenoise`); never substitute the neutral one.
-                deployment: marmotDeploymentWhiteNoise()
+                // A staging build keeps the same deployment under its own keychain service.
+                deployment: AppFlavor.current.marmotDeployment()
             )
         )
         // Installed after construction rather than through `MarmotOptions`: MDK rejects an
@@ -1859,7 +1860,7 @@ nonisolated enum MarmotAccountKeychainPurgeError: LocalizedError, Equatable {
 }
 
 nonisolated enum MarmotAccountKeychain {
-    private static let service = "com.marmot.whitenoise"
+    private static let service = AppFlavor.current.marmotKeychainService
 
     static func purgeAllAccountKeys() throws {
         let query: [String: Any] = [
@@ -1897,7 +1898,7 @@ enum MarmotStorageRootError: LocalizedError {
 }
 
 nonisolated enum MarmotStorageRoot {
-    private static let appSupportDirectoryName = "White Noise"
+    private static let appSupportDirectoryName = AppFlavor.current.applicationSupportDirectoryName
     private static let marmotDirectoryName = "Marmot"
 
     static func resolve(

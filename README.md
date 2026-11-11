@@ -32,7 +32,8 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 .
 ├── AGENTS.md                  Notes for automated agents working in this repo
 ├── Config/                    Build settings & secrets (xcconfig + Info.plist)
-│   ├── AppBuild.xcconfig       Shared Debug/Release build settings
+│   ├── AppBuild.xcconfig       Shared Debug/Release build settings (production flavor)
+│   ├── Staging.xcconfig        Staging flavor overrides (Debug-Staging / Release-Staging)
 │   ├── AppSecrets.xcconfig.example  Template for local-only secrets (gitignored copy)
 │   └── Info.plist              App bundle metadata + telemetry keys
 ├── scripts/
@@ -96,6 +97,32 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 
 3. **Select the `whitenoise-mac` scheme** and build/run (⌘R) on a "My Mac"
    destination.
+
+### Production and staging
+
+Like the iOS app, the Mac app builds in two flavors that install side by side:
+
+| | Production | Staging |
+| --- | --- | --- |
+| Scheme | `whitenoise-mac` | `whitenoise-mac (Staging)` |
+| Configurations | `Debug`, `Release` | `Debug-Staging`, `Release-Staging` |
+| App | `White Noise.app` | `White Noise Staging.app` (shown as "WN Staging", blue icon) |
+| Bundle ID | `dev.ipf.whitenoise.mac` | `dev.ipf.whitenoise.mac.staging` |
+| Application Support | `White Noise/` | `White Noise Staging/` |
+| Keychain services | `com.marmot.whitenoise`, `dev.ipf.whitenoise.media-cache` | the same with a `.staging` suffix |
+| URL scheme | `marmot` | `marmot-staging` |
+| Moderation reports | staging key in Debug, production key in Release | always the staging key |
+
+Staging shares no data with production, so it can be deleted and rebuilt from
+scratch to test flows (onboarding, sign-in, migrations) without touching your
+real account. From the command line:
+
+```sh
+just run-staging     # build Debug-Staging and launch White Noise Staging
+just reset-staging   # wipe every byte of staging data; production is untouched
+```
+
+Unit tests always run against the production flavor.
 
 > The app uses a single `Window` scene (not `WindowGroup`) intentionally — the
 > whole UI is driven by one shared `WorkspaceState`, so multi-window is

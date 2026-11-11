@@ -85,7 +85,7 @@ nonisolated struct MessageMediaDiskCacheFootprint: Equatable, Sendable {
 }
 
 nonisolated enum MessageMediaDiskCacheKeychain {
-    private static let service = "dev.ipf.whitenoise.media-cache"
+    private static let service = AppFlavor.current.mediaCacheKeychainService
     private static let account = "media-cache-v1"
     private static let keyByteCount = 32
 
@@ -319,7 +319,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
     static func directoryURL(baseURL: URL) -> URL {
         baseURL
-            .appendingPathComponent("White Noise", isDirectory: true)
+            .appendingPathComponent(AppFlavor.current.applicationSupportDirectoryName, isDirectory: true)
             .appendingPathComponent(directoryName, isDirectory: true)
             .appendingPathComponent(versionDirectoryName, isDirectory: true)
     }
