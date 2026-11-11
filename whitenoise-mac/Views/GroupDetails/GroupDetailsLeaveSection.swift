@@ -20,6 +20,15 @@ struct GroupDetailsLeaveSection: View {
     var conversationModel: ConversationViewModel?
     let disbandModel: GroupDisbandViewModel
 
+    /// The snapshot's disband state, with an End Group MDK accepted but has not projected yet.
+    private var disband: GroupDisbandState { disbandModel.reconciled(snapshot.disband) }
+
+    /// This group's End Group run is in flight. The scope's set as well as the model's flag: leaving
+    /// the chat mid-run re-creates the model, and the run it started is still going.
+    private var isEndingThisGroup: Bool {
+        disbandModel.isEnding || endingGroupIds.contains(snapshot.groupIdHex)
+    }
+
     private var isLeaving: Bool { workspace.leavingChatId == snapshot.groupIdHex }
     private var isRemoving: Bool { workspace.deletingChatId == snapshot.groupIdHex }
 
@@ -48,22 +57,22 @@ struct GroupDetailsLeaveSection: View {
 
             // Ending the group is offered to admins only, and stays on screen (disabled) when
             // members on old clients hold it back, so the footer can say who has to update.
-            if snapshot.disband.showsEndGroup {
+            if disband.showsEndGroup {
                 DetailsDestructiveRow(
-                    title: disbandModel.isEnding ? L10n.string("Ending group…") : L10n.string("End Group"),
+                    title: isEndingThisGroup ? L10n.string("Ending group…") : L10n.string("End Group"),
                     systemImage: "xmark.circle",
-                    isInProgress: disbandModel.isEnding
+                    isInProgress: isEndingThisGroup
                 ) {
                     showEndGroupConfirmation = true
                 }
                 .disabled(
-                    !snapshot.disband.canEndGroup || disbandModel.isBusy || isGroupCommitInFlight)
+                    !disband.canEndGroup || disbandModel.isBusy || isGroupCommitInFlight)
             }
 
             // Giving up your own admin rights is reversible by another admin, so it stays
             // neutral: `group_member_screen.dart` builds "remove admin role" as `outline` and
             // keeps `destructive` for removing someone from the group.
-            if snapshot.isSelfAdmin, snapshot.disband.lifecycle == .active {
+            if snapshot.isSelfAdmin, disband.lifecycle == .active {
                 Button {
                     showSelfDemoteConfirmation = true
                 } label: {
@@ -82,7 +91,9 @@ struct GroupDetailsLeaveSection: View {
             // successor picker for a sole admin who has someone to promote. The one exception is
             // an account alone in a chat it cannot leave, which this pane can see from the roster
             // and so offers the local delete outright.
-            switch snapshot.destructiveAction {
+            // Read against the reconciled state: an accepted End Group the snapshot has not
+            // caught up with already rules the leave out.
+            switch snapshot.destructiveAction(disband: disband) {
             case .leave:
                 DetailsDestructiveRow(
                     title: isLeaving
@@ -120,15 +131,18 @@ struct GroupDetailsLeaveSection: View {
             // with someone to promote is not blocked — they are one extra step from leaving, and
             // the footer says which step.
             VStack(alignment: .leading, spacing: 4) {
-                if let blocker = snapshot.disband.blockerMessage {
+                if let blocker = disband.blockerMessage {
                     SettingsFooterText(blocker)
                 }
-                if snapshot.disband.lifecycle == .ended {
+                if disband.lifecycle == .ended {
                     SettingsFooterText(L10n.string("Deletes this chat's local history from this device."))
-                } else if let guidance = snapshot.leaveGuidance {
+                } else if let guidance = snapshot.leaveGuidance(disband: disband) {
                     SettingsFooterText(guidance.message)
                 }
             }
+        }
+        .onChange(of: snapshot.disband, initial: true) { _, reported in
+            disbandModel.snapshotDidChange(reported)
         }
         .confirmationDialog(
             GroupDisbandPresentation.confirmationTitle,
@@ -140,7 +154,7 @@ struct GroupDetailsLeaveSection: View {
                 // read-back — so this surface only asks.
                 Task {
                     await disbandModel.endGroup(
-                        snapshot.disband, advisory: session.accountScope?.groupChangeAdvisory)
+                        disband, advisory: session.accountScope?.groupChangeAdvisory)
                 }
             }
             Button(L10n.string("Cancel"), role: .cancel) {}

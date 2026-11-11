@@ -67,7 +67,12 @@ extension GroupDetailsSnapshot {
     /// roster and eligibility up front, so it takes the refined form: an account alone in a chat it
     /// cannot leave is offered the local delete directly, rather than a Leave button whose only
     /// possible outcome is an explanation.
-    var destructiveAction: ChatDestructiveActions.Action? {
+    var destructiveAction: ChatDestructiveActions.Action? { destructiveAction(disband: disband) }
+
+    /// `destructiveAction` against a disband state the surface holds instead of the snapshot's
+    /// own — the inspector's, which stands in an End Group MDK accepted but has not projected yet.
+    /// An ending group offers a member nothing, so a lagging snapshot must not offer a leave.
+    func destructiveAction(disband: GroupDisbandState) -> ChatDestructiveActions.Action? {
         ChatDestructiveActions.action(
             membership: selfMembership,
             leaveRequestPending: leaveRequestPending,
@@ -118,7 +123,11 @@ extension GroupDetailsSnapshot {
     /// `.lastAdmin` blocker, so a sole admin who can still get out — by promoting someone, or by
     /// dropping the local copy of a chat nobody else is in — is told what to do rather than that
     /// they are stuck.
-    var leaveGuidance: ChatDestructiveActions.LeaveGuidance? {
+    var leaveGuidance: ChatDestructiveActions.LeaveGuidance? { leaveGuidance(disband: disband) }
+
+    /// `leaveGuidance` against a disband state the surface holds instead of the snapshot's own; see
+    /// `destructiveAction(disband:)`.
+    func leaveGuidance(disband: GroupDisbandState) -> ChatDestructiveActions.LeaveGuidance? {
         // An ending or ended group has no leave to explain: the disband covers this account too.
         guard disband.lifecycle == .active else { return nil }
         return ChatDestructiveActions.leaveGuidance(

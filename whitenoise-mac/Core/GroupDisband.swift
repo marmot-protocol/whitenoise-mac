@@ -153,6 +153,29 @@ nonisolated struct GroupDisbandState: Hashable {
         isSelfAdmin && lifecycle == .active && request == nil
     }
 
+    /// Whether this state already says a request exists — the group is past `.active`, or a
+    /// request is on record. Once it does, a request held from elsewhere has nothing left to add.
+    var reportsRequest: Bool { lifecycle != .active || request != nil }
+
+    /// This state with `accepted` — the request `disbandGroup` returned — standing in until the
+    /// group's own state reports one. MDK accepts durably before its projections catch up, so the
+    /// read-back right after the commit can still describe an active group; without this the admin
+    /// would be offered End Group again, and a second tap would earn `GroupDisbanding`.
+    func merging(request accepted: DisbandRequestFfi?) -> GroupDisbandState {
+        guard let accepted, !reportsRequest else { return self }
+        return GroupDisbandState(
+            // MDK reports failures later, through the group's state, so `disbandGroup` is not
+            // expected to return one. The type allows it, though, and a refusal ends nothing: the
+            // group stays active and shows the failure instead of claiming to be ending.
+            lifecycle: accepted.isFailure ? lifecycle : .ending,
+            isSelfAdmin: isSelfAdmin,
+            canDisband: false,
+            canEnableDisbanding: false,
+            blockerCount: blockerCount,
+            request: accepted
+        )
+    }
+
     /// Why an admin cannot end the group, when the reason is members on old clients — the one
     /// blocker the user can do something about.
     var blockerMessage: String? {

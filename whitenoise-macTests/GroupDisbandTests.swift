@@ -339,6 +339,30 @@ struct GroupDisbandTests {
         #expect(!(await model.dismissFailure()))
     }
 
+    /// The details record can learn of a failure before the management state does; dismissing it
+    /// clears every record the fake keeps, the chat-list one included.
+    @Test func aFailureOnlyOnTheDetailsRecordIsDismissedEverywhere() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        details.group.disbandRequest = .failed(requestedAtMs: 1, reason: .noLongerMember)
+        details.group.disbanding = true
+        runtime.installGroupDetails(details, managementState: Self.managementState())
+        let groupIdHex = details.group.groupIdHex
+        let model = GroupDisbandViewModel(accountRef: account.accountIdHex, groupIdHex: groupIdHex, runtime: runtime)
+
+        #expect(await model.dismissFailure())
+
+        let reloaded = try await runtime.groupDetails(accountRef: account.accountIdHex, groupIdHex: groupIdHex)
+        #expect(reloaded.group.disbandRequest == nil)
+        #expect(!reloaded.group.disbanding)
+        let listed = try #require(
+            try runtime.chatList(accountRef: account.accountIdHex, includeArchived: true)
+                .first { $0.groupIdHex == groupIdHex })
+        #expect(listed.disbandRequest == nil)
+        #expect(!listed.disbanding)
+    }
+
     /// End to end through the workspace: once the core accepts, the inspector reports the group as
     /// ending and its row closes the composer and offers nothing destructive.
     @Test func anAcceptedDisbandReachesTheInspectorAndTheRow() async throws {
@@ -399,6 +423,115 @@ struct GroupDisbandTests {
         #expect(!permissions.canEditProfile)
         #expect(!permissions.canInvite)
         #expect(!permissions.showsAdminOnlyNote)
+    }
+
+    // MARK: - An acceptance the read-back has not caught up with
+
+    /// MDK accepts durably before its projections move. If the read-back right after the commit
+    /// still describes an active group, the request `disbandGroup` returned keeps the inspector on
+    /// "ending" rather than offering End Group a second time.
+    @Test func anAcceptedRequestHoldsPendingUntilTheReadBackCatchesUp() async throws {
+        let state = Self.managementState(canDisband: true)
+        let (runtime, model) = Self.disbandableGroup(state)
+        runtime.disbandGroupUpdatesState = false
+
+        #expect(await model.endGroup(GroupDisbandState(managementState: state), advisory: nil))
+
+        let lagging = GroupDisbandState(
+            managementState: try await runtime.groupManagementState(
+                accountRef: desktopAccount().accountIdHex, groupIdHex: Self.groupIdHex))
+        // The control: on its own, the lagging read-back would offer the action again.
+        #expect(lagging.showsEndGroup)
+        #expect(lagging.status == .none)
+
+        let shown = model.reconciled(lagging)
+        #expect(model.acceptedRequest == .pending(requestedAtMs: 1_700_000_000_000))
+        #expect(!shown.showsEndGroup)
+        #expect(!shown.canEndGroup)
+        #expect(shown.status == .pending)
+        #expect(shown.lifecycle == .ending)
+
+        // A snapshot that still lags changes nothing.
+        model.snapshotDidChange(lagging)
+        #expect(model.acceptedRequest != nil)
+    }
+
+    /// The leave row and its footer read the same reconciled state as End Group: while the snapshot
+    /// still lags an accepted request, the inspector offers no leave and explains none, as it does
+    /// for any ending group.
+    @Test func aLaggingSnapshotOffersNoLeaveOnceTheRequestIsAccepted() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex),
+            managementState: Self.managementState(canDisband: true))
+        runtime.disbandGroupUpdatesState = false
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+        await workspace.showGroupDetails(for: try #require(workspace.activeChats.first))
+        let model = GroupDisbandViewModel(
+            accountRef: account.accountIdHex,
+            groupIdHex: try #require(workspace.groupDetailsSnapshot).groupIdHex,
+            runtime: runtime,
+            hooks: GroupDisbandHooks(groupDetailsDidChange: { await workspace.reloadSelectedGroupDetails() })
+        )
+
+        #expect(await model.endGroup(try #require(workspace.groupDetailsSnapshot).disband, advisory: nil))
+
+        let lagging = try #require(workspace.groupDetailsSnapshot)
+        // The control: read against its own state, the lagging snapshot still offers the leave and
+        // explains the admin handoff it needs.
+        #expect(lagging.disband.lifecycle == .active)
+        #expect(lagging.destructiveAction == .leave)
+        #expect(lagging.leaveGuidance != nil)
+
+        let shown = model.reconciled(lagging.disband)
+        #expect(shown.lifecycle == .ending)
+        #expect(lagging.destructiveAction(disband: shown) == nil)
+        #expect(lagging.leaveGuidance(disband: shown) == nil)
+    }
+
+    /// Once the group reports a request of its own, the held one is dropped — otherwise a failure
+    /// the user later dismisses would leave a stale "ending" behind.
+    @Test func theHeldRequestIsDroppedOnceTheGroupReportsOne() async {
+        let state = Self.managementState(canDisband: true)
+        let (runtime, model) = Self.disbandableGroup(state)
+        runtime.disbandGroupUpdatesState = false
+        #expect(await model.endGroup(GroupDisbandState(managementState: state), advisory: nil))
+
+        let failed = GroupDisbandState(
+            lifecycle: .ending, isSelfAdmin: true, request: .failed(requestedAtMs: 1, reason: .noLongerAdmin))
+        model.snapshotDidChange(failed)
+
+        #expect(model.acceptedRequest == nil)
+        // After the failure is dismissed the group reads active, and nothing resurrects "ending".
+        let active = GroupDisbandState(isSelfAdmin: true, canDisband: true)
+        #expect(model.reconciled(active) == active)
+        #expect(model.reconciled(active).showsEndGroup)
+    }
+
+    @Test func mergingDefersToWhatTheGroupAlreadyReports() {
+        let pending = DisbandRequestFfi.pending(requestedAtMs: 5)
+        let active = GroupDisbandState(isSelfAdmin: true, canDisband: true)
+        let failed = GroupDisbandState(
+            isSelfAdmin: true, request: .failed(requestedAtMs: 1, reason: .noLongerMember))
+        let ended = GroupDisbandState(lifecycle: .ended, isSelfAdmin: true)
+
+        #expect(active.merging(request: nil) == active)
+        #expect(failed.merging(request: pending) == failed)
+        #expect(ended.merging(request: pending) == ended)
+        #expect(active.merging(request: pending).request == pending)
+        #expect(active.merging(request: pending).lifecycle == .ending)
+        // A failed acceptance (not one MDK is expected to return) shows the failure without
+        // claiming the group is ending.
+        let refused = DisbandRequestFfi.failed(requestedAtMs: 5, reason: .noLongerAdmin)
+        #expect(active.merging(request: refused).lifecycle == .active)
+        #expect(active.merging(request: refused).request == refused)
+        #expect(!active.merging(request: refused).showsEndGroup)
+        #expect(active.merging(request: refused).status == .failed(.noLongerAdmin))
+        #expect(!active.reportsRequest)
+        #expect(failed.reportsRequest)
+        #expect(ended.reportsRequest)
     }
 
     // MARK: - Holding other commits off
