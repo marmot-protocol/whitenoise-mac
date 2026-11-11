@@ -52,10 +52,12 @@ struct whitenoise_macApp: App {
                 .task(id: workspace.activeAccountId) {
                     await synchronizeAccountScope()
                 }
-                // Keyed on the loaded account, not `activeAccountId`: launch restores the saved id
-                // before bootstrap loads the accounts and then keeps it, so a task on the id would
-                // run only while `activeAccount` is still nil and never again.
-                .task(id: workspace.activeAccount?.id) {
+                // Keyed on the messenger being on screen, not on `activeAccountId`: launch restores
+                // the saved id before bootstrap loads the accounts and then keeps it, so a task on
+                // the id would run only while nothing could be asked and never again. Waiting for
+                // the messenger also keeps the one-time system prompt off the splash screen and
+                // account setup, where a reflexive "Don't Allow" would be permanent.
+                .task(id: workspace.showsMessengerChrome ? workspace.activeAccount?.id : nil) {
                     await requestNotificationPermissionIfUndetermined()
                 }
                 .task(id: workspace.selectedChat?.id) {
@@ -121,14 +123,14 @@ struct whitenoise_macApp: App {
         session.applicationBadgeCount(hasSignedInAccounts: !workspace.signedInAccounts.isEmpty)
     }
 
-    /// Without notification permission macOS never draws the app-icon badge, so ask once an account
-    /// is signed in (see `NotificationPermissionPrompt`). Never from a UI fixture or a unit-test host:
+    /// Without notification permission macOS never draws the app-icon badge, so ask once the
+    /// messenger is showing (see `NotificationPermissionPrompt`). Never from a UI fixture or a unit-test host:
     /// both run this shell, and a system prompt would sit over the window they drive.
     @MainActor
     private func requestNotificationPermissionIfUndetermined() async {
         guard shouldBootstrapWorkspace,
             ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
-            workspace.activeAccount != nil,
+            workspace.showsMessengerChrome,
             await NotificationPermissionPrompt.requestIfUndetermined(using: workspace.localNotificationCenter) != nil
         else { return }
         dockBadge.permissionDidChange()
