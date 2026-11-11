@@ -304,7 +304,7 @@ extension ChatListDrawerView {
             ?? workspace.archivedChats
         switch filter {
         case .active:
-            chats = activeChats.filter { !$0.isNoLongerMember }
+            chats = activeChats.filter { !$0.belongsToLeft }
         case .unread:
             chats =
                 model?.chats(
@@ -312,7 +312,7 @@ extension ChatListDrawerView {
                     nicknames: workspace.activeContactNicknames,
                     mentionNames: workspace.cachedMentionNames(groupIdHex:)
                 )
-                ?? activeChats.filter { $0.hasUnread && !$0.isNoLongerMember }
+                ?? activeChats.filter { $0.hasUnread && !$0.belongsToLeft }
         case .archived:
             chats = archivedChats
         case .left:
@@ -322,7 +322,7 @@ extension ChatListDrawerView {
                     nicknames: workspace.activeContactNicknames,
                     mentionNames: workspace.cachedMentionNames(groupIdHex:)
                 )
-                ?? (activeChats + archivedChats).filter(\.isNoLongerMember)
+                ?? (activeChats + archivedChats).filter(\.belongsToLeft)
         }
         let archivedIds: Set<String>
         switch filter {

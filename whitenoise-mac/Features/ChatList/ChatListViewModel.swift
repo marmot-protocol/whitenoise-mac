@@ -123,13 +123,13 @@ final class ChatListViewModel {
             .filter { chat in
                 switch view {
                 case .chats:
-                    !chat.isNoLongerMember
+                    !chat.belongsToLeft
                 case .unread:
-                    !chat.isNoLongerMember && chat.hasUnread
+                    !chat.belongsToLeft && chat.hasUnread
                 case .archived:
                     true
                 case .left:
-                    chat.isNoLongerMember
+                    chat.belongsToLeft
                 }
             }
     }

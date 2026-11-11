@@ -214,6 +214,12 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// True when the local account left or was removed from this group.
     var isNoLongerMember: Bool { selfMembership != .member }
 
+    /// True when the chat is filed under the sidebar's Left filter instead of Chats and Unread: the
+    /// account left or was removed, or the group is ending or has ended. A disband closes the group
+    /// for everyone, members included, so a still-a-member row of an ended group is just as done as
+    /// a departed one. Matches the iOS client's `belongsToLeft`.
+    var belongsToLeft: Bool { isNoLongerMember || !lifecycle.allowsMessaging }
+
     /// True when the local account can use the outbound composer for this chat.
     var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember && lifecycle.allowsMessaging }
 

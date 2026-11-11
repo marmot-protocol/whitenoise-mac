@@ -74,7 +74,8 @@ extension WorkspaceState {
     func rememberedChat(forAccount account: AccountItem) -> ChatItem? {
         guard let groupIdHex = rememberedChatId(forAccount: account),
             let chat = chatItem(accountId: account.id, chatId: groupIdHex),
-            !chat.isNoLongerMember,
+            // An ended chat sits in the Left drawer, and every switch lands on the active filter.
+            !chat.belongsToLeft,
             // Archiving hides the row, and every switch resets the sidebar to the active filter, so
             // reopening an archived conversation would show a transcript with no row beside it. The
             // memory survives archiving; it just stops being restored while the chat is filed away.

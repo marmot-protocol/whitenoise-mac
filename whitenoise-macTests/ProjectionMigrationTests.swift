@@ -1614,6 +1614,73 @@ struct ProjectionMigrationTests {
         model.stop()
     }
 
+    /// A disband ends the group for every member at once, so an ended (or ending) group the
+    /// account is still a member of files under Left beside the departed ones, as on iOS.
+    @Test func preparedChatViewsFileDisbandedGroupsUnderLeft() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let active = Self.presentedChatRow(
+            chatListRow(
+                groupIdHex: "active",
+                title: "Active",
+                preview: "hello",
+                sender: "peer",
+                timelineAt: 4,
+                unreadCount: 1,
+                hasUnread: true
+            ))
+        let disbanded = Self.presentedChatRow(
+            chatListRow(
+                groupIdHex: "disbanded",
+                title: "Disbanded",
+                preview: "history",
+                sender: "peer",
+                timelineAt: 3,
+                unreadCount: 1,
+                hasUnread: true,
+                lifecycleState: .disbanded
+            ))
+        let disbanding = Self.presentedChatRow(
+            chatListRow(
+                groupIdHex: "disbanding",
+                title: "Disbanding",
+                preview: "history",
+                sender: "peer",
+                timelineAt: 2,
+                disbanding: true
+            ))
+        let archivedDisbanded = Self.presentedChatRow(
+            chatListRow(
+                groupIdHex: "archived-disbanded",
+                title: "Archived disbanded",
+                preview: "history",
+                sender: "peer",
+                timelineAt: 1,
+                archived: true,
+                lifecycleState: .disbanded
+            ))
+        runtime.presentedChatListSnapshot = PresentedChatListSnapshotFfi(
+            rows: [active, disbanded, disbanding, archivedDisbanded],
+            presentationVersion: PresentationVersionFfi(
+                accountStoreEpoch: Data(repeating: 1, count: 16),
+                revision: 1
+            )
+        )
+        let model = ChatListViewModel(account: AccountItem.samples[0], runtime: runtime)
+
+        model.start()
+        for _ in 0..<100 where model.presentedRows.count != 4 {
+            await Task.yield()
+        }
+
+        #expect(model.chats(view: .chats, nicknames: .none).map(\.id) == ["active"])
+        #expect(model.chats(view: .unread, nicknames: .none).map(\.id) == ["active"])
+        #expect(
+            model.chats(view: .left, nicknames: .none).map(\.id)
+                == ["disbanded", "disbanding", "archived-disbanded"])
+        #expect(model.chats(view: .archived, nicknames: .none).map(\.id) == ["archived-disbanded"])
+        model.stop()
+    }
+
     @Test func boundedChatWindowOwnsVisibleInboxAndPagesBySequence() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         let complete = Self.presentedChatRow(
