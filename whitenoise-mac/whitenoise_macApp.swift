@@ -98,7 +98,12 @@ struct whitenoise_macApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appSettings) {
-                SettingsCommandButton(isEnabled: workspace.activeAccount != nil) {
+                // The same condition the shell shows the messenger under: during onboarding (Add
+                // Profile) an account is still active, but selecting Settings would not show it.
+                SettingsCommandButton(
+                    isEnabled: workspace.phase == .ready && workspace.activeAccount != nil,
+                    locale: workspace.preferredLocale
+                ) {
                     workspace.showSettings()
                 }
             }
