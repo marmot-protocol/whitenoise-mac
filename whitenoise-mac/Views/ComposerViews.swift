@@ -1861,6 +1861,8 @@ struct ConversationHeader: View {
     @Environment(\.endingGroupIds) private var endingGroupIds
     let chat: ChatItem
     var recoveryStatus: AccountRecoveryStatusViewModel?
+    /// Opens search within this conversation (⌘F); nil hides the control.
+    var onSearch: (() -> Void)?
 
     /// Under the chat title: "Catching up" while MDK is still fetching this chat's history,
     /// otherwise the disappearing-message timer as a bare clock icon + duration (no "Disappearing
@@ -1937,6 +1939,21 @@ struct ConversationHeader: View {
                 .help(L10n.string("Chat info"))
 
                 Spacer()
+
+                if let onSearch {
+                    Button(action: onSearch) {
+                        Image(systemName: "magnifyingglass")
+                            .wnFont(.semiBold16)
+                            .frame(width: 34, height: 34)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("f", modifiers: .command)
+                    .help(L10n.string("Search messages"))
+                    .accessibilityIdentifier("conversation.search.open")
+                }
 
                 // Changing the group image is a send (commit) under the hood, which the
                 // core rejects until the invite is accepted, or once the local account is

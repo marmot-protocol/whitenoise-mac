@@ -65,6 +65,8 @@ final class ConversationViewModel {
     let emojiSets: EmojiSetLibrary?
     /// Sends custom emoji messages and reactions into this chat.
     let customEmojiSender: ConversationCustomEmojiSender
+    /// Search within this conversation's history; ends when the conversation goes away.
+    let search: ConversationSearchViewModel
     private(set) var snapshot: ConversationWindowSnapshotFfi?
     private(set) var pendingSends: [String: PendingDurableSend] = [:]
     private(set) var isLoading = false
@@ -139,6 +141,11 @@ final class ConversationViewModel {
         self.customEmojiImages = customEmojiImages
         self.customEmojiSender = ConversationCustomEmojiSender(
             accountRef: account.accountRef, groupIdHex: groupIdHex, runtime: runtime, images: customEmojiImages)
+        self.search = ConversationSearchViewModel(
+            runtime: runtime,
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex
+        )
     }
 
     /// What the pickers and composer can send here: the built-ins, the account's installed set
@@ -193,6 +200,7 @@ final class ConversationViewModel {
         reactionDetails = nil
         customEmojiImages.cancelAll()
         customEmojiSender.stop()
+        search.end()
     }
 
     /// Ends the window subscription only, so `start` can reopen it without restarting emoji loads.
@@ -295,19 +303,33 @@ final class ConversationViewModel {
         }
     }
 
+    /// Moves the window to a message. A stale reply (an arrival replaced the window meanwhile,
+    /// likeliest while searching a busy chat) is retried once from the current snapshot, as
+    /// `returnToLatest` does.
     func jump(to messageIdHex: String) async {
-        guard let subscription, let revision = snapshot?.revision else { return }
-        do {
-            await install(
-                try await subscription.jumpToMessage(
-                    revision: revision,
-                    messageIdHex: messageIdHex,
-                    timeoutMs: 0
-                ))
-        } catch is CancellationError {
-            return
-        } catch {
-            self.error = .unavailable(UserFacingError.message(for: error))
+        guard let subscription else { return }
+        var remainingStaleRetries = 1
+        while let revision = snapshot?.revision {
+            do {
+                await install(
+                    try await subscription.jumpToMessage(
+                        revision: revision,
+                        messageIdHex: messageIdHex,
+                        timeoutMs: 0
+                    ))
+                return
+            } catch is CancellationError {
+                return
+            } catch MarmotKitError.ConversationWindowStale {
+                guard remainingStaleRetries > 0 else {
+                    self.error = .staleWindow
+                    return
+                }
+                remainingStaleRetries -= 1
+            } catch {
+                self.error = .unavailable(UserFacingError.message(for: error))
+                return
+            }
         }
     }
 
