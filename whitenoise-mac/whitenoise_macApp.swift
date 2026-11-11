@@ -16,6 +16,8 @@ struct whitenoise_macApp: App {
     @State private var dockBadge = DockBadgeController()
     private let shouldBootstrapWorkspace: Bool
 
+    static let mainWindowID = "main"
+
     init() {
         let configuration = AppLaunchConfiguration.current
         _workspace = State(initialValue: configuration.makeWorkspace())
@@ -31,7 +33,7 @@ struct whitenoise_macApp: App {
         // workspace — it would be a live mirror that fights the first over the same mutable
         // state. `Window` also removes the automatic File ▸ New Window (⌘N) command and
         // multi-window restoration that `WindowGroup` provides. See issue #46.
-        Window("White Noise", id: "main") {
+        Window("White Noise", id: Self.mainWindowID) {
             ContentView()
                 .environment(workspace)
                 .environment(session)
@@ -89,6 +91,11 @@ struct whitenoise_macApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                SettingsCommandButton(isEnabled: workspace.activeAccount != nil) {
+                    workspace.showSettings()
+                }
+            }
             CommandMenu("Navigate") {
                 Button(L10n.string("Search All Messages…")) {
                     workspace.presentGlobalMessageSearch()
