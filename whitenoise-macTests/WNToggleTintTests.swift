@@ -87,14 +87,17 @@ import Testing
     /// without the named style a `WNToggle` would silently change shape depending on what happened
     /// to enclose it. The bare control is asserted alongside so this records the actual default
     /// rather than assuming it.
+    ///
+    /// The bare control is checked as "not a switch" rather than "is a checkbox" because only the
+    /// switch is guaranteed an AppKit view to find. Up to macOS 26 SwiftUI backed a checkbox with
+    /// an `NSButton`; macOS 27 draws it natively, leaving nothing but a focus-ring view under the
+    /// host — the same tree an explicit `.checkbox` produces.
     @Test func theComponentIsASwitchEvenOutsideAForm() throws {
         let component = try #require(Self.platformView(of: WNToggle("Audit Logging", isOn: .constant(true))))
-        let bare = try #require(Self.platformView(of: Toggle("Audit Logging", isOn: .constant(true))))
+        let bare = Self.platformView(of: Toggle("Audit Logging", isOn: .constant(true)))
 
-        #expect(String(describing: type(of: component)).contains("Switch"))
-        #expect(
-            String(describing: type(of: bare)).contains("Checkbox")
-                || String(describing: type(of: bare)).contains("Button"))
+        #expect(component is NSSwitch)
+        #expect(!(bare is NSSwitch))
     }
 
     // MARK: - Helpers
@@ -120,7 +123,8 @@ import Testing
     }
 
     /// The AppKit view SwiftUI backs the toggle with — a `PlatformSwitch` for a switch, a button
-    /// for a checkbox. `labelsHidden` so the control is the whole frame and the walk cannot land
+    /// for a checkbox before macOS 27 (which draws checkboxes natively, so this returns `nil` for
+    /// one). `labelsHidden` so the control is the whole frame and the walk cannot land
     /// on the label's own backing view.
     private static func platformView(
         of content: some View,

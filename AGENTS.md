@@ -226,21 +226,28 @@ build.
   object, and `FakeMarmotRuntime` in the tests mirrors it. **Adding an FFI method
   means updating all three.**
 - Projection subscriptions are owned below `Session/AccountScope.swift` and use
-  cancellation-aware `nextCancellable()` bridges. Prepared chat rows, account
+  cancellation-aware `nextCancellable()` bridges. Since 0.16.0 MarmotKit generates five of them
+  (chat list, chat-list window, account attention, conversation window, block list); the
+  vendored `CancellableProjectionNext.swift` keeps only the ones it does not, and each must be
+  deleted there when the generated source starts declaring it. Prepared chat rows, account
   attention, conversation windows, transfer snapshots, block lists, and
   onboarding snapshots are complete replacements; do not merge them with an
   older snapshot or restart per-row enrichment.
 - MarmotKit 0.10.4 upgrades account databases through migrations 57–89, 0.11.0
   through 90–98, 0.12.0 through 99–101, 0.13.0 through 102–107, 0.14.0 through 108–116
   (plus the directory cache from schema 1 to 2), and 0.15.0 through 117–153, 160–180, 200 and 201
-  (schema 116 → 201). An older app must not
+  (schema 116 → 201). 0.16.0 leaves account databases alone but moves `shared.sqlite3` from
+  schema 3 to 4, which 0.15.0 refuses. An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every
   database once to a raw SQLCipher key, which 0.13.0 cannot open at all, so the only way back is a
   copy of the account directory taken before the upgrade; see
   `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md`,
-  `docs/MarmotKit-0.12.0-migration.md`, `docs/MarmotKit-0.14.0-migration.md` and
-  `docs/MarmotKit-0.15.0-migration.md`.
+  `docs/MarmotKit-0.12.0-migration.md`, `docs/MarmotKit-0.14.0-migration.md`,
+  `docs/MarmotKit-0.15.0-migration.md` and `docs/MarmotKit-0.16.0-migration.md`.
+- Start a direct chat with `startDirectConversation` (both accounts founding admins, retry-safe),
+  not `createGroup` plus a promotion. The one exception is an explicitly requested *additional*
+  direct chat with someone, which that call would answer with the existing one.
 - 0.11.0 hosts must surface and let the user dismiss "history may be incomplete"
   notices: a parked loss keeps the account's transport cursor fenced until dismissed.
   `HistoryNoticesViewModel` on `AccountScope` owns this, re-reading on the runtime's

@@ -14110,6 +14110,66 @@
         }
       }
     },
+    "Quit and reopen White Noise to restore this group." : {
+      "comment" : "Shown instead of a Retry button for a quarantined group that only the next account open can restore.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beende White Noise und öffne die App erneut, um diese Gruppe wiederherzustellen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cierra White Noise y vuelve a abrirla para restaurar este grupo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quittez White Noise et rouvrez-la pour restaurer ce groupe."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiudi White Noise e riaprila per ripristinare questo gruppo."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feche o White Noise e abra-o novamente para restaurar este grupo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закройте White Noise и откройте приложение снова, чтобы восстановить эту группу."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu grubu geri yüklemek için White Noise’tan çıkıp yeniden aç."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出并重新打开 White Noise 以恢复此群组。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "結束並重新開啟 White Noise 以復原此群組。"
+          }
+        }
+      }
+    },
     "Read" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14714,6 +14774,66 @@
         }
       }
     },
+    "Review and approve your signer's permissions, then try again." : {
+      "comment" : "NIP-46 error: the remote signer session needs its permission set approved first.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfe und genehmige die Berechtigungen deines Signierers und versuche es dann erneut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revisa y aprueba los permisos de tu firmante e inténtalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifiez et approuvez les autorisations de votre signataire, puis réessayez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controlla e approva le autorizzazioni del firmatario, poi riprova."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revise e aprove as permissões do seu assinador e tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверьте и одобрите разрешения средства подписи, затем повторите попытку."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İmzalayıcının izinlerini gözden geçirip onayla, ardından tekrar dene."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请查看并批准你的签名器的权限，然后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請檢查並核准你的簽署器的權限，然後再試一次。"
+          }
+        }
+      }
+    },
     "Review Changes" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14946,6 +15066,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "檢查你的中繼變更"
+          }
+        }
+      }
+    },
+    "Rewind restore failed" : {
+      "comment" : "A quarantine reason when Marmot could not restore a group's live state after reading its past state.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiederherstellung nach Zurückspulen fehlgeschlagen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falló la restauración tras el rebobinado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Échec de la restauration après retour en arrière"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ripristino dopo il riavvolgimento non riuscito"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao restaurar após retrocesso"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось восстановить состояние после отката"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geri sarma sonrası geri yükleme başarısız"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回退后恢复失败"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "倒回後復原失敗"
           }
         }
       }
@@ -17487,6 +17667,66 @@
         }
       }
     },
+    "Something went wrong with your signer. Please try again." : {
+      "comment" : "NIP-46 error with no user-correctable cause.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bei deinem Signierer ist ein Fehler aufgetreten. Bitte versuche es erneut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algo salió mal con tu firmante. Inténtalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un problème est survenu avec votre signataire. Veuillez réessayer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si è verificato un problema con il firmatario. Riprova."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algo deu errado com seu assinador. Tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Со средством подписи что-то пошло не так. Повторите попытку."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İmzalayıcında bir sorun oluştu. Lütfen tekrar dene."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的签名器出了问题。请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的簽署器發生問題。請再試一次。"
+          }
+        }
+      }
+    },
     "Step Down and Decline" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -18750,6 +18990,66 @@
         }
       }
     },
+    "The invitation is too large for this person's inbox relays, so it wasn't sent. Try inviting fewer people at once." : {
+      "comment" : "Error when every inbox relay of an invitee refuses the invitation for size; nothing was created or sent.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Einladung ist zu groß für die Posteingangs-Relays dieser Person und wurde daher nicht gesendet. Lade weniger Personen auf einmal ein."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La invitación es demasiado grande para los relés de bandeja de entrada de esta persona, así que no se envió. Invita a menos personas a la vez."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’invitation est trop volumineuse pour les relais de réception de cette personne, elle n’a donc pas été envoyée. Invitez moins de personnes à la fois."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’invito è troppo grande per i relay di posta in arrivo di questa persona, quindi non è stato inviato. Invita meno persone alla volta."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O convite é grande demais para os relays de entrada desta pessoa, então não foi enviado. Convide menos pessoas de cada vez."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Приглашение слишком большое для входящих релеев этого человека, поэтому оно не отправлено. Пригласите меньше людей за раз."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Davet, bu kişinin gelen kutusu röleleri için çok büyük olduğundan gönderilmedi. Aynı anda daha az kişi davet edin."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "邀请对于此人的收件中继来说过大，因此未发送。请一次邀请更少的人。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "邀請對於此人的收件中繼來說過大，因此未傳送。請一次邀請更少的人。"
+          }
+        }
+      }
+    },
     "The message you're replying to is unavailable." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -19647,126 +19947,6 @@
         }
       }
     },
-    "This chat's relays refused the invitation because it's too large. Try inviting fewer people at once." : {
-      "comment" : "Error when relays rejected an oversized invitation.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Relays dieses Chats haben die Einladung abgelehnt, weil sie zu groß ist. Lade weniger Personen auf einmal ein."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los relés de este chat rechazaron la invitación porque es demasiado grande. Invita a menos personas a la vez."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les relais de cette discussion ont refusé l’invitation, car elle est trop volumineuse. Invitez moins de personnes à la fois."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "I relay di questa chat hanno rifiutato l’invito perché è troppo grande. Invita meno persone alla volta."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Os relays desta conversa recusaram o convite porque ele é grande demais. Convide menos pessoas de cada vez."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Релеи этого чата отклонили приглашение, потому что оно слишком большое. Пригласите меньше людей за раз."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu sohbetin röleleri daveti çok büyük olduğu için reddetti. Aynı anda daha az kişi davet edin."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此聊天的中继因邀请过大而拒绝了它。请一次邀请更少的人。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此聊天的中繼因邀請過大而拒絕了它。請一次邀請更少的人。"
-          }
-        }
-      }
-    },
-    "This chat's relays refused this group change because it's too large." : {
-      "comment" : "Error when relays rejected an oversized group change.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Relays dieses Chats haben diese Gruppenänderung abgelehnt, weil sie zu groß ist."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los relés de este chat rechazaron este cambio en el grupo porque es demasiado grande."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les relais de cette discussion ont refusé cette modification du groupe, car elle est trop volumineuse."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "I relay di questa chat hanno rifiutato questa modifica del gruppo perché è troppo grande."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Os relays desta conversa recusaram esta alteração do grupo porque ela é grande demais."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Релеи этого чата отклонили это изменение группы, потому что оно слишком большое."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu sohbetin röleleri bu grup değişikliğini çok büyük olduğu için reddetti."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此聊天的中继因群组更改过大而拒绝了它。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此聊天的中繼因群組變更過大而拒絕了它。"
-          }
-        }
-      }
-    },
     "This chat's relays refused this message because it's too large. Shorten it or send fewer attachments." : {
       "comment" : "Error when relays rejected an oversized message.",
       "extractionState" : "manual",
@@ -19823,66 +20003,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此聊天的中繼因訊息過大而拒絕了它。請縮短內容或減少附件。"
-          }
-        }
-      }
-    },
-    "This chat's relays refused this update because it's too large." : {
-      "comment" : "Error when relays rejected some other oversized event.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Relays dieses Chats haben diese Aktualisierung abgelehnt, weil sie zu groß ist."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los relés de este chat rechazaron esta actualización porque es demasiado grande."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les relais de cette discussion ont refusé cette mise à jour, car elle est trop volumineuse."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "I relay di questa chat hanno rifiutato questo aggiornamento perché è troppo grande."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Os relays desta conversa recusaram esta atualização porque ela é grande demais."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Релеи этого чата отклонили это обновление, потому что оно слишком большое."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu sohbetin röleleri bu güncellemeyi çok büyük olduğu için reddetti."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此聊天的中继因更新过大而拒绝了它。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此聊天的中繼因更新過大而拒絕了它。"
           }
         }
       }
@@ -20425,6 +20545,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此群組暫時無法使用多台裝置。"
+          }
+        }
+      }
+    },
+    "This group change is too large for this chat's relays, so it wasn't made." : {
+      "comment" : "Error when a group change is too large for every relay of the chat; nothing was sent.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Gruppenänderung ist zu groß für die Relays dieses Chats und wurde daher nicht vorgenommen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este cambio en el grupo es demasiado grande para los relés de este chat, así que no se realizó."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette modification du groupe est trop volumineuse pour les relais de cette discussion, elle n’a donc pas été effectuée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa modifica del gruppo è troppo grande per i relay di questa chat, quindi non è stata applicata."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta alteração do grupo é grande demais para os relays desta conversa, então não foi feita."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это изменение группы слишком большое для релеев этого чата, поэтому оно не выполнено."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu grup değişikliği bu sohbetin röleleri için çok büyük olduğundan yapılmadı."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此群组更改对于此聊天的中继来说过大，因此未执行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此群組變更對於此聊天的中繼來說過大，因此未執行。"
           }
         }
       }
@@ -24470,6 +24650,126 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你將不會看到此人的訊息。「封鎖並檢舉」還會通知 White Noise 團隊。"
+          }
+        }
+      }
+    },
+    "Your relays refused this update because it's too large. Nothing was changed." : {
+      "comment" : "Error when an account-level publish (profile, follow list, relay list, block list, key package, stickers) is too large for every relay.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Relays haben diese Aktualisierung abgelehnt, weil sie zu groß ist. Es wurde nichts geändert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus relés rechazaron esta actualización porque es demasiado grande. No se cambió nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos relais ont refusé cette mise à jour, car elle est trop volumineuse. Rien n’a été modifié."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I tuoi relay hanno rifiutato questo aggiornamento perché è troppo grande. Non è stato modificato nulla."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seus relays recusaram esta atualização porque ela é grande demais. Nada foi alterado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваши релеи отклонили это обновление, потому что оно слишком большое. Ничего не изменено."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rölelerin bu güncellemeyi çok büyük olduğu için reddetti. Hiçbir şey değişmedi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的中继因更新过大而拒绝了它。未做任何更改。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的中繼因更新過大而拒絕了它。未做任何變更。"
+          }
+        }
+      }
+    },
+    "Your signer signed this account out. Connect it again to continue." : {
+      "comment" : "NIP-46 error: the remote signer logged this account out.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Signierer hat dieses Konto abgemeldet. Verbinde ihn erneut, um fortzufahren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu firmante cerró la sesión de esta cuenta. Vuelve a conectarlo para continuar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre signataire a déconnecté ce compte. Reconnectez-le pour continuer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il firmatario ha disconnesso questo account. Ricollegalo per continuare."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seu assinador desconectou esta conta. Conecte-o novamente para continuar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Средство подписи вышло из этой учётной записи. Подключите его снова, чтобы продолжить."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İmzalayıcın bu hesabın oturumunu kapattı. Devam etmek için onu yeniden bağla."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的签名器已将此账户退出登录。请重新连接以继续。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的簽署器已將此帳號登出。請重新連線以繼續。"
           }
         }
       }

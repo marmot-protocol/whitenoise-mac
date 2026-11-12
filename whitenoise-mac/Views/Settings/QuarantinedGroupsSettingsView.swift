@@ -61,21 +61,27 @@ private struct QuarantinedGroupSettingsRow: View {
             Label(QuarantinedGroupReason.title(group.reason), systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
 
-            Button(action: onRetry) {
-                SettingsBusyLabel(
-                    title: L10n.string("Retry Recovery"),
-                    systemImage: "arrow.clockwise",
-                    isBusy: isRetrying
-                )
+            if QuarantinedGroupReason.canRetry(group.reason) {
+                Button(action: onRetry) {
+                    SettingsBusyLabel(
+                        title: L10n.string("Retry Recovery"),
+                        systemImage: "arrow.clockwise",
+                        isBusy: isRetrying
+                    )
+                }
+                .buttonStyle(.wnSecondary)
+                .disabled(isRetrying)
+            } else {
+                Text(L10n.string("Quit and reopen White Noise to restore this group."))
+                    .font(.callout)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
-            .buttonStyle(.wnSecondary)
-            .disabled(isRetrying)
         }
         .padding(.vertical, 4)
     }
 }
 
-private nonisolated enum QuarantinedGroupReason {
+nonisolated enum QuarantinedGroupReason {
     static func title(_ reason: AppGroupHydrationQuarantineReasonFfi) -> String {
         switch reason {
         case .openMlsLoadFailed: L10n.string("OpenMLS load failed")
@@ -83,7 +89,15 @@ private nonisolated enum QuarantinedGroupReason {
         case .memberValidationFailed: L10n.string("Member validation failed")
         case .groupRecordLoadFailed: L10n.string("Group record load failed")
         case .pendingCommitRecoveryFailed: L10n.string("Pending commit recovery failed")
+        case .rewindRestoreFailed: L10n.string("Rewind restore failed")
         }
+    }
+
+    /// MarmotKit 0.16.0: a group whose rewind could not be restored is retried only by the next
+    /// account open. `retryHydrateQuarantinedGroup` always answers `false` for it, so a Retry
+    /// button would do nothing.
+    static func canRetry(_ reason: AppGroupHydrationQuarantineReasonFfi) -> Bool {
+        reason != .rewindRestoreFailed
     }
 }
 

@@ -709,24 +709,41 @@ extension WorkspaceState {
         let accountId = activeAccount.id
         do {
             let memberRef = recipient.inviteRef
-            let groupIdHex = try await client.createGroup(
-                accountRef: activeAccount.accountRef,
-                name: "",
-                memberRefs: [memberRef],
-                description: nil
-            )
-            // Both people in a direct chat are its admins, so either can add someone or manage
-            // roles. MDK founds a group with its creator as the only admin and takes no admin list
-            // at creation, so the peer is promoted straight after. Best effort: the chat works
-            // without it and the creator can still make them an admin from chat info, so a
-            // refusal does not turn a created chat into a failed one.
-            _ = try? await client.promoteAdminDetailed(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: groupIdHex,
-                memberRef: memberRef
-            )
+            let groupIdHex: String
+            if reusingExisting {
+                // MDK reuses its canonical direct chat with this peer or founds one with both
+                // accounts as admins, in one step on the account worker. A retry after a timeout
+                // or cancellation lands on the same group rather than creating a duplicate.
+                groupIdHex = try await client.startDirectConversation(
+                    accountRef: activeAccount.accountRef,
+                    peerAccountId: memberRef
+                )
+            } else {
+                // The user asked for another chat beside the existing one, which
+                // `startDirectConversation` would hand back, so this one is created directly.
+                groupIdHex = try await client.createGroup(
+                    accountRef: activeAccount.accountRef,
+                    name: "",
+                    memberRefs: [memberRef],
+                    description: nil
+                )
+                // Both people in a direct chat are its admins. `createGroup` founds a group with
+                // its creator as the only admin, so the peer is promoted straight after. Best
+                // effort: the chat works without it and the creator can still make them an admin
+                // from chat info, so a refusal does not turn a created chat into a failed one.
+                _ = try? await client.promoteAdminDetailed(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex,
+                    memberRef: memberRef
+                )
+            }
             await reloadChats(forceFreshSnapshot: true)
             guard activeAccountId == accountId else { return }
+            // `startDirectConversation` may answer with an archived chat the lookup above did not
+            // match to this peer. It comes back into the chat list first, as that path does.
+            if let archived = archivedChatItem(accountId: accountId, chatId: groupIdHex) {
+                guard await setChatArchived(archived, archived: false), activeAccountId == accountId else { return }
+            }
             insertCreatedChatIfNeeded(
                 groupIdHex: groupIdHex,
                 title: recipient.title,

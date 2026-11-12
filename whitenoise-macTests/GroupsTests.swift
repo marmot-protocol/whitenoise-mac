@@ -5149,10 +5149,10 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.visibleStartChatInvitePrompt?.accountIdHex == Self.bobAccountIdHex)
     }
 
-    /// Both people in a direct chat are its admins. MDK founds the chat with only its creator as
-    /// admin, so the creator promotes the peer straight after creating it.
+    /// Both people in a direct chat are its admins. Since MarmotKit 0.16.0 MDK founds the chat
+    /// that way itself through `startDirectConversation`, so no separate promotion follows.
     @MainActor
-    @Test func startingADirectChatMakesThePeerAnAdminToo() async throws {
+    @Test func startingADirectChatGoesThroughStartDirectConversation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(clientFactory: { runtime })
@@ -5161,6 +5161,48 @@ struct GroupsTests: WorkspaceTestSupport {
         state.showNewChat()
         await state.startDirectChat(with: Self.bobDraftRecipient())
 
+        #expect(runtime.startDirectConversationPeers == ["npub1p0p"])
+        #expect(runtime.promoteAdminDetailedCallCount == 0)
+        #expect(state.selection == .chat("created-group"))
+    }
+
+    /// `startDirectConversation` can hand back an archived direct chat the app had not matched to
+    /// this peer itself (its peer id not filled in yet, or not loaded). It comes back into the chat
+    /// list before it is opened, as the app's own reuse path does, or it opens off the sidebar.
+    @MainActor
+    @Test func aReusedArchivedDirectChatIsUnarchivedBeforeItOpens() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        _ = try await runtime.setGroupArchived(accountRef: account.label, groupIdHex: "group", archived: true)
+        runtime.startDirectConversationReusedGroupId = "group"
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.archivedChats.map(\.id) == ["group"])
+        #expect(state.existingDirectChat(peerAccountIdHex: Self.bobAccountIdHex) == nil)
+
+        state.showNewChat()
+        await state.startDirectChat(with: Self.bobDraftRecipient())
+
+        #expect(runtime.archivedGroup == ArchivedGroup(groupIdHex: "group", archived: false))
+        #expect(state.archivedChats.isEmpty)
+        #expect(state.selection == .chat("group"))
+    }
+
+    /// The chooser's "Start new conversation" must not be handed the existing chat back, so it
+    /// creates the group itself and promotes the peer the way MDK's direct-chat call would.
+    @MainActor
+    @Test func startingAnAdditionalDirectChatStillMakesThePeerAnAdmin() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        await state.startDirectChat(with: Self.bobDraftRecipient(), reusingExisting: false)
+
+        #expect(runtime.startDirectConversationPeers.isEmpty)
         #expect(runtime.createdGroupMemberRefs == ["npub1p0p"])
         #expect(runtime.promoteAdminDetailedCallCount == 1)
         #expect(runtime.promotedAdminRef == "npub1p0p")
@@ -5399,7 +5441,7 @@ struct GroupsTests: WorkspaceTestSupport {
 
         await state.bootstrap()
         state.showNewChat()
-        await state.startDirectChat(with: Self.bobDraftRecipient())
+        await state.startDirectChat(with: Self.bobDraftRecipient(), reusingExisting: false)
 
         #expect(runtime.promoteAdminDetailedCallCount == 1)
         #expect(state.selection == .chat("created-group"))

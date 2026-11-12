@@ -11,13 +11,15 @@ struct RefusedIntentNoticesTests: WorkspaceTestSupport {
 
     private static func refused(
         account: AccountItem? = nil, intentId: String = "intent-1", kind: String = "invite",
-        reason: String = "not_group_admin"
+        reason: String = "not_group_admin", artifact: OversizedArtifactFfi? = nil,
+        sizeClass: EventSizeClassFfi? = nil
     ) -> MarmotEventFfi {
         .groupEvent(
             accountIdHex: (account ?? Self.account).accountIdHex,
             accountLabel: "jeff",
             groupIdHex: "group",
-            event: .queuedIntentRefused(intentIdHex: intentId, intentKind: kind, reason: reason)
+            event: .queuedIntentRefused(
+                intentIdHex: intentId, intentKind: kind, reason: reason, artifact: artifact, sizeClass: sizeClass)
         )
     }
 
@@ -65,5 +67,24 @@ struct RefusedIntentNoticesTests: WorkspaceTestSupport {
         #expect(
             RefusedIntentPresentation.message(reason: "something_new")
                 != RefusedIntentPresentation.message(reason: "not_a_member"))
+    }
+
+    /// MarmotKit 0.16.0: a change no relay would take for size is retired once, naming the
+    /// artifact. A Welcome refused by the invitee's inbox relays reads differently from a commit.
+    @Test func anOversizedRefusalNamesWhatWasTooLarge() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = RefusedIntentNoticesViewModel(accountIdHex: Self.account.accountIdHex, runtime: runtime)
+        model.start()
+        defer { model.stop() }
+
+        runtime.eventHub.emit(
+            Self.refused(reason: "event_too_large", artifact: .welcome, sizeClass: .from64To128Kib))
+        await Self.waitUntil { model.notice != nil }
+
+        let welcome = RefusedIntentPresentation.message(reason: "event_too_large", artifact: .welcome)
+        let commit = RefusedIntentPresentation.message(reason: "event_too_large", artifact: .commit)
+        #expect(model.notice?.message == welcome)
+        #expect(welcome != commit)
+        #expect(commit != RefusedIntentPresentation.message(reason: "something_new"))
     }
 }
