@@ -75,6 +75,9 @@ struct DeveloperModeSettingsView: View {
             AuditDeliveryStatusSection(model: model.delivery)
 
         }
+        // Delivery figures come from the same coordinated load Privacy & Security uses, so a read
+        // here never overlaps an upload or a clear.
+        .task { await model.load() }
     }
 }
 
@@ -89,21 +92,15 @@ struct AuditDeliveryStatusSection: View {
             footer: L10n.string(
                 "Read from this Mac's delivery records. Upload Now on Privacy & Security resumes a paused account.")
         ) {
-            Button {
-                Task { await model.load() }
-            } label: {
-                Label(L10n.string("Refresh"), systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.wnSecondary)
-
-            // After a failed read the error below says what happened; "no records" would not be true.
-            if model.statuses.isEmpty, model.error == nil {
+            // No Refresh here: the figures come from the page's own load, which never overlaps an
+            // upload or a clear (`DiagnosticsSettingsViewModel.areAuditActionsAvailable`), so a read
+            // can never finish after Upload Now and put an older state back.
+            if model.showsNoRecords {
                 Text(L10n.string("No delivery records yet."))
                     .foregroundStyle(WNColor.backgroundContentSecondary)
-            } else {
-                ForEach(model.statuses, id: \.accountRef) { status in
-                    AuditDeliveryStatusRows(status: status)
-                }
+            }
+            ForEach(model.statuses, id: \.accountRef) { status in
+                AuditDeliveryStatusRows(status: status)
             }
 
             if let error = model.error {

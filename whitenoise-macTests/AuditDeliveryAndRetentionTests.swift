@@ -233,6 +233,45 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
         #expect(model.delivery.summary?.state == .upToDate)
     }
 
+    /// "No delivery records yet." is a claim about MDK's answer, so it needs one: not before any
+    /// read, and not after a failed read.
+    @Test func noRecordsIsSaidOnlyAfterASuccessfulEmptyRead() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = AuditDeliveryStatusViewModel(runtime: runtime)
+        #expect(!model.showsNoRecords)
+
+        runtime.auditDeliveryStatusError = MarmotKitError.StorageBusy(details: "")
+        await model.load()
+        #expect(!model.showsNoRecords)
+
+        runtime.auditDeliveryStatusError = nil
+        await model.load()
+        #expect(model.showsNoRecords)
+
+        runtime.auditDeliveryStatuses = [Self.status()]
+        await model.load()
+        #expect(!model.showsNoRecords)
+    }
+
+    /// A pause outlives the stored files (Clear Logs, or the age limit deleting unsent logs), and
+    /// Upload Now is what lifts it, so the section stays while there is delivery status to show.
+    @Test func theStoredLogsSectionStaysWhileDeliveryHasSomethingToSay() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = DiagnosticsSettingsViewModel(runtime: runtime)
+        await model.load()
+        #expect(!model.showsStoredLogsSection)
+
+        runtime.auditDeliveryStatuses = [Self.status(paused: true)]
+        await model.load()
+        #expect(model.auditLogFiles.isEmpty)
+        #expect(model.showsStoredLogsSection)
+
+        runtime.auditDeliveryStatuses = []
+        runtime.auditDeliveryStatusError = MarmotKitError.StorageBusy(details: "")
+        await model.load()
+        #expect(model.showsStoredLogsSection)
+    }
+
     @Test func aDeliveryReadFailureIsShownOnItsSection() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.auditDeliveryStatusError = MarmotKitError.StorageBusy(details: "")

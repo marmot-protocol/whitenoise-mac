@@ -52,6 +52,13 @@ final class DiagnosticsSettingsViewModel {
         !isLoading && !isUploadingAuditLogs && !isDeletingAuditLogs && !retention.isBusy
     }
 
+    /// Privacy & Security's stored-logs section. It stays while delivery has something to say,
+    /// not only while files are stored: a pause outlives the files (Clear Logs, or the age limit
+    /// deleting unsent logs), and Upload Now in that section is what lifts it.
+    var showsStoredLogsSection: Bool {
+        !auditLogFiles.isEmpty || delivery.summary != nil || delivery.error != nil
+    }
+
     func load() async {
         // An upload or a clear refreshes the page itself when it finishes.
         guard let runtime, !isLoading, !isUploadingAuditLogs, !isDeletingAuditLogs else { return }

@@ -272,23 +272,25 @@ private struct DiagnosticsAndImprovementsSections: View {
 /// without naming files or paths, because someone deciding whether to keep logs needs to know how
 /// much there is, not what it is called. The inventory is on the Developer mode page.
 ///
-/// Absent entirely when nothing is stored. The empty-state card this replaces was a row about
-/// nothing — the switch above it already says why there are no logs.
+/// Absent when nothing is stored and delivery has nothing to report. The empty-state card this
+/// replaces was a row about nothing — the switch above it already says why there are no logs.
 private struct StoredDiagnosticLogsSection: View {
     let model: DiagnosticsSettingsViewModel
     @Binding var showClearConfirmation: Bool
 
     var body: some View {
-        if !model.auditLogFiles.isEmpty {
+        if model.showsStoredLogsSection {
             SettingsSection(
                 title: L10n.string("Stored Diagnostic Logs"),
                 footer: L10n.string("Turning logging off keeps existing logs until you clear them.")
             ) {
-                SettingsValueRow(
-                    title: L10n.string("On This Mac"),
-                    value: AuditLogByteCount.string(storedByteCount),
-                    monospaced: true
-                )
+                if !model.auditLogFiles.isEmpty {
+                    SettingsValueRow(
+                        title: L10n.string("On This Mac"),
+                        value: AuditLogByteCount.string(storedByteCount),
+                        monospaced: true
+                    )
+                }
 
                 HStack(spacing: 10) {
                     Button {
@@ -304,18 +306,20 @@ private struct StoredDiagnosticLogsSection: View {
                     .buttonStyle(.wnSecondary)
                     .disabled(!model.areAuditActionsAvailable)
 
-                    Button {
-                        showClearConfirmation = true
-                    } label: {
-                        SettingsBusyLabel(
-                            title: model.isDeletingAuditLogs
-                                ? L10n.string("Clearing...") : L10n.string("Clear Logs"),
-                            systemImage: "trash",
-                            isBusy: model.isDeletingAuditLogs
-                        )
+                    if !model.auditLogFiles.isEmpty {
+                        Button {
+                            showClearConfirmation = true
+                        } label: {
+                            SettingsBusyLabel(
+                                title: model.isDeletingAuditLogs
+                                    ? L10n.string("Clearing...") : L10n.string("Clear Logs"),
+                                systemImage: "trash",
+                                isBusy: model.isDeletingAuditLogs
+                            )
+                        }
+                        .buttonStyle(.wnSecondary)
+                        .disabled(!model.areAuditActionsAvailable)
                     }
-                    .buttonStyle(.wnSecondary)
-                    .disabled(!model.areAuditActionsAvailable)
                 }
 
                 if let auditLogUploadStatus = model.auditUploadStatus {

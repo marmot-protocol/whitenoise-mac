@@ -13,6 +13,8 @@ import Observation
 final class AuditDeliveryStatusViewModel {
     private(set) var statuses: [AuditDeliveryStatusV5Ffi] = []
     private(set) var error: String?
+    /// Whether MDK has answered at all, so an empty `statuses` can be told apart from "not read".
+    private(set) var hasLoaded = false
 
     @ObservationIgnored private let runtime: (any MarmotRuntime)?
 
@@ -26,6 +28,12 @@ final class AuditDeliveryStatusViewModel {
         AuditDeliverySummary(statuses: statuses)
     }
 
+    /// "No delivery records yet." is a claim about MDK's answer: only after a read that succeeded
+    /// and returned nothing.
+    var showsNoRecords: Bool {
+        hasLoaded && statuses.isEmpty && error == nil
+    }
+
     func load() async {
         guard let runtime else { return }
         do {
@@ -33,6 +41,7 @@ final class AuditDeliveryStatusViewModel {
             guard !Task.isCancelled else { return }
             statuses = loaded
             error = nil
+            hasLoaded = true
         } catch is CancellationError {
             return
         } catch {
