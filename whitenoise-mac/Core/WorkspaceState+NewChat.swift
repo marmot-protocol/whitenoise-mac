@@ -739,6 +739,11 @@ extension WorkspaceState {
             }
             await reloadChats(forceFreshSnapshot: true)
             guard activeAccountId == accountId else { return }
+            // `startDirectConversation` may answer with an archived chat the lookup above did not
+            // match to this peer. It comes back into the chat list first, as that path does.
+            if let archived = archivedChatItem(accountId: accountId, chatId: groupIdHex) {
+                guard await setChatArchived(archived, archived: false), activeAccountId == accountId else { return }
+            }
             insertCreatedChatIfNeeded(
                 groupIdHex: groupIdHex,
                 title: recipient.title,

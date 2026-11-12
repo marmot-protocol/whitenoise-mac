@@ -91,4 +91,24 @@ struct UserFacingErrorTests {
         let error = NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "  "])
         #expect(UserFacingError.message(for: error) == L10n.string("Please try again."))
     }
+
+    /// MarmotKit's own binding faults — a Rust panic, a malformed buffer — describe themselves in
+    /// diagnostic English (a panic's message verbatim). Since 0.16.0 the generated subscription
+    /// receives throw them, so they reach the same surfaces a core error does.
+    @Test func aBindingFaultReadsAsAGeneralFailure() throws {
+        var malformed = (data: Data([0, 0, 0, 99]), offset: 0)
+        let fault = try #require(throws: (any Error).self) {
+            try FfiConverterTypeRelayStatusFfi.read(from: &malformed)
+        }
+        #expect(!(fault is MarmotKitError))
+
+        #expect(UserFacingError.message(for: fault) == L10n.string("Something went wrong. Please try again."))
+    }
+
+    /// The NIP-46 session error is MarmotKit's too, and has copy of its own.
+    @Test func aSignerSessionErrorGetsSignerCopy() {
+        #expect(
+            UserFacingError.message(for: Nip46ErrorFfi.Rejected)
+                == UserFacingError.message(for: MarmotKitError.Nip46(reason: .Rejected)))
+    }
 }

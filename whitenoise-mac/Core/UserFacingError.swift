@@ -16,6 +16,15 @@ nonisolated enum UserFacingError {
         if let error = error as? MarmotKitError {
             return message(for: error)
         }
+        if let error = error as? Nip46ErrorFfi {
+            return nip46Message(error)
+        }
+        // Any other MarmotKit error is a binding fault (a Rust panic, a malformed buffer) whose
+        // description is diagnostic English — a panic's message verbatim. Since 0.16.0 the generated
+        // subscription receives throw these, so they reach the same surfaces core errors do.
+        if String(reflecting: type(of: error)).hasPrefix("MarmotKit.") {
+            return L10n.string("Something went wrong. Please try again.")
+        }
         let text = sanitized(error.localizedDescription)
         return text.isEmpty ? L10n.string("Please try again.") : text
     }
