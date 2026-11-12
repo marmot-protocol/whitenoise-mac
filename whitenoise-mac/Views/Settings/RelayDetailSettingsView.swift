@@ -119,55 +119,32 @@ struct RelayDetailSettingsView: View {
     }
 }
 
-/// The relay's live connection and the one thing to do about it: reconnect.
-///
-/// Reconnect dials only a relay this account has configured, keeps its roles, and is the one
-/// write on this section; the readout itself never dials.
+/// The relay's live connection while the Relays page follows it. A readout only: it never
+/// dials. Absent when liveness has no row for the relay, which is not the same as MDK's `.unknown`
+/// ("not tried yet"), so it shows nothing rather than a state it does not know.
 struct RelayConnectionSection: View {
     let model: RelayLivenessViewModel
     let relayURL: String
 
     var body: some View {
-        let connection = model.connection(for: relayURL)
-        let isReconnecting = model.isReconnecting(relayURL)
-        SettingsSection(
-            title: L10n.string("Connection"),
-            footer: L10n.string(
-                "Reconnecting tries this relay again now. It doesn't change what this account uses it for.")
-        ) {
-            // No row from MDK is not MDK's `.unknown` ("not tried yet"): the page may simply have
-            // no liveness for it, so it shows nothing rather than a state it does not know.
-            if let connection {
+        if let connection = model.connection(for: relayURL) {
+            SettingsSection(title: L10n.string("Connection")) {
                 LabeledContent(L10n.string("Status")) {
                     RelayConnectionLabel(state: connection.state)
                 }
-            }
 
-            if let lastAttempt = connection?.lastAttempt {
-                SettingsValueRow(
-                    title: L10n.string("Last attempt"),
-                    value: lastAttempt.formatted(.relative(presentation: .named).locale(AppLanguage.currentLocale))
-                )
-            }
+                if let lastAttempt = connection.lastAttempt {
+                    SettingsValueRow(
+                        title: L10n.string("Last attempt"),
+                        value: lastAttempt.formatted(
+                            .relative(presentation: .named).locale(AppLanguage.currentLocale))
+                    )
+                }
 
-            if connection?.state == .offline, let lastError = connection?.lastError {
-                SettingsValueRow(
-                    title: L10n.string("Last error"), value: lastError, monospaced: true, isSelectable: true)
-            }
-
-            Button {
-                Task { await model.reconnect(relayURL) }
-            } label: {
-                SettingsBusyLabel(
-                    title: L10n.string("Reconnect"),
-                    systemImage: "arrow.clockwise",
-                    isBusy: isReconnecting
-                )
-            }
-            .disabled(isReconnecting)
-
-            if let error = model.reconnectError(for: relayURL) {
-                SettingsErrorView(error: error)
+                if connection.state == .offline, let lastError = connection.lastError {
+                    SettingsValueRow(
+                        title: L10n.string("Last error"), value: lastError, monospaced: true, isSelectable: true)
+                }
             }
         }
     }

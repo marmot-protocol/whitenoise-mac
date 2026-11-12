@@ -71,10 +71,12 @@ White Noise for macOS now pins `marmotkit-v0.16.0` at MDK commit
   still uses `createGroup` + promote, because `startDirectConversation` would hand back the existing
   chat the user just asked to bypass.
 
-- **Relay liveness** (`subscribeRelayLiveness`, `reconnectRelay`). Settings → Relays shows each
-  relay's connection and the relay detail page has a Connection section with Reconnect
-  (`RelayLivenessViewModel`). The subscription lives in the page's own task; leaving the page
-  calls `cancel()`, which wakes MDK's pending `next()` and never disconnects a relay.
+- **Relay liveness** (`subscribeRelayLiveness`). Settings → Relays shows each relay's live
+  connection, and the relay detail page a read-only Connection section (`RelayLivenessViewModel`).
+  The subscription lives in the page's own task; leaving the page calls `cancel()`, which wakes
+  MDK's pending `next()` and never disconnects a relay. Only the subscription writes connection
+  state, and a visit that has ended never takes the screen. `reconnectRelay` is not adopted: no
+  Reconnect button for now.
 
 ## Not adopted yet
 

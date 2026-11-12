@@ -43,9 +43,6 @@ nonisolated protocol MarmotRuntime: Sendable {
     func relayLivenessSnapshot(subscription: RelayLivenessSubscription) -> [RelayLivenessFfi]
     func nextRelayLiveness(subscription: RelayLivenessSubscription) async throws -> [RelayLivenessFfi]?
     func cancelRelayLiveness(subscription: RelayLivenessSubscription)
-    /// Dials one relay the account has configured, keeping its roles. Any other URL fails as
-    /// `MarmotKitError.Runtime`.
-    func reconnectRelay(accountRef: String, url: String) async throws -> RelayLivenessFfi
     func localAccountKeyPackages(accountRef: String) throws -> [AccountKeyPackageInventoryEntryFfi]
     func refreshAccountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws
         -> [AccountKeyPackageInventoryEntryFfi]
@@ -626,10 +623,6 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func cancelRelayLiveness(subscription: RelayLivenessSubscription) {
         subscription.cancel()
-    }
-
-    func reconnectRelay(accountRef: String, url: String) async throws -> RelayLivenessFfi {
-        try await marmot.reconnectRelay(accountRef: accountRef, url: url)
     }
 
     func localAccountKeyPackages(accountRef: String) throws -> [AccountKeyPackageInventoryEntryFfi] {

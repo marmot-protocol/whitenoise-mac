@@ -14,9 +14,6 @@ final class RelayLivenessViewModel {
     /// Keyed by `RelayURLValidator.identity`, so an MDK-canonicalized URL finds the row it
     /// belongs to.
     private(set) var connections: [String: RelayConnection] = [:]
-    private(set) var reconnectingRelayIDs: Set<String> = []
-    /// The last failed reconnect, by relay identity, until that relay is reconnected again.
-    private(set) var reconnectErrors: [String: String] = [:]
 
     @ObservationIgnored private let accountRef: String
     @ObservationIgnored private let runtime: (any MarmotRuntime)?
@@ -34,14 +31,6 @@ final class RelayLivenessViewModel {
         connections[RelayURLValidator.identity(url)]
     }
 
-    func isReconnecting(_ url: String) -> Bool {
-        reconnectingRelayIDs.contains(RelayURLValidator.identity(url))
-    }
-
-    func reconnectError(for url: String) -> String? {
-        reconnectErrors[RelayURLValidator.identity(url)]
-    }
-
     /// Follows the account's relay liveness until the calling task is cancelled.
     func observe() async {
         guard let runtime else { return }
@@ -51,6 +40,13 @@ final class RelayLivenessViewModel {
         } catch {
             // Liveness is an enhancement to the page: without it rows show no connection state,
             // and the relay lists themselves still load and save.
+            return
+        }
+        // The page went away while the subscribe was pending (UniFFI does not forward Swift
+        // cancellation into it). A visit that has ended never takes the screen: a newer one may
+        // already own it.
+        guard !Task.isCancelled else {
+            runtime.cancelRelayLiveness(subscription: subscription)
             return
         }
         activeSubscription = subscription
@@ -75,36 +71,12 @@ final class RelayLivenessViewModel {
         }
     }
 
-    func reconnect(_ url: String) async {
-        guard let runtime else { return }
-        let key = RelayURLValidator.identity(url)
-        guard !reconnectingRelayIDs.contains(key) else { return }
-        reconnectingRelayIDs.insert(key)
-        reconnectErrors[key] = nil
-        defer { reconnectingRelayIDs.remove(key) }
-        do {
-            let row = try await runtime.reconnectRelay(accountRef: accountRef, url: url)
-            // While observing, the subscription is the source of truth and reports the result
-            // itself; this answer may already be older than its latest list.
-            guard !Task.isCancelled, activeSubscription == nil else { return }
-            connections[RelayURLValidator.identity(row.url)] = RelayConnection(liveness: row)
-        } catch is CancellationError {
-            return
-        } catch {
-            reconnectErrors[key] = UserFacingError.message(for: error)
-        }
-    }
-
     private func apply(_ rows: [RelayLivenessFfi], from subscription: RelayLivenessSubscription) {
         guard activeSubscription === subscription else { return }
         connections = Dictionary(
             rows.map { (RelayURLValidator.identity($0.url), RelayConnection(liveness: $0)) },
             uniquingKeysWith: { _, latest in latest }
         )
-        // A failed Reconnect stops being news once the relay connects anyway.
-        for (key, connection) in connections where connection.state == .connected {
-            reconnectErrors[key] = nil
-        }
     }
 
     static func preview(_ connections: [String: RelayConnection] = [:]) -> RelayLivenessViewModel {

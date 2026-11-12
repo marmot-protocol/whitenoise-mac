@@ -782,11 +782,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var relayLivenessError: Error?
     private(set) var relayLivenessSubscribeCount = 0
     private(set) var relayLivenessSubscriptions: [FakeRelayLivenessSubscription] = []
-    var reconnectRelayResult: RelayStatusFfi = .connected
-    var reconnectRelayError: Error?
-    private(set) var reconnectedRelayURLs: [String] = []
-    /// Holds `reconnectRelay` in flight so a test can see the row's busy state.
-    let reconnectRelayGate = AsyncFfiGate()
+    /// Holds the first `subscribeRelayLiveness` in flight, so a later visit's subscribe can finish
+    /// before it.
+    let relayLivenessSubscribeGate = AsyncFfiGate()
     private let createGroupGate = AsyncFfiGate()
     var createGroupGateEnabled: Bool {
         get { createGroupGate.isEnabled }
@@ -1384,6 +1382,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func subscribeRelayLiveness(accountRef: String) async throws -> RelayLivenessSubscription {
         relayLivenessSubscribeCount += 1
+        await relayLivenessSubscribeGate.passIfArmed()
         if let relayLivenessError { throw relayLivenessError }
         let subscription = FakeRelayLivenessSubscription(initial: relayLiveness)
         relayLivenessSubscriptions.append(subscription)
@@ -1400,13 +1399,6 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func cancelRelayLiveness(subscription: RelayLivenessSubscription) {
         subscription.cancel()
-    }
-
-    func reconnectRelay(accountRef: String, url: String) async throws -> RelayLivenessFfi {
-        reconnectedRelayURLs.append(url)
-        await reconnectRelayGate.passIfArmed()
-        if let reconnectRelayError { throw reconnectRelayError }
-        return RelayLivenessFfi(url: url, status: reconnectRelayResult, lastAttemptUnix: 1_800_000_000, lastError: nil)
     }
 
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {

@@ -5,7 +5,7 @@ import Testing
 @testable import whitenoise_mac
 
 /// MarmotKit 0.16.0 relay liveness on the Relays page: a live, complete list per update, owned by
-/// the page's task, with a per-relay Reconnect.
+/// the page's task.
 @MainActor
 struct RelayLivenessTests: WorkspaceTestSupport {
     private static let eu = "wss://relay.eu.whitenoise.chat"
@@ -102,28 +102,33 @@ struct RelayLivenessTests: WorkspaceTestSupport {
         #expect(model.connection(for: Self.eu)?.state == .connected)
     }
 
-    /// While the page is observing, the subscription is the source of truth: a reconnect answer
-    /// that lands after a newer list must not overwrite it.
-    @Test func aReconnectAnswerDoesNotOverwriteANewerLiveList() async throws {
+    /// Leave the page while its subscribe is still pending, then come back: the new visit's
+    /// subscribe can finish first. The left visit's late subscribe must not take the screen over,
+    /// and must not stop the new visit's updates.
+    @Test func aLeftVisitsLateSubscribeDoesNotTakeOver() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.relayLiveness = [Self.row(Self.eu, .offline)]
-        runtime.reconnectRelayResult = .connected
-        runtime.reconnectRelayGate.isEnabled = true
+        runtime.relayLiveness = [Self.row(Self.eu, .connected)]
+        runtime.relayLivenessSubscribeGate.isEnabled = true
         let model = RelayLivenessViewModel(accountRef: "account", runtime: runtime)
 
-        let observing = Task { await model.observe() }
-        defer { observing.cancel() }
+        let left = Task { await model.observe() }
+        await runtime.relayLivenessSubscribeGate.waitUntilReached()
+        left.cancel()
+        let current = Task { await model.observe() }
+        defer { current.cancel() }
         await Self.waitUntil { model.connection(for: Self.eu) != nil }
+        let currentSubscription = try #require(runtime.relayLivenessSubscriptions.first)
 
-        let reconnecting = Task { await model.reconnect(Self.eu) }
-        await runtime.reconnectRelayGate.waitUntilReached()
-        let subscription = try #require(runtime.relayLivenessSubscriptions.last)
-        subscription.deliver([Self.row(Self.eu, .offline, error: "timeout")])
-        await Self.waitUntil { model.connection(for: Self.eu)?.lastError == "timeout" }
+        runtime.relayLivenessSubscribeGate.release()
+        await left.value
 
-        runtime.reconnectRelayGate.release()
-        await reconnecting.value
+        #expect(model.connection(for: Self.eu)?.state == .connected)
+        let leftSubscription = try #require(runtime.relayLivenessSubscriptions.last)
+        #expect(leftSubscription !== currentSubscription)
+        #expect(leftSubscription.isCancelled)
 
+        currentSubscription.deliver([Self.row(Self.eu, .offline)])
+        await Self.waitUntil { model.connection(for: Self.eu)?.state == .offline }
         #expect(model.connection(for: Self.eu)?.state == .offline)
     }
 
@@ -136,60 +141,6 @@ struct RelayLivenessTests: WorkspaceTestSupport {
 
         #expect(runtime.relayLivenessSubscribeCount == 1)
         #expect(model.connections.isEmpty)
-    }
-
-    @Test func reconnectShowsBusyThenTheRelaysNewState() async {
-        let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.reconnectRelayGate.isEnabled = true
-        let model = RelayLivenessViewModel(accountRef: "account", runtime: runtime)
-
-        let reconnecting = Task { await model.reconnect(Self.eu) }
-        await runtime.reconnectRelayGate.waitUntilReached()
-        #expect(model.isReconnecting(Self.eu))
-        // A second press while the first is running does not dial again.
-        await model.reconnect(Self.eu)
-        #expect(runtime.reconnectedRelayURLs == [Self.eu])
-
-        runtime.reconnectRelayGate.release()
-        await reconnecting.value
-
-        #expect(!model.isReconnecting(Self.eu))
-        #expect(model.connection(for: Self.eu)?.state == .connected)
-        #expect(model.reconnectError(for: Self.eu) == nil)
-    }
-
-    @Test func aFailedReconnectIsShownForThatRelayUntilItsRetried() async {
-        let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.reconnectRelayError = MarmotKitError.Runtime(details: "not configured")
-        let model = RelayLivenessViewModel(accountRef: "account", runtime: runtime)
-
-        await model.reconnect(Self.eu)
-        #expect(model.reconnectError(for: Self.eu) == UserFacingError.message(for: MarmotKitError.Runtime(details: "")))
-        #expect(model.reconnectError(for: Self.us) == nil)
-
-        runtime.reconnectRelayError = nil
-        await model.reconnect(Self.eu)
-        #expect(model.reconnectError(for: Self.eu) == nil)
-    }
-
-    /// A failed Reconnect stops being news once the relay connects anyway.
-    @Test func aReconnectErrorClearsWhenTheRelayConnects() async throws {
-        let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.relayLiveness = [Self.row(Self.eu, .offline)]
-        runtime.reconnectRelayError = MarmotKitError.Runtime(details: "dial failed")
-        let model = RelayLivenessViewModel(accountRef: "account", runtime: runtime)
-
-        let observing = Task { await model.observe() }
-        defer { observing.cancel() }
-        await Self.waitUntil { model.connection(for: Self.eu) != nil }
-        await model.reconnect(Self.eu)
-        #expect(model.reconnectError(for: Self.eu) != nil)
-
-        let subscription = try #require(runtime.relayLivenessSubscriptions.last)
-        subscription.deliver([Self.row(Self.eu, .connected)])
-        await Self.waitUntil { model.connection(for: Self.eu)?.state == .connected }
-
-        #expect(model.reconnectError(for: Self.eu) == nil)
     }
 
     @Test func livenessMapsToTheAppsConnection() {
