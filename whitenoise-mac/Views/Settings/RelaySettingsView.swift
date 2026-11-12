@@ -23,7 +23,7 @@
 //    they cost.
 //
 //  Where this page departs from the prototype, it is because the core cannot back it: there is
-//  no per-relay connection state and no read-only relay here (see `RelayConfiguration.swift`),
+//  no read-only relay here (see `RelayConfiguration.swift`),
 //  and an empty relay list is refused, so the last relay of a role is not something the reader
 //  is offered a confirmation for — the affordance is disabled and the reason is given.
 //
@@ -55,6 +55,9 @@ struct RelaySettingsView: View {
             }
         }
         .task { await model.load() }
+        // Its own task so the subscription runs alongside the load, and ends — without
+        // disconnecting anything — when the page goes away.
+        .task { await model.liveness.observe() }
     }
 }
 
@@ -90,7 +93,7 @@ struct RelayListSettingsView: View {
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 } else {
                     ForEach(endpoints) { relay in
-                        RelayEndpointRow(relay: relay) {
+                        RelayEndpointRow(relay: relay, connection: model.liveness.connection(for: relay.url)) {
                             openRelay(relay)
                         }
                     }
@@ -195,6 +198,8 @@ struct RelayAttentionRow: View {
 /// deliberately absent here (see this file's header).
 struct RelayEndpointRow: View {
     let relay: RelayEndpointItem
+    /// `nil` until relay liveness has reported this relay.
+    var connection: RelayConnection?
     let action: () -> Void
 
     /// The row's only hover feedback. A grouped `Form` row cannot be given a hover fill without
@@ -225,7 +230,15 @@ struct RelayEndpointRow: View {
 
                 Spacer(minLength: 8)
 
-                RelayPublishStateBadge(state: relay.publishState)
+                // Connection is the everyday signal; an unpublished list is the exception worth
+                // naming beside it. A published one would be a second green mark saying less.
+                if relay.publishState == .notPublished {
+                    RelayPublishStateBadge(state: relay.publishState)
+                }
+
+                if let connection {
+                    RelayConnectionBadge(state: connection.state)
+                }
 
                 Image(systemName: "chevron.right")
                     .wnFont(.semiBold10)
@@ -246,6 +259,9 @@ struct RelayEndpointRow: View {
 
     private var accessibilityValue: String {
         var values = [relay.publishState.label]
+        if let connection {
+            values.insert(connection.state.label, at: 0)
+        }
         if relay.isInsecure {
             values.append(L10n.string("Insecure"))
         }
@@ -253,11 +269,53 @@ struct RelayEndpointRow: View {
     }
 }
 
+/// A relay's connection in the overview: a quiet green dot when connected, the state named
+/// when it is worth reading.
+struct RelayConnectionBadge: View {
+    let state: RelayConnectionState
+
+    var body: some View {
+        switch state {
+        case .connected:
+            Image(systemName: state.symbol)
+                .wnFont(.semiBold10)
+                .foregroundStyle(WNColor.intentionSuccessContent)
+                .help(state.label)
+                .accessibilityHidden(true)
+        case .unknown:
+            Image(systemName: state.symbol)
+                .wnFont(.semiBold10)
+                .foregroundStyle(WNColor.backgroundContentTertiary)
+                .help(state.label)
+                .accessibilityHidden(true)
+        case .connecting:
+            Label(state.label, systemImage: state.symbol)
+                .wnFont(.medium10)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .accessibilityHidden(true)
+        case .offline:
+            Label(state.label, systemImage: state.symbol)
+                .wnFont(.medium10)
+                .foregroundStyle(WNColor.intentionWarningContent)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+#Preview("Connection badges") {
+    VStack(alignment: .trailing, spacing: 8) {
+        RelayConnectionBadge(state: .connected)
+        RelayConnectionBadge(state: .connecting)
+        RelayConnectionBadge(state: .offline)
+        RelayConnectionBadge(state: .unknown)
+    }
+    .padding()
+}
+
 /// Whether the lists a relay belongs to have reached the network, as a glyph and a word.
 ///
-/// This is the honest replacement for the prototype's Connected / Reconnecting / Disconnected
-/// dot: nothing here can see a socket, but the core does say which relay lists it has managed
-/// to publish. Everything normal is one quiet green check; the state worth reading is named.
+/// The overview shows it only when a list has not gone out; the detail page always spells it
+/// out. Everything normal is one quiet green check; the state worth reading is named.
 struct RelayPublishStateBadge: View {
     let state: RelayPublishState
 

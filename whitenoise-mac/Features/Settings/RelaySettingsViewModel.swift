@@ -32,6 +32,8 @@ final class RelaySettingsViewModel {
     private(set) var isLoading = false
     private(set) var isSaving = false
     private(set) var error: RelaySettingsError?
+    /// Each relay's live connection state, followed while the Relays page is on screen.
+    let liveness: RelayLivenessViewModel
 
     var endpoints: [RelayEndpointItem] { settings.endpoints }
 
@@ -48,6 +50,7 @@ final class RelaySettingsViewModel {
         self.accountRef = accountRef
         self.runtime = runtime
         self.relayListsDidChange = relayListsDidChange
+        liveness = RelayLivenessViewModel(accountRef: accountRef, runtime: runtime)
     }
 
     func load() async {

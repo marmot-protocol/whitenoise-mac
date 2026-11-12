@@ -776,6 +776,17 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// until `releaseCreateGroupGate()` is invoked, holding `createNewChat()` in-flight so a test can
     /// switch the active account before the create resolves and assert the freshly created group is
     /// not grafted onto / selected under the switched-to account.
+    /// Relay liveness rows the next subscription starts from; push later lists through
+    /// `relayLivenessSubscriptions.last?.deliver(_:)`.
+    var relayLiveness: [RelayLivenessFfi] = []
+    var relayLivenessError: Error?
+    private(set) var relayLivenessSubscribeCount = 0
+    private(set) var relayLivenessSubscriptions: [FakeRelayLivenessSubscription] = []
+    var reconnectRelayResult: RelayStatusFfi = .connected
+    var reconnectRelayError: Error?
+    private(set) var reconnectedRelayURLs: [String] = []
+    /// Holds `reconnectRelay` in flight so a test can see the row's busy state.
+    let reconnectRelayGate = AsyncFfiGate()
     private let createGroupGate = AsyncFfiGate()
     var createGroupGateEnabled: Bool {
         get { createGroupGate.isEnabled }
@@ -1369,6 +1380,33 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func releasePublishUserProfileGate() {
         publishUserProfileGate.release()
+    }
+
+    func subscribeRelayLiveness(accountRef: String) async throws -> RelayLivenessSubscription {
+        relayLivenessSubscribeCount += 1
+        if let relayLivenessError { throw relayLivenessError }
+        let subscription = FakeRelayLivenessSubscription(initial: relayLiveness)
+        relayLivenessSubscriptions.append(subscription)
+        return subscription
+    }
+
+    func relayLivenessSnapshot(subscription: RelayLivenessSubscription) -> [RelayLivenessFfi] {
+        subscription.snapshot()
+    }
+
+    func nextRelayLiveness(subscription: RelayLivenessSubscription) async throws -> [RelayLivenessFfi]? {
+        try await subscription.next()
+    }
+
+    func cancelRelayLiveness(subscription: RelayLivenessSubscription) {
+        subscription.cancel()
+    }
+
+    func reconnectRelay(accountRef: String, url: String) async throws -> RelayLivenessFfi {
+        reconnectedRelayURLs.append(url)
+        await reconnectRelayGate.passIfArmed()
+        if let reconnectRelayError { throw reconnectRelayError }
+        return RelayLivenessFfi(url: url, status: reconnectRelayResult, lastAttemptUnix: 1_800_000_000, lastError: nil)
     }
 
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {

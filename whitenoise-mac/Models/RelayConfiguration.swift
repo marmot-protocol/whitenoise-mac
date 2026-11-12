@@ -14,12 +14,11 @@
 //    of `Use for`. The prototype's third role, *Chat Messages*, has no list behind it:
 //    `MarmotClient` exposes `setAccountNip65Relays` and `setAccountInboxRelays` and nothing
 //    else, and the relays a new chat is created on come from the NIP-65 set.
-//  * **Publish state, not connection state.** The prototype's rows report Connected /
-//    Reconnecting / Disconnected from a fixture. Nothing here can: `AccountRelayListsFfi`
-//    carries no per-relay socket state, and the reachability probe behind the offline banner
-//    answers one question for the whole list (`RelayHostReachabilityProbing`). What the core
-//    *does* report per list is whether it has been published — `missing` / `complete` — so
-//    that is what a row reports.
+//  * **Publish state and connection state, from two sources.** `AccountRelayListsFfi` says
+//    whether each list has been published — `missing` / `complete` — and carries no socket
+//    state. Since MarmotKit 0.16.0 the account's relay liveness (`RelayConnection`, read through
+//    `RelayLivenessViewModel`) supplies the prototype's Connected / Connecting / Offline per
+//    relay; a row shows that, and the publish state only when a list has not gone out.
 //  * **No read-only relays.** NIP-65 has read/write directions in the protocol and the mdk
 //    preserves them (`nip65_relay_set_preserving_roles`), but `RelayListFfi` hands over one
 //    flat `relays` array — the *write* set — so a read-only relay is not visible here and
@@ -99,6 +98,42 @@ enum RelayPublishState: Equatable, Sendable {
         case .notPublished: "exclamationmark.circle.fill"
         }
     }
+}
+
+/// One relay's connection as MDK last saw it (MarmotKit 0.16.0 relay liveness). Reading it never
+/// dials; a relay the account has not tried yet is `.unknown`.
+enum RelayConnectionState: Equatable, Sendable {
+    case unknown
+    case connecting
+    case connected
+    case offline
+
+    var label: String {
+        switch self {
+        case .unknown: L10n.string("Not connected yet")
+        case .connecting: L10n.string("Connecting")
+        case .connected: L10n.string("Connected")
+        case .offline: L10n.string("Offline")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .unknown: "circle.dashed"
+        case .connecting: "circle.dotted"
+        case .connected: "circle.fill"
+        case .offline: "exclamationmark.circle.fill"
+        }
+    }
+}
+
+struct RelayConnection: Equatable, Sendable {
+    let state: RelayConnectionState
+    /// When MDK last tried to connect, if it has.
+    let lastAttempt: Date?
+    /// The SDK's connection-error category (for example a timeout), not a sentence. Diagnostic
+    /// text for the detail page only.
+    let lastError: String?
 }
 
 /// How a role is doing, which is what the recovery callout is a summary of.

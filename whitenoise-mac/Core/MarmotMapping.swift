@@ -19,6 +19,24 @@ extension AccountItem {
     }
 }
 
+extension RelayConnection {
+    nonisolated init(liveness: RelayLivenessFfi) {
+        let state: RelayConnectionState =
+            switch liveness.status {
+            case .unknown: .unknown
+            case .connecting: .connecting
+            case .connected: .connected
+            case .offline: .offline
+            }
+        let error = liveness.lastError?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.init(
+            state: state,
+            lastAttempt: liveness.lastAttemptUnix.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastError: error?.isEmpty == false ? error : nil
+        )
+    }
+}
+
 extension GroupMemberDetailsFfi {
     /// The viewer's private nickname for this member, or nil where none applies.
     ///

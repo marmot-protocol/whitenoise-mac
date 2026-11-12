@@ -57,10 +57,12 @@ struct RelayDetailSettingsView: View {
                     truncatesMiddle: true,
                     isSelectable: true
                 )
-                LabeledContent(L10n.string("Status")) {
+                LabeledContent(L10n.string("Relay lists")) {
                     RelayPublishStateLabel(state: relay.publishState)
                 }
             }
+
+            RelayConnectionSection(model: model.liveness, relayURL: relay.url)
 
             // One section per role rather than one `Use for` section with two toggles: each role
             // explains itself differently, and a group's footer is where an explanation belongs
@@ -115,6 +117,92 @@ struct RelayDetailSettingsView: View {
             ListFormatter.localizedString(byJoining: lockedRoles.map(\.label))
         )
     }
+}
+
+/// The relay's live connection and the one thing to do about it: reconnect.
+///
+/// Reconnect dials only a relay this account has configured, keeps its roles, and is the one
+/// write on this section; the readout itself never dials.
+struct RelayConnectionSection: View {
+    let model: RelayLivenessViewModel
+    let relayURL: String
+
+    var body: some View {
+        let connection = model.connection(for: relayURL)
+        let isReconnecting = model.isReconnecting(relayURL)
+        SettingsSection(
+            title: L10n.string("Connection"),
+            footer: L10n.string(
+                "Reconnecting tries this relay again now. It doesn't change what this account uses it for.")
+        ) {
+            LabeledContent(L10n.string("Status")) {
+                RelayConnectionLabel(state: connection?.state ?? .unknown)
+            }
+
+            if let lastAttempt = connection?.lastAttempt {
+                SettingsValueRow(
+                    title: L10n.string("Last attempt"),
+                    value: lastAttempt.formatted(.relative(presentation: .named))
+                )
+            }
+
+            if connection?.state == .offline, let lastError = connection?.lastError {
+                SettingsValueRow(
+                    title: L10n.string("Last error"), value: lastError, monospaced: true, isSelectable: true)
+            }
+
+            Button {
+                Task { await model.reconnect(relayURL) }
+            } label: {
+                SettingsBusyLabel(
+                    title: L10n.string("Reconnect"),
+                    systemImage: "arrow.clockwise",
+                    isBusy: isReconnecting
+                )
+            }
+            .disabled(isReconnecting)
+
+            if let error = model.reconnectError(for: relayURL) {
+                SettingsErrorView(error: error)
+            }
+        }
+    }
+}
+
+/// The relay's connection state, spelled out beside `Status`.
+struct RelayConnectionLabel: View {
+    let state: RelayConnectionState
+
+    var body: some View {
+        Label(state.label, systemImage: state.symbol)
+            .wnFont(.medium12)
+            .foregroundStyle(color)
+    }
+
+    private var color: Color {
+        switch state {
+        case .connected: WNColor.intentionSuccessContent
+        case .offline: WNColor.intentionWarningContent
+        case .connecting, .unknown: WNColor.backgroundContentSecondary
+        }
+    }
+}
+
+#Preview("Connection section") {
+    SettingsScaffold(title: "relay.example.com") {
+        RelayConnectionSection(
+            model: .preview([
+                "wss://relay.example.com": RelayConnection(
+                    state: .offline,
+                    lastAttempt: .now.addingTimeInterval(-90),
+                    lastError: "connection_timeout"
+                )
+            ]),
+            relayURL: "wss://relay.example.com"
+        )
+    }
+    .environment(WorkspaceState.preview())
+    .frame(width: 600, height: 360)
 }
 
 /// One role's toggle, with the role's own explanation under it.
