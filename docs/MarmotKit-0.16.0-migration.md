@@ -71,10 +71,15 @@ White Noise for macOS now pins `marmotkit-v0.16.0` at MDK commit
   still uses `createGroup` + promote, because `startDirectConversation` would hand back the existing
   chat the user just asked to bypass.
 
+- **Relay liveness** (`subscribeRelayLiveness`). Settings → Relays shows each relay's live
+  connection, and the relay detail page a read-only Connection section (`RelayLivenessViewModel`).
+  The subscription lives in the page's own task; leaving the page calls `cancel()`, which wakes
+  MDK's pending `next()` and never disconnects a relay. Only the subscription writes connection
+  state, and a visit that has ended never takes the screen. `reconnectRelay` is not adopted: no
+  Reconnect button for now.
+
 ## Not adopted yet
 
-- **Relay liveness** (`accountRelayLiveness`, `subscribeRelayLiveness`, `reconnectRelay`) for
-  per-relay status and a Reconnect button in Settings → Relays.
 - **NIP-46 remote signers** (`nip46New`, `nip46Login`, …).
 - **Audit delivery status and retention** (`auditDeliveryStatusV5`, `auditLogRetention`,
   `setAuditLogRetention`). The 256 MiB per-account default budget applies.

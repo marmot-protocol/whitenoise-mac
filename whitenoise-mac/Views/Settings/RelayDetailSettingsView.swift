@@ -57,10 +57,12 @@ struct RelayDetailSettingsView: View {
                     truncatesMiddle: true,
                     isSelectable: true
                 )
-                LabeledContent(L10n.string("Status")) {
+                LabeledContent(L10n.string("Relay lists")) {
                     RelayPublishStateLabel(state: relay.publishState)
                 }
             }
+
+            RelayConnectionSection(model: model.liveness, relayURL: relay.url)
 
             // One section per role rather than one `Use for` section with two toggles: each role
             // explains itself differently, and a group's footer is where an explanation belongs
@@ -115,6 +117,73 @@ struct RelayDetailSettingsView: View {
             ListFormatter.localizedString(byJoining: lockedRoles.map(\.label))
         )
     }
+}
+
+/// The relay's live connection while the Relays page follows it. A readout only: it never
+/// dials. Absent when liveness has no row for the relay, which is not the same as MDK's `.unknown`
+/// ("not tried yet"), so it shows nothing rather than a state it does not know.
+struct RelayConnectionSection: View {
+    let model: RelayLivenessViewModel
+    let relayURL: String
+
+    var body: some View {
+        if let connection = model.connection(for: relayURL) {
+            SettingsSection(title: L10n.string("Connection")) {
+                LabeledContent(L10n.string("Status")) {
+                    RelayConnectionLabel(state: connection.state)
+                }
+
+                if let lastAttempt = connection.lastAttempt {
+                    SettingsValueRow(
+                        title: L10n.string("Last attempt"),
+                        value: lastAttempt.formatted(
+                            .relative(presentation: .named).locale(AppLanguage.currentLocale))
+                    )
+                }
+
+                if connection.state == .offline, let lastError = connection.lastError {
+                    SettingsValueRow(
+                        title: L10n.string("Last error"), value: lastError, monospaced: true, isSelectable: true)
+                }
+            }
+        }
+    }
+}
+
+/// The relay's connection state, spelled out beside `Status`.
+struct RelayConnectionLabel: View {
+    let state: RelayConnectionState
+
+    var body: some View {
+        Label(state.label, systemImage: state.symbol)
+            .wnFont(.medium12)
+            .foregroundStyle(color)
+    }
+
+    private var color: Color {
+        switch state {
+        case .connected: WNColor.intentionSuccessContent
+        case .offline: WNColor.intentionWarningContent
+        case .connecting, .unknown: WNColor.backgroundContentSecondary
+        }
+    }
+}
+
+#Preview("Connection section") {
+    SettingsScaffold(title: "relay.example.com") {
+        RelayConnectionSection(
+            model: .preview([
+                "wss://relay.example.com": RelayConnection(
+                    state: .offline,
+                    lastAttempt: .now.addingTimeInterval(-90),
+                    lastError: "connection_timeout"
+                )
+            ]),
+            relayURL: "wss://relay.example.com"
+        )
+    }
+    .environment(WorkspaceState.preview())
+    .frame(width: 600, height: 360)
 }
 
 /// One role's toggle, with the role's own explanation under it.

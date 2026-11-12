@@ -611,6 +611,62 @@ final class FakeBlockListSubscription: BlockListSubscription, @unchecked Sendabl
     }
 }
 
+/// Mirrors MDK's relay liveness subscription: `next()` waits for a delivered list and answers
+/// `nil` once `cancel()` is called, which is the only way a pending receive ends.
+final class FakeRelayLivenessSubscription: RelayLivenessSubscription, @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: [RelayLivenessFfi]
+    private var pending: [[RelayLivenessFfi]] = []
+    private var waiter: CheckedContinuation<[RelayLivenessFfi]?, Never>?
+    private(set) var isCancelled = false
+
+    required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        current = []
+        super.init(unsafeFromRawPointer: pointer)
+    }
+
+    init(initial: [RelayLivenessFfi]) {
+        current = initial
+        super.init(noPointer: NoPointer())
+    }
+
+    override func snapshot() -> [RelayLivenessFfi] { lock.withLock { current } }
+
+    override func next() async throws -> [RelayLivenessFfi]? {
+        await withCheckedContinuation { continuation in
+            let immediate: [RelayLivenessFfi]?? = lock.withLock {
+                if isCancelled { return .some(nil) }
+                if !pending.isEmpty { return .some(pending.removeFirst()) }
+                waiter = continuation
+                return .none
+            }
+            if let immediate { continuation.resume(returning: immediate) }
+        }
+    }
+
+    override func cancel() {
+        let waiting = lock.withLock { () -> CheckedContinuation<[RelayLivenessFfi]?, Never>? in
+            isCancelled = true
+            defer { waiter = nil }
+            return waiter
+        }
+        waiting?.resume(returning: nil)
+    }
+
+    func deliver(_ rows: [RelayLivenessFfi]) {
+        let waiting = lock.withLock { () -> CheckedContinuation<[RelayLivenessFfi]?, Never>? in
+            current = rows
+            guard let waiter else {
+                pending.append(rows)
+                return nil
+            }
+            self.waiter = nil
+            return waiter
+        }
+        waiting?.resume(returning: rows)
+    }
+}
+
 final class FakeOnboardingSubscription: OnboardingSubscription, @unchecked Sendable {
     private var current: OnboardingSnapshotFfi
     private var updates: [OnboardingSnapshotFfi]

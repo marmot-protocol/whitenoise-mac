@@ -776,6 +776,15 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// until `releaseCreateGroupGate()` is invoked, holding `createNewChat()` in-flight so a test can
     /// switch the active account before the create resolves and assert the freshly created group is
     /// not grafted onto / selected under the switched-to account.
+    /// Relay liveness rows the next subscription starts from; push later lists through
+    /// `relayLivenessSubscriptions.last?.deliver(_:)`.
+    var relayLiveness: [RelayLivenessFfi] = []
+    var relayLivenessError: Error?
+    private(set) var relayLivenessSubscribeCount = 0
+    private(set) var relayLivenessSubscriptions: [FakeRelayLivenessSubscription] = []
+    /// Holds the first `subscribeRelayLiveness` in flight, so a later visit's subscribe can finish
+    /// before it.
+    let relayLivenessSubscribeGate = AsyncFfiGate()
     private let createGroupGate = AsyncFfiGate()
     var createGroupGateEnabled: Bool {
         get { createGroupGate.isEnabled }
@@ -1369,6 +1378,27 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func releasePublishUserProfileGate() {
         publishUserProfileGate.release()
+    }
+
+    func subscribeRelayLiveness(accountRef: String) async throws -> RelayLivenessSubscription {
+        relayLivenessSubscribeCount += 1
+        await relayLivenessSubscribeGate.passIfArmed()
+        if let relayLivenessError { throw relayLivenessError }
+        let subscription = FakeRelayLivenessSubscription(initial: relayLiveness)
+        relayLivenessSubscriptions.append(subscription)
+        return subscription
+    }
+
+    func relayLivenessSnapshot(subscription: RelayLivenessSubscription) -> [RelayLivenessFfi] {
+        subscription.snapshot()
+    }
+
+    func nextRelayLiveness(subscription: RelayLivenessSubscription) async throws -> [RelayLivenessFfi]? {
+        try await subscription.next()
+    }
+
+    func cancelRelayLiveness(subscription: RelayLivenessSubscription) {
+        subscription.cancel()
     }
 
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {

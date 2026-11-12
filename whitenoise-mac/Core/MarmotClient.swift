@@ -36,6 +36,13 @@ nonisolated protocol MarmotRuntime: Sendable {
     func uploadProfileImage(accountRef: String, data: Data, mediaType: String, blossomServer: String?) async throws
         -> String
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi
+    /// Live connection state of every relay configured for the account (MarmotKit 0.16.0). Reads
+    /// never dial. `cancelRelayLiveness` wakes a pending `nextRelayLiveness` with `nil` and does not
+    /// disconnect anything.
+    func subscribeRelayLiveness(accountRef: String) async throws -> RelayLivenessSubscription
+    func relayLivenessSnapshot(subscription: RelayLivenessSubscription) -> [RelayLivenessFfi]
+    func nextRelayLiveness(subscription: RelayLivenessSubscription) async throws -> [RelayLivenessFfi]?
+    func cancelRelayLiveness(subscription: RelayLivenessSubscription)
     func localAccountKeyPackages(accountRef: String) throws -> [AccountKeyPackageInventoryEntryFfi]
     func refreshAccountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws
         -> [AccountKeyPackageInventoryEntryFfi]
@@ -600,6 +607,22 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {
         try marmot.accountRelayLists(accountRef: accountRef)
+    }
+
+    func subscribeRelayLiveness(accountRef: String) async throws -> RelayLivenessSubscription {
+        try await marmot.subscribeRelayLiveness(accountRef: accountRef)
+    }
+
+    func relayLivenessSnapshot(subscription: RelayLivenessSubscription) -> [RelayLivenessFfi] {
+        subscription.snapshot()
+    }
+
+    func nextRelayLiveness(subscription: RelayLivenessSubscription) async throws -> [RelayLivenessFfi]? {
+        try await subscription.next()
+    }
+
+    func cancelRelayLiveness(subscription: RelayLivenessSubscription) {
+        subscription.cancel()
     }
 
     func localAccountKeyPackages(accountRef: String) throws -> [AccountKeyPackageInventoryEntryFfi] {
