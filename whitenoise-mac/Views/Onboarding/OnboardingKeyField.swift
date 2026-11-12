@@ -216,6 +216,8 @@ private struct OnboardingKeyInput: View {
         // editor's visible text is inside the pill either way — and it is the difference between
         // the input having an edge and the input borrowing one.
         .clipShape(shape)
+        // `WNInput`'s outline, so the key field and the name field stay one family.
+        .wnInputOutline(shape, isFocused: isFocused.wrappedValue)
     }
 
     /// The swap replaces the field, and the new one does not inherit focus on its own; hand it

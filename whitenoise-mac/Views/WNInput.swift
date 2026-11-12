@@ -73,6 +73,7 @@ struct WNInput<Accessory: View>: View {
             // focused field editor. See the long note on `OnboardingKeyField`, which is the case
             // that proved it.
             .clipShape(shape)
+            .wnInputOutline(shape, isFocused: isFocused)
 
             if let validationMessage {
                 Text(validationMessage)
@@ -153,6 +154,30 @@ extension WNInput where Accessory == EmptyView {
     }
 }
 
+extension View {
+    /// The edge every typed-into box draws: `borderTertiary` at rest, `borderPrimary` while focused.
+    ///
+    /// The fill alone is not an edge. In Light, `fillSecondary` is `neutral100` — the same value a
+    /// grouped settings card and a sheet's glass resolve to — so a filled field on Settings →
+    /// Delete Profile, or in a sheet, drew as nothing at all: a label over blank card with a
+    /// prompt floating in it. The outline is what makes it read as a field there, and it is the
+    /// same hairline the compose sheet's group-name field already draws.
+    ///
+    /// `AnyShape` is not insettable, so the stroke is drawn at twice the width and clipped to the
+    /// shape: the half that lands inside is the outline, and the field's size never changes.
+    func wnInputOutline(_ shape: AnyShape, isFocused: Bool) -> some View {
+        overlay {
+            shape
+                .stroke(
+                    isFocused ? WNColor.borderPrimary : WNColor.borderTertiary,
+                    lineWidth: WNInputMetrics.outlineWidth * 2
+                )
+                .clipShape(shape)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
 /// The numbers `WNInput` draws itself with.
 ///
 /// Split out of the view so they can be asserted without standing one up, and so
@@ -168,6 +193,9 @@ enum WNInputMetrics {
     /// The box's inset. `OnboardingKeyField`'s, so a name field and a key field line their text up.
     static let horizontalPadding: CGFloat = 12
     static let verticalPadding: CGFloat = 8
+
+    /// The field's outline — drawn inside the box, so it never changes the field's size.
+    static let outlineWidth: CGFloat = 1
 
     /// Between the field and whatever sits in its trailing edge.
     static let accessorySpacing: CGFloat = 6
