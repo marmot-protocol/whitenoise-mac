@@ -76,8 +76,9 @@ White Noise for macOS now pins `marmotkit-v0.16.0` at MDK commit
   (`MessageReplyTags`, which custom emoji also use), the pending message keeps it for a retry, and
   the reply banner and staged attachments no longer clear each other (#399).
 - **Audit log retention** (`auditLogRetention`, `setAuditLogRetention`). Privacy & Security →
-  Log Retention offers preset ages (1–30 days) and per-account limits (64 MB–1 GB), shown while
-  audit logging is on or logs are stored. MDK clamps and returns what it stored, which is what the
+  Log Retention offers preset ages (1–30 days) and per-account limits (64 MB–1 GB). The section
+  shows once retention has been read, or the read has failed, independent of the logging switch
+  and the stored-log list: MDK enforces the policy either way (`showsRetention`). MDK clamps and returns what it stored, which is what the
   pickers show (`AuditLogRetentionViewModel`). The pickers wait while the page reloads, and a
   change claims the model before its save starts, so a reload's read can never put the older
   policy back on screen.
