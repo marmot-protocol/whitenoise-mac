@@ -157,7 +157,7 @@ struct AuditDeliveryStatusRows: View {
 
     private static func relative(_ ms: UInt64?) -> String {
         guard let ms else { return L10n.string("Never") }
-        return Date(unixMilliseconds: ms).formatted(.relative(presentation: .named))
+        return Date(unixMilliseconds: ms).formatted(.relative(presentation: .named).locale(AppLanguage.currentLocale))
     }
 
     private static func failure(_ failure: AuditDeliveryFailureV5Ffi) -> String {

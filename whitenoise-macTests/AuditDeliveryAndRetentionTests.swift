@@ -86,12 +86,20 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
 
     /// The day count follows the app's language, plural rules included.
     @Test func theDayCountUsesEachLanguagesPluralForms() {
-        #expect(L10n.plural("%lld days", Int64(1), locale: Locale(identifier: "en")) == "1 day")
-        #expect(L10n.plural("%lld days", Int64(14), locale: Locale(identifier: "en")) == "14 days")
+        #expect(L10n.plural("%llu days", UInt64(1), locale: Locale(identifier: "en")) == "1 day")
+        #expect(L10n.plural("%llu days", UInt64(14), locale: Locale(identifier: "en")) == "14 days")
+        // The presets 1, 3 and 7 are three different Russian plural forms.
         let russian = Locale(identifier: "ru")
-        #expect(L10n.plural("%lld days", Int64(1), locale: russian) == "1 день")
-        #expect(L10n.plural("%lld days", Int64(3), locale: russian) == "3 дня")
-        #expect(L10n.plural("%lld days", Int64(7), locale: russian) == "7 дней")
+        #expect(L10n.plural("%llu days", UInt64(1), locale: russian) == "1 день")
+        #expect(L10n.plural("%llu days", UInt64(3), locale: russian) == "3 дня")
+        #expect(L10n.plural("%llu days", UInt64(7), locale: russian) == "7 дней")
+    }
+
+    /// The limits are whole mebibytes and read that way.
+    @Test func sizeChoicesReadInBinaryUnits() {
+        #expect(DiagnosticLogRetentionSection.sizeLabel(256 << 20).hasPrefix("256"))
+        #expect(DiagnosticLogRetentionSection.sizeLabel(1 << 30).hasPrefix("1"))
+        #expect(!DiagnosticLogRetentionSection.sizeLabel(1 << 30).hasPrefix("1.07"))
     }
 
     @Test func aRetentionFailureIsShownAndKeepsTheLastValue() async {
@@ -142,7 +150,6 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
             ]))
         #expect(upToDate.state == .upToDate)
         #expect(upToDate.lastSuccess == Date(unixMilliseconds: 5_000))
-        #expect(upToDate.undeliveredBytes == 42)
 
         let never = try #require(AuditDeliverySummary(statuses: [Self.status()]))
         #expect(never.state == .neverSent)

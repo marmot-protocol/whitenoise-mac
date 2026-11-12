@@ -62,14 +62,11 @@ struct AuditDeliverySummary: Equatable {
     let state: State
     /// The most recent successful delivery of any account.
     let lastSuccess: Date?
-    /// Bytes recorded on this Mac and not yet accepted by the receiver.
-    let undeliveredBytes: UInt64
 
     init?(statuses: [AuditDeliveryStatusV5Ffi]) {
         let configured = statuses.filter(\.destinationConfigured)
         guard !configured.isEmpty else { return nil }
         lastSuccess = configured.compactMap(\.lastSuccessAtMs).max().map(Date.init(unixMilliseconds:))
-        undeliveredBytes = configured.reduce(0) { $0 + ($1.backlog?.undeliveredBytes ?? 0) }
         if let paused = configured.first(where: \.paused) {
             state = .paused(httpStatus: paused.lastFailure?.httpStatus)
         } else if configured.contains(where: { $0.consecutiveFailures > 0 }) {
@@ -103,7 +100,7 @@ struct AuditDeliverySummary: Equatable {
         guard let lastSuccess else { return L10n.string("No diagnostic logs have been sent yet.") }
         return String(
             format: L10n.string("Last sent %@."),
-            lastSuccess.formatted(.relative(presentation: .named))
+            lastSuccess.formatted(.relative(presentation: .named).locale(AppLanguage.currentLocale))
         )
     }
 }

@@ -326,7 +326,10 @@ private struct StoredDiagnosticLogsSection: View {
                     )
                 }
 
-                if let summary = model.delivery.summary {
+                // A failed read is not "nothing configured": say so here, where Upload Now is.
+                if let error = model.delivery.error {
+                    SettingsStatusNote(text: error, intention: .failure)
+                } else if let summary = model.delivery.summary {
                     AuditDeliverySummaryNote(summary: summary)
                 }
             }
@@ -394,7 +397,7 @@ struct DiagnosticLogRetentionSection: View {
                     )
                 ) {
                     ForEach(model.sizeChoices, id: \.self) { bytes in
-                        Text(AuditLogByteCount.string(bytes)).tag(bytes)
+                        Text(Self.sizeLabel(bytes)).tag(bytes)
                     }
                 }
                 .disabled(model.isBusy)
@@ -406,8 +409,14 @@ struct DiagnosticLogRetentionSection: View {
         }
     }
 
+    /// The limits are whole mebibytes, so they read in binary units: 256 MiB as "256 MB", not
+    /// the "268.4 MB" a file-size count would print.
+    static func sizeLabel(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .binary)
+    }
+
     static func ageLabel(_ days: UInt32) -> String {
-        L10n.plural("%lld days", Int64(days))
+        L10n.plural("%llu days", UInt64(days))
     }
 }
 
