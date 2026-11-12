@@ -48,6 +48,10 @@ struct PrivacySecuritySettingsView: View {
                 showClearConfirmation: $showClearLogsConfirmation
             )
 
+            if model.showsRetention {
+                DiagnosticLogRetentionSection(model: model.retention, isEnabled: model.canChangeRetention)
+            }
+
             SettingsSection(
                 title: L10n.string("Device Data"),
                 footer: L10n.string(
@@ -328,6 +332,76 @@ private struct StoredDiagnosticLogsSection: View {
             total += file.sizeBytes
         }
     }
+}
+
+/// How long diagnostic logs stay on this Mac and how much room they may take.
+///
+/// Presets rather than free entry: MDK clamps whatever it is given, and a picker cannot offer a
+/// value it would change. A stored value outside the presets is listed too, so the picker never
+/// shows nothing selected.
+struct DiagnosticLogRetentionSection: View {
+    let model: AuditLogRetentionViewModel
+    /// False while the page reloads or a retention save runs (`canChangeRetention`).
+    var isEnabled = true
+
+    var body: some View {
+        SettingsSection(
+            title: L10n.string("Log Retention"),
+            footer: L10n.string(
+                "Older logs are deleted automatically. Over the storage limit, the oldest logs that were already sent, or have nowhere to be sent, are deleted; logs waiting to be sent are kept until they reach the age limit."
+            )
+        ) {
+            if let retention = model.retention {
+                Picker(
+                    L10n.string("Keep Logs For"),
+                    selection: Binding(
+                        get: { retention.maxAgeDays },
+                        set: { days in model.setMaxAgeDays(days) }
+                    )
+                ) {
+                    ForEach(model.ageChoices, id: \.self) { days in
+                        Text(Self.ageLabel(days)).tag(days)
+                    }
+                }
+                .disabled(!isEnabled || model.isBusy)
+
+                Picker(
+                    L10n.string("Storage Limit per Account"),
+                    selection: Binding(
+                        get: { retention.maxBytesPerAccount },
+                        set: { bytes in model.setMaxBytesPerAccount(bytes) }
+                    )
+                ) {
+                    ForEach(model.sizeChoices, id: \.self) { bytes in
+                        Text(Self.sizeLabel(bytes)).tag(bytes)
+                    }
+                }
+                .disabled(!isEnabled || model.isBusy)
+            }
+
+            if let error = model.error {
+                SettingsErrorView(error: error)
+            }
+        }
+    }
+
+    /// The limits are whole mebibytes, so they read in binary units: 256 MiB as "256 MB", not
+    /// the "268.4 MB" a file-size count would print.
+    static func sizeLabel(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .binary)
+    }
+
+    static func ageLabel(_ days: UInt32) -> String {
+        L10n.plural("%llu days", UInt64(days))
+    }
+}
+
+#Preview("Log retention") {
+    Form {
+        DiagnosticLogRetentionSection(model: .preview())
+    }
+    .formStyle(.grouped)
+    .frame(width: 560, height: 220)
 }
 
 /// A button's label while its work is running: the spinner takes the place the glyph held, so the

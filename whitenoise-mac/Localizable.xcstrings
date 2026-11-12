@@ -1,6 +1,66 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Keep Logs For" : {
+      "comment" : "Picker: how many days diagnostic logs are kept.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Protokolle aufbewahren für"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservar registros durante"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conserver les journaux pendant"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conserva i log per"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manter logs por"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хранить журналы"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kayıtları sakla"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日志保留时长"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日誌保留時間"
+          }
+        }
+      }
+    },
     "%lld chats remain. Try again." : {
       "comment" : "Shown after a bulk archive or mute when some chats were not updated. The argument is how many chats are left.",
       "extractionState" : "manual",
@@ -11706,6 +11766,66 @@
         }
       }
     },
+    "Log Retention" : {
+      "comment" : "Section title: how long and how much diagnostic logging keeps.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufbewahrung der Protokolle"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservación de registros"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservation des journaux"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservazione dei log"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retenção de logs"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хранение журналов"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kayıt saklama"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日志保留"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日誌保留"
+          }
+        }
+      }
+    },
     "Member not removed" : {
       "comment" : "Toast title when a queued member removal was refused.",
       "extractionState" : "manual",
@@ -12729,6 +12849,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暫時不要"
+          }
+        }
+      }
+    },
+    "Older logs are deleted automatically. Over the storage limit, the oldest logs that were already sent, or have nowhere to be sent, are deleted; logs waiting to be sent are kept until they reach the age limit." : {
+      "comment" : "Footer under the log retention pickers.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ältere Protokolle werden automatisch gelöscht. Über dem Speicherlimit werden die ältesten Protokolle gelöscht, die bereits gesendet wurden oder nirgendwohin gesendet werden können; Protokolle, die auf das Senden warten, bleiben bis zum Erreichen der Altersgrenze erhalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los registros antiguos se eliminan automáticamente. Por encima del límite de almacenamiento, se eliminan los registros más antiguos que ya se enviaron o que no tienen adónde enviarse; los que esperan para enviarse se conservan hasta alcanzar el límite de antigüedad."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les anciens journaux sont supprimés automatiquement. Au-delà de la limite de stockage, les journaux les plus anciens déjà envoyés, ou qui n’ont aucune destination, sont supprimés ; ceux en attente d’envoi sont conservés jusqu’à la limite d’ancienneté."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I log meno recenti vengono eliminati automaticamente. Oltre il limite di spazio vengono eliminati i log più vecchi già inviati o senza una destinazione; quelli in attesa di invio vengono conservati fino al limite di età."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logs antigos são apagados automaticamente. Acima do limite de armazenamento, os logs mais antigos já enviados, ou sem destino para envio, são apagados; os que aguardam envio são mantidos até atingirem o limite de idade."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Старые журналы удаляются автоматически. При превышении лимита хранения удаляются самые старые журналы, которые уже отправлены или которые некуда отправлять; журналы, ожидающие отправки, хранятся, пока не достигнут предельного возраста."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eski kayıtlar otomatik olarak silinir. Depolama sınırı aşıldığında, zaten gönderilmiş ya da gönderilecek bir yeri olmayan en eski kayıtlar silinir; gönderilmeyi bekleyen kayıtlar yaş sınırına ulaşana kadar saklanır."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "较旧的日志会自动删除。超出存储上限时，会删除最早的已发送日志或无处发送的日志；等待发送的日志会保留至达到保留时长为止。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "較舊的日誌會自動刪除。超出儲存空間上限時，會刪除最早的已傳送日誌或無處傳送的日誌；等待傳送的日誌會保留至達到保留時間為止。"
           }
         }
       }
@@ -18380,6 +18560,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "貼圖從各貼圖包作者選擇的伺服器載入。這些伺服器可以看到你的 IP 位址。"
+          }
+        }
+      }
+    },
+    "Storage Limit per Account" : {
+      "comment" : "Picker: the most disk space each account's diagnostic logs may use.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speicherlimit pro Konto"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Límite de almacenamiento por cuenta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limite de stockage par compte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limite di spazio per account"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limite de armazenamento por conta"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лимит хранения на учётную запись"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hesap başına depolama sınırı"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个账户的存储上限"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每個帳號的儲存空間上限"
           }
         }
       }
