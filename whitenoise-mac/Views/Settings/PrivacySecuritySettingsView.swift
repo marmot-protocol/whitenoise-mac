@@ -48,6 +48,12 @@ struct PrivacySecuritySettingsView: View {
                 showClearConfirmation: $showClearLogsConfirmation
             )
 
+            // Retention matters while logging is on or something is still stored; with neither,
+            // there is nothing for it to act on.
+            if model.auditSettings?.enabled == true || !model.auditLogFiles.isEmpty {
+                DiagnosticLogRetentionSection(model: model.retention)
+            }
+
             SettingsSection(
                 title: L10n.string("Device Data"),
                 footer: L10n.string(
@@ -319,6 +325,10 @@ private struct StoredDiagnosticLogsSection: View {
                         systemImage: "checkmark.seal"
                     )
                 }
+
+                if let summary = model.delivery.summary {
+                    AuditDeliverySummaryNote(summary: summary)
+                }
             }
         }
     }
@@ -328,6 +338,102 @@ private struct StoredDiagnosticLogsSection: View {
             total += file.sizeBytes
         }
     }
+}
+
+/// Whether recorded logs are reaching White Noise, in one line. Only a pause asks for anything:
+/// Upload Now is what lifts it.
+struct AuditDeliverySummaryNote: View {
+    let summary: AuditDeliverySummary
+
+    var body: some View {
+        switch summary.state {
+        case .paused:
+            SettingsStatusNote(text: summary.message, intention: .warning)
+        case .retrying:
+            SettingsStatusNote(text: summary.message, intention: .warning, systemImage: "arrow.clockwise")
+        case .upToDate, .neverSent:
+            SettingsStatusNote(text: summary.message, intention: .success, systemImage: "paperplane")
+        }
+    }
+}
+
+/// How long diagnostic logs stay on this Mac and how much room they may take.
+///
+/// Presets rather than free entry: MDK clamps whatever it is given, and a picker cannot offer a
+/// value it would change. A stored value outside the presets is listed too, so the picker never
+/// shows nothing selected.
+struct DiagnosticLogRetentionSection: View {
+    let model: AuditLogRetentionViewModel
+
+    var body: some View {
+        SettingsSection(
+            title: L10n.string("Log Retention"),
+            footer: L10n.string(
+                "Older logs are deleted automatically. Over the storage limit, logs already sent are deleted first; logs not sent yet are kept until they reach the age limit."
+            )
+        ) {
+            if let retention = model.retention {
+                Picker(
+                    L10n.string("Keep Logs For"),
+                    selection: Binding(
+                        get: { retention.maxAgeDays },
+                        set: { days in Task { await model.setMaxAgeDays(days) } }
+                    )
+                ) {
+                    ForEach(model.ageChoices, id: \.self) { days in
+                        Text(Self.ageLabel(days)).tag(days)
+                    }
+                }
+                .disabled(model.isSaving)
+
+                Picker(
+                    L10n.string("Storage Limit per Account"),
+                    selection: Binding(
+                        get: { retention.maxBytesPerAccount },
+                        set: { bytes in Task { await model.setMaxBytesPerAccount(bytes) } }
+                    )
+                ) {
+                    ForEach(model.sizeChoices, id: \.self) { bytes in
+                        Text(AuditLogByteCount.string(bytes)).tag(bytes)
+                    }
+                }
+                .disabled(model.isSaving)
+            }
+
+            if let error = model.error {
+                SettingsErrorView(error: error)
+            }
+        }
+    }
+
+    static func ageLabel(_ days: UInt32) -> String {
+        String.localizedStringWithFormat(L10n.string("%lld days"), Int(days))
+    }
+}
+
+#Preview("Log retention and delivery") {
+    Form {
+        DiagnosticLogRetentionSection(model: .preview())
+        Section {
+            AuditDeliverySummaryNote(
+                summary: AuditDeliverySummary(statuses: [
+                    AuditDeliveryStatusV5Ffi(
+                        accountRef: "preview",
+                        destinationConfigured: true,
+                        lastSuccessAtMs: 1_800_000_000_000,
+                        lastFailure: AuditDeliveryFailureV5Ffi(
+                            kind: .receiverBlocked, httpStatus: 401, atMs: 1_800_000_100_000),
+                        consecutiveFailures: 3,
+                        rejectedBatches: 0,
+                        paused: true,
+                        backlog: nil
+                    )
+                ])!
+            )
+        }
+    }
+    .formStyle(.grouped)
+    .frame(width: 560, height: 320)
 }
 
 /// A button's label while its work is running: the spinner takes the place the glyph held, so the

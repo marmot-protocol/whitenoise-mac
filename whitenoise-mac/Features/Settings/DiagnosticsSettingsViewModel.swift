@@ -27,6 +27,10 @@ final class DiagnosticsSettingsViewModel {
     private(set) var isUploadingAuditLogs = false
     private(set) var auditUploadStatus: String?
     private(set) var error: DiagnosticsSettingsError?
+    /// How long and how much audit logging keeps (MarmotKit 0.16.0).
+    let retention: AuditLogRetentionViewModel
+    /// Whether recorded logs are reaching the receiver (MarmotKit 0.16.0).
+    let delivery: AuditDeliveryStatusViewModel
 
     @ObservationIgnored private let runtime: (any MarmotRuntime)?
     @ObservationIgnored private let productAnalytics: ProductAnalyticsRecorder?
@@ -37,6 +41,8 @@ final class DiagnosticsSettingsViewModel {
     ) {
         self.runtime = runtime
         self.productAnalytics = productAnalytics
+        retention = AuditLogRetentionViewModel(runtime: runtime)
+        delivery = AuditDeliveryStatusViewModel(runtime: runtime)
     }
 
     func load() async {
@@ -58,6 +64,8 @@ final class DiagnosticsSettingsViewModel {
             configureProductAnalytics(for: loaded.0)
             error = nil
             await loadAuditLogs()
+            await retention.load()
+            await delivery.load()
         } catch is CancellationError {
             return
         } catch {
@@ -155,6 +163,7 @@ final class DiagnosticsSettingsViewModel {
             self.error = .unavailable(UserFacingError.message(for: error))
         }
         await loadAuditLogs()
+        await delivery.load()
     }
 
     func uploadAuditLogs() async {
@@ -167,6 +176,8 @@ final class DiagnosticsSettingsViewModel {
             auditUploadStatus = Self.auditUploadStatusMessage(result)
             error = nil
             await loadAuditLogs()
+            // An upload lifts a paused account, so the status line has to follow it.
+            await delivery.load()
         } catch is CancellationError {
             return
         } catch {
