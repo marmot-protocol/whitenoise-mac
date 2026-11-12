@@ -6265,10 +6265,10 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func replyContextAndPendingMediaAreMutuallyExclusive() async throws {
-        // Issue #399: FFI media uploads carry no reply target. The composer must never
-        // keep both a visible reply banner and pending media, regardless of which one
-        // the user starts first, because sendDraft() can only route to one send path.
+    @Test func mediaSentWithAReplyOpenGoesOutAsThatReply() async throws {
+        // MarmotKit 0.16.0 keeps a `send: true` upload's reply target, so the reply banner and
+        // staged media no longer cancel each other (#399): whichever the user starts first, the
+        // media goes out as the reply, tagged the way MDK's own replies are.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -6318,45 +6318,153 @@ struct TimelineTests: WorkspaceTestSupport {
         state.appendPendingMediaAttachment(attachment, for: draftKey)
         state.draftText = "Photo caption"
 
-        #expect(state.replyDraftContext == nil)
+        #expect(state.replyDraftContext?.targetMessageId == "parent")
         #expect(state.pendingMediaAttachments.count == 1)
 
         await Self.settleComposerMediaUploads(state)
         await state.sendDraft()
         await Self.settlePendingOutgoingMediaSends(state)
 
-        // Staging warms the composer preview; Send transfers retained-file ownership to the
-        // atomic tokenized upload-and-admit operation.
-        #expect(runtime.uploadMediaCallCount == 2)
         #expect(runtime.sendMediaAttachmentsCallCount == 1)
         #expect(runtime.replyToMessageCallCount == 0)
-        #expect(runtime.repliedMessage == nil)
         #expect(runtime.sentMediaAttachments.last?.caption == "Photo caption")
+        let sent = try #require(runtime.tokenizedMediaSubmissions.last { $0.request.send })
+        #expect(sent.request.messageTags == [["e", "parent"], ["q", "parent"]])
+        #expect(state.replyDraftContext == nil)
         #expect(state.pendingMediaAttachments.isEmpty)
+
+        // The other order: media staged first, then a reply started, keeps both.
+        state.appendPendingMediaAttachment(attachment, for: draftKey)
+        state.startReply(to: parent)
+        #expect(state.pendingMediaAttachments.count == 1)
+        #expect(state.replyDraftContext?.targetMessageId == "parent")
+    }
+
+    /// Media sent with no reply open carries no reply tags.
+    @MainActor
+    @Test func mediaSentWithoutAReplyCarriesNoReplyTags() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let attachment = PendingMediaAttachment(
+            fileName: "notes.txt",
+            mediaType: "text/plain",
+            data: Data("hello media".utf8),
+            dim: nil
+        )
+        let parent = MessageItem(
+            id: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        guard let draftKey = state.selectedComposerDraftKey else {
+            Issue.record("Expected a composer draft key")
+            return
+        }
 
         state.appendPendingMediaAttachment(attachment, for: draftKey)
-        #expect(state.pendingMediaAttachments.count == 1)
-
-        state.startReply(to: parent)
-        state.draftText = "Text reply only"
-
-        #expect(state.pendingMediaAttachments.isEmpty)
-        #expect(state.replyDraftContext?.targetMessageId == "parent")
-
+        await Self.settleComposerMediaUploads(state)
         await state.sendDraft()
-        await Self.settleOutgoingTextSends(state)
+        await Self.settlePendingOutgoingMediaSends(state)
 
-        // The second staging kicked off its own upload, but starting a reply dropped the
-        // attachment, so nothing new was published as media.
-        #expect(runtime.sendMediaAttachmentsCallCount == 1)
-        #expect(runtime.replyToMessageCallCount == 1)
-        #expect(
-            runtime.repliedMessage
-                == SentReply(
-                    groupIdHex: "direct-group",
-                    targetMessageId: "parent",
-                    text: "Text reply only"
-                ))
+        let sent = try #require(runtime.tokenizedMediaSubmissions.last { $0.request.send })
+        #expect(sent.request.messageTags.isEmpty)
+        _ = parent
+    }
+
+    /// A failed media reply retried later is still the reply it was.
+    @MainActor
+    @Test func retryingAFailedMediaReplyKeepsItsReplyTarget() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let attachment = PendingMediaAttachment(
+            fileName: "notes.txt",
+            mediaType: "text/plain",
+            data: Data("hello media".utf8),
+            dim: nil
+        )
+        let parent = MessageItem(
+            id: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        guard let draftKey = state.selectedComposerDraftKey else {
+            Issue.record("Expected a composer draft key")
+            return
+        }
+
+        runtime.sendMediaAttachmentsError = MarmotKitError.Publish(details: "relay down")
+        state.startReply(to: parent)
+        state.appendPendingMediaAttachment(attachment, for: draftKey)
+        await Self.settleComposerMediaUploads(state)
+        await state.sendDraft()
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        let failed = try #require(state.selectedPendingOutgoingMediaMessages.first)
+        #expect(failed.state == .failed)
+        #expect(failed.replyContext?.targetMessageId == "parent")
+
+        runtime.sendMediaAttachmentsError = nil
+        state.retryPendingOutgoingMediaMessage(failed.id)
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        let sends = runtime.tokenizedMediaSubmissions.filter { $0.request.send }
+        #expect(sends.count == 2)
+        #expect(sends.allSatisfy { $0.request.messageTags == [["e", "parent"], ["q", "parent"]] })
+        #expect(sends.map(\.clientToken) == [failed.clientToken, failed.clientToken])
     }
 
     @MainActor
@@ -7185,11 +7293,10 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func stagingARecordingDropsAnActiveReplyLikeEveryOtherAttachment() async throws {
-        // A reply banner is not draft content, so it never blocks the mic — but reply and pending
-        // media are mutually exclusive (#399) because outgoing media carries no reply target. The
-        // recording path is one more staging path and honours that the same way the paperclip does,
-        // rather than leaving a banner promising a reply the send cannot make.
+    @Test func aRecordingStagedUnderAReplyIsSentAsThatReply() async throws {
+        // A reply banner is not draft content, so it never blocks the mic. Since MarmotKit 0.16.0
+        // a media send carries its reply target, so the recording keeps the banner and goes out as
+        // the reply, like any other attachment.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
@@ -7211,7 +7318,7 @@ struct TimelineTests: WorkspaceTestSupport {
         state.appendPendingMediaAttachment(recordedVoiceMessage(), for: draftKey)
 
         #expect(state.stagedVoiceMessage != nil)
-        #expect(state.replyDraftContext == nil)
+        #expect(state.replyDraftContext?.targetMessageId == "parent")
 
         await Self.settleComposerMediaUploads(state)
         await state.sendDraft()
@@ -7220,6 +7327,8 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.replyToMessageCallCount == 0)
         #expect(runtime.sendMediaAttachmentsCallCount == 1)
         #expect(runtime.sentMediaAttachments.last?.fileNames == ["voice-note.m4a"])
+        let sent = try #require(runtime.tokenizedMediaSubmissions.last { $0.request.send })
+        #expect(sent.request.messageTags == [["e", "parent"], ["q", "parent"]])
     }
 
     @MainActor

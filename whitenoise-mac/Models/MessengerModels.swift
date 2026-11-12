@@ -1355,6 +1355,9 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
     let clientToken: String
     let attachments: [PendingMediaAttachment]
     let caption: String
+    /// The message this answers, carried so a retry re-sends it as the same reply. Sent as the
+    /// upload's `e`/`q` message tags (`MessageReplyTags`).
+    let replyContext: MessageReplyContext?
     let createdAt: Date
     var state: PendingOutgoingMediaMessageState
 
@@ -1363,6 +1366,7 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
         clientToken: String? = nil,
         attachments: [PendingMediaAttachment],
         caption: String,
+        replyContext: MessageReplyContext? = nil,
         createdAt: Date = Date(),
         state: PendingOutgoingMediaMessageState = .uploading
     ) {
@@ -1370,6 +1374,7 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
         self.clientToken = clientToken ?? id.uuidString.lowercased()
         self.attachments = attachments
         self.caption = caption
+        self.replyContext = replyContext
         self.createdAt = createdAt
         self.state = state
     }
@@ -1379,6 +1384,7 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
             && lhs.clientToken == rhs.clientToken
             && lhs.attachments == rhs.attachments
             && lhs.caption == rhs.caption
+            && lhs.replyContext == rhs.replyContext
             && lhs.createdAt == rhs.createdAt
             && lhs.state == rhs.state
     }
@@ -1388,6 +1394,7 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
         hasher.combine(clientToken)
         hasher.combine(attachments)
         hasher.combine(caption)
+        hasher.combine(replyContext)
         hasher.combine(createdAt)
         hasher.combine(state)
     }

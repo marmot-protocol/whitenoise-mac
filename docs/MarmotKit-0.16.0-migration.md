@@ -71,6 +71,11 @@ White Noise for macOS now pins `marmotkit-v0.16.0` at MDK commit
   still uses `createGroup` + promote, because `startDirectConversation` would hand back the existing
   chat the user just asked to bypass.
 
+- **Media sent as a reply.** `uploadMediaWithClientToken(send: true)` keeps a reply target named by
+  the request's `e`/`q` message tags. A media send now carries the open reply as those tags
+  (`MessageReplyTags`, which custom emoji also use), the pending message keeps it for a retry, and
+  the reply banner and staged attachments no longer clear each other (#399).
+
 ## Not adopted yet
 
 - **Relay liveness** (`accountRelayLiveness`, `subscribeRelayLiveness`, `reconnectRelay`) for
@@ -78,5 +83,3 @@ White Noise for macOS now pins `marmotkit-v0.16.0` at MDK commit
 - **NIP-46 remote signers** (`nip46New`, `nip46Login`, …).
 - **Audit delivery status and retention** (`auditDeliveryStatusV5`, `auditLogRetention`,
   `setAuditLogRetention`). The 256 MiB per-account default budget applies.
-- **Media sent as a reply.** `uploadMediaWithClientToken(send: true)` now keeps a reply target named
-  by an `e`/`q` message tag; the app sends no reply tags with media today.

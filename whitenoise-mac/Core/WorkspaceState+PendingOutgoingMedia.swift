@@ -124,7 +124,10 @@ extension WorkspaceState {
                     attachments: message.attachments.map(\.uploadRequest),
                     caption: message.caption.isEmpty ? nil : message.caption,
                     send: true,
-                    blossomServer: nil
+                    blossomServer: nil,
+                    // MDK keeps this reply target through upload and durable admission, and
+                    // refuses a malformed one before anything uploads.
+                    messageTags: MessageReplyTags.tags(replyingTo: message.replyContext?.targetMessageId)
                 ),
                 clientToken: message.clientToken
             )

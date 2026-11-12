@@ -297,8 +297,8 @@ nonisolated enum CustomEmojiSendCatalog {
 }
 
 nonisolated enum CustomEmojiTags {
-    static let eventRefTag = "e"
-    static let quoteRefTag = "q"
+    static let eventRefTag = MessageReplyTags.eventRef
+    static let quoteRefTag = MessageReplyTags.quoteRef
 
     /// Mirrors MDK `validate_message_tags`: at most 64 rows and 16 KiB of UTF-8 values, no empty
     /// rows or names, no `imeta`, and `e` / `q` rows need a non-blank target.
@@ -338,10 +338,7 @@ nonisolated enum CustomEmojiTags {
         for item in emoji {
             tags.append(try emojiTag(item.shortcode, reference: item.reference))
         }
-        if let replyTargetId {
-            tags.append([eventRefTag, replyTargetId])
-            tags.append([quoteRefTag, replyTargetId])
-        }
+        tags += MessageReplyTags.tags(replyingTo: replyTargetId)
         try validate(tags)
         return tags
     }
