@@ -75,11 +75,17 @@ White Noise for macOS now pins `marmotkit-v0.16.0` at MDK commit
   the request's `e`/`q` message tags. A media send now carries the open reply as those tags
   (`MessageReplyTags`, which custom emoji also use), the pending message keeps it for a retry, and
   the reply banner and staged attachments no longer clear each other (#399).
+- **Audit log retention** (`auditLogRetention`, `setAuditLogRetention`). Privacy & Security →
+  Log Retention offers preset ages (1–30 days) and per-account limits (64 MB–1 GB), shown while
+  audit logging is on or logs are stored. MDK clamps and returns what it stored, which is what the
+  pickers show (`AuditLogRetentionViewModel`).
+- **Audit delivery status** (`auditDeliveryStatusV5`). Privacy & Security's stored-logs section
+  carries one summary line (`AuditDeliverySummary`): paused with the HTTP status, retrying, or
+  last sent. Upload Now (`postAuditLogTrackerUpdateV5`) is what lifts a pause, so the status is
+  re-read after it. Developer mode lists every account's figures.
 
 ## Not adopted yet
 
 - **Relay liveness** (`accountRelayLiveness`, `subscribeRelayLiveness`, `reconnectRelay`) for
   per-relay status and a Reconnect button in Settings → Relays.
 - **NIP-46 remote signers** (`nip46New`, `nip46Login`, …).
-- **Audit delivery status and retention** (`auditDeliveryStatusV5`, `auditLogRetention`,
-  `setAuditLogRetention`). The 256 MiB per-account default budget applies.
