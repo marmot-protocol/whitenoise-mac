@@ -4,6 +4,10 @@ import Observation
 
 /// Wording for a send MDK dropped after waiting for its group to settle (MarmotKit 0.15
 /// `QueuedIntentRefused`), shared with iOS. Nothing retries it, so the user has to be told.
+///
+/// Since 0.16.0 a reason of `event_too_large` carries which artifact no relay would take:
+/// `.commit` (the change itself is too large for every group relay) or `.welcome` (every inbox
+/// relay of the invitee refuses the invitation).
 nonisolated enum RefusedIntentPresentation {
     static func title(intentKind: String) -> String {
         switch intentKind {
@@ -24,8 +28,17 @@ nonisolated enum RefusedIntentPresentation {
         }
     }
 
-    static func message(reason: String) -> String {
+    static func message(reason: String, artifact: OversizedArtifactFfi? = nil) -> String {
         switch reason {
+        case "event_too_large":
+            switch artifact {
+            case .welcome:
+                L10n.string(
+                    "The invitation is too large for this person's inbox relays, so it wasn't sent. Try inviting fewer people at once."
+                )
+            default:
+                L10n.string("This group change is too large for this chat's relays, so it wasn't made.")
+            }
         case "not_group_admin":
             L10n.string("You're no longer an admin of this group.")
         case "not_a_member":
@@ -79,7 +92,12 @@ final class RefusedIntentNoticesViewModel {
 
     /// Shows the refusal unless this intent was already announced. Returns whether it was shown.
     @discardableResult
-    func announce(intentIdHex: String, intentKind: String, reason: String) -> Bool {
+    func announce(
+        intentIdHex: String,
+        intentKind: String,
+        reason: String,
+        artifact: OversizedArtifactFfi? = nil
+    ) -> Bool {
         let intentId = intentIdHex.lowercased()
         guard !announcedIntentIds.contains(intentId) else { return false }
         announcedIntentIds.append(intentId)
@@ -89,7 +107,7 @@ final class RefusedIntentNoticesViewModel {
         notice = ModerationReportNotice(
             kind: .failure,
             title: RefusedIntentPresentation.title(intentKind: intentKind),
-            message: RefusedIntentPresentation.message(reason: reason)
+            message: RefusedIntentPresentation.message(reason: reason, artifact: artifact)
         )
         return true
     }
@@ -106,9 +124,9 @@ final class RefusedIntentNoticesViewModel {
             guard let event else { return }
             if case .groupEvent(let eventAccountIdHex, _, _, let groupEvent) = event,
                 eventAccountIdHex.lowercased() == accountIdHex,
-                case .queuedIntentRefused(let intentIdHex, let intentKind, let reason) = groupEvent
+                case .queuedIntentRefused(let intentIdHex, let intentKind, let reason, let artifact, _) = groupEvent
             {
-                announce(intentIdHex: intentIdHex, intentKind: intentKind, reason: reason)
+                announce(intentIdHex: intentIdHex, intentKind: intentKind, reason: reason, artifact: artifact)
             }
         }
     }

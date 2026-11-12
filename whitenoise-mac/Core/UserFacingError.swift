@@ -99,6 +99,8 @@ nonisolated enum UserFacingError {
             L10n.string("Your signer is signed in to a different account.")
         case .ExternalSignerRejected:
             L10n.string("Your signer declined the request.")
+        case .Nip46(let reason):
+            nip46Message(reason)
 
         // MARK: People and invitations
         case .MissingKeyPackage(_, .obsoleteOnly):
@@ -240,8 +242,10 @@ nonisolated enum UserFacingError {
         }
     }
 
-    /// The relays refused it for size on this attempt. MDK keeps its own retries and infers no
-    /// relay limit, so this never claims a final outcome.
+    /// Every relay that would carry it refuses it for size. Since MarmotKit 0.16.0 MDK knows
+    /// relay limits (the White Noise preset, the deployment list and relays' NIP-11 documents) and
+    /// refuses up front, so nothing was sent and nothing is retried: the user has to change what
+    /// they are sending.
     private static func eventTooLargeMessage(_ artifact: OversizedArtifactFfi) -> String {
         switch artifact {
         case .applicationMessage:
@@ -249,12 +253,36 @@ nonisolated enum UserFacingError {
                 "This chat's relays refused this message because it's too large. Shorten it or send fewer attachments."
             )
         case .welcome:
+            // A create or invite whose Welcome fits none of an invitee's inbox relays: nothing was
+            // created or sent.
             L10n.string(
-                "This chat's relays refused the invitation because it's too large. Try inviting fewer people at once.")
+                "The invitation is too large for this person's inbox relays, so it wasn't sent. Try inviting fewer people at once."
+            )
         case .commit:
-            L10n.string("This chat's relays refused this group change because it's too large.")
+            L10n.string("This group change is too large for this chat's relays, so it wasn't made.")
         case .other:
-            L10n.string("This chat's relays refused this update because it's too large.")
+            // Account-level publishes: KeyPackage, block list, sticker list, profile, follow and
+            // relay lists.
+            L10n.string("Your relays refused this update because it's too large. Nothing was changed.")
+        }
+    }
+
+    /// The app has no NIP-46 sign-in yet, so these reach the user only through an account some
+    /// other client set up; the wording stays with what the user can do about their signer.
+    private static func nip46Message(_ reason: Nip46ErrorFfi) -> String {
+        switch reason {
+        case .Rejected, .Cancelled:
+            L10n.string("Your signer declined the request.")
+        case .Mismatch:
+            L10n.string("Your signer is signed in to a different account.")
+        case .LoggedOut:
+            L10n.string("Your signer signed this account out. Connect it again to continue.")
+        case .PermissionApprovalRequired:
+            L10n.string("Review and approve your signer's permissions, then try again.")
+        case .Timeout, .Unavailable, .RelayPublish, .Disconnected, .Busy:
+            L10n.string("Your signer is unavailable.")
+        case .Invalid, .ProxyConfig, .Unsupported, .Storage, .RequestNotFound:
+            L10n.string("Something went wrong with your signer. Please try again.")
         }
     }
 

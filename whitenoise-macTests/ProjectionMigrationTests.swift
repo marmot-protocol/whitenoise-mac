@@ -956,6 +956,17 @@ struct ProjectionMigrationTests {
         #expect(model.error == nil)
     }
 
+    /// MarmotKit 0.16.0: only the next account open can restore a failed rewind, and
+    /// `retryHydrateQuarantinedGroup` always answers `false` for it, so no Retry is offered.
+    @Test func aRewindRestoreFailureIsNotOfferedARetry() {
+        #expect(!QuarantinedGroupReason.canRetry(.rewindRestoreFailed))
+        #expect(QuarantinedGroupReason.canRetry(.openMlsGroupMissing))
+        #expect(QuarantinedGroupReason.canRetry(.groupRecordLoadFailed))
+        #expect(
+            QuarantinedGroupReason.title(.rewindRestoreFailed)
+                != QuarantinedGroupReason.title(.groupRecordLoadFailed))
+    }
+
     @Test func blockedUsersSettingsUsesTheScopeOwnedLiveModel() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.blockedUsers = [BlockedUserFfi(publicKey: "blocked", isPrivate: true, createdAtMs: 1)]
@@ -2144,13 +2155,13 @@ struct ProjectionMigrationTests {
 
 struct MarmotKitReleaseProvenanceTests {
     @Test func generatedReleaseProvenancePinsTheAuditedBuild() throws {
-        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.15.0")
-        #expect(MarmotKitVersion.mdkSHA == "827687ba7fdbb05ec1b8f17667ad919fedde7266")
+        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.16.0")
+        #expect(MarmotKitVersion.mdkSHA == "a2e0558a634bbd20607cdd5afb93abc6220ee58d")
         #expect(MarmotKitVersion.uniffiVersion == "0.29.4")
         #expect(MarmotKitVersion.features == "otlp-export,product-analytics-export")
-        #expect(MarmotKitVersion.swiftPMChecksum == "10878a126490c119ced8ce9368d4a7ba7c20b49df2669e342b85358e5b30d8c2")
+        #expect(MarmotKitVersion.swiftPMChecksum == "4d278b0bb690529b5a4afd20d2cb0834f85496f02ac86bd4885e2859a6f3f071")
         #expect(
-            MarmotKitVersion.vendoredSwiftSHA256 == "bb98da3c33657a3d66fb7592a18ba3577b7ca08a5d26a080dfc8af0255d4c8c6")
+            MarmotKitVersion.vendoredSwiftSHA256 == "fb30c5c35d23ac8f973b30a8d906699e1b9886fd504289d8cb8d691332fc5de4")
         #expect(MarmotKitVersion.distribution == "static-library-and-privacy-v1")
         #expect(MarmotKitVersion.privacySHA256 == "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7")
         let privacyData = try #require(MarmotKitVersion.privacyManifestData())

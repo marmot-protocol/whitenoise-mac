@@ -4,55 +4,11 @@ import marmot_uniffiFFI
 // UniFFI 0.29 does not forward Swift task cancellation to native futures. Projection
 // subscriptions are account/screen scoped, so cancellation must wake a pending `next()`
 // immediately instead of retaining the old account or conversation until another update.
-public extension PresentedChatListSubscription {
-    func nextCancellable() async throws -> PresentedChatListUpdateFfi? {
-        try Task.checkCancellation()
-        return try await cancellableProjectionNext(
-            uniffi_marmot_uniffi_fn_method_presentedchatlistsubscription_next(uniffiClonePointer()),
-            read: FfiConverterTypePresentedChatListUpdateFfi.read
-        )
-    }
-}
-
-public extension ChatListWindowSubscription {
-    func nextCancellable() async throws -> ChatListWindowSnapshotFfi? {
-        try Task.checkCancellation()
-        return try await cancellableProjectionNext(
-            uniffi_marmot_uniffi_fn_method_chatlistwindowsubscription_next(uniffiClonePointer()),
-            read: FfiConverterTypeChatListWindowSnapshotFfi.read
-        )
-    }
-}
-
-public extension AccountAttentionSubscription {
-    func nextCancellable() async throws -> AccountAttentionSnapshotFfi? {
-        try Task.checkCancellation()
-        return try await cancellableProjectionNext(
-            uniffi_marmot_uniffi_fn_method_accountattentionsubscription_next(uniffiClonePointer()),
-            read: FfiConverterTypeAccountAttentionSnapshotFfi.read
-        )
-    }
-}
-
-public extension ConversationWindowSubscription {
-    func nextCancellable() async throws -> ConversationWindowSnapshotFfi? {
-        try Task.checkCancellation()
-        return try await cancellableProjectionNext(
-            uniffi_marmot_uniffi_fn_method_conversationwindowsubscription_next(uniffiClonePointer()),
-            read: FfiConverterTypeConversationWindowSnapshotFfi.read
-        )
-    }
-}
-
-public extension BlockListSubscription {
-    func nextCancellable() async throws -> BlockListSnapshotFfi? {
-        try Task.checkCancellation()
-        return try await cancellableProjectionNext(
-            uniffi_marmot_uniffi_fn_method_blocklistsubscription_next(uniffiClonePointer()),
-            read: FfiConverterTypeBlockListSnapshotFfi.read
-        )
-    }
-}
+//
+// MarmotKit 0.16.0 ships `nextCancellable()` for PresentedChatList, ChatListWindow,
+// AccountAttention, ConversationWindow and BlockList subscriptions in the generated
+// MarmotKit.swift. This file keeps the adapters MDK does not provide yet; delete each one as
+// soon as the generated source declares it (Swift rejects the duplicate).
 
 public extension AttachmentTransferSubscription {
     func nextCancellable() async throws -> AttachmentTransferSnapshotFfi? {
@@ -111,13 +67,17 @@ private func cancellableProjectionNext<Value>(
 
         var status = RustCallStatus(code: 0, errorBuf: .init(capacity: 0, len: 0, data: nil))
         let buffer = ffi_marmot_uniffi_rust_future_complete_rust_buffer(future.handle, &status)
-        defer { freeProjectionBuffer(buffer) }
+        defer {
+            freeProjectionBuffer(buffer)
+            freeProjectionBuffer(status.errorBuf)
+        }
         switch status.code {
         case 0:
-            guard let bytes = buffer.data, buffer.len > 0 else { throw ProjectionBridgeError.invalidResponse }
-            var reader = (data: Data(bytes: bytes, count: Int(buffer.len)), offset: 1)
+            var reader = try projectionReader(buffer)
+            let tag = reader.data[reader.offset]
+            reader.offset += 1
             let value: Value?
-            switch reader.data[0] {
+            switch tag {
             case 0: value = nil
             case 1: value = try read(&reader)
             default: throw ProjectionBridgeError.invalidResponse
@@ -126,12 +86,21 @@ private func cancellableProjectionNext<Value>(
             try Task.checkCancellation()
             return value
         case 1:
-            throw try FfiConverterTypeMarmotKitError_lift(status.errorBuf)
+            // Read rather than lift: the defer owns this buffer even when decoding throws.
+            var reader = try projectionReader(status.errorBuf)
+            let error = try FfiConverterTypeMarmotKitError.read(from: &reader)
+            guard reader.offset == reader.data.count else { throw ProjectionBridgeError.invalidResponse }
+            // Cancellation wins over a typed error that completes at the same moment.
+            try Task.checkCancellation()
+            throw error
+        case 2:
+            let message = status.errorBuf.data.map {
+                String(decoding: UnsafeBufferPointer(start: $0, count: Int(status.errorBuf.len)), as: UTF8.self)
+            } ?? "Rust panic"
+            throw ProjectionBridgeError.rustPanic(message)
         case 3:
-            freeProjectionBuffer(status.errorBuf)
             throw CancellationError()
         default:
-            freeProjectionBuffer(status.errorBuf)
             throw ProjectionBridgeError.invalidResponse
         }
     } onCancel: {
@@ -139,7 +108,15 @@ private func cancellableProjectionNext<Value>(
     }
 }
 
-private enum ProjectionBridgeError: Error { case invalidResponse }
+private enum ProjectionBridgeError: Error {
+    case invalidResponse
+    case rustPanic(String)
+}
+
+private func projectionReader(_ buffer: RustBuffer) throws -> (data: Data, offset: Data.Index) {
+    guard let bytes = buffer.data, buffer.len > 0 else { throw ProjectionBridgeError.invalidResponse }
+    return (Data(bytesNoCopy: bytes, count: Int(buffer.len), deallocator: .none), 0)
+}
 
 private final class ProjectionPoll {
     let continuation: CheckedContinuation<Int8, Never>

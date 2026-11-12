@@ -260,6 +260,10 @@ nonisolated protocol MarmotRuntime: Sendable {
         -> AccountRelayListsFfi
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
         -> String
+    /// Reuse this account's direct chat with the peer, or create one with both accounts as
+    /// founding admins (MarmotKit 0.16.0). Retry-safe: a retry after a cancellation, lost
+    /// response or error reuses the same group.
+    func startDirectConversation(accountRef: String, peerAccountId: String) async throws -> String
     func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi
     func declineGroupInvite(accountRef: String, groupIdHex: String) async throws -> GroupInviteDeclineResultFfi
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi
@@ -1257,6 +1261,10 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             memberRefs: memberRefs,
             description: description
         )
+    }
+
+    func startDirectConversation(accountRef: String, peerAccountId: String) async throws -> String {
+        try await marmot.startDirectConversation(accountRef: accountRef, peerAccountId: peerAccountId)
     }
 
     func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi {

@@ -303,6 +303,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// Every `createGroup` call in order, refused ones included — `createdGroupMemberRefs` records
     /// only the roster that went through, so it cannot show how a refusal was chased down.
     private(set) var createGroupAttempts: [[String]] = []
+    /// Peers passed to `startDirectConversation`, in call order.
+    private(set) var startDirectConversationPeers: [String] = []
     /// Run at the top of every member-resolving call, before it refuses or commits. A test can read
     /// the workspace from here to see what the UI would have been rendering *while* a press is still
     /// working through the roster.
@@ -2370,6 +2372,13 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
             await onRemoveAccountMidFlight(accountRef)
         }
         storedAccounts.removeAll { $0.label == accountRef }
+    }
+
+    /// Mirrors MDK: one call that creates an unnamed group with the peer as a founding admin.
+    /// Reuses `createGroup`'s failure knobs and gate, so every create-refusal test applies to it.
+    func startDirectConversation(accountRef: String, peerAccountId: String) async throws -> String {
+        startDirectConversationPeers.append(peerAccountId)
+        return try await createGroup(accountRef: accountRef, name: "", memberRefs: [peerAccountId], description: nil)
     }
 
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
