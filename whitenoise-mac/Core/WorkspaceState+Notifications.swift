@@ -59,7 +59,11 @@ extension WorkspaceState {
         // conversation gets no banner however busy it gets. Deliberately below the unread-badge
         // refresh above: that badge is not a banner preference, and the core already leaves archived
         // conversations out of the account totals it reports.
-        if await notificationChatIsArchived(update) { return }
+        //
+        // An invite the user has not accepted yet rings once, as the invite. The core still raises
+        // `.newMessage` for whatever the inviter writes into it, but until the user says yes that
+        // is a stranger's text and key on the lock screen; the iOS app never shows it either.
+        if await notificationChatSilences(update) { return }
 
         if !notificationAuthorizationStatus.canPostNotifications {
             await refreshNotificationAuthorizationStatus()
@@ -188,33 +192,39 @@ extension WorkspaceState {
         })
     }
 
-    /// Whether the conversation an incoming notification belongs to has been archived.
+    /// Whether the conversation an incoming notification belongs to keeps it off the screen: it has
+    /// been archived, or it is an invite the user has not accepted and the update is anything but
+    /// the invite itself.
     ///
-    /// The chat list is the app's only in-memory record of what is filed away, and it is maintained
-    /// for the active account alone — while the notification listener is client-wide. An update for
-    /// a background account therefore asks the core directly; otherwise archiving would only
-    /// silence chats on whichever account happens to be open.
+    /// The chat list is the app's only in-memory record of either state, and it is maintained for
+    /// the active account alone — while the notification listener is client-wide. An update for a
+    /// background account, or for a chat the list has not caught up with yet (an invite's first
+    /// message lands right behind its welcome), therefore asks the core directly; otherwise
+    /// archiving would only silence chats on whichever account happens to be open.
     ///
-    /// An unreadable archive state answers `false`: a notification the user wanted is worth more
-    /// than one they had already filed away.
-    func notificationChatIsArchived(_ update: NotificationUpdateFfi) async -> Bool {
+    /// An unreadable chat state answers `false`: a notification the user wanted is worth more than
+    /// one they had already filed away.
+    func notificationChatSilences(_ update: NotificationUpdateFfi) async -> Bool {
+        let silencesPendingInvite = update.trigger != .groupInvite
         if let activeAccount, activeAccount.accountIdHex == update.accountIdHex {
             if archivedChatItem(accountId: activeAccount.id, chatId: update.groupIdHex) != nil {
                 return true
             }
             // `chatItem(accountId:chatId:)` spans both lists, so a hit once the archived lookup has
             // missed is a live row — no FFI read needed to know it is not archived.
-            if chatItem(accountId: activeAccount.id, chatId: update.groupIdHex) != nil {
-                return false
+            if let chat = chatItem(accountId: activeAccount.id, chatId: update.groupIdHex) {
+                return silencesPendingInvite && chat.pendingConfirmation
             }
         }
 
         guard let client else { return false }
-        let details = try? await client.groupDetails(
-            accountRef: update.accountRef,
-            groupIdHex: update.groupIdHex
-        )
-        return details?.group.archived ?? false
+        guard
+            let group = try? await client.groupDetails(
+                accountRef: update.accountRef,
+                groupIdHex: update.groupIdHex
+            ).group
+        else { return false }
+        return group.archived || (silencesPendingInvite && group.pendingConfirmation)
     }
 
     func handleNotificationPermissionError(
@@ -282,8 +292,14 @@ extension WorkspaceState {
                 title = L10n.string("White Noise")
                 body = L10n.string("New group invite")
             } else {
+                // Matches iOS: the invite names the group it is for, never who sent it. A direct
+                // invite has no name, and its inviter is usually a bare key nobody has accepted
+                // yet, so it points at the app rather than printing an npub on the lock screen.
                 title = L10n.string("Group invite")
-                body = groupName ?? senderName
+                body =
+                    groupName.map {
+                        String(format: L10n.string("Invitation to %@"), PeerDisplayText.templateFragment($0))
+                    } ?? L10n.string("Open White Noise to view the invite")
             }
         case .newMessage:
             switch previewMode {
