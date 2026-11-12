@@ -384,7 +384,7 @@ struct DiagnosticLogRetentionSection: View {
                         Text(Self.ageLabel(days)).tag(days)
                     }
                 }
-                .disabled(model.isSaving)
+                .disabled(model.isBusy)
 
                 Picker(
                     L10n.string("Storage Limit per Account"),
@@ -397,7 +397,7 @@ struct DiagnosticLogRetentionSection: View {
                         Text(AuditLogByteCount.string(bytes)).tag(bytes)
                     }
                 }
-                .disabled(model.isSaving)
+                .disabled(model.isBusy)
             }
 
             if let error = model.error {
@@ -407,7 +407,7 @@ struct DiagnosticLogRetentionSection: View {
     }
 
     static func ageLabel(_ days: UInt32) -> String {
-        String.localizedStringWithFormat(L10n.string("%lld days"), Int(days))
+        L10n.plural("%lld days", Int64(days))
     }
 }
 

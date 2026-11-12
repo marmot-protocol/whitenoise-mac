@@ -16,6 +16,7 @@ final class AuditLogRetentionViewModel {
     static let sizeOptions: [UInt64] = [64 << 20, 128 << 20, 256 << 20, 512 << 20, 1 << 30]
 
     private(set) var retention: AuditLogRetentionFfi?
+    private(set) var isLoading = false
     private(set) var isSaving = false
     private(set) var error: String?
 
@@ -35,8 +36,14 @@ final class AuditLogRetentionViewModel {
         Self.including(retention?.maxBytesPerAccount, in: Self.sizeOptions)
     }
 
+    /// A read and a write never overlap: a read that started before a save would return the old
+    /// policy after it, and the other picker would then write that stale field back.
+    var isBusy: Bool { isLoading || isSaving }
+
     func load() async {
-        guard let runtime else { return }
+        guard let runtime, !isBusy else { return }
+        isLoading = true
+        defer { isLoading = false }
         do {
             let loaded = try await FFIExecutor.run { [runtime] in try runtime.auditLogRetention() }
             guard !Task.isCancelled else { return }
@@ -60,7 +67,7 @@ final class AuditLogRetentionViewModel {
     }
 
     private func save(_ requested: AuditLogRetentionFfi) async {
-        guard let runtime, !isSaving else { return }
+        guard let runtime, !isBusy else { return }
         isSaving = true
         defer { isSaving = false }
         do {

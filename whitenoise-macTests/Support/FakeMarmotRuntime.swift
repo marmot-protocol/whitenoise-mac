@@ -910,6 +910,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// MDK's defaults: 30 days and 256 MiB per account.
     var storedAuditLogRetention = AuditLogRetentionFfi(maxAgeDays: 30, maxBytesPerAccount: 256 << 20)
     var auditLogRetentionError: Error?
+    /// Holds `auditLogRetention` after it has read the stored policy, so a test can save while a
+    /// stale read is still in flight.
+    let auditLogRetentionGate = BlockingFfiGate()
     private(set) var setAuditLogRetentionCalls: [AuditLogRetentionFfi] = []
     var auditLogDeleteFailurePaths: Set<String> = []
     var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultV5Ffi(
@@ -1571,7 +1574,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     func auditLogRetention() throws -> AuditLogRetentionFfi {
         recordSyncCall("auditLogRetention")
         if let auditLogRetentionError { throw auditLogRetentionError }
-        return storedAuditLogRetention
+        let read = storedAuditLogRetention
+        auditLogRetentionGate.passIfArmed()
+        return read
     }
 
     /// Clamps the way MDK does, so a test sees the value MDK would store.

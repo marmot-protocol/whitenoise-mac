@@ -66,6 +66,34 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
         #expect(model.sizeChoices == model.sizeChoices.sorted())
     }
 
+    /// Reopening the page reloads retention. A save made while that read is in flight must not be
+    /// undone on screen by the older value it returns, or the next change to the other picker
+    /// would write the stale field back.
+    @Test func aReloadInFlightCannotHideASave() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = AuditLogRetentionViewModel(runtime: runtime)
+        await model.load()
+
+        runtime.auditLogRetentionGate.isEnabled = true
+        let reload = Task { await model.load() }
+        await Self.waitUntil { runtime.auditLogRetentionGate.didReach }
+        await model.setMaxAgeDays(7)
+        runtime.auditLogRetentionGate.release()
+        await reload.value
+
+        #expect(model.retention == runtime.storedAuditLogRetention)
+    }
+
+    /// The day count follows the app's language, plural rules included.
+    @Test func theDayCountUsesEachLanguagesPluralForms() {
+        #expect(L10n.plural("%lld days", Int64(1), locale: Locale(identifier: "en")) == "1 day")
+        #expect(L10n.plural("%lld days", Int64(14), locale: Locale(identifier: "en")) == "14 days")
+        let russian = Locale(identifier: "ru")
+        #expect(L10n.plural("%lld days", Int64(1), locale: russian) == "1 день")
+        #expect(L10n.plural("%lld days", Int64(3), locale: russian) == "3 дня")
+        #expect(L10n.plural("%lld days", Int64(7), locale: russian) == "7 дней")
+    }
+
     @Test func aRetentionFailureIsShownAndKeepsTheLastValue() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         let model = AuditLogRetentionViewModel(runtime: runtime)
