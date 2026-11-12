@@ -65,6 +65,68 @@ struct RelayLivenessTests: WorkspaceTestSupport {
         #expect(subscription.isCancelled)
     }
 
+    /// Leaving the page ends observation, and what it showed goes with it: a later visit whose
+    /// subscribe fails must not show the old dots as if they were live.
+    @Test func endedObservationLeavesNoStaleConnections() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.relayLiveness = [Self.row(Self.eu, .connected)]
+        let model = RelayLivenessViewModel(accountRef: "account", runtime: runtime)
+
+        let observing = Task { await model.observe() }
+        await Self.waitUntil { model.connection(for: Self.eu) != nil }
+        observing.cancel()
+        await observing.value
+        #expect(model.connections.isEmpty)
+
+        runtime.relayLivenessError = MarmotKitError.Runtime(details: "closed")
+        await model.observe()
+        #expect(model.connections.isEmpty)
+    }
+
+    /// An observer that ends after its replacement started must not clear the replacement's rows.
+    @Test func anEndingObserverLeavesItsReplacementsRows() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.relayLiveness = [Self.row(Self.eu, .connected)]
+        let model = RelayLivenessViewModel(accountRef: "account", runtime: runtime)
+
+        let first = Task { await model.observe() }
+        await Self.waitUntil { runtime.relayLivenessSubscriptions.count == 1 }
+        let second = Task { await model.observe() }
+        defer { second.cancel() }
+        await Self.waitUntil { runtime.relayLivenessSubscriptions.count == 2 }
+        await Self.waitUntil { model.connection(for: Self.eu) != nil }
+
+        first.cancel()
+        await first.value
+
+        #expect(model.connection(for: Self.eu)?.state == .connected)
+    }
+
+    /// While the page is observing, the subscription is the source of truth: a reconnect answer
+    /// that lands after a newer list must not overwrite it.
+    @Test func aReconnectAnswerDoesNotOverwriteANewerLiveList() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.relayLiveness = [Self.row(Self.eu, .offline)]
+        runtime.reconnectRelayResult = .connected
+        runtime.reconnectRelayGate.isEnabled = true
+        let model = RelayLivenessViewModel(accountRef: "account", runtime: runtime)
+
+        let observing = Task { await model.observe() }
+        defer { observing.cancel() }
+        await Self.waitUntil { model.connection(for: Self.eu) != nil }
+
+        let reconnecting = Task { await model.reconnect(Self.eu) }
+        await runtime.reconnectRelayGate.waitUntilReached()
+        let subscription = try #require(runtime.relayLivenessSubscriptions.last)
+        subscription.deliver([Self.row(Self.eu, .offline, error: "timeout")])
+        await Self.waitUntil { model.connection(for: Self.eu)?.lastError == "timeout" }
+
+        runtime.reconnectRelayGate.release()
+        await reconnecting.value
+
+        #expect(model.connection(for: Self.eu)?.state == .offline)
+    }
+
     @Test func aFailedSubscribeLeavesTheRowsWithoutConnectionState() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.relayLivenessError = MarmotKitError.Runtime(details: "closed")

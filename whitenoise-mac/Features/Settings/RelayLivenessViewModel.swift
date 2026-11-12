@@ -20,6 +20,10 @@ final class RelayLivenessViewModel {
 
     @ObservationIgnored private let accountRef: String
     @ObservationIgnored private let runtime: (any MarmotRuntime)?
+    /// The subscription whose lists `connections` shows. Compared by identity so an observer that
+    /// ends after its replacement started (the page reappeared) neither applies nor clears
+    /// anything; cancelling a task cannot do that, because the old task's cleanup still runs.
+    @ObservationIgnored private var activeSubscription: RelayLivenessSubscription?
 
     init(accountRef: String, runtime: (any MarmotRuntime)?) {
         self.accountRef = accountRef
@@ -49,20 +53,26 @@ final class RelayLivenessViewModel {
             // and the relay lists themselves still load and save.
             return
         }
+        activeSubscription = subscription
         // MDK's `next()` keeps waiting after its Swift task is cancelled; `cancel()` is what
         // wakes it, with `nil`.
         await withTaskCancellationHandler {
             guard !Task.isCancelled else { return }
-            apply(runtime.relayLivenessSnapshot(subscription: subscription))
+            apply(runtime.relayLivenessSnapshot(subscription: subscription), from: subscription)
             while !Task.isCancelled {
                 guard let rows = try? await runtime.nextRelayLiveness(subscription: subscription) else { return }
                 guard !Task.isCancelled else { return }
-                apply(rows)
+                apply(rows, from: subscription)
             }
         } onCancel: {
             runtime.cancelRelayLiveness(subscription: subscription)
         }
         runtime.cancelRelayLiveness(subscription: subscription)
+        // Nothing is following these relays any more, so their last state is not live state.
+        if activeSubscription === subscription {
+            activeSubscription = nil
+            connections = [:]
+        }
     }
 
     func reconnect(_ url: String) async {
@@ -74,7 +84,9 @@ final class RelayLivenessViewModel {
         defer { reconnectingRelayIDs.remove(key) }
         do {
             let row = try await runtime.reconnectRelay(accountRef: accountRef, url: url)
-            guard !Task.isCancelled else { return }
+            // While observing, the subscription is the source of truth and reports the result
+            // itself; this answer may already be older than its latest list.
+            guard !Task.isCancelled, activeSubscription == nil else { return }
             connections[RelayURLValidator.identity(row.url)] = RelayConnection(liveness: row)
         } catch is CancellationError {
             return
@@ -83,7 +95,8 @@ final class RelayLivenessViewModel {
         }
     }
 
-    private func apply(_ rows: [RelayLivenessFfi]) {
+    private func apply(_ rows: [RelayLivenessFfi], from subscription: RelayLivenessSubscription) {
+        guard activeSubscription === subscription else { return }
         connections = Dictionary(
             rows.map { (RelayURLValidator.identity($0.url), RelayConnection(liveness: $0)) },
             uniquingKeysWith: { _, latest in latest }
