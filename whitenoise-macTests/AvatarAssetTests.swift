@@ -78,15 +78,109 @@ struct AvatarAssetTests {
         // The fixture only proves anything if the hash would have drawn a different accent.
         #expect(AvatarPalette.accentIndex(for: conversationHash) != AvatarPalette.accentIndex(for: peerHex))
 
-        // A group has no single person to match, so it keeps MDK's seed.
+        // A group has no single person to match, so it takes its group id — the seed the header
+        // and chat info draw it with — rather than MDK's hash.
         var groupRow = row
         groupRow.conversationKind = .group
         var group = Self.presentedRow(groupRow, peerID: nil)
         group.presentation.avatar = .placeholder(stableSeed: conversationHash, source: .groupFallback)
+        // What MDK sends for an unnamed group with no peer and no image; the seed no longer reads
+        // it, but the fixture stays realistic.
+        group.presentation.avatarSource = .groupFallback
 
         #expect(
             ChatItem(presented: group, activeAccountIdHex: String(repeating: "f", count: 64)).avatarSeed
-                == conversationHash)
+                == groupRow.groupIdHex)
+    }
+
+    /// The two avatars MDK selects for a named two-member conversation with no group image
+    /// (`select_chat_presentation`): the peer's picture when they publish one, otherwise a
+    /// placeholder sourced from the peer. It never sends `.group` for this row — that source means
+    /// the group has its own image, and then no placeholder is drawn at all.
+    static let namedPairAvatars: [(SelectedAvatarFfi, PresentationSourceFfi)] = [
+        (.placeholder(stableSeed: "9f", source: .peerFallback), .peerFallback),
+        (.remoteImage(url: "https://example.com/alice.png", cacheKey: "alice-cache-key"), .peerProfile),
+    ]
+
+    /// A named two-member conversation is a group, but MDK still reports its other member as the
+    /// presentation's `peerId` and sources its avatar from that peer. The chat list seeded the row
+    /// with the peer while the conversation header and chat info — built from the row, which drops
+    /// a named chat's peer — seeded it with the group id, so the same group drew in two colors.
+    /// Both paths now go through `init(row:…)`, and land on the group id.
+    @Test(arguments: namedPairAvatars)
+    func namedTwoMemberGroupDrawsTheSameColorInTheChatListAndTheConversation(
+        avatar: SelectedAvatarFfi, avatarSource: PresentationSourceFfi
+    ) {
+        let selfHex = String(repeating: "f", count: 64)
+        let peerHex = String(repeating: "a", count: 64)
+        let groupHex = String(repeating: "3", count: 64)
+        let (row, presented) = Self.namedPair(
+            groupHex: groupHex, peerHex: peerHex, avatar: avatar, avatarSource: avatarSource
+        )
+
+        let listed = ChatItem(presented: presented, activeAccountIdHex: selfHex)
+        let opened = ChatItem(
+            row: row,
+            activeAccountIdHex: selfHex,
+            directPeer: ChatPeerProfile(accountIdHex: peerHex, displayName: "Alice", pictureURL: nil)
+        )
+
+        #expect(listed.avatarSeed == groupHex)
+        #expect(opened.avatarSeed == groupHex)
+        #expect(listed.directPeerAccountIdHex == nil)
+        // The fixture only proves anything if the peer's color differs from the group's.
+        #expect(AvatarPalette.accentIndex(for: peerHex) != AvatarPalette.accentIndex(for: groupHex))
+    }
+
+    /// MDK also gives a named pair the peer's picture when the group has none, which the chat list
+    /// drew while the header — built from the row, which drops a named chat's peer — drew the
+    /// group's placeholder. The list now drops that picture too, URL and retained bytes alike.
+    @Test func namedTwoMemberGroupDrawsTheSameAvatarInTheChatListAndTheConversation() {
+        let selfHex = String(repeating: "f", count: 64)
+        let peerHex = String(repeating: "a", count: 64)
+        let (row, presented) = Self.namedPair(
+            groupHex: String(repeating: "3", count: 64), peerHex: peerHex,
+            avatar: .remoteImage(url: "https://example.com/alice.png", cacheKey: "alice-cache-key"),
+            avatarSource: .peerProfile
+        )
+
+        let listed = ChatItem(
+            presented: presented,
+            activeAccountIdHex: selfHex,
+            avatarBytes: Self.bytes(reference: "alice-ref", data: Data([0x89, 0x50, 0x4e, 0x47]))
+        )
+        let opened = ChatItem(
+            row: row,
+            activeAccountIdHex: selfHex,
+            directPeer: ChatPeerProfile(
+                accountIdHex: peerHex, displayName: "Alice", pictureURL: "https://example.com/alice.png")
+        )
+
+        #expect(listed.pictureURL == nil)
+        #expect(listed.groupImagePayload == nil)
+        #expect(opened.pictureURL == nil)
+        #expect(opened.groupImagePayload == nil)
+    }
+
+    /// The unnamed direct chat keeps the peer's picture: only a *named* row is a group.
+    @Test func unnamedDirectChatKeepsThePeersPicture() {
+        let peerHex = String(repeating: "a", count: 64)
+        var row = chatListRow(
+            groupIdHex: String(repeating: "d", count: 64), title: "Alice", preview: "hi",
+            sender: peerHex, timelineAt: 1
+        )
+        row.conversationKind = .direct
+        let bytes = Data([0x89, 0x50, 0x4e, 0x47])
+        let presented = Self.presentedRow(row, peerID: peerHex)
+
+        let chat = ChatItem(
+            presented: presented,
+            activeAccountIdHex: String(repeating: "f", count: 64),
+            avatarBytes: Self.bytes(reference: "alice-ref", data: bytes)
+        )
+
+        #expect(chat.pictureURL == "https://example.com/alice.png")
+        #expect(chat.groupImagePayload?.data == bytes)
     }
 
     @Test func readsMoreAvatarsThanOneCoreBatchHolds() async throws {
@@ -157,6 +251,21 @@ struct AvatarAssetTests {
             byteCount: UInt64(data.count), deferred: false, bytes: data,
             mediaType: "image/png", width: 1, height: 1
         )
+    }
+
+    private static func namedPair(
+        groupHex: String, peerHex: String, avatar: SelectedAvatarFfi, avatarSource: PresentationSourceFfi
+    ) -> (ChatListRowFfi, PresentedChatRowFfi) {
+        var row = chatListRow(
+            groupIdHex: groupHex, title: "Book club", preview: "hi", sender: peerHex, timelineAt: 1
+        )
+        row.groupName = "Book club"
+        row.conversationKind = .group
+        var presented = presentedRow(row, peerID: peerHex)
+        presented.presentation.avatar = avatar
+        presented.presentation.avatarSource = avatarSource
+        presented.presentation.titleSource = .group
+        return (row, presented)
     }
 
     private static func presentedRow(_ row: ChatListRowFfi, peerID: String?) -> PresentedChatRowFfi {

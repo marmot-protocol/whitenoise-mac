@@ -1033,9 +1033,6 @@ extension WorkspaceState {
         }
         attachments.append(attachment)
         pendingMediaAttachmentsByConversation[draftKey] = attachments
-        // Media uploads cannot carry a reply target yet, so reply and pending media are
-        // mutually exclusive — staging media drops any active reply banner.
-        replyDraftContextByConversation[draftKey] = nil
         if attachment.kind == .audio {
             draftTextByConversation[draftKey] = nil
             composerMentionSelectionsByConversation[draftKey] = nil

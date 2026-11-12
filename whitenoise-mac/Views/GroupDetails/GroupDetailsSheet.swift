@@ -109,9 +109,11 @@ struct GroupDetailsSheet: View {
                     onOpenMedia: { mediaViewer = $0 }
                 )
             } else {
+                // One spinner at a time: a first load (nothing to show yet) spins in the pane's
+                // centre, and a refresh of details already on screen spins in the title instead.
                 GroupDetailsTopBar(
                     title: L10n.string(chat.isDirect ? "Chat Info" : "Group Info"),
-                    isLoading: workspace.isLoadingGroupDetails,
+                    isLoading: workspace.isLoadingGroupDetails && snapshot != nil,
                     onBack: { workspace.closeGroupDetails() },
                     onEdit: snapshot.flatMap { snapshot in
                         permissions?.canEditProfile == true ? { presentProfileEditor(snapshot) } : nil

@@ -695,13 +695,7 @@ extension WorkspaceState {
 
     func startReply(to message: MessageItem) {
         guard message.supportsChatActions else { return }
-        // Media uploads cannot carry a reply target yet, so reply and pending media are
-        // mutually exclusive — starting a reply drops any staged attachments.
-        if let draftKey = selectedComposerDraftKey {
-            pendingMediaAttachmentsByConversation[draftKey]?.forEach { cancelPendingMediaUpload($0.id) }
-            pendingMediaAttachmentsByConversation[draftKey] = nil
-            pendingMediaUploadStatesByConversation[draftKey] = nil
-        }
+        // Staged attachments stay: since MarmotKit 0.16.0 a media send carries its reply target.
         replyDraftContext = MessageReplyContext(
             targetMessageId: message.id,
             senderName: message.senderName,
@@ -1234,11 +1228,14 @@ extension WorkspaceState {
         // than a case the UI can reach. Dropping the caption here rather than at publish time also
         // keeps the pending bubble honest: it never shows a caption the message will not carry.
         let carriesVoiceMessage = mediaAttachments.contains(where: \.isVoiceMessage)
+        // Read before the composer is cleared, which drops the banner along with the draft.
+        let replyContext = replyDraftContextByConversation[draftKey]
         clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
         beginPendingOutgoingMediaSend(
             PendingOutgoingMediaMessage(
                 attachments: mediaAttachments,
-                caption: carriesVoiceMessage ? "" : caption
+                caption: carriesVoiceMessage ? "" : caption,
+                replyContext: replyContext
             ),
             adoptedUploads: adoptedUploads,
             for: draftKey,

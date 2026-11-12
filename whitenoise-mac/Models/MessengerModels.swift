@@ -154,8 +154,10 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let previewAttribution: ChatPreviewAttribution?
     let updatedAt: Date?
     /// Only a seed for the placeholder avatar's color and initials. A direct chat seeds it with the
-    /// peer's hex, so its color matches that person everywhere else they appear; a prepared group
-    /// row seeds it with MDK's avatar cache key. Never read a person's identity from it.
+    /// peer's hex, so its color matches that person everywhere else they appear; a group, a named
+    /// two-member one included, seeds it with its group id. `ChatItem.init(row:…)` is the single
+    /// source of that rule: the chat list's presented rows and the conversation header both go
+    /// through it, so they cannot drift apart. Never read a person's identity from it.
     private(set) var avatarSeed: String
     /// The other party's account hex, for a direct chat whose peer has actually resolved.
     ///
@@ -398,8 +400,8 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         previewAttribution: ChatPreviewAttribution? = nil,
         updatedAt: Date?,
         avatarSeed: String,
-        // Required whenever `avatarSeed` is not the peer's hex — a prepared row's cache key, say.
-        // Omitted, a direct row takes its seed as the peer unless the seed is the chat's own id.
+        // Required whenever a direct row's `avatarSeed` is not the peer's hex. Omitted, a direct
+        // row takes its seed as the peer unless the seed is the chat's own id.
         directPeerAccountIdHex: String? = nil,
         pictureURL: String?,
         sanitizedPictureURL: URL? = nil,
@@ -497,21 +499,26 @@ extension ChatItem {
                 ?? DisplayText.short(presented.row.groupIdHex)
         }
 
+        // MDK gives a named two-member conversation without a group image the peer's picture,
+        // but the app treats a named conversation as a group: `init(row:…)` drops its peer, so the
+        // header and chat info draw the group's placeholder. Drop the peer's picture here too, URL
+        // and retained bytes alike, so the chat list draws the same avatar as the open chat.
+        let showsNamedRowsPeerPicture =
+            PeerDisplayText.sanitize(presented.row.groupName) != nil
+            && presented.presentation.avatarSource == .peerProfile
         let pictureURL: String?
-        let avatarSeed: String
         switch presented.presentation.avatar {
-        case .remoteImage(let url, let cacheKey):
-            pictureURL = url
-            avatarSeed = cacheKey
-        case .encryptedGroupImage(_, let cacheKey):
+        case .remoteImage(let url, _):
+            pictureURL = showsNamedRowsPeerPicture ? nil : url
+        case .encryptedGroupImage, .placeholder:
             pictureURL = nil
-            avatarSeed = cacheKey
-        case .placeholder(let stableSeed, _):
-            pictureURL = nil
-            avatarSeed = stableSeed
         }
+        let avatarBytes = showsNamedRowsPeerPicture ? nil : avatarBytes
 
-        let peer = presented.presentation.peerId.map {
+        // MDK's own placeholder seed and cache key are never used: they are account-scoped and
+        // change with a photo, while the header seeds from `init(row:…)`. A blank `peerId` names
+        // nobody, so it must not become a seed or a direct peer.
+        let peer = presented.presentation.peerId?.nilIfBlank.map {
             ChatPeerProfile(
                 accountIdHex: $0,
                 displayName: nickname ?? selectedTitle,
@@ -531,7 +538,6 @@ extension ChatItem {
 
         title = nickname ?? selectedTitle
         publishedTitle = nickname == nil ? nil : selectedTitle
-        self.avatarSeed = presented.presentation.peerId ?? avatarSeed
         self.pictureURL = pictureURL
         sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
 
@@ -1355,6 +1361,9 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
     let clientToken: String
     let attachments: [PendingMediaAttachment]
     let caption: String
+    /// The message this answers, carried so a retry re-sends it as the same reply. Sent as the
+    /// upload's `e`/`q` message tags (`MessageReplyTags`).
+    let replyContext: MessageReplyContext?
     let createdAt: Date
     var state: PendingOutgoingMediaMessageState
 
@@ -1363,6 +1372,7 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
         clientToken: String? = nil,
         attachments: [PendingMediaAttachment],
         caption: String,
+        replyContext: MessageReplyContext? = nil,
         createdAt: Date = Date(),
         state: PendingOutgoingMediaMessageState = .uploading
     ) {
@@ -1370,6 +1380,7 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
         self.clientToken = clientToken ?? id.uuidString.lowercased()
         self.attachments = attachments
         self.caption = caption
+        self.replyContext = replyContext
         self.createdAt = createdAt
         self.state = state
     }
@@ -1379,6 +1390,7 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
             && lhs.clientToken == rhs.clientToken
             && lhs.attachments == rhs.attachments
             && lhs.caption == rhs.caption
+            && lhs.replyContext == rhs.replyContext
             && lhs.createdAt == rhs.createdAt
             && lhs.state == rhs.state
     }
@@ -1388,6 +1400,7 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
         hasher.combine(clientToken)
         hasher.combine(attachments)
         hasher.combine(caption)
+        hasher.combine(replyContext)
         hasher.combine(createdAt)
         hasher.combine(state)
     }

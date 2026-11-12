@@ -50,6 +50,10 @@ nonisolated protocol MarmotRuntime: Sendable {
     func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi
     func postAuditLogTrackerUpdateV5() async throws -> AuditLogTrackerUpdateResultV5Ffi
+    func auditLogRetention() throws -> AuditLogRetentionFfi
+    /// Persists the policy; MDK clamps the age to 1–30 days and the budget to at least 16 MiB and
+    /// returns what it stored.
+    func setAuditLogRetention(retention: AuditLogRetentionFfi) throws -> AuditLogRetentionFfi
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigV4Ffi) throws -> AuditLogTrackerConfigV4Ffi
     func setAuditOtlpConfigV5(config: AuditOtlpConfigV5Ffi) throws -> AuditOtlpConfigV5Ffi
@@ -663,6 +667,14 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi {
         try marmot.notificationSettings(accountRef: accountRef)
+    }
+
+    func auditLogRetention() throws -> AuditLogRetentionFfi {
+        try marmot.auditLogRetention()
+    }
+
+    func setAuditLogRetention(retention: AuditLogRetentionFfi) throws -> AuditLogRetentionFfi {
+        try marmot.setAuditLogRetention(retention: retention)
     }
 
     func postAuditLogTrackerUpdateV5() async throws -> AuditLogTrackerUpdateResultV5Ffi {

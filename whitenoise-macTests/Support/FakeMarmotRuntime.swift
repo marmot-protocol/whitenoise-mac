@@ -905,6 +905,14 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private var notificationSettingsByAccountRef: [String: NotificationSettingsFfi] = [:]
     var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
+    var usageDiagnosticsSettingsError: Error?
+    /// MDK's defaults: 30 days and 256 MiB per account.
+    var storedAuditLogRetention = AuditLogRetentionFfi(maxAgeDays: 30, maxBytesPerAccount: 256 << 20)
+    var auditLogRetentionError: Error?
+    /// Holds `auditLogRetention` after it has read the stored policy, so a test can save while a
+    /// stale read is still in flight.
+    let auditLogRetentionGate = BlockingFfiGate()
+    private(set) var setAuditLogRetentionCalls: [AuditLogRetentionFfi] = []
     var auditLogDeleteFailurePaths: Set<String> = []
     var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultV5Ffi(
         enabled: true,
@@ -1556,6 +1564,26 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         notificationSettingsGate.release()
     }
 
+    func auditLogRetention() throws -> AuditLogRetentionFfi {
+        recordSyncCall("auditLogRetention")
+        if let auditLogRetentionError { throw auditLogRetentionError }
+        let read = storedAuditLogRetention
+        auditLogRetentionGate.passIfArmed()
+        return read
+    }
+
+    /// Clamps the way MDK does, so a test sees the value MDK would store.
+    func setAuditLogRetention(retention: AuditLogRetentionFfi) throws -> AuditLogRetentionFfi {
+        recordSyncCall("setAuditLogRetention")
+        setAuditLogRetentionCalls.append(retention)
+        if let auditLogRetentionError { throw auditLogRetentionError }
+        storedAuditLogRetention = AuditLogRetentionFfi(
+            maxAgeDays: min(max(retention.maxAgeDays, 1), 30),
+            maxBytesPerAccount: max(retention.maxBytesPerAccount, 16 << 20)
+        )
+        return storedAuditLogRetention
+    }
+
     func postAuditLogTrackerUpdateV5() async throws -> AuditLogTrackerUpdateResultV5Ffi {
         didPostAuditLogTrackerUpdate = true
         return nextAuditLogTrackerUpdate
@@ -1633,7 +1661,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     }
 
     func usageDiagnosticsSettings() throws -> UsageDiagnosticsSettingsFfi {
-        usageSettings
+        if let usageDiagnosticsSettingsError { throw usageDiagnosticsSettingsError }
+        return usageSettings
     }
 
     func usageDiagnosticsStatus() throws -> UsageDiagnosticsStatusFfi {
