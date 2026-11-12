@@ -11,6 +11,7 @@ import SwiftUI
 struct ContactDetailsView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.endingGroupIds) private var endingGroupIds
+    @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
     @Environment(SessionState.self) private var session
     let contact: NewChatRecipient
     let blockedUsersModel: BlockedUsersViewModel
@@ -42,7 +43,8 @@ struct ContactDetailsView: View {
     }
 
     private var isGroupCommitInFlight: Bool {
-        GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: endingGroupIds)
+        GroupCommitGuard.isInFlight(
+            workspace: workspace, endingGroupIds: endingGroupIds, isBulkLeavingChats: isBulkLeavingChats)
     }
 
     var body: some View {

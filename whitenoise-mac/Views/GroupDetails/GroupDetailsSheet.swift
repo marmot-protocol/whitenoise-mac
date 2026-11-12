@@ -13,6 +13,7 @@ import SwiftUI
 struct GroupDetailsSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.endingGroupIds) private var endingGroupIds
+    @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
     @State private var isAddMembersPresented = false
     @State private var isProfileEditorPresented = false
     /// The shared-media library, pushed over the details the way iOS pushes it.
@@ -93,7 +94,8 @@ struct GroupDetailsSheet: View {
     }
 
     private var isGroupCommitInFlight: Bool {
-        GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: endingGroupIds)
+        GroupCommitGuard.isInFlight(
+            workspace: workspace, endingGroupIds: endingGroupIds, isBulkLeavingChats: isBulkLeavingChats)
     }
 
     var body: some View {
@@ -245,6 +247,7 @@ struct GroupDetailsSheet: View {
             )
             .environment(\.locale, workspace.preferredLocale)
             .environment(\.endingGroupIds, endingGroupIds)
+            .environment(\.isBulkLeavingChats, isBulkLeavingChats)
         }
         .sheet(isPresented: $isProfileEditorPresented) {
             GroupProfileEditorSheet(

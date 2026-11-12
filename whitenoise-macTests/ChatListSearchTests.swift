@@ -123,6 +123,22 @@ struct ChatListSearchTests {
         #expect(search.rows.map(\.row.groupIdHex) == ["a"])
     }
 
+    /// Presentation that never becomes ready must end in a failure the user can act on, not a
+    /// spinner that never stops.
+    @Test func waitingOutChatPresentationNotReadyIsBounded() async throws {
+        var attempts = 0
+        do {
+            _ = try await ChatListNotReadyRetry.run(initialDelay: .zero) { () async throws -> [String] in
+                attempts += 1
+                throw MarmotKitError.ChatPresentationNotReady
+            }
+            Issue.record("Expected the retry to give up")
+        } catch MarmotKitError.ChatPresentationNotReady {
+            // The last refusal is what the caller reports.
+        }
+        #expect(attempts == ChatListNotReadyRetry.defaultMaxAttempts)
+    }
+
     @MainActor
     @Test func aRefusedQueryFailsTheSearchInsteadOfShowingNothingAsAResult() async throws {
         let runtime = searchRuntime(groupIds: ["a"])
@@ -134,6 +150,80 @@ struct ChatListSearchTests {
 
         #expect(search.phase == .failed)
         #expect(search.rows.isEmpty)
+    }
+
+    @MainActor
+    @Test func aFailedSearchCanBeRunAgainWithTheSameText() async throws {
+        let runtime = searchRuntime(groupIds: ["a"])
+        let query = try #require(ChatListSearchQuery.matches(text: "chat", view: .chats))
+        runtime.chatListQueryIdsByQuery[query] = ["a"]
+        runtime.chatListQueryErrors = [MarmotKitError.Io(details: "disk")]
+        let search = ChatListSearchViewModel(accountRef: "account", runtime: runtime, debounce: .zero)
+
+        search.search("chat", view: .chats)
+        await search.loadTask?.value
+        #expect(search.phase == .failed)
+
+        search.search("chat", view: .chats)
+        await search.loadTask?.value
+
+        #expect(runtime.chatListQueryIdsCalls == [query, query])
+        #expect(search.phase == .ready)
+        #expect(search.rows.map(\.row.groupIdHex) == ["a"])
+    }
+
+    /// A locked store clears on its own; the first open of the results window is tried again
+    /// rather than failing the search with the query unchanged.
+    @MainActor
+    @Test func aBusyStoreWhileOpeningTheResultsWindowIsTriedAgain() async throws {
+        let runtime = searchRuntime(groupIds: ["a"])
+        let query = try #require(ChatListSearchQuery.matches(text: "chat", view: .chats))
+        runtime.chatListQueryIdsByQuery[query] = ["a"]
+        runtime.openChatListQueryWindowErrors = [
+            MarmotKitError.StorageBusy(details: "locked"), MarmotKitError.StorageBusy(details: "locked"),
+        ]
+        let search = ChatListSearchViewModel(
+            accountRef: "account", runtime: runtime, debounce: .zero, retryDelay: .zero)
+
+        search.search("chat", view: .chats)
+        await search.loadTask?.value
+
+        #expect(runtime.openChatListQueryWindowCalls.count == 3)
+        #expect(search.phase == .ready)
+        #expect(search.rows.map(\.row.groupIdHex) == ["a"])
+    }
+
+    @MainActor
+    @Test func aRefusedResultsWindowFailsTheSearchWithoutRetrying() async throws {
+        let runtime = searchRuntime(groupIds: ["a"])
+        let query = try #require(ChatListSearchQuery.matches(text: "chat", view: .chats))
+        runtime.chatListQueryIdsByQuery[query] = ["a"]
+        runtime.openChatListQueryWindowErrors = [MarmotKitError.InvalidChatListQuery(reason: .tooManyGroupIds)]
+        let search = ChatListSearchViewModel(
+            accountRef: "account", runtime: runtime, debounce: .zero, retryDelay: .zero)
+
+        search.search("chat", view: .chats)
+        await search.loadTask?.value
+
+        #expect(runtime.openChatListQueryWindowCalls.count == 1)
+        #expect(search.phase == .failed)
+    }
+
+    @MainActor
+    @Test func aResultsWindowThatStaysBusyFailsAfterABoundedNumberOfAttempts() async throws {
+        let runtime = searchRuntime(groupIds: ["a"])
+        let query = try #require(ChatListSearchQuery.matches(text: "chat", view: .chats))
+        runtime.chatListQueryIdsByQuery[query] = ["a"]
+        runtime.openChatListQueryWindowErrors = Array(
+            repeating: MarmotKitError.StorageBusy(details: "locked"), count: ChatListWindowRetry.maxOpenAttempts + 1)
+        let search = ChatListSearchViewModel(
+            accountRef: "account", runtime: runtime, debounce: .zero, retryDelay: .zero)
+
+        search.search("chat", view: .chats)
+        await search.loadTask?.value
+
+        #expect(runtime.openChatListQueryWindowCalls.count == ChatListWindowRetry.maxOpenAttempts)
+        #expect(search.phase == .failed)
     }
 
     /// MDK takes at most 500 ids in a `GroupIds` node: the window shows the first 500 in display
@@ -336,6 +426,73 @@ struct ChatListSearchTests {
         #expect(!selection.isActive)
     }
 
+    /// The window's rows change on every message, reorder and page. Reading the whole view again
+    /// for each, cancelling the read before, kept Select All waiting on a busy account.
+    @MainActor
+    @Test func rowsChangingUnderTheSameQueryReadTheViewOnceTheySettle() async throws {
+        let runtime = searchRuntime(groupIds: ["a", "b", "c"])
+        let query = ChatListSearchQuery.unfiltered(.chats)
+        let selection = ChatListSelectionViewModel(accountRef: "account", runtime: runtime, refreshDelay: .zero)
+        selection.updateVisibleChats(["a", "b"], query: query, isWindowed: true)
+        selection.begin(with: "a")
+        await selection.viewIdsTask?.value
+        #expect(runtime.chatListIdsCallCount == 1)
+
+        selection.updateVisibleChats(["b", "a"], query: query, isWindowed: true)
+        selection.updateVisibleChats(["c", "b", "a"], query: query, isWindowed: true)
+        // The ids already read stay in use while the refresh waits.
+        #expect(selection.isScopeReady)
+        await selection.viewIdsTask?.value
+
+        #expect(runtime.chatListIdsCallCount == 2)
+
+        // A new query reads again.
+        selection.updateVisibleChats(["a"], query: ChatListSearchQuery.unfiltered(.unread), isWindowed: true)
+        await selection.viewIdsTask?.value
+        #expect(runtime.chatListIdsCallCount == 3)
+    }
+
+    /// The first read is not restarted by every row change, so it can finish on a busy account.
+    @MainActor
+    @Test func rowChangesLeaveTheFirstViewReadRunning() async throws {
+        let runtime = searchRuntime(groupIds: ["a", "b"])
+        runtime.chatListIdsErrors = [MarmotKitError.ChatPresentationNotReady]
+        let query = ChatListSearchQuery.unfiltered(.chats)
+        let selection = ChatListSelectionViewModel(accountRef: "account", runtime: runtime, refreshDelay: .zero)
+        selection.updateVisibleChats(["a"], query: query, isWindowed: true)
+        selection.begin(with: "a")
+        let firstRead = try #require(selection.viewIdsTask)
+
+        selection.updateVisibleChats(["b", "a"], query: query, isWindowed: true)
+        selection.updateVisibleChats(["a", "b"], query: query, isWindowed: true)
+        await firstRead.value
+        // The rows changed while it ran, so one more read follows it (and only one).
+        await selection.viewIdsTask?.value
+
+        #expect(!firstRead.isCancelled)
+        // The not-ready retry, then the follow-up.
+        #expect(runtime.chatListIdsCallCount == 3)
+        #expect(selection.viewIds == ["a", "b"])
+    }
+
+    @MainActor
+    @Test func aFailedViewReadIsTriedAgainOnTheNextRowChange() async throws {
+        let runtime = searchRuntime(groupIds: ["a", "b"])
+        runtime.chatListIdsErrors = [MarmotKitError.Io(details: "disk")]
+        let query = ChatListSearchQuery.unfiltered(.chats)
+        let selection = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        selection.updateVisibleChats(["a", "b"], query: query, isWindowed: true)
+        selection.begin(with: "a")
+        await selection.viewIdsTask?.value
+        #expect(!selection.isScopeReady)
+
+        selection.updateVisibleChats(["b", "a"], query: query, isWindowed: true)
+        await selection.viewIdsTask?.value
+
+        #expect(runtime.chatListIdsCallCount == 2)
+        #expect(selection.isScopeReady)
+    }
+
     @MainActor
     @Test func bulkActionsStayDisabledUntilTheSearchsMatchesAreReady() async throws {
         let runtime = searchRuntime(groupIds: ["a", "b"])
@@ -374,7 +531,8 @@ private func pagedSearch(
     model.search("chat", view: .chats)
     await model.loadTask?.value
     #expect(model.rows.map(\.row.groupIdHex) == ["a", "b"])
-    let window = try #require(runtime.chatListQueryWindows.last)
+    // The first window, even if the observer already reopened one before this resumed.
+    let window = try #require(runtime.chatListQueryWindows.first)
     return (model, runtime, window)
 }
 

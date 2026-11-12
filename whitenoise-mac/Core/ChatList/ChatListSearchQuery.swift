@@ -60,12 +60,19 @@ nonisolated enum ChatListSearchQuery {
 /// Retries a chat-list read while MDK reports `ChatPresentationNotReady`: it fails rather than
 /// return a partial list while base rows, or the presentation a text query reads, are still being
 /// prepared. Any other error, and cancellation, end the retry at once.
+///
+/// The retry is bounded: if presentation never becomes ready, the last `ChatPresentationNotReady`
+/// is thrown, so the search shows its failure (which the same text can retry) and Select All is
+/// read again on the next list change, instead of either waiting forever.
 nonisolated enum ChatListNotReadyRetry {
+    /// Attempts before giving up by default: about 16 s of backoff from the default delays.
+    static let defaultMaxAttempts = 8
+
     static func run<T>(
         isolation: isolated (any Actor)? = #isolation,
         initialDelay: Duration = .milliseconds(250),
         maxDelay: Duration = .seconds(4),
-        maxAttempts: Int = .max,
+        maxAttempts: Int = defaultMaxAttempts,
         _ read: () async throws -> T
     ) async throws -> T {
         var delay = initialDelay
@@ -103,6 +110,8 @@ nonisolated enum ChatListWindowRetry {
     /// Attempts at one page before it is dropped. The last row's `onAppear` does not fire again
     /// while the row stays on screen, so a dropped page is only asked for again on a scroll.
     static let maxPageAttempts = 4
+    /// Attempts at opening the search's results window before the search reports a failure.
+    static let maxOpenAttempts = 4
 
     static func isRetryable(_ error: Error) -> Bool {
         if error is CancellationError { return false }

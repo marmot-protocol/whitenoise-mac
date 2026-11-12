@@ -53,6 +53,15 @@ final class ChatListSelectionViewModel {
 
     var isBusy: Bool { operation != nil }
 
+    /// A bulk leave is publishing. End Group reads it through `GroupDisbandHooks`, as it reads the
+    /// shell's single-chat commits, so the two never commit against the same chat at once.
+    var isLeaving: Bool { operation == .leaving }
+
+    /// Whether a group's End Group run is in flight (`AccountScope.endingGroupIds`). Set by the
+    /// owning scope once it exists. A leave skips such a chat, as its row menu disables Leave: the
+    /// disband is a commit a leave would race.
+    @ObservationIgnored var isEnding: @MainActor (_ groupIdHex: String) -> Bool = { _ in false }
+
     @ObservationIgnored private let accountRef: String
     /// `nil` only in previews, where every action fails as it would with no runtime.
     @ObservationIgnored private let runtime: (any MarmotRuntime)?
@@ -60,6 +69,22 @@ final class ChatListSelectionViewModel {
     /// Runs after every batch with the chats the batch left, so the shell can refresh its legacy
     /// chat state and close an inspector showing a chat this account no longer belongs to.
     @ObservationIgnored private let chatsDidChange: @MainActor (_ departedGroupIds: Set<String>) async -> Void
+    /// How long a windowed list's rows must be still before its ids are read again.
+    @ObservationIgnored private let refreshDelay: Duration
+    /// The longest a refresh waits on rows that never go still: past it, a row change no longer
+    /// pushes the pending read back, so a busy inbox still refreshes.
+    @ObservationIgnored private let refreshMaxWait: Duration
+    /// Once a read has given up (MDK kept the list not ready, or the read failed), one more read
+    /// runs after this long, so a quiet list with no row changes to retry on still gets Select All.
+    @ObservationIgnored private let failedReadRetryDelay: Duration
+    /// When the pending refresh was first scheduled; `nil` when none is pending.
+    @ObservationIgnored private var refreshPendingSince: ContinuousClock.Instant?
+    /// Rows changed while the first read was running; it reads once more when it lands.
+    @ObservationIgnored private var needsRefreshAfterRead = false
+    /// The read after a failure has been spent, until a read succeeds or the query changes.
+    @ObservationIgnored private var hasRetriedFailedRead = false
+    /// `viewIdsTask` is the delayed read after a failure, which a row change may replace at once.
+    @ObservationIgnored private var isAwaitingFailedReadRetry = false
     /// The MDK query the list on screen is drawn from; Select All and batches read the same one.
     @ObservationIgnored private(set) var query = ChatListSearchQuery.unfiltered(.chats)
     @ObservationIgnored private var anchorId: String?
@@ -71,8 +96,14 @@ final class ChatListSelectionViewModel {
         accountRef: String,
         runtime: (any MarmotRuntime)?,
         advisory: GroupChangeAdvisoryPrompter? = nil,
+        refreshDelay: Duration = .milliseconds(300),
+        refreshMaxWait: Duration = .seconds(2),
+        failedReadRetryDelay: Duration = .seconds(15),
         chatsDidChange: @escaping @MainActor (_ departedGroupIds: Set<String>) async -> Void = { _ in }
     ) {
+        self.refreshDelay = refreshDelay
+        self.refreshMaxWait = refreshMaxWait
+        self.failedReadRetryDelay = failedReadRetryDelay
         self.accountRef = accountRef
         self.runtime = runtime
         self.advisory = advisory
@@ -102,6 +133,7 @@ final class ChatListSelectionViewModel {
         viewIdsTask?.cancel()
         viewIdsTask = nil
         viewIds = nil
+        hasRetriedFailedRead = false
     }
 
     func toggle(_ groupIdHex: String) {
@@ -160,6 +192,13 @@ final class ChatListSelectionViewModel {
     /// just archived or left is expected to leave the list, and the batch still owns it. A windowed
     /// list is reconciled against the whole view once `chatListIds` answers, not against the
     /// window, so a chat scrolled out of the window stays selected.
+    ///
+    /// The window's rows change on every message, reorder and page, so a windowed list does not
+    /// read the whole view for each. A new query reads at once. Under the same query the ids
+    /// already read stay in use, and one refresh runs once the rows have been still for
+    /// `refreshDelay`, or `refreshMaxWait` after it was first asked for if they never are. While
+    /// the first read is still running, it is left to finish rather than restarted, so Select All
+    /// is never starved on a busy account, and it reads once more when it lands.
     func updateVisibleChats(
         _ orderedIds: [String],
         query: ChatListViewQueryFfi = ChatListSearchQuery.unfiltered(.chats),
@@ -170,9 +209,16 @@ final class ChatListSelectionViewModel {
         self.query = query
         if self.isWindowed != isWindowed { self.isWindowed = isWindowed }
         if scopeChanged, viewIds != nil { viewIds = nil }
+        if scopeChanged { hasRetriedFailedRead = false }
         guard isActive else { return }
         if isWindowed {
-            loadViewIds()
+            if scopeChanged || (viewIds == nil && (viewIdsTask == nil || isAwaitingFailedReadRetry)) {
+                loadViewIds()
+            } else if viewIds != nil {
+                scheduleRefresh()
+            } else {
+                needsRefreshAfterRead = true
+            }
         } else {
             viewIdsTask?.cancel()
             viewIdsTask = nil
@@ -239,10 +285,22 @@ final class ChatListSelectionViewModel {
     /// Phase one of a bulk leave: check every chat for a blocker before asking anything, so the
     /// confirmation never promises a leave one of the chats will refuse. A sole-admin chat stops the
     /// batch and is named — handing admin over is a per-chat choice the row menu walks through.
+    ///
+    /// `selected` is the selection resolved to rows. A selected chat with no row cannot be checked,
+    /// so the leave stops and says so, keeping the selection, rather than leave the others and
+    /// clear a chat it never looked at.
     @discardableResult
-    func requestLeave(_ chats: [ChatItem]) -> Task<Void, Never>? {
+    func requestLeave(_ selected: [ChatItem]) -> Task<Void, Never>? {
         guard isActive, !isBusy, pendingLeave == nil else { return nil }
-        let targets = ChatListSelection.leaveTargets(chats)
+        let unresolved = selectedIds.subtracting(selected.map(\.id))
+        guard unresolved.isEmpty else {
+            alert = ChatActionAlert(
+                title: L10n.string("Couldn't leave chat"),
+                message: L10n.plural("Couldn't leave %lld chats. Try again.", Int64(unresolved.count))
+            )
+            return nil
+        }
+        let targets = ChatListSelection.leaveTargets(selected).filter { !isEnding($0.id) }
         guard !targets.isEmpty else { return nil }
         operation = .preparingLeave
         let query = query
@@ -260,7 +318,7 @@ final class ChatListSelectionViewModel {
                 return
             }
             var leavable: [String] = []
-            for chat in targets where current.contains(chat.id) {
+            for chat in targets where current.contains(chat.id) && !self.isEnding(chat.id) {
                 guard !Task.isCancelled else { return }
                 do {
                     guard let runtime = self.runtime else { throw ChatListSelectionUnavailable() }
@@ -382,8 +440,11 @@ final class ChatListSelectionViewModel {
         case cancelled
     }
 
+    /// Leaves one chat. End Group may have started on it since the confirmation, so that is
+    /// checked first and again right before the leave publishes; such a chat fails and stays
+    /// selected.
     private func leave(groupIdHex: String) async -> LeaveOutcome {
-        guard let runtime else { return .failed }
+        guard let runtime, !isEnding(groupIdHex) else { return .failed }
         let accountRef = accountRef
         do {
             let state = try await runtime.groupManagementState(accountRef: accountRef, groupIdHex: groupIdHex)
@@ -407,6 +468,7 @@ final class ChatListSelectionViewModel {
                 }
             }
             try Task.checkCancellation()
+            guard !isEnding(groupIdHex) else { return .failed }
             _ = try await runtime.leaveGroup(accountRef: accountRef, groupIdHex: groupIdHex)
             return .left
         } catch is CancellationError {
@@ -492,26 +554,57 @@ final class ChatListSelectionViewModel {
         }
     }
 
+    /// Debounces a windowed list's refresh: each row change pushes the read back by `refreshDelay`,
+    /// until one has been pending for `refreshMaxWait`, after which it is left to run.
+    private func scheduleRefresh() {
+        let now = ContinuousClock.now
+        if let since = refreshPendingSince, viewIdsTask != nil, now - since >= refreshMaxWait { return }
+        let since = refreshPendingSince ?? now
+        loadViewIds(after: refreshDelay)
+        refreshPendingSince = since
+    }
+
     /// Reads every chat in a windowed view for Select All, retrying while MDK reports the list not
     /// ready (`ChatPresentationNotReady` while base rows are prepared, never a partial list). Runs
     /// only in selection mode; ending it, or the list changing again, cancels the read.
-    private func loadViewIds() {
+    private func loadViewIds(after delay: Duration = .zero, isFailedReadRetry: Bool = false) {
         viewIdsTask?.cancel()
         viewIdsTask = nil
+        refreshPendingSince = nil
+        needsRefreshAfterRead = false
+        isAwaitingFailedReadRetry = isFailedReadRetry
         guard isActive, isWindowed, let runtime else { return }
         let accountRef = accountRef
         let query = query
         viewIdsTask = Task { [weak self] in
             do {
+                if delay > .zero { try await Task.sleep(for: delay) }
+                // A later row change replaced this read before it began.
+                try Task.checkCancellation()
                 let ids = try await ChatListNotReadyRetry.run {
                     try await Self.ids(runtime: runtime, accountRef: accountRef, query: query)
                 }
                 guard !Task.isCancelled, let self else { return }
+                self.viewIdsTask = nil
+                self.isAwaitingFailedReadRetry = false
+                self.hasRetriedFailedRead = false
                 self.viewIds = ids
                 self.reconcile(with: ids)
+                if self.needsRefreshAfterRead {
+                    // Rows changed while this read ran; a chat that arrived then is not in it.
+                    self.loadViewIds(after: self.refreshDelay)
+                }
             } catch {
                 // Cancelled, or a failed read: Select All and the bulk actions stay disabled until
-                // the list changes again and the read is retried.
+                // the list changes again and the read is retried, or, once per failure, until the
+                // delayed read below runs. A read that failed on its own lets go of its handle, so
+                // the next change starts another at once.
+                guard !Task.isCancelled, let self else { return }
+                self.viewIdsTask = nil
+                self.isAwaitingFailedReadRetry = false
+                guard !self.hasRetriedFailedRead else { return }
+                self.hasRetriedFailedRead = true
+                self.loadViewIds(after: self.failedReadRetryDelay, isFailedReadRetry: true)
             }
         }
     }

@@ -1870,6 +1870,7 @@ struct ProfileImageAvatarView: View {
 struct ConversationHeader: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.endingGroupIds) private var endingGroupIds
+    @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
     let chat: ChatItem
     var recoveryStatus: AccountRecoveryStatusViewModel?
     /// Opens search within this conversation; nil hides the control. ⌘F belongs to the Navigate
@@ -1995,6 +1996,7 @@ struct ConversationHeader: View {
         .sheet(isPresented: $workspace.isGroupImagePickerPresented) {
             GroupImagePickerSheet()
                 .environment(\.endingGroupIds, endingGroupIds)
+                .environment(\.isBulkLeavingChats, isBulkLeavingChats)
         }
     }
 }
