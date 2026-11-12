@@ -3,7 +3,8 @@ import SwiftUI
 /// The in-conversation search strip pinned under the conversation header: the field, where the
 /// cursor stands among the matches, and the controls that step through them.
 ///
-/// Return and ⌘G step to the next older match, ⇧⌘G to the next newer one, and Escape closes.
+/// Return, ↑ and ⌘G step to the next older match, ↓ and ⇧⌘G to the next newer one, and Escape
+/// closes.
 struct ConversationSearchBar: View {
     @Bindable var model: ConversationSearchViewModel
     let onClose: () -> Void
@@ -18,6 +19,10 @@ struct ConversationSearchBar: View {
                 focusRequest: model.focusRequest
             )
             .onSubmit(model.goToOlderMatch)
+            // ↑ / ↓ step like the chevrons beside the field. The field is one line, so the caret
+            // loses nothing; with no matches the keys fall through to it.
+            .onKeyPress(.upArrow) { step(model.goToOlderMatch) }
+            .onKeyPress(.downArrow) { step(model.goToNewerMatch) }
             .onExitCommand(perform: onClose)
 
             ConversationSearchStatus(model: model)
@@ -48,6 +53,12 @@ struct ConversationSearchBar: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .accessibilityIdentifier("conversation.search")
+    }
+
+    private func step(_ move: () -> Void) -> KeyPress.Result {
+        guard model.canStep else { return .ignored }
+        move()
+        return .handled
     }
 }
 

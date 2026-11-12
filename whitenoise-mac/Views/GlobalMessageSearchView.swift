@@ -7,6 +7,8 @@ import SwiftUI
 
 struct GlobalMessageSearchView: View {
     @Environment(WorkspaceState.self) private var workspace
+    /// The result ↓ / ↑ highlight and Return opens; see `GlobalMessageSearchSelection`.
+    @State private var selectedResultID: String?
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -41,6 +43,9 @@ struct GlobalMessageSearchView: View {
                 placeholder: L10n.string("Search message history"),
                 autofocus: true
             )
+            .onKeyPress(.downArrow) { moveSelection(down: true) }
+            .onKeyPress(.upArrow) { moveSelection(down: false) }
+            .onSubmit(openSelectedResult)
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
 
@@ -53,9 +58,52 @@ struct GlobalMessageSearchView: View {
         .onChange(of: workspace.globalMessageSearchQuery) { _, _ in
             workspace.scheduleGlobalMessageSearch()
         }
+        .onChange(of: resultIDs) { _, ids in
+            selectedResultID = GlobalMessageSearchSelection.reanchored(
+                selectedResultID,
+                in: ids,
+                whileSearching: workspace.isSearchingAllMessages
+            )
+        }
         .onDisappear {
             workspace.dismissGlobalMessageSearch()
         }
+    }
+
+    private var resultIDs: [String] {
+        workspace.globalMessageSearchResults.map(\.id)
+    }
+
+    /// Results are only navigable while they are what the pane shows.
+    private var showsResults: Bool {
+        !workspace.globalMessageSearchQuery.isEmpty
+            && !workspace.isSearchingAllMessages
+            && workspace.globalMessageSearchError == nil
+            && !workspace.globalMessageSearchResults.isEmpty
+    }
+
+    private func moveSelection(down: Bool) -> KeyPress.Result {
+        guard showsResults else { return .ignored }
+        let ids = resultIDs
+        let target =
+            down
+            ? GlobalMessageSearchSelection.next(after: selectedResultID, in: ids)
+            : GlobalMessageSearchSelection.previous(before: selectedResultID, in: ids)
+        guard let target else { return .ignored }
+        selectedResultID = target
+        return .handled
+    }
+
+    private func openSelectedResult() {
+        guard showsResults,
+            let selectedResultID,
+            let result = workspace.globalMessageSearchResults.first(where: { $0.id == selectedResultID })
+        else { return }
+        open(result)
+    }
+
+    private func open(_ result: GlobalMessageSearchResult) {
+        Task { await workspace.openGlobalMessageSearchResult(result) }
     }
 
     @ViewBuilder
@@ -87,28 +135,56 @@ struct GlobalMessageSearchView: View {
                 detail: L10n.string("Try different words or check another account.")
             )
         } else {
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(workspace.globalMessageSearchResults) { result in
-                        GlobalMessageSearchResultRow(result: result)
-                    }
-                }
-                .padding(12)
-            }
-            .accessibilityIdentifier("message.search.results")
+            GlobalMessageSearchResultList(
+                results: workspace.globalMessageSearchResults,
+                selectedResultID: selectedResultID,
+                onOpen: open
+            )
         }
     }
 }
 
-private struct GlobalMessageSearchResultRow: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.locale) private var locale
-    let result: GlobalMessageSearchResult
+/// The result rows, scrolled so the keyboard-selected one stays in view.
+struct GlobalMessageSearchResultList: View {
+    let results: [GlobalMessageSearchResult]
+    let selectedResultID: String?
+    let onOpen: (GlobalMessageSearchResult) -> Void
+    @State private var scrollPosition = ScrollPosition(idType: String.self)
 
     var body: some View {
-        Button {
-            Task { await workspace.openGlobalMessageSearchResult(result) }
-        } label: {
+        ScrollView {
+            LazyVStack(spacing: 4) {
+                ForEach(results) { result in
+                    GlobalMessageSearchResultRow(
+                        result: result,
+                        isSelected: result.id == selectedResultID,
+                        onOpen: { onOpen(result) }
+                    )
+                }
+            }
+            .scrollTargetLayout()
+            .padding(12)
+        }
+        .scrollPosition($scrollPosition)
+        .onChange(of: selectedResultID) { _, selected in
+            guard let selected else { return }
+            // No anchor: scroll only as far as it takes to bring the row fully into view.
+            withAnimation(.easeOut(duration: 0.15)) {
+                scrollPosition.scrollTo(id: selected)
+            }
+        }
+        .accessibilityIdentifier("message.search.results")
+    }
+}
+
+private struct GlobalMessageSearchResultRow: View {
+    @Environment(\.locale) private var locale
+    let result: GlobalMessageSearchResult
+    let isSelected: Bool
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 7) {
                     Text(result.chatTitle)
@@ -136,12 +212,19 @@ private struct GlobalMessageSearchResultRow: View {
             .padding(.vertical, 10)
             .background {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(WNColor.fillSecondary)
+                    .fill(isSelected ? WNColor.fillSecondaryActive : WNColor.fillSecondary)
+                    .overlay {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(WNColor.borderPrimary, lineWidth: 1)
+                        }
+                    }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("message.search.result.\(result.messageId)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var highlightedSnippet: Text {
@@ -173,4 +256,19 @@ private struct GlobalMessageSearchEmptyState: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+#Preview("Keyboard-selected result") {
+    let results = ["alpha", "beta", "gamma"].map { id in
+        GlobalMessageSearchResult(
+            messageId: id,
+            groupId: "group",
+            chatTitle: "Weekend plans",
+            senderName: "Ana",
+            timelineAt: 1_760_000_000,
+            snippet: GlobalMessageSearchSnippet(leading: "Lunch at ", match: id, trailing: " tomorrow?")
+        )
+    }
+    GlobalMessageSearchResultList(results: results, selectedResultID: "group:beta", onOpen: { _ in })
+        .frame(width: 680, height: 320)
 }
