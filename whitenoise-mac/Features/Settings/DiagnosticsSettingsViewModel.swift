@@ -79,14 +79,18 @@ final class DiagnosticsSettingsViewModel {
             configureProductAnalytics(for: loaded.0)
             error = nil
             await loadAuditLogs()
-            await retention.load()
-            await delivery.load()
         } catch is CancellationError {
             return
         } catch {
             productAnalytics?.deactivate()
             self.error = .unavailable(UserFacingError.message(for: error))
         }
+        // Retention and delivery are their own reads with their own errors: the settings above
+        // failing must not hide a pause, or the Upload Now that lifts it. Still inside `isLoading`,
+        // so neither overlaps an upload or a clear.
+        guard !Task.isCancelled else { return }
+        await retention.load()
+        await delivery.load()
     }
 
     func setEnabled(_ enabled: Bool) async {

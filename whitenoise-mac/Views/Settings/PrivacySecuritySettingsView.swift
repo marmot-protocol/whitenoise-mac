@@ -378,7 +378,7 @@ struct DiagnosticLogRetentionSection: View {
         SettingsSection(
             title: L10n.string("Log Retention"),
             footer: L10n.string(
-                "Older logs are deleted automatically. Over the storage limit, logs already sent are deleted first; logs not sent yet are kept until they reach the age limit."
+                "Older logs are deleted automatically. Over the storage limit, the oldest logs that were already sent, or have nowhere to be sent, are deleted; logs waiting to be sent are kept until they reach the age limit."
             )
         ) {
             if let retention = model.retention {

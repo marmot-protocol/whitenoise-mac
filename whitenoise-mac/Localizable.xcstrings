@@ -13753,62 +13753,62 @@
         }
       }
     },
-    "Older logs are deleted automatically. Over the storage limit, logs already sent are deleted first; logs not sent yet are kept until they reach the age limit." : {
+    "Older logs are deleted automatically. Over the storage limit, the oldest logs that were already sent, or have nowhere to be sent, are deleted; logs waiting to be sent are kept until they reach the age limit." : {
       "comment" : "Footer under the log retention pickers.",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ältere Protokolle werden automatisch gelöscht. Über dem Speicherlimit werden zuerst bereits gesendete Protokolle gelöscht; noch nicht gesendete bleiben bis zum Erreichen der Altersgrenze erhalten."
+            "value" : "Ältere Protokolle werden automatisch gelöscht. Über dem Speicherlimit werden die ältesten Protokolle gelöscht, die bereits gesendet wurden oder nirgendwohin gesendet werden können; Protokolle, die auf das Senden warten, bleiben bis zum Erreichen der Altersgrenze erhalten."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los registros antiguos se eliminan automáticamente. Por encima del límite de almacenamiento, primero se eliminan los registros ya enviados; los que aún no se han enviado se conservan hasta alcanzar el límite de antigüedad."
+            "value" : "Los registros antiguos se eliminan automáticamente. Por encima del límite de almacenamiento, se eliminan los registros más antiguos que ya se enviaron o que no tienen adónde enviarse; los que esperan para enviarse se conservan hasta alcanzar el límite de antigüedad."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les anciens journaux sont supprimés automatiquement. Au-delà de la limite de stockage, les journaux déjà envoyés sont supprimés en premier ; ceux qui n’ont pas encore été envoyés sont conservés jusqu’à la limite d’ancienneté."
+            "value" : "Les anciens journaux sont supprimés automatiquement. Au-delà de la limite de stockage, les journaux les plus anciens déjà envoyés, ou qui n’ont aucune destination, sont supprimés ; ceux en attente d’envoi sont conservés jusqu’à la limite d’ancienneté."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I log meno recenti vengono eliminati automaticamente. Oltre il limite di spazio vengono eliminati prima i log già inviati; quelli non ancora inviati vengono conservati fino al limite di età."
+            "value" : "I log meno recenti vengono eliminati automaticamente. Oltre il limite di spazio vengono eliminati i log più vecchi già inviati o senza una destinazione; quelli in attesa di invio vengono conservati fino al limite di età."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Logs antigos são apagados automaticamente. Acima do limite de armazenamento, os logs já enviados são apagados primeiro; os que ainda não foram enviados são mantidos até atingirem o limite de idade."
+            "value" : "Logs antigos são apagados automaticamente. Acima do limite de armazenamento, os logs mais antigos já enviados, ou sem destino para envio, são apagados; os que aguardam envio são mantidos até atingirem o limite de idade."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Старые журналы удаляются автоматически. При превышении лимита хранения сначала удаляются уже отправленные журналы; неотправленные хранятся, пока не достигнут предельного возраста."
+            "value" : "Старые журналы удаляются автоматически. При превышении лимита хранения удаляются самые старые журналы, которые уже отправлены или которые некуда отправлять; журналы, ожидающие отправки, хранятся, пока не достигнут предельного возраста."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eski kayıtlar otomatik olarak silinir. Depolama sınırı aşıldığında önce gönderilmiş kayıtlar silinir; henüz gönderilmemiş kayıtlar yaş sınırına ulaşana kadar saklanır."
+            "value" : "Eski kayıtlar otomatik olarak silinir. Depolama sınırı aşıldığında, zaten gönderilmiş ya da gönderilecek bir yeri olmayan en eski kayıtlar silinir; gönderilmeyi bekleyen kayıtlar yaş sınırına ulaşana kadar saklanır."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "较旧的日志会自动删除。超出存储上限时，会先删除已发送的日志；尚未发送的日志会保留到达到保留时长为止。"
+            "value" : "较旧的日志会自动删除。超出存储上限时，会删除最早的已发送日志或无处发送的日志；等待发送的日志会保留到达到保留时长为止。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "較舊的日誌會自動刪除。超出儲存空間上限時，會先刪除已傳送的日誌；尚未傳送的日誌會保留到達到保留時間為止。"
+            "value" : "較舊的日誌會自動刪除。超出儲存空間上限時，會刪除最早的已傳送日誌或無處傳送的日誌；等待傳送的日誌會保留到達到保留時間為止。"
           }
         }
       }

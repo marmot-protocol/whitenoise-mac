@@ -272,6 +272,22 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
         #expect(model.showsStoredLogsSection)
     }
 
+    /// Retention and delivery are their own reads: the page's other settings failing to load must
+    /// not hide a pause, or the Upload Now that lifts it.
+    @Test func aFailedSettingsReadStillReadsRetentionAndDelivery() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.usageDiagnosticsSettingsError = MarmotKitError.StorageBusy(details: "")
+        runtime.auditDeliveryStatuses = [Self.status(paused: true)]
+        let model = DiagnosticsSettingsViewModel(runtime: runtime)
+
+        await model.load()
+
+        #expect(model.error != nil)
+        #expect(model.delivery.summary?.state == .paused(httpStatus: nil))
+        #expect(model.retention.retention != nil)
+        #expect(model.showsStoredLogsSection)
+    }
+
     @Test func aDeliveryReadFailureIsShownOnItsSection() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.auditDeliveryStatusError = MarmotKitError.StorageBusy(details: "")

@@ -905,6 +905,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private var notificationSettingsByAccountRef: [String: NotificationSettingsFfi] = [:]
     var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
+    var usageDiagnosticsSettingsError: Error?
     var auditDeliveryStatuses: [AuditDeliveryStatusV5Ffi] = []
     var auditDeliveryStatusError: Error?
     /// MDK's defaults: 30 days and 256 MiB per account.
@@ -1668,7 +1669,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     }
 
     func usageDiagnosticsSettings() throws -> UsageDiagnosticsSettingsFfi {
-        usageSettings
+        if let usageDiagnosticsSettingsError { throw usageDiagnosticsSettingsError }
+        return usageSettings
     }
 
     func usageDiagnosticsStatus() throws -> UsageDiagnosticsStatusFfi {
