@@ -48,9 +48,7 @@ struct PrivacySecuritySettingsView: View {
                 showClearConfirmation: $showClearLogsConfirmation
             )
 
-            // Retention matters while logging is on or something is still stored; with neither,
-            // there is nothing for it to act on.
-            if model.auditSettings?.enabled == true || !model.auditLogFiles.isEmpty {
+            if model.showsRetention {
                 DiagnosticLogRetentionSection(model: model.retention, isEnabled: model.canChangeRetention)
             }
 

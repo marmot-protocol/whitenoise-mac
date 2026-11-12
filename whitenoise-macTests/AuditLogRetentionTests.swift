@@ -132,5 +132,20 @@ struct AuditLogRetentionTests: WorkspaceTestSupport {
 
         #expect(model.error != nil)
         #expect(model.retention.retention?.maxAgeDays == 30)
+        #expect(model.showsRetention)
+    }
+
+    /// MDK enforces retention whether or not logging is on right now, so the pickers do not hide
+    /// behind the logging switch or the file list: logging off with nothing listed still shows them.
+    @Test func retentionShowsWheneverItLoaded() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = DiagnosticsSettingsViewModel(runtime: runtime)
+        #expect(!model.showsRetention)
+
+        await model.load()
+
+        #expect(model.auditSettings?.enabled == false)
+        #expect(model.auditLogFiles.isEmpty)
+        #expect(model.showsRetention)
     }
 }

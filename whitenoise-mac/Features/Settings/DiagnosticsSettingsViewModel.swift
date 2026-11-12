@@ -48,6 +48,12 @@ final class DiagnosticsSettingsViewModel {
         !isLoading && !retention.isBusy
     }
 
+    /// MDK enforces retention whether or not logging is on right now, so the section shows once
+    /// retention has been read (or failed to be), independent of the other audit reads.
+    var showsRetention: Bool {
+        retention.retention != nil || retention.error != nil
+    }
+
     func load() async {
         guard let runtime, !isLoading else { return }
         isLoading = true
