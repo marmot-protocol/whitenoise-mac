@@ -2188,7 +2188,8 @@ struct SettingsTests: WorkspaceTestSupport {
     @MainActor
     @Test func unacceptedInviteRingsOnlyAsTheInvite() async throws {
         // Before the user accepts, the inviter's messages must not reach the lock screen: the core
-        // still raises `.newMessage` for them, but the iOS app only ever shows the invite.
+        // still raises `.newMessage` for them. A deliberate macOS guard — iOS does not suppress
+        // these yet — so only the invite's copy below is shared with iOS.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -2213,6 +2214,17 @@ struct SettingsTests: WorkspaceTestSupport {
                 groupIdHex: invitedDirect.groupIdHex,
                 senderName: "",
                 previewText: "Hey, it's me."
+            ))
+        // Group-state notices for a group the user has not joined are silenced on purpose too.
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "pending-made-admin",
+                groupIdHex: invitedGroup.groupIdHex,
+                senderName: "Alice",
+                isDm: false,
+                groupName: invitedGroup.name,
+                trigger: .madeAdmin
             ))
         #expect(notificationCenter.postedRequests.isEmpty)
 
@@ -2251,10 +2263,51 @@ struct SettingsTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func justAcceptedInviteRingsBeforeTheChatListCatchesUp() async throws {
+        // Accept commits in the core before `reloadChats` replaces the row, so for a moment the
+        // chat list still says pending. A pending row must be confirmed against the core rather
+        // than trusted, or the inviter's first message after Accept is silently dropped.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        var invitedGroup = messageGroup()
+        invitedGroup.pendingConfirmation = true
+        runtime.installGroups([invitedGroup])
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.chatItem(accountId: account.label, chatId: invitedGroup.groupIdHex)?.pendingConfirmation == true)
+
+        var acceptedGroup = invitedGroup
+        acceptedGroup.pendingConfirmation = false
+        runtime.installGroupDetailsRecord(GroupDetailsFfi(group: acceptedGroup, members: []))
+        #expect(state.chatItem(accountId: account.label, chatId: invitedGroup.groupIdHex)?.pendingConfirmation == true)
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "first-message-after-accept",
+                groupIdHex: invitedGroup.groupIdHex,
+                senderName: "Alice",
+                previewText: "Welcome in!",
+                isDm: false,
+                groupName: invitedGroup.name
+            ))
+
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["first-message-after-accept"])
+    }
+
+    @MainActor
     @Test func unacceptedInviteOnBackgroundAccountSuppressesMessageNotification() async throws {
         // The active account's chat list cannot answer for another account, so the pending state
         // has to come from the core — the same path an invite's first message takes when it lands
-        // before the chat list has caught up with the welcome.
+        // before the chat list has caught up with the welcome. The two accounts disagree about the
+        // same group — accepted on A, pending on B — so answering B from A's row would ring.
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
         defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
         let accountA = desktopAccount()
@@ -2277,9 +2330,13 @@ struct SettingsTests: WorkspaceTestSupport {
             settings: notificationSettings(for: accountB, localEnabled: true)
         )
         UserDefaults.standard.set(accountA.label, forKey: WorkspaceState.activeAccountKey)
-        var invitedGroup = messageGroup()
-        invitedGroup.pendingConfirmation = true
-        runtime.installGroups([invitedGroup, directGroup()])
+        let sharedGroup = messageGroup()
+        runtime.installGroups([sharedGroup, directGroup()])
+        var pendingOnB = sharedGroup
+        pendingOnB.pendingConfirmation = true
+        runtime.groupDetailsByAccountRef[accountB.label] = [
+            sharedGroup.groupIdHex: GroupDetailsFfi(group: pendingOnB, members: [])
+        ]
         let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
         let state = WorkspaceState(
             localNotificationCenter: notificationCenter,
@@ -2292,36 +2349,46 @@ struct SettingsTests: WorkspaceTestSupport {
 
         await state.handleNotificationUpdate(
             notificationUpdate(
+                account: accountA,
+                notificationKey: "active-accepted-message",
+                groupIdHex: sharedGroup.groupIdHex,
+                senderName: "Alice",
+                previewText: "Glad you're here.",
+                isDm: false,
+                groupName: sharedGroup.name
+            ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
                 account: accountB,
                 notificationKey: "background-pending-message",
-                groupIdHex: invitedGroup.groupIdHex,
+                groupIdHex: sharedGroup.groupIdHex,
                 senderName: "Alice",
                 previewText: "Join us!"
             ))
-        #expect(notificationCenter.postedRequests.isEmpty)
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["active-accepted-message"])
 
         await state.handleNotificationUpdate(
             notificationUpdate(
                 account: accountB,
                 notificationKey: "background-invite",
-                groupIdHex: invitedGroup.groupIdHex,
+                groupIdHex: sharedGroup.groupIdHex,
                 senderName: "Alice",
                 isDm: false,
-                groupName: invitedGroup.name,
+                groupName: sharedGroup.name,
                 trigger: .groupInvite
             ))
         await state.handleNotificationUpdate(
             notificationUpdate(
                 account: accountB,
                 notificationKey: "background-accepted-message",
-                groupIdHex: "direct-group",
+                groupIdHex: directGroup().groupIdHex,
                 senderName: "Alice",
                 previewText: "Over here though."
             ))
 
         #expect(
             notificationCenter.postedRequests.map(\.identifier) == [
-                "background-invite", "background-accepted-message",
+                "active-accepted-message", "background-invite", "background-accepted-message",
             ])
     }
 
@@ -2329,7 +2396,8 @@ struct SettingsTests: WorkspaceTestSupport {
     @Test func unreadableArchiveStateStillPostsNotification() async throws {
         // A chat the app has no row for (nothing loaded yet, or a conversation that arrives with
         // the notification) whose archive state cannot be read must still ring: a notification the
-        // user wanted is worth more than one they had filed away.
+        // user wanted is worth more than one they had filed away. It cannot be told apart from an
+        // unaccepted invite either, so it rings without the sender or the text.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
@@ -2354,6 +2422,11 @@ struct SettingsTests: WorkspaceTestSupport {
             ))
 
         #expect(notificationCenter.postedRequests.map(\.identifier) == ["unknown-notice"])
+        let request = try #require(notificationCenter.postedRequests.first)
+        #expect(request.title == L10n.string("White Noise"))
+        #expect(request.body == L10n.string("New message"))
+        #expect(!request.title.contains("Alice") && !request.body.contains("Alice"))
+        #expect(!request.body.contains("Who is this?"))
     }
 
     @MainActor
