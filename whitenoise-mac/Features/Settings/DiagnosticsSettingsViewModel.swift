@@ -29,8 +29,6 @@ final class DiagnosticsSettingsViewModel {
     private(set) var error: DiagnosticsSettingsError?
     /// How long and how much audit logging keeps (MarmotKit 0.16.0).
     let retention: AuditLogRetentionViewModel
-    /// Whether recorded logs are reaching the receiver (MarmotKit 0.16.0).
-    let delivery: AuditDeliveryStatusViewModel
 
     @ObservationIgnored private let runtime: (any MarmotRuntime)?
     @ObservationIgnored private let productAnalytics: ProductAnalyticsRecorder?
@@ -42,26 +40,16 @@ final class DiagnosticsSettingsViewModel {
         self.runtime = runtime
         self.productAnalytics = productAnalytics
         retention = AuditLogRetentionViewModel(runtime: runtime)
-        delivery = AuditDeliveryStatusViewModel(runtime: runtime)
     }
 
-    /// The page's audit actions — Upload Now, Clear Logs and the retention pickers — run one at a
-    /// time and never during a reload: a read that overlapped a change could finish after it and
-    /// put the older state back on screen.
-    var areAuditActionsAvailable: Bool {
-        !isLoading && !isUploadingAuditLogs && !isDeletingAuditLogs && !retention.isBusy
-    }
-
-    /// Privacy & Security's stored-logs section. It stays while delivery has something to say,
-    /// not only while files are stored: a pause outlives the files (Clear Logs, or the age limit
-    /// deleting unsent logs), and Upload Now in that section is what lifts it.
-    var showsStoredLogsSection: Bool {
-        !auditLogFiles.isEmpty || delivery.summary != nil || delivery.error != nil
+    /// The retention pickers wait while the page reloads or a save runs: a reload's read that
+    /// overlapped a change could finish after it and put the older policy back on screen.
+    var canChangeRetention: Bool {
+        !isLoading && !retention.isBusy
     }
 
     func load() async {
-        // An upload or a clear refreshes the page itself when it finishes.
-        guard let runtime, !isLoading, !isUploadingAuditLogs, !isDeletingAuditLogs else { return }
+        guard let runtime, !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -85,12 +73,10 @@ final class DiagnosticsSettingsViewModel {
             productAnalytics?.deactivate()
             self.error = .unavailable(UserFacingError.message(for: error))
         }
-        // Retention and delivery are their own reads with their own errors: the settings above
-        // failing must not hide a pause, or the Upload Now that lifts it. Still inside `isLoading`,
-        // so neither overlaps an upload or a clear.
+        // Retention is its own read with its own error: the settings above failing must not take
+        // the pickers away. Still inside `isLoading`, so the pickers stay disabled until it lands.
         guard !Task.isCancelled else { return }
         await retention.load()
-        await delivery.load()
     }
 
     func setEnabled(_ enabled: Bool) async {
@@ -167,7 +153,7 @@ final class DiagnosticsSettingsViewModel {
     }
 
     func deleteAllAuditLogs() async {
-        guard let runtime, areAuditActionsAvailable else { return }
+        guard let runtime, !isDeletingAuditLogs else { return }
         isDeletingAuditLogs = true
         auditUploadStatus = nil
         defer { isDeletingAuditLogs = false }
@@ -182,11 +168,10 @@ final class DiagnosticsSettingsViewModel {
             self.error = .unavailable(UserFacingError.message(for: error))
         }
         await loadAuditLogs()
-        await delivery.load()
     }
 
     func uploadAuditLogs() async {
-        guard let runtime, areAuditActionsAvailable else { return }
+        guard let runtime, !isUploadingAuditLogs else { return }
         isUploadingAuditLogs = true
         auditUploadStatus = nil
         defer { isUploadingAuditLogs = false }
@@ -195,8 +180,6 @@ final class DiagnosticsSettingsViewModel {
             auditUploadStatus = Self.auditUploadStatusMessage(result)
             error = nil
             await loadAuditLogs()
-            // An upload lifts a paused account, so the status line has to follow it.
-            await delivery.load()
         } catch is CancellationError {
             return
         } catch {

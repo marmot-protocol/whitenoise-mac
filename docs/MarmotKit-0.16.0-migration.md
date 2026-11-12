@@ -78,14 +78,15 @@ White Noise for macOS now pins `marmotkit-v0.16.0` at MDK commit
 - **Audit log retention** (`auditLogRetention`, `setAuditLogRetention`). Privacy & Security →
   Log Retention offers preset ages (1–30 days) and per-account limits (64 MB–1 GB), shown while
   audit logging is on or logs are stored. MDK clamps and returns what it stored, which is what the
-  pickers show (`AuditLogRetentionViewModel`).
-- **Audit delivery status** (`auditDeliveryStatusV5`). Privacy & Security's stored-logs section
-  carries one summary line (`AuditDeliverySummary`): paused with the HTTP status, retrying, or
-  last sent. Upload Now (`postAuditLogTrackerUpdateV5`) is what lifts a pause, so the status is
-  re-read after it. Developer mode lists every account's figures.
+  pickers show (`AuditLogRetentionViewModel`). The pickers wait while the page reloads, and a
+  change claims the model before its save starts, so a reload's read can never put the older
+  policy back on screen.
 
 ## Not adopted yet
 
 - **Relay liveness** (`accountRelayLiveness`, `subscribeRelayLiveness`, `reconnectRelay`) for
   per-relay status and a Reconnect button in Settings → Relays.
 - **NIP-46 remote signers** (`nip46New`, `nip46Login`, …).
+- **Audit delivery status** (`auditDeliveryStatusV5`). Parked as draft #1012: threading it through
+  the Privacy & Security page load and the stored-logs section kept producing stale or hidden
+  states. That PR describes the remaining findings and a separate-section design.

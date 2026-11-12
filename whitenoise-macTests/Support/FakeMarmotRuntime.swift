@@ -906,8 +906,6 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
     var usageDiagnosticsSettingsError: Error?
-    var auditDeliveryStatuses: [AuditDeliveryStatusV5Ffi] = []
-    var auditDeliveryStatusError: Error?
     /// MDK's defaults: 30 days and 256 MiB per account.
     var storedAuditLogRetention = AuditLogRetentionFfi(maxAgeDays: 30, maxBytesPerAccount: 256 << 20)
     var auditLogRetentionError: Error?
@@ -1564,12 +1562,6 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
 
     func releaseNotificationSettingsGate() {
         notificationSettingsGate.release()
-    }
-
-    func auditDeliveryStatusV5() throws -> [AuditDeliveryStatusV5Ffi] {
-        recordSyncCall("auditDeliveryStatusV5")
-        if let auditDeliveryStatusError { throw auditDeliveryStatusError }
-        return auditDeliveryStatuses
     }
 
     func auditLogRetention() throws -> AuditLogRetentionFfi {

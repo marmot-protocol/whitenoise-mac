@@ -51,7 +51,7 @@ struct PrivacySecuritySettingsView: View {
             // Retention matters while logging is on or something is still stored; with neither,
             // there is nothing for it to act on.
             if model.auditSettings?.enabled == true || !model.auditLogFiles.isEmpty {
-                DiagnosticLogRetentionSection(model: model.retention, isEnabled: model.areAuditActionsAvailable)
+                DiagnosticLogRetentionSection(model: model.retention, isEnabled: model.canChangeRetention)
             }
 
             SettingsSection(
@@ -272,25 +272,23 @@ private struct DiagnosticsAndImprovementsSections: View {
 /// without naming files or paths, because someone deciding whether to keep logs needs to know how
 /// much there is, not what it is called. The inventory is on the Developer mode page.
 ///
-/// Absent when nothing is stored and delivery has nothing to report. The empty-state card this
-/// replaces was a row about nothing — the switch above it already says why there are no logs.
+/// Absent entirely when nothing is stored. The empty-state card this replaces was a row about
+/// nothing — the switch above it already says why there are no logs.
 private struct StoredDiagnosticLogsSection: View {
     let model: DiagnosticsSettingsViewModel
     @Binding var showClearConfirmation: Bool
 
     var body: some View {
-        if model.showsStoredLogsSection {
+        if !model.auditLogFiles.isEmpty {
             SettingsSection(
                 title: L10n.string("Stored Diagnostic Logs"),
                 footer: L10n.string("Turning logging off keeps existing logs until you clear them.")
             ) {
-                if !model.auditLogFiles.isEmpty {
-                    SettingsValueRow(
-                        title: L10n.string("On This Mac"),
-                        value: AuditLogByteCount.string(storedByteCount),
-                        monospaced: true
-                    )
-                }
+                SettingsValueRow(
+                    title: L10n.string("On This Mac"),
+                    value: AuditLogByteCount.string(storedByteCount),
+                    monospaced: true
+                )
 
                 HStack(spacing: 10) {
                     Button {
@@ -304,22 +302,20 @@ private struct StoredDiagnosticLogsSection: View {
                         )
                     }
                     .buttonStyle(.wnSecondary)
-                    .disabled(!model.areAuditActionsAvailable)
+                    .disabled(model.isUploadingAuditLogs)
 
-                    if !model.auditLogFiles.isEmpty {
-                        Button {
-                            showClearConfirmation = true
-                        } label: {
-                            SettingsBusyLabel(
-                                title: model.isDeletingAuditLogs
-                                    ? L10n.string("Clearing...") : L10n.string("Clear Logs"),
-                                systemImage: "trash",
-                                isBusy: model.isDeletingAuditLogs
-                            )
-                        }
-                        .buttonStyle(.wnSecondary)
-                        .disabled(!model.areAuditActionsAvailable)
+                    Button {
+                        showClearConfirmation = true
+                    } label: {
+                        SettingsBusyLabel(
+                            title: model.isDeletingAuditLogs
+                                ? L10n.string("Clearing...") : L10n.string("Clear Logs"),
+                            systemImage: "trash",
+                            isBusy: model.isDeletingAuditLogs
+                        )
                     }
+                    .buttonStyle(.wnSecondary)
+                    .disabled(model.isDeletingAuditLogs)
                 }
 
                 if let auditLogUploadStatus = model.auditUploadStatus {
@@ -328,13 +324,6 @@ private struct StoredDiagnosticLogsSection: View {
                         intention: .success,
                         systemImage: "checkmark.seal"
                     )
-                }
-
-                // A failed read is not "nothing configured": say so here, where Upload Now is.
-                if let error = model.delivery.error {
-                    SettingsStatusNote(text: error, intention: .failure)
-                } else if let summary = model.delivery.summary {
-                    AuditDeliverySummaryNote(summary: summary)
                 }
             }
         }
@@ -347,23 +336,6 @@ private struct StoredDiagnosticLogsSection: View {
     }
 }
 
-/// Whether recorded logs are reaching White Noise, in one line. Only a pause asks for anything:
-/// Upload Now is what lifts it.
-struct AuditDeliverySummaryNote: View {
-    let summary: AuditDeliverySummary
-
-    var body: some View {
-        switch summary.state {
-        case .paused:
-            SettingsStatusNote(text: summary.message, intention: .warning)
-        case .retrying:
-            SettingsStatusNote(text: summary.message, intention: .warning, systemImage: "arrow.clockwise")
-        case .upToDate, .neverSent:
-            SettingsStatusNote(text: summary.message, intention: .success, systemImage: "paperplane")
-        }
-    }
-}
-
 /// How long diagnostic logs stay on this Mac and how much room they may take.
 ///
 /// Presets rather than free entry: MDK clamps whatever it is given, and a picker cannot offer a
@@ -371,7 +343,7 @@ struct AuditDeliverySummaryNote: View {
 /// shows nothing selected.
 struct DiagnosticLogRetentionSection: View {
     let model: AuditLogRetentionViewModel
-    /// False while the page reloads or another audit action runs (`areAuditActionsAvailable`).
+    /// False while the page reloads or a retention save runs (`canChangeRetention`).
     var isEnabled = true
 
     var body: some View {
@@ -426,29 +398,12 @@ struct DiagnosticLogRetentionSection: View {
     }
 }
 
-#Preview("Log retention and delivery") {
+#Preview("Log retention") {
     Form {
         DiagnosticLogRetentionSection(model: .preview())
-        Section {
-            AuditDeliverySummaryNote(
-                summary: AuditDeliverySummary(statuses: [
-                    AuditDeliveryStatusV5Ffi(
-                        accountRef: "preview",
-                        destinationConfigured: true,
-                        lastSuccessAtMs: 1_800_000_000_000,
-                        lastFailure: AuditDeliveryFailureV5Ffi(
-                            kind: .receiverBlocked, httpStatus: 401, atMs: 1_800_000_100_000),
-                        consecutiveFailures: 3,
-                        rejectedBatches: 0,
-                        paused: true,
-                        backlog: nil
-                    )
-                ])!
-            )
-        }
     }
     .formStyle(.grouped)
-    .frame(width: 560, height: 320)
+    .frame(width: 560, height: 220)
 }
 
 /// A button's label while its work is running: the spinner takes the place the glyph held, so the
