@@ -42,13 +42,13 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
         #expect(model.retention?.maxAgeDays == 30)
         #expect(model.retention?.maxBytesPerAccount == 256 << 20)
 
-        await model.setMaxAgeDays(7)
+        await model.setMaxAgeDays(7)?.value
         #expect(runtime.setAuditLogRetentionCalls.last?.maxAgeDays == 7)
         #expect(runtime.setAuditLogRetentionCalls.last?.maxBytesPerAccount == 256 << 20)
         #expect(model.retention?.maxAgeDays == 7)
 
         // Choosing the value already stored writes nothing.
-        await model.setMaxAgeDays(7)
+        await model.setMaxAgeDays(7)?.value
         #expect(runtime.setAuditLogRetentionCalls.count == 1)
     }
 
@@ -58,7 +58,7 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
         let model = AuditLogRetentionViewModel(runtime: runtime)
         await model.load()
 
-        await model.setMaxBytesPerAccount(1 << 20)
+        await model.setMaxBytesPerAccount(1 << 20)?.value
 
         #expect(model.retention?.maxBytesPerAccount == 16 << 20)
         // A stored value outside the presets is offered, so the picker still has a selection.
@@ -77,11 +77,52 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
         runtime.auditLogRetentionGate.isEnabled = true
         let reload = Task { await model.load() }
         await Self.waitUntil { runtime.auditLogRetentionGate.didReach }
-        await model.setMaxAgeDays(7)
+        await model.setMaxAgeDays(7)?.value
         runtime.auditLogRetentionGate.release()
         await reload.value
 
         #expect(model.retention == runtime.storedAuditLogRetention)
+    }
+
+    /// A picker change claims the model before it returns, so a reload that runs next — the page
+    /// reappearing — backs off instead of reading the old policy over the save.
+    @Test func aRetentionChangeClaimsTheModelBeforeAnyReload() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = AuditLogRetentionViewModel(runtime: runtime)
+        await model.load()
+
+        let save = model.setMaxAgeDays(7)
+        #expect(model.isBusy)
+        await model.load()
+        await save?.value
+
+        #expect(runtime.storedAuditLogRetention.maxAgeDays == 7)
+        #expect(model.retention?.maxAgeDays == 7)
+    }
+
+    /// While the page reloads, its audit actions wait: an upload or a retention change cannot
+    /// overlap the reload's reads, so neither can be undone on screen by an older read.
+    @Test func auditActionsWaitForThePageReload() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true)
+        let model = DiagnosticsSettingsViewModel(runtime: runtime)
+        await model.load()
+        #expect(model.areAuditActionsAvailable)
+
+        runtime.auditLogFilesGateEnabled = true
+        let reload = Task { await model.load() }
+        await Self.waitUntil { runtime.didReachAuditLogFilesGate }
+
+        #expect(!model.areAuditActionsAvailable)
+        await model.uploadAuditLogs()
+        #expect(!runtime.didPostAuditLogTrackerUpdate)
+
+        runtime.releaseAuditLogFilesGate()
+        await reload.value
+
+        #expect(model.areAuditActionsAvailable)
+        await model.uploadAuditLogs()
+        #expect(runtime.didPostAuditLogTrackerUpdate)
     }
 
     /// The day count follows the app's language, plural rules included.
@@ -108,7 +149,7 @@ struct AuditDeliveryAndRetentionTests: WorkspaceTestSupport {
         await model.load()
 
         runtime.auditLogRetentionError = MarmotKitError.Io(details: "disk")
-        await model.setMaxAgeDays(3)
+        await model.setMaxAgeDays(3)?.value
 
         #expect(model.retention?.maxAgeDays == 30)
         #expect(model.error == UserFacingError.message(for: MarmotKitError.Io(details: "")))

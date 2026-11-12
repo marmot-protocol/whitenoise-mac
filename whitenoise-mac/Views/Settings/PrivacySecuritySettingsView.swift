@@ -51,7 +51,7 @@ struct PrivacySecuritySettingsView: View {
             // Retention matters while logging is on or something is still stored; with neither,
             // there is nothing for it to act on.
             if model.auditSettings?.enabled == true || !model.auditLogFiles.isEmpty {
-                DiagnosticLogRetentionSection(model: model.retention)
+                DiagnosticLogRetentionSection(model: model.retention, isEnabled: model.areAuditActionsAvailable)
             }
 
             SettingsSection(
@@ -302,7 +302,7 @@ private struct StoredDiagnosticLogsSection: View {
                         )
                     }
                     .buttonStyle(.wnSecondary)
-                    .disabled(model.isUploadingAuditLogs)
+                    .disabled(!model.areAuditActionsAvailable)
 
                     Button {
                         showClearConfirmation = true
@@ -315,7 +315,7 @@ private struct StoredDiagnosticLogsSection: View {
                         )
                     }
                     .buttonStyle(.wnSecondary)
-                    .disabled(model.isDeletingAuditLogs)
+                    .disabled(!model.areAuditActionsAvailable)
                 }
 
                 if let auditLogUploadStatus = model.auditUploadStatus {
@@ -367,6 +367,8 @@ struct AuditDeliverySummaryNote: View {
 /// shows nothing selected.
 struct DiagnosticLogRetentionSection: View {
     let model: AuditLogRetentionViewModel
+    /// False while the page reloads or another audit action runs (`areAuditActionsAvailable`).
+    var isEnabled = true
 
     var body: some View {
         SettingsSection(
@@ -380,27 +382,27 @@ struct DiagnosticLogRetentionSection: View {
                     L10n.string("Keep Logs For"),
                     selection: Binding(
                         get: { retention.maxAgeDays },
-                        set: { days in Task { await model.setMaxAgeDays(days) } }
+                        set: { days in model.setMaxAgeDays(days) }
                     )
                 ) {
                     ForEach(model.ageChoices, id: \.self) { days in
                         Text(Self.ageLabel(days)).tag(days)
                     }
                 }
-                .disabled(model.isBusy)
+                .disabled(!isEnabled || model.isBusy)
 
                 Picker(
                     L10n.string("Storage Limit per Account"),
                     selection: Binding(
                         get: { retention.maxBytesPerAccount },
-                        set: { bytes in Task { await model.setMaxBytesPerAccount(bytes) } }
+                        set: { bytes in model.setMaxBytesPerAccount(bytes) }
                     )
                 ) {
                     ForEach(model.sizeChoices, id: \.self) { bytes in
                         Text(Self.sizeLabel(bytes)).tag(bytes)
                     }
                 }
-                .disabled(model.isBusy)
+                .disabled(!isEnabled || model.isBusy)
             }
 
             if let error = model.error {

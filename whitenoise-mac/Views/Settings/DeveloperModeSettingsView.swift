@@ -96,7 +96,8 @@ struct AuditDeliveryStatusSection: View {
             }
             .buttonStyle(.wnSecondary)
 
-            if model.statuses.isEmpty {
+            // After a failed read the error below says what happened; "no records" would not be true.
+            if model.statuses.isEmpty, model.error == nil {
                 Text(L10n.string("No delivery records yet."))
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             } else {

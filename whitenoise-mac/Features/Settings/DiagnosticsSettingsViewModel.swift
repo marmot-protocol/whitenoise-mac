@@ -45,8 +45,16 @@ final class DiagnosticsSettingsViewModel {
         delivery = AuditDeliveryStatusViewModel(runtime: runtime)
     }
 
+    /// The page's audit actions — Upload Now, Clear Logs and the retention pickers — run one at a
+    /// time and never during a reload: a read that overlapped a change could finish after it and
+    /// put the older state back on screen.
+    var areAuditActionsAvailable: Bool {
+        !isLoading && !isUploadingAuditLogs && !isDeletingAuditLogs && !retention.isBusy
+    }
+
     func load() async {
-        guard let runtime, !isLoading else { return }
+        // An upload or a clear refreshes the page itself when it finishes.
+        guard let runtime, !isLoading, !isUploadingAuditLogs, !isDeletingAuditLogs else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -148,7 +156,7 @@ final class DiagnosticsSettingsViewModel {
     }
 
     func deleteAllAuditLogs() async {
-        guard let runtime, !isDeletingAuditLogs else { return }
+        guard let runtime, areAuditActionsAvailable else { return }
         isDeletingAuditLogs = true
         auditUploadStatus = nil
         defer { isDeletingAuditLogs = false }
@@ -167,7 +175,7 @@ final class DiagnosticsSettingsViewModel {
     }
 
     func uploadAuditLogs() async {
-        guard let runtime, !isUploadingAuditLogs else { return }
+        guard let runtime, areAuditActionsAvailable else { return }
         isUploadingAuditLogs = true
         auditUploadStatus = nil
         defer { isUploadingAuditLogs = false }

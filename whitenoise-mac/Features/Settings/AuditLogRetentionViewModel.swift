@@ -56,20 +56,29 @@ final class AuditLogRetentionViewModel {
         }
     }
 
-    func setMaxAgeDays(_ days: UInt32) async {
-        guard let current = retention, current.maxAgeDays != days else { return }
-        await save(AuditLogRetentionFfi(maxAgeDays: days, maxBytesPerAccount: current.maxBytesPerAccount))
+    /// Claims the model before returning, so a reload that runs next sees it and backs off; the
+    /// returned task is the save. `nil` when there is nothing to save or the model is busy.
+    @discardableResult
+    func setMaxAgeDays(_ days: UInt32) -> Task<Void, Never>? {
+        guard let current = retention, current.maxAgeDays != days else { return nil }
+        return save(AuditLogRetentionFfi(maxAgeDays: days, maxBytesPerAccount: current.maxBytesPerAccount))
     }
 
-    func setMaxBytesPerAccount(_ bytes: UInt64) async {
-        guard let current = retention, current.maxBytesPerAccount != bytes else { return }
-        await save(AuditLogRetentionFfi(maxAgeDays: current.maxAgeDays, maxBytesPerAccount: bytes))
+    @discardableResult
+    func setMaxBytesPerAccount(_ bytes: UInt64) -> Task<Void, Never>? {
+        guard let current = retention, current.maxBytesPerAccount != bytes else { return nil }
+        return save(AuditLogRetentionFfi(maxAgeDays: current.maxAgeDays, maxBytesPerAccount: bytes))
     }
 
-    private func save(_ requested: AuditLogRetentionFfi) async {
-        guard let runtime, !isBusy else { return }
+    private func save(_ requested: AuditLogRetentionFfi) -> Task<Void, Never>? {
+        guard runtime != nil, !isBusy else { return nil }
         isSaving = true
+        return Task { await self.persist(requested) }
+    }
+
+    private func persist(_ requested: AuditLogRetentionFfi) async {
         defer { isSaving = false }
+        guard let runtime else { return }
         do {
             let stored = try await FFIExecutor.run { [runtime] in
                 try runtime.setAuditLogRetention(retention: requested)
