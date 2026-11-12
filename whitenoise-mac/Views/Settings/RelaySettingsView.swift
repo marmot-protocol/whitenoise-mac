@@ -231,8 +231,9 @@ struct RelayEndpointRow: View {
                 Spacer(minLength: 8)
 
                 // Connection is the everyday signal; an unpublished list is the exception worth
-                // naming beside it. A published one would be a second green mark saying less.
-                if relay.publishState == .notPublished {
+                // naming beside it. A published one would be a second green mark saying less —
+                // unless there is no connection mark, when it is the row's only status.
+                if relay.publishState == .notPublished || connection == nil {
                     RelayPublishStateBadge(state: relay.publishState)
                 }
 

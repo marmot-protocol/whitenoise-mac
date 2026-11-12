@@ -135,14 +135,18 @@ struct RelayConnectionSection: View {
             footer: L10n.string(
                 "Reconnecting tries this relay again now. It doesn't change what this account uses it for.")
         ) {
-            LabeledContent(L10n.string("Status")) {
-                RelayConnectionLabel(state: connection?.state ?? .unknown)
+            // No row from MDK is not MDK's `.unknown` ("not tried yet"): the page may simply have
+            // no liveness for it, so it shows nothing rather than a state it does not know.
+            if let connection {
+                LabeledContent(L10n.string("Status")) {
+                    RelayConnectionLabel(state: connection.state)
+                }
             }
 
             if let lastAttempt = connection?.lastAttempt {
                 SettingsValueRow(
                     title: L10n.string("Last attempt"),
-                    value: lastAttempt.formatted(.relative(presentation: .named))
+                    value: lastAttempt.formatted(.relative(presentation: .named).locale(AppLanguage.currentLocale))
                 )
             }
 

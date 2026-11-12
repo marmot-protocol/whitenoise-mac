@@ -172,6 +172,26 @@ struct RelayLivenessTests: WorkspaceTestSupport {
         #expect(model.reconnectError(for: Self.eu) == nil)
     }
 
+    /// A failed Reconnect stops being news once the relay connects anyway.
+    @Test func aReconnectErrorClearsWhenTheRelayConnects() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.relayLiveness = [Self.row(Self.eu, .offline)]
+        runtime.reconnectRelayError = MarmotKitError.Runtime(details: "dial failed")
+        let model = RelayLivenessViewModel(accountRef: "account", runtime: runtime)
+
+        let observing = Task { await model.observe() }
+        defer { observing.cancel() }
+        await Self.waitUntil { model.connection(for: Self.eu) != nil }
+        await model.reconnect(Self.eu)
+        #expect(model.reconnectError(for: Self.eu) != nil)
+
+        let subscription = try #require(runtime.relayLivenessSubscriptions.last)
+        subscription.deliver([Self.row(Self.eu, .connected)])
+        await Self.waitUntil { model.connection(for: Self.eu)?.state == .connected }
+
+        #expect(model.reconnectError(for: Self.eu) == nil)
+    }
+
     @Test func livenessMapsToTheAppsConnection() {
         let mapped = RelayConnection(liveness: Self.row(Self.eu, .offline, attempt: 1_800_000_000, error: " timeout "))
         #expect(mapped.state == .offline)

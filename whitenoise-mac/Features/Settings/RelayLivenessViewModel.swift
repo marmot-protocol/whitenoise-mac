@@ -101,6 +101,10 @@ final class RelayLivenessViewModel {
             rows.map { (RelayURLValidator.identity($0.url), RelayConnection(liveness: $0)) },
             uniquingKeysWith: { _, latest in latest }
         )
+        // A failed Reconnect stops being news once the relay connects anyway.
+        for (key, connection) in connections where connection.state == .connected {
+            reconnectErrors[key] = nil
+        }
     }
 
     static func preview(_ connections: [String: RelayConnection] = [:]) -> RelayLivenessViewModel {
