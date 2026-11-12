@@ -21,7 +21,8 @@ final class SessionState {
         relayListsDidChange: @escaping @MainActor () -> Void = {},
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
         removeAccount: DeleteProfileViewModel.RemoveAccount? = nil,
-        groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks()
+        groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks(),
+        chatsDidChange: @escaping @MainActor (_ departedGroupIds: Set<String>) async -> Void = { _ in }
     ) async {
         guard let account, let runtime else {
             await deactivate()
@@ -41,7 +42,8 @@ final class SessionState {
             relayListsDidChange: relayListsDidChange,
             attachmentsDidChange: attachmentsDidChange,
             removeAccount: removeAccount,
-            groupDisbandHooks: groupDisbandHooks
+            groupDisbandHooks: groupDisbandHooks,
+            chatsDidChange: chatsDidChange
         )
         accountScope = scope
         scope.start(connectivityAvailable: connectivityAvailable)

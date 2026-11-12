@@ -4086,19 +4086,6 @@ struct ComposeContact: Identifiable, Equatable {
     }
 }
 
-enum ChatFilter {
-    static func filtered(_ chats: [ChatItem], query: String) -> [ChatItem] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return chats }
-        return chats.filter { chat in
-            chat.title.localizedCaseInsensitiveContains(needle)
-                || chat.publishedTitle?.localizedCaseInsensitiveContains(needle) == true
-                || chat.subtitle.localizedCaseInsensitiveContains(needle)
-                || chat.preview.localizedCaseInsensitiveContains(needle)
-        }
-    }
-}
-
 enum ChatListFilter: String, CaseIterable {
     case active
     case unread

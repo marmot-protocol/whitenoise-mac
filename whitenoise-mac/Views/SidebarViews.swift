@@ -153,15 +153,21 @@ struct ChatListDrawerView: View {
     let model: ChatListViewModel?
     let historyNotices: HistoryNoticesViewModel?
     let recoveryStatus: AccountRecoveryStatusViewModel?
+    let selection: ChatListSelectionViewModel?
+    let search: ChatListSearchViewModel?
 
     init(
         model: ChatListViewModel? = nil,
         historyNotices: HistoryNoticesViewModel? = nil,
-        recoveryStatus: AccountRecoveryStatusViewModel? = nil
+        recoveryStatus: AccountRecoveryStatusViewModel? = nil,
+        selection: ChatListSelectionViewModel? = nil,
+        search: ChatListSearchViewModel? = nil
     ) {
         self.recoveryStatus = recoveryStatus
         self.model = model
         self.historyNotices = historyNotices
+        self.selection = selection
+        self.search = search
     }
 
     private var isShowingSettings: Bool {
@@ -190,11 +196,14 @@ struct ChatListDrawerView: View {
                 let listing = visibleChats(for: filter)
                 let visibleChats = listing.chats
                 let isCollapsed = workspace.isChatListCollapsed
+                // The avatar-only rail has no room for checkmarks or the action bar.
+                let rowSelection = isCollapsed ? nil : selection
+                let activeSelection = rowSelection?.isActive == true ? rowSelection : nil
 
                 if isCollapsed {
                     CollapsedChatListHeader(isShowingArchived: isShowingArchived)
                 } else {
-                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived)
+                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived, selection: activeSelection)
                 }
 
                 GlassSeparator(axis: .horizontal)
@@ -214,9 +223,16 @@ struct ChatListDrawerView: View {
                                 chat: chat,
                                 isArchived: listing.archivedIds.contains(chat.id),
                                 isCollapsed: isCollapsed,
-                                searchResult: workspace.sidebarMessageSearchResult(for: chat)
+                                searchResult: workspace.sidebarMessageSearchResult(for: chat),
+                                selection: rowSelection
                             )
                             .onAppear {
+                                if isSearching {
+                                    search?.setVisibleAnchor(groupIdHex: chat.id)
+                                    if chat.id == visibleChats.last?.id { search?.pageForward() }
+                                    if chat.id == visibleChats.first?.id { search?.pageBackward() }
+                                    return
+                                }
                                 guard filter == .active else { return }
                                 model?.setVisibleWindowAnchor(groupIdHex: chat.id)
                                 if chat.id == visibleChats.last?.id {
@@ -230,6 +246,10 @@ struct ChatListDrawerView: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 8)
+
+                    if isSearching, search?.isTruncated == true, search?.hasMoreRows == false {
+                        ChatListSearchTruncatedNote()
+                    }
                 }
                 .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
@@ -237,10 +257,16 @@ struct ChatListDrawerView: View {
                     // collapsed rail it would render as a column of hyphenated fragments. An
                     // empty rail is legible on its own, and widening it brings the wording back.
                     if visibleChats.isEmpty, !isCollapsed {
-                        if workspace.isSearchingSidebarMessages {
+                        if isSearching, search?.phase != .ready, search?.phase != .failed {
                             ProgressView()
                                 .controlSize(.small)
-                        } else if !workspace.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        } else if isSearching, search?.phase == .failed {
+                            WNEmptyStateView(
+                                title: L10n.string("Search couldn't be completed.", locale: locale),
+                                systemImage: "magnifyingglass"
+                            )
+                            .padding()
+                        } else if isSearching {
                             WNEmptyStateView(
                                 title: L10n.string("No matching chats", locale: locale),
                                 systemImage: "magnifyingglass"
@@ -269,29 +295,85 @@ struct ChatListDrawerView: View {
                         }
                     }
                 }
+                .onChange(of: ChatListSearchKey(text: workspace.searchText, view: filter.chatListView), initial: true) {
+                    _, key in
+                    search?.search(key.text, view: key.view)
+                }
+                .onChange(
+                    of: ChatListSelectionScope(
+                        query: isSearching
+                            ? search?.matchesQuery ?? ChatListSearchQuery.unfiltered(filter.chatListView)
+                            : ChatListSearchQuery.unfiltered(filter.chatListView),
+                        // The unfiltered inbox and search results are bounded windows; the other
+                        // views are drawn from the complete presented list.
+                        isWindowed: isSearching || filter == .active,
+                        visibleIds: visibleChats.map(\.id)
+                    ),
+                    initial: true
+                ) { _, scope in
+                    selection?.updateVisibleChats(scope.visibleIds, query: scope.query, isWindowed: scope.isWindowed)
+                }
+
+                if let activeSelection {
+                    GlassSeparator(axis: .horizontal)
+                    let visibleById = Dictionary(
+                        visibleChats.map { ($0.id, $0) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
+                    ChatListSelectionBar(
+                        model: activeSelection,
+                        chat: { [model, nicknames = workspace.activeContactNicknames] id in
+                            visibleById[id] ?? model?.chatItem(groupIdHex: id, nicknames: nicknames)
+                        },
+                        archivedIds: listing.archivedIds
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .background {
             MessagesSidebarBackground(level: .drawer)
         }
+        .animation(.smooth(duration: 0.18), value: selection?.isActive == true)
+        .onChange(of: showsSelectableList) { _, shows in
+            // Selection belongs to the list on screen: settings, the composer or the collapsed rail
+            // replacing it ends selection mode rather than leaving it armed out of sight.
+            if !shows { selection?.end() }
+        }
+        .modifier(ChatListSelectionDialogs(model: selection))
+    }
+
+    private var showsSelectableList: Bool {
+        !isShowingSettings && !workspace.isNewChatComposerVisible && !workspace.isChatListCollapsed
     }
 }
 
 extension ChatListDrawerView {
+    private var isSearching: Bool {
+        !workspace.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// The drawer's rows, and which of them are archived. `ChatItem` carries no archive flag, and
     /// the drawer's filter is not one either: the Left drawer lists archived chats beside active
     /// ones, and an archived row there must offer Unarchive rather than Pin — mdk refuses to pin
     /// an archived chat.
     fileprivate func visibleChats(for filter: ChatListFilter) -> (chats: [ChatItem], archivedIds: Set<String>) {
+        if isSearching {
+            // MDK matched these (`ChatListSearchViewModel`); until it answers nothing is shown.
+            let rows = search?.rows ?? []
+            let chats =
+                model?.chatItems(
+                    for: rows,
+                    nicknames: workspace.activeContactNicknames,
+                    mentionNames: workspace.cachedMentionNames(groupIdHex:)
+                ) ?? []
+            return (chats, Set(rows.filter(\.row.archived).map(\.row.groupIdHex)))
+        }
         let chats: [ChatItem]
-        let useBoundedWindow = workspace.searchText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty
         let activeChats =
             model?.chats(
                 view: .chats,
                 nicknames: workspace.activeContactNicknames,
-                useWindow: useBoundedWindow,
                 mentionNames: workspace.cachedMentionNames(groupIdHex:)
             )
             ?? workspace.activeChats
@@ -331,7 +413,7 @@ extension ChatListDrawerView {
         case .active, .unread:
             archivedIds = []
         }
-        return (workspace.sidebarSearchFilteredChats(chats), archivedIds)
+        return (chats, archivedIds)
     }
 }
 
@@ -339,32 +421,24 @@ private struct ChatListHeader: View {
     @Environment(WorkspaceState.self) private var workspace
     let filter: ChatListFilter
     let isShowingArchived: Bool
+    /// Set while selection mode is on; the title row gives way to the selection controls.
+    let selection: ChatListSelectionViewModel?
 
     var body: some View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Text(filter.title)
-                    .wnFont(MessagesType.paneTitle)
-                Spacer()
-                Button {
-                    workspace.presentGlobalMessageSearch()
-                } label: {
-                    Image(systemName: "text.magnifyingglass")
-                        .wnFont(.semiBold14)
-                        .frame(width: 34, height: 34)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Search all messages"))
-                if !isShowingArchived {
+            if let selection {
+                ChatListSelectionHeaderRow(model: selection)
+            } else {
+                HStack(spacing: 8) {
+                    Text(filter.title)
+                        .wnFont(MessagesType.paneTitle)
+                    Spacer()
                     Button {
-                        workspace.showNewChat()
+                        workspace.presentGlobalMessageSearch()
                     } label: {
-                        Image(systemName: "square.and.pencil")
+                        Image(systemName: "text.magnifyingglass")
                             .wnFont(.semiBold14)
                             .frame(width: 34, height: 34)
                             .background {
@@ -372,8 +446,22 @@ private struct ChatListHeader: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .keyboardShortcut("n", modifiers: .command)
-                    .help(L10n.string("New chat"))
+                    .help(L10n.string("Search all messages"))
+                    if !isShowingArchived {
+                        Button {
+                            workspace.showNewChat()
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                                .wnFont(.semiBold14)
+                                .frame(width: 34, height: 34)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut("n", modifiers: .command)
+                        .help(L10n.string("New chat"))
+                    }
                 }
             }
 
@@ -551,11 +639,78 @@ private struct ChatSidebarRow: View {
     let isArchived: Bool
     let isCollapsed: Bool
     let searchResult: GlobalMessageSearchResult?
+    /// `nil` where selection is unavailable (the collapsed rail). The row reads only `isActive`;
+    /// the checkmark observes the selected set on its own.
+    let selection: ChatListSelectionViewModel?
 
     var body: some View {
+        let isSelecting = selection?.isActive == true
+
         Button {
-            workspace.selectChat(chat)
+            click()
         } label: {
+            HStack(spacing: 6) {
+                if isSelecting, let selection {
+                    ChatListSelectionIndicator(model: selection, groupIdHex: chat.id)
+                        .padding(.leading, 4)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+                ChatSidebarRowContent(
+                    chat: chat,
+                    isArchived: isArchived,
+                    isCollapsed: isCollapsed,
+                    searchResult: searchResult
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")
+        .contextMenu {
+            // A row's own actions would act on one chat while several are selected; the bar
+            // is where a selection is acted on.
+            if !isSelecting {
+                ChatSidebarRowMenuItems(chat: chat, isArchived: isArchived, selection: selection)
+            }
+        }
+    }
+
+    /// A plain click opens the chat; in selection mode it toggles it instead. ⌘-click starts a
+    /// selection from this row, and ⇧-click selects the range from the open chat (or the last
+    /// clicked row) to this one — the Finder and Mail conventions.
+    private func click() {
+        if let selection {
+            let modifiers = NSEvent.modifierFlags
+            if modifiers.contains(.shift) {
+                selection.extend(to: chat.id, defaultAnchor: openChatId)
+                return
+            }
+            if selection.isActive {
+                selection.toggle(chat.id)
+                return
+            }
+            if modifiers.contains(.command) {
+                selection.begin(with: chat.id)
+                return
+            }
+        }
+        workspace.selectChat(chat)
+    }
+
+    private var openChatId: String? {
+        if case .chat(let id) = workspace.selection { return id }
+        return nil
+    }
+}
+
+private struct ChatSidebarRowContent: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let chat: ChatItem
+    let isArchived: Bool
+    let isCollapsed: Bool
+    let searchResult: GlobalMessageSearchResult?
+
+    var body: some View {
+        Group {
             if isCollapsed {
                 CollapsedChatRowContent(
                     chat: chat,
@@ -571,11 +726,6 @@ private struct ChatSidebarRow: View {
                 )
             }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")
-        .contextMenu {
-            ChatSidebarRowMenuItems(chat: chat, isArchived: isArchived)
-        }
     }
 }
 
@@ -584,6 +734,7 @@ private struct ChatSidebarRowMenuItems: View {
     @Environment(\.endingGroupIds) private var endingGroupIds
     let chat: ChatItem
     let isArchived: Bool
+    let selection: ChatListSelectionViewModel?
 
     /// Any archive in flight, not just this chat's: `setChatArchived` refuses every call while one
     /// is running, so an enabled item on another row would be a click that does nothing.
@@ -593,6 +744,17 @@ private struct ChatSidebarRowMenuItems: View {
 
     var body: some View {
         Group {
+            if let selection {
+                Button {
+                    selection.begin(with: chat.id)
+                } label: {
+                    ChatRowMenuLabel(action: .select)
+                }
+                .disabled(selection.isBusy)
+
+                Divider()
+            }
+
             Button {
                 Task {
                     await workspace.setChatManuallyUnread(
@@ -614,25 +776,12 @@ private struct ChatSidebarRowMenuItems: View {
                 .disabled(workspace.isMutatingChatPreferences(chat))
             } else {
                 Menu {
-                    Button {
-                        Task { await workspace.setChatMuted(chat, duration: 60 * 60) }
-                    } label: {
-                        Label(L10n.string("For 1 Hour"), systemImage: "clock")
-                    }
-                    Button {
-                        Task { await workspace.setChatMuted(chat, duration: 8 * 60 * 60) }
-                    } label: {
-                        Label(L10n.string("For 8 Hours"), systemImage: "clock")
-                    }
-                    Button {
-                        Task { await workspace.setChatMuted(chat, duration: 7 * 24 * 60 * 60) }
-                    } label: {
-                        Label(L10n.string("For 1 Week"), systemImage: "calendar")
-                    }
-                    Button {
-                        Task { await workspace.setChatMuted(chat, duration: nil) }
-                    } label: {
-                        Label(L10n.string("Until I Turn It Back On"), systemImage: "infinity")
+                    ForEach(ChatMuteDuration.allCases) { duration in
+                        Button {
+                            Task { await workspace.setChatMuted(chat, duration: duration.interval) }
+                        } label: {
+                            Label(L10n.string(duration.titleKey), systemImage: duration.systemImage)
+                        }
                     }
                 } label: {
                     ChatRowMenuLabel(action: .mute)
@@ -1232,4 +1381,36 @@ struct MembershipEndedBadge: View {
         .overlay(Capsule().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
         .help(membership.endedDescription ?? "")
     }
+}
+
+/// What a search runs on: the typed text and the drawer's view.
+private struct ChatListSearchKey: Equatable {
+    let text: String
+    let view: ChatListViewFfi
+}
+
+/// Under search results capped at MDK's 500-id window: the rest exist but are not listed.
+private struct ChatListSearchTruncatedNote: View {
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        Text(
+            L10n.string(
+                "Showing the first 500 matches. Refine your search to see the rest.",
+                locale: locale
+            )
+        )
+        .wnFont(.medium12)
+        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .accessibilityIdentifier("chat.search.truncated")
+    }
+}
+
+#Preview("ChatListSearchTruncatedNote") {
+    ChatListSearchTruncatedNote()
+        .frame(width: 280)
 }

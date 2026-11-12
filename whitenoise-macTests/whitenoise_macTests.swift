@@ -35,20 +35,6 @@ import UserNotifications
 @Suite(.serialized)
 struct whitenoise_macTests: WorkspaceTestSupport {
     @MainActor
-    @Test func chatSearchMatchesTitleSubtitleAndPreview() async throws {
-        let chats = ChatItem.samples
-
-        #expect(ChatFilter.filtered(chats, query: "relay").map(\.id) == ["chat-relays"])
-        #expect(ChatFilter.filtered(chats, query: "desktop").map(\.id) == ["chat-design"])
-        #expect(ChatFilter.filtered(chats, query: "direct").map(\.id) == ["chat-nvk"])
-
-        // A query is matched against each field independently and never across
-        // field boundaries, so "NVK Direct" does not match the chat whose title
-        // is "NVK" and subtitle is "Direct message".
-        #expect(ChatFilter.filtered(chats, query: "NVK Direct").isEmpty)
-    }
-
-    @MainActor
     @Test func chatListRelativeTimestampUsesSelectedAppLanguage() async throws {
         let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
         defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }

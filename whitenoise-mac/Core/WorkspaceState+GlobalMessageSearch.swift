@@ -535,19 +535,6 @@ extension WorkspaceState {
         }
     }
 
-    func sidebarSearchFilteredChats(_ chats: [ChatItem]) -> [ChatItem] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return chats }
-        let metadataMatches = Set(ChatFilter.filtered(chats, query: query).map(\.id))
-        let historyMatches: Set<String> =
-            sidebarMessageSearchResultQuery == searchText
-            ? Set(sidebarMessageSearchResultsByGroupId.keys)
-            : []
-        return chats.filter {
-            metadataMatches.contains($0.id) || historyMatches.contains($0.id)
-        }
-    }
-
     func sidebarMessageSearchResult(for chat: ChatItem) -> GlobalMessageSearchResult? {
         guard sidebarMessageSearchResultQuery == searchText,
             !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

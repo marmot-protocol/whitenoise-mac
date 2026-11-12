@@ -306,25 +306,55 @@ final class FakePresentedChatListSubscription: PresentedChatListSubscription, @u
 }
 
 final class FakeChatListWindowSubscription: ChatListWindowSubscription, @unchecked Sendable {
+    /// One anchor or page command, with the sequence it was sent against.
+    enum Command: Equatable {
+        case anchor(String, sequence: UInt64)
+        case page(ChatListPageDirectionFfi, sequence: UInt64)
+    }
+
+    private let lock = NSLock()
     private var current: ChatListWindowSnapshotFfi?
     private var updates: [ChatListWindowSnapshotFfi]
     private var pages: [ChatListWindowSnapshotFfi]
+    private var pageErrors: [Error]
+    private var nextErrors: [Error]
+    private var recordedCommands: [Command] = []
+    private let advancesSequence: Bool
+    private let endsWhenExhausted: Bool
+
+    /// Every anchor and page command, in the order they reached the window.
+    var commands: [Command] { lock.withLock { recordedCommands } }
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         current = nil
         updates = []
         pages = []
+        pageErrors = []
+        nextErrors = []
+        advancesSequence = false
+        endsWhenExhausted = false
         super.init(unsafeFromRawPointer: pointer)
     }
 
+    /// `pageErrors` and `nextErrors` are thrown first, one per call. With `advancesSequence`, an
+    /// anchor or unscripted page answers with the next sequence, as MDK installs a new snapshot
+    /// for every accepted command. With `endsWhenExhausted`, `next()` ends instead of waiting.
     init(
         initial: ChatListWindowSnapshotFfi,
         updates: [ChatListWindowSnapshotFfi] = [],
-        pages: [ChatListWindowSnapshotFfi] = []
+        pages: [ChatListWindowSnapshotFfi] = [],
+        pageErrors: [Error] = [],
+        nextErrors: [Error] = [],
+        advancesSequence: Bool = false,
+        endsWhenExhausted: Bool = false
     ) {
         current = initial
         self.updates = updates
         self.pages = pages
+        self.pageErrors = pageErrors
+        self.nextErrors = nextErrors
+        self.advancesSequence = advancesSequence
+        self.endsWhenExhausted = endsWhenExhausted
         super.init(noPointer: NoPointer())
     }
 
@@ -333,7 +363,11 @@ final class FakeChatListWindowSubscription: ChatListWindowSubscription, @uncheck
     }
 
     override func next() async throws -> ChatListWindowSnapshotFfi? {
-        guard !updates.isEmpty else { return await awaitSubscriptionCancellation() }
+        if !nextErrors.isEmpty { throw nextErrors.removeFirst() }
+        guard !updates.isEmpty else {
+            if endsWhenExhausted { return nil }
+            return await awaitSubscriptionCancellation()
+        }
         let next = updates.removeFirst()
         current = next
         return next
@@ -342,8 +376,15 @@ final class FakeChatListWindowSubscription: ChatListWindowSubscription, @uncheck
     override func page(sequence: UInt64, direction: ChatListPageDirectionFfi, count: UInt32) async throws
         -> ChatListWindowSnapshotFfi
     {
-        guard let current else { throw FakeMarmotRuntimeError.unused }
-        guard !pages.isEmpty else { return current }
+        lock.withLock { recordedCommands.append(.page(direction, sequence: sequence)) }
+        if !pageErrors.isEmpty { throw pageErrors.removeFirst() }
+        guard var current else { throw FakeMarmotRuntimeError.unused }
+        guard !pages.isEmpty else {
+            guard advancesSequence else { return current }
+            current.sequence += 1
+            self.current = current
+            return current
+        }
         let next = pages.removeFirst()
         self.current = next
         return next
@@ -355,7 +396,13 @@ final class FakeChatListWindowSubscription: ChatListWindowSubscription, @uncheck
     }
 
     override func setVisibleAnchor(sequence: UInt64, groupIdHex: String) async throws -> ChatListWindowSnapshotFfi {
-        guard let current else { throw FakeMarmotRuntimeError.unused }
+        lock.withLock { recordedCommands.append(.anchor(groupIdHex, sequence: sequence)) }
+        guard var current else { throw FakeMarmotRuntimeError.unused }
+        guard advancesSequence else { return current }
+        let index = current.rows.firstIndex { $0.row.groupIdHex == groupIdHex } ?? 0
+        current.sequence += 1
+        current.anchor = .retained(groupIdHex: groupIdHex, index: UInt32(index))
+        self.current = current
         return current
     }
 }

@@ -14,6 +14,8 @@ final class AccountScope {
     @ObservationIgnored let runtime: any MarmotRuntime
     let settingsModel: SettingsViewModel
     let chatListModel: ChatListViewModel
+    let chatListSelection: ChatListSelectionViewModel
+    let chatListSearch: ChatListSearchViewModel
     let attentionModel: AccountAttentionViewModel
     let attachmentPolicy: AttachmentPolicyController
     let avatarAssets: AvatarAssetStore
@@ -32,7 +34,7 @@ final class AccountScope {
     let emojiSets: EmojiSetLibrary
     /// Asks before a group change MDK refused as advisory (`GroupCatchingUp`,
     /// `GroupCommitUndelivered`) is acknowledged and retried.
-    let groupChangeAdvisory = GroupChangeAdvisoryPrompter()
+    let groupChangeAdvisory: GroupChangeAdvisoryPrompter
     let productAnalytics: ProductAnalyticsRecorder
     private(set) var selectedConversationModel: ConversationViewModel?
     /// Groups whose End Group run is in flight. Kept here, observed, rather than read off the
@@ -53,11 +55,13 @@ final class AccountScope {
         relayListsDidChange: @escaping @MainActor () -> Void = {},
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
         removeAccount: DeleteProfileViewModel.RemoveAccount? = nil,
-        groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks()
+        groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks(),
+        chatsDidChange: @escaping @MainActor (_ departedGroupIds: Set<String>) async -> Void = { _ in }
     ) {
         let attachmentPolicy = AttachmentPolicyController(accountRef: account.accountRef, runtime: runtime)
         let blockedUsers = BlockedUsersViewModel(accountRef: account.accountRef, runtime: runtime)
         let productAnalytics = ProductAnalyticsRecorder()
+        let groupChangeAdvisory = GroupChangeAdvisoryPrompter()
         let chatListModel = ChatListViewModel(
             account: account,
             runtime: runtime,
@@ -66,6 +70,7 @@ final class AccountScope {
         self.account = account
         self.runtime = runtime
         self.groupDisbandHooks = groupDisbandHooks
+        self.groupChangeAdvisory = groupChangeAdvisory
         self.settingsModel = SettingsViewModel(
             account: account,
             runtime: runtime,
@@ -78,6 +83,13 @@ final class AccountScope {
             removeAccount: removeAccount
         )
         self.chatListModel = chatListModel
+        self.chatListSelection = ChatListSelectionViewModel(
+            accountRef: account.accountRef,
+            runtime: runtime,
+            advisory: groupChangeAdvisory,
+            chatsDidChange: chatsDidChange
+        )
+        self.chatListSearch = ChatListSearchViewModel(accountRef: account.accountRef, runtime: runtime)
         self.attentionModel = AccountAttentionViewModel(runtime: runtime)
         self.attachmentPolicy = attachmentPolicy
         self.avatarAssets = AvatarAssetStore(accountRef: account.accountRef, runtime: runtime)
@@ -123,9 +135,11 @@ final class AccountScope {
             [
                 chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, recoveryStatus,
                 refusedIntents, productAnalytics, settingsModel, groupChangeAdvisory, moderationReporter, stickers,
-                emojiSets
+                emojiSets, chatListSelection, chatListSearch
             ] in
             chatListModel.stop()
+            chatListSelection.stop()
+            chatListSearch.stop()
             attentionModel.stop()
             blockedUsers.stop()
             onboarding.stop()

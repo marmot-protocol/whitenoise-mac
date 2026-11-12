@@ -300,6 +300,21 @@ nonisolated protocol MarmotRuntime: Sendable {
         -> SendSummaryFfi
     func openChatListWindow(accountRef: String, view: ChatListViewFfi, initialRows: UInt32?) async throws
         -> ChatListWindowSubscription
+    /// Every chat id in `view`, in display order, including chats beyond any open window.
+    func chatListIds(accountRef: String, view: ChatListViewFfi) async throws -> [String]
+    /// The subset of `groupIds` still in `view`, in the caller's order; never adds a chat.
+    func revalidateChatListIds(accountRef: String, view: ChatListViewFfi, groupIds: [String]) async throws
+        -> [String]
+    /// A live window over the chats `query` matches. Refuses a `MessageText` node
+    /// (`InvalidChatListQuery(.messageTextInWindow)`).
+    func openChatListQueryWindow(accountRef: String, query: ChatListViewQueryFfi, initialRows: UInt32?) async throws
+        -> ChatListWindowSubscription
+    /// Every chat id `query` matches, in display order. Fails with `ChatPresentationNotReady`, never a
+    /// partial list, while the presentation a text node reads is still being prepared.
+    func chatListQueryIds(accountRef: String, query: ChatListViewQueryFfi) async throws -> [String]
+    /// The subset of `groupIds` still matching `query`, in the caller's order; never adds a chat.
+    func revalidateChatListQueryIds(accountRef: String, query: ChatListViewQueryFfi, groupIds: [String])
+        async throws -> [String]
     func chatListWindowSnapshot(subscription: ChatListWindowSubscription) -> ChatListWindowSnapshotFfi?
     func nextChatListWindowSnapshot(subscription: ChatListWindowSubscription) async throws -> ChatListWindowSnapshotFfi?
     func openPresentedChatList(accountRef: String, includeArchived: Bool) async throws
@@ -1393,6 +1408,32 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         -> ChatListWindowSubscription
     {
         try await marmot.openChatListWindow(accountRef: accountRef, view: view, initialRows: initialRows)
+    }
+
+    func chatListIds(accountRef: String, view: ChatListViewFfi) async throws -> [String] {
+        try await marmot.chatListIds(accountRef: accountRef, view: view)
+    }
+
+    func revalidateChatListIds(accountRef: String, view: ChatListViewFfi, groupIds: [String]) async throws
+        -> [String]
+    {
+        try await marmot.revalidateChatListIds(accountRef: accountRef, view: view, groupIds: groupIds)
+    }
+
+    func openChatListQueryWindow(accountRef: String, query: ChatListViewQueryFfi, initialRows: UInt32?) async throws
+        -> ChatListWindowSubscription
+    {
+        try await marmot.openChatListQueryWindow(accountRef: accountRef, query: query, initialRows: initialRows)
+    }
+
+    func chatListQueryIds(accountRef: String, query: ChatListViewQueryFfi) async throws -> [String] {
+        try await marmot.chatListQueryIds(accountRef: accountRef, query: query)
+    }
+
+    func revalidateChatListQueryIds(accountRef: String, query: ChatListViewQueryFfi, groupIds: [String])
+        async throws -> [String]
+    {
+        try await marmot.revalidateChatListQueryIds(accountRef: accountRef, query: query, groupIds: groupIds)
     }
 
     func chatListWindowSnapshot(subscription: ChatListWindowSubscription) -> ChatListWindowSnapshotFfi? {
