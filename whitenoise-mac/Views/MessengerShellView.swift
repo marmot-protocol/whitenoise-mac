@@ -583,7 +583,7 @@ private struct ConversationView: View {
                 ConversationHeader(
                     chat: chat,
                     recoveryStatus: session.accountScope?.recoveryStatus,
-                    onSearch: searchCommand?.open
+                    onSearch: searchCommand.open
                 )
                 .messageDeletionConfirmation()
                 .messageEditHistory(model: model)
@@ -1206,10 +1206,10 @@ private struct ConversationView: View {
     }
 
     /// Search within this chat, offered by the header button and Navigate ▸ Find in Conversation.
-    /// An invite not yet accepted has no history to search, only the invitation.
-    private var searchCommand: ConversationSearchCommand? {
-        guard !chat.pendingConfirmation else { return nil }
-        return ConversationSearchCommand(open: openSearch)
+    /// Offered for an invite not yet accepted too: its transcript is on screen and global search
+    /// already finds its messages, so in-chat search must not be the one place they are hidden.
+    private var searchCommand: ConversationSearchCommand {
+        ConversationSearchCommand(open: openSearch)
     }
 
     private func openSearch() {
