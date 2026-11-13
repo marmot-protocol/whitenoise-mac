@@ -131,7 +131,23 @@ private struct DetailPaneView: View {
             case .failed(let message):
                 FailureView(message: message)
             case .ready:
-                if workspace.activeAccount == nil {
+                if workspace.activeAccount == nil, !workspace.signedInAccounts.isEmpty {
+                    // The active profile was deleted and others are still signed in. Like iOS,
+                    // the user picks the next one rather than being dropped into whichever
+                    // identity happens to be listed first.
+                    ProfileChooserView(
+                        accounts: workspace.signedInAccounts,
+                        isBusy: workspace.isAccountMutationInProgress,
+                        onChoose: { account in
+                            workspace.selectAccountFromSettings(account)
+                            Task {
+                                await workspace.configureObservabilityRuntimeBestEffort()
+                                await workspace.loadSettingsData()
+                            }
+                        },
+                        onAddProfile: { workspace.showAccountOnboarding() }
+                    )
+                } else if workspace.activeAccount == nil {
                     // Nothing is signed in, so there is nothing to show but the way in. This used
                     // to be a `SignedOutAccountsView` listing the deactivated identities on this
                     // Mac, each one a single click from being reactivated — a sign-in that asked
@@ -142,7 +158,7 @@ private struct DetailPaneView: View {
                     //
                     // Defensive: the state paths that empty the signed-in list — `bootstrap()`,
                     // `signOutAccount`, `removeAccount` — all move to `.onboarding` themselves,
-                    // so this branch should be unreachable. It renders the same surface as that
+                    // so with no signed-in identity left this branch should be unreachable. It renders the same surface as that
                     // phase rather than a blank pane if one is ever missed.
                     OnboardingView(model: session.accountScope?.onboarding)
                 } else {
