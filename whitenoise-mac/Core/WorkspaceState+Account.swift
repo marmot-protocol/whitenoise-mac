@@ -151,10 +151,9 @@ extension WorkspaceState {
     /// Switch identity from a control anchored inside Settings, landing on the settings page the
     /// user is already reading rather than on a conversation.
     ///
-    /// Currently reached from no view: the switcher popover that called it is gone, and the
-    /// account rail uses `selectAccount(_:)`, which lands on a chat. Kept because the *landing*
-    /// rule it encodes is the one any future in-Settings switch wants, and because it is what
-    /// `settingsSelectionAfterAccountMutation` is exercised through.
+    /// Reached from `ProfileChooserView`, which the detail pane shows after the active profile is
+    /// deleted: Settings stays selected behind the chooser, so the pick lands back on the settings
+    /// page the deletion left. The account rail uses `selectAccount(_:)`, which lands on a chat.
     func selectAccountFromSettings(_ account: AccountItem) {
         guard !account.signedOut else { return }
         // The row for the already-active account is a no-op: a switch anchored to the settings
@@ -607,8 +606,8 @@ extension WorkspaceState {
     /// Removes a single identity (any account, not just the active one) from this Mac.
     /// Deletes the account's private key and local Marmot/MLS state via the runtime, then
     /// updates `accounts`/`chatsByAccount`. When the removed account is the active one, the
-    /// in-memory message/profile caches are cleared and a remaining account is reselected
-    /// (or the app returns to onboarding when none remain).
+    /// in-memory message/profile caches are cleared and the user is asked to choose one of the
+    /// remaining signed-in accounts (or the app returns to onboarding when none remain).
     func removeAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
 
@@ -682,6 +681,21 @@ extension WorkspaceState {
             // driving the UI was removed (directly, or via a racing selection of the
             // soon-to-be-removed account). Removing a background identity that leaves a
             // still-valid active account untouched needs no reselection.
+            // Deleting the profile the user was in, with others still signed in, asks which one
+            // to continue with — iOS's account exit does the same — rather than silently moving
+            // into whichever identity `accounts` happens to list first. Settings stays selected
+            // behind the chooser, so the pick lands back on Settings (see `ProfileChooserView`).
+            // A racing selection of a still-valid account is the user's choice already, and a
+            // racing selection of the removed one leaves the old active account to restore.
+            if wasActive, activeAccountInvalid {
+                activeAccountId = nil
+                invalidateNotificationSettingsOperations()
+                UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
+                notificationSettings = .defaults
+                selection = settingsSelectionAfterAccountMutation
+                return
+            }
+
             if needsActiveReset {
                 restoreOrSelectFirstAccount()
                 selection = settingsSelectionAfterAccountMutation

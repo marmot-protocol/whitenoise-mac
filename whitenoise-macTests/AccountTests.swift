@@ -1302,7 +1302,7 @@ struct AccountTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func removeActiveAccountCallsRuntimeAndSelectsNextAccount() async throws {
+    @Test func removeActiveAccountCallsRuntimeAndAsksForTheNextAccount() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -1330,7 +1330,9 @@ struct AccountTests: WorkspaceTestSupport {
 
         #expect(runtime.removedAccountRefs == ["Desktop Account"])
         #expect(state.accounts.map(\.id) == ["Backup Account"])
-        #expect(state.activeAccountId == "Backup Account")
+        // The survivor is not activated on the user's behalf: the detail pane's chooser asks.
+        #expect(state.activeAccountId == nil)
+        #expect(state.signedInAccounts.map(\.id) == ["Backup Account"])
         #expect(state.selection == .settings(.overview))
     }
 
@@ -1459,7 +1461,9 @@ struct AccountTests: WorkspaceTestSupport {
     }
 
     /// Settings → Delete Profile removes the active profile. When another identity survives, the
-    /// app lands on the settings overview for it — never on the next profile's deletion page.
+    /// app asks which profile to continue with, like iOS — it does not move into one on its own —
+    /// and the settings it keeps behind the chooser are the overview, never the next profile's
+    /// deletion page.
     @MainActor
     @Test func deletingTheActiveProfileFromItsPageLeavesThePage() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
@@ -1485,9 +1489,77 @@ struct AccountTests: WorkspaceTestSupport {
         await state.removeAccount(active)
 
         #expect(runtime.removedAccountRefs == ["Desktop Account"])
-        #expect(state.activeAccountId == "Backup Account")
+        #expect(state.phase == .ready)
+        #expect(state.activeAccountId == nil)
+        #expect(state.activeAccount == nil)
+        #expect(state.signedInAccounts.map(\.id) == ["Backup Account"])
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == nil)
         #expect(state.selection == .settings(.overview))
         #expect(state.lastError == nil)
+    }
+
+    /// Picking a profile in the chooser that follows a deletion activates it and lands on the
+    /// settings the deletion left, not on a chat.
+    @MainActor
+    @Test func choosingAProfileAfterDeletionActivatesItOnSettings() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let active = try #require(state.activeAccount)
+
+        state.showSettingsPage(.deleteProfile)
+        await state.removeAccount(active)
+        let next = try #require(state.signedInAccounts.first)
+
+        state.selectAccountFromSettings(next)
+
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
+        #expect(state.selection == .settings(.overview))
+    }
+
+    /// Add Profile from the chooser opens onboarding with a way back, and Cancel returns to the
+    /// chooser rather than to an account nobody picked.
+    @MainActor
+    @Test func cancellingAddProfileFromTheChooserReturnsToIt() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let active = try #require(state.activeAccount)
+        await state.removeAccount(active)
+
+        state.showAccountOnboarding()
+        #expect(state.canLeaveAccountOnboarding)
+        state.leaveAccountOnboarding()
+
+        #expect(state.phase == .ready)
+        #expect(state.activeAccountId == nil)
     }
 
     @MainActor
@@ -2952,8 +3024,11 @@ struct AccountTests: WorkspaceTestSupport {
         let paneSource = try SourceContract.declaration("DetailPaneView")
 
         #expect(!paneSource.contains("signInAccount"), "reactivating an identity belongs to Settings' switcher")
-        #expect(!paneSource.contains("showAccountOnboarding"))
         #expect(!paneSource.contains("ForEach"), "the pane lists no identities to choose between")
+        // The one chooser the pane does show — after the active profile is deleted — is fed the
+        // signed-in identities only, so a deactivated one is never a click away from it.
+        #expect(paneSource.contains("ProfileChooserView("))
+        #expect(paneSource.contains("accounts: workspace.signedInAccounts"))
 
         // Comments stripped and whitespace-normalized, so the assertion pins the branch rather
         // than an indentation level or the prose above it: with nothing signed in the pane renders
