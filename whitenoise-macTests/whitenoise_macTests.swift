@@ -690,6 +690,8 @@ struct whitenoise_macTests: WorkspaceTestSupport {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        // A chat whose state the core cannot read rings without content, so these must be known.
+        runtime.installGroups([directGroup()])
         let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
         let state = WorkspaceState(
             localNotificationCenter: notificationCenter,
@@ -757,6 +759,10 @@ struct whitenoise_macTests: WorkspaceTestSupport {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        // A chat whose state the core cannot read rings without content, so these must be known.
+        var teamGroup = messageGroup()
+        teamGroup.groupIdHex = "team-group"
+        runtime.installGroups([directGroup(), teamGroup])
         let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
         let state = WorkspaceState(
             localNotificationCenter: notificationCenter,
@@ -932,6 +938,35 @@ struct whitenoise_macTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func hiddenPreviewModeKeepsInvitesToTheCategory() async throws {
+        // The invite copy no longer names a sender in any mode; hidden mode goes further and drops
+        // the group name too, saying only that an invite arrived.
+        let previousMode = UserDefaults.standard.object(forKey: "whitenoise.mac.notificationPreviewMode")
+        defer { restoreDefault(previousMode, forKey: "whitenoise.mac.notificationPreviewMode") }
+
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.notificationPreviewMode = .hidden
+
+        for groupName in ["Engineering", nil] {
+            let request = state.localNotificationRequest(
+                for: notificationUpdate(
+                    account: account,
+                    notificationKey: "hidden-invite-\(groupName ?? "unnamed")",
+                    groupIdHex: "team-group",
+                    senderName: "Alice",
+                    isDm: false,
+                    groupName: groupName,
+                    trigger: .groupInvite
+                ))
+            #expect(request.title == L10n.string("White Noise"))
+            #expect(request.body == L10n.string("New group invite"))
+        }
+    }
+
+    @MainActor
     @Test func groupStateNotificationWithoutAGroupNameStillPostsTheEvent() async throws {
         // The core reports no name for a group it cannot read back (`UnknownGroup`) and often
         // no actor at all for an inbound admin diff. Neither may push the actor's name — or
@@ -978,6 +1013,10 @@ struct whitenoise_macTests: WorkspaceTestSupport {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        // A chat whose state the core cannot read rings without content, so these must be known.
+        var teamGroup = messageGroup()
+        teamGroup.groupIdHex = "team-group"
+        runtime.installGroups([teamGroup])
         let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
         let state = WorkspaceState(
             localNotificationCenter: notificationCenter,

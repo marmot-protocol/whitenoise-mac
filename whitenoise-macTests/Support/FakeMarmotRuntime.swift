@@ -607,6 +607,10 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     }
     private var _groupDetailsCallCounts: [String: Int] = [:]
     var groupDetailsFailureGroupIds = Set<String>()
+    /// Details `groupDetails` answers for one account only, keyed by account ref then group id.
+    /// Everything else in this fake is account-agnostic, so a test that needs two accounts to
+    /// disagree about the same group (one accepted, one pending) installs the odd one out here.
+    var groupDetailsByAccountRef: [String: [String: GroupDetailsFfi]] = [:]
     var chatListSubscriptionCount: Int {
         recordedStateLock.withLock { _chatListSubscriptionCount }
     }
@@ -2534,7 +2538,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         // Snapshot the value *before* the gate so a held older load captures the older details and a
         // later mutation cannot retroactively change what it returns (issue #135 last-request-wins).
         let result: GroupDetailsFfi
-        if let details = groupDetailsById[groupIdHex] {
+        if let details = groupDetailsByAccountRef[accountRef]?[groupIdHex] {
+            result = details
+        } else if let details = groupDetailsById[groupIdHex] {
             result = details
         } else if let group = groups.first(where: { $0.groupIdHex == groupIdHex }) {
             result = GroupDetailsFfi(group: group, members: [])
