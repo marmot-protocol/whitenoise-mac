@@ -14,14 +14,20 @@ extension EnvironmentValues {
     /// `hasInFlightGroupCommit`. Empty by default, so a surface outside the shell only loses this
     /// half of the guard, never the workspace's.
     @Entry var endingGroupIds: Set<String> = []
+
+    /// A bulk leave from the chat list is publishing (`ChatListSelectionViewModel.isLeaving`).
+    /// Installed by `ContentView` beside `endingGroupIds`, and re-installed with it on every sheet
+    /// that starts a group commit, since a sheet does not inherit it.
+    @Entry var isBulkLeavingChats = false
 }
 
 /// Whether a surface may start a group commit of its own. The one place the sources are combined,
 /// so a new commit-blocking flag is added here once rather than to every surface that reads it.
 @MainActor
 enum GroupCommitGuard {
-    /// A group commit — the workspace's, or an End Group run — is in flight.
-    static func isInFlight(workspace: WorkspaceState, endingGroupIds: Set<String>) -> Bool {
-        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty
+    /// A group commit — the workspace's, an End Group run, or a bulk leave from the chat list —
+    /// is in flight. Every source is a required argument, so a surface cannot forget one.
+    static func isInFlight(workspace: WorkspaceState, endingGroupIds: Set<String>, isBulkLeavingChats: Bool) -> Bool {
+        workspace.hasInFlightGroupCommit || !endingGroupIds.isEmpty || isBulkLeavingChats
     }
 }

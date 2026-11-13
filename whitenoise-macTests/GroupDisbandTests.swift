@@ -625,14 +625,18 @@ struct GroupDisbandTests {
         #expect(model.alert == nil)
     }
 
-    /// Every surface that starts a group commit asks this one guard, so both halves are checked here.
-    @Test func theCommitGuardCombinesTheWorkspaceAndEndGroupRuns() {
+    /// Every surface that starts a group commit asks this one guard, so every source is checked here.
+    @Test func theCommitGuardCombinesTheWorkspaceEndGroupRunsAndBulkLeaves() {
         let workspace = WorkspaceState.preview()
-        #expect(!GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: []))
-        #expect(GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: [Self.groupIdHex]))
+        #expect(!GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: [], isBulkLeavingChats: false))
+        #expect(
+            GroupCommitGuard.isInFlight(
+                workspace: workspace, endingGroupIds: [Self.groupIdHex], isBulkLeavingChats: false))
+        // End Group refuses to start while a bulk leave runs; its button must say so by disabling.
+        #expect(GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: [], isBulkLeavingChats: true))
 
         workspace.isSavingGroupProfile = true
-        #expect(GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: []))
+        #expect(GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: [], isBulkLeavingChats: false))
         workspace.isSavingGroupProfile = false
     }
 
@@ -657,6 +661,37 @@ struct GroupDisbandTests {
         #expect(recorder.endingDuringChatListReadBack == [Self.groupIdHex])
         #expect(!scope.isEndingAnyGroup)
         #expect(!model.isEnding)
+    }
+
+    /// A bulk leave from the chat list is a group commit; End Group waits it out rather than
+    /// committing against a chat the leave may be publishing for.
+    @Test func endGroupWaitsOutABulkLeaveFromTheChatList() async throws {
+        let state = Self.managementState(canDisband: true)
+        let (runtime, _) = Self.disbandableGroup(state)
+        var other = messageGroup()
+        other.groupIdHex = "other"
+        runtime.installGroupDetailsRecord(GroupDetailsFfi(group: other, members: []))
+        let accountIdHex = desktopAccount().accountIdHex
+        let account = AccountItem(
+            id: accountIdHex, accountRef: accountIdHex, displayName: "Desktop", accountIdHex: accountIdHex)
+        let scope = AccountScope(account: account, runtime: runtime)
+        let selection = scope.chatListSelection
+        selection.updateVisibleChats(["other"])
+        selection.begin(with: "other")
+        runtime.groupManagementStateGateEnabled = true
+
+        let leave = try #require(selection.confirmLeave(.init(groupIds: ["other"])))
+        await runtime.waitUntilGroupManagementStateGateReached()
+        #expect(selection.isLeaving)
+
+        let model = scope.disbandModel(groupIdHex: Self.groupIdHex)
+        #expect(!(await model.endGroup(GroupDisbandState(managementState: state), advisory: nil)))
+        #expect(runtime.disbandGroupCallCount == 0)
+
+        runtime.groupManagementStateGateEnabled = false
+        runtime.releaseGroupManagementStateGate()
+        await leave.value
+        #expect(!selection.isLeaving)
     }
 
     /// Enabling disbanding can commit even when the disband is then refused, so the details are

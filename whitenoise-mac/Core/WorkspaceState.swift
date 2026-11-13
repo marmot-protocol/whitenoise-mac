@@ -1432,7 +1432,6 @@ final class WorkspaceState {
         chatsByAccount[accountId] = nil
         chatLookupByAccount[accountId] = nil
         chatIndexByAccount[accountId] = nil
-        noteChatListChanged(forAccountId: accountId)
         archivedChatsByAccount[accountId] = nil
         archivedChatLookupByAccount[accountId] = nil
         archivedChatIndexByAccount[accountId] = nil

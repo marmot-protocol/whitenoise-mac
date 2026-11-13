@@ -51,6 +51,7 @@ private struct ChatDestructiveActionsConfirmationModifier: ViewModifier {
             .sheet(item: $workspace.chatPendingAdminHandoff) { target in
                 ChatAdminHandoffSheet(target: target)
                     .environment(\.endingGroupIds, session.accountScope?.endingGroupIds ?? [])
+                    .environment(\.isBulkLeavingChats, session.accountScope?.chatListSelection.isLeaving == true)
             }
             .confirmationDialog(
                 localDeleteTitle(workspace.chatPendingLocalDelete),

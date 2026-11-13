@@ -261,10 +261,11 @@ struct ChatListDrawerView: View {
                             ProgressView()
                                 .controlSize(.small)
                         } else if isSearching, search?.phase == .failed {
-                            WNEmptyStateView(
-                                title: L10n.string("Search couldn't be completed.", locale: locale),
-                                systemImage: "magnifyingglass"
-                            )
+                            ChatListSearchFailedState {
+                                // The search key has not changed, so `.onChange` will not rerun it;
+                                // a failed search reruns the same text when asked again.
+                                search?.search(workspace.searchText, view: filter.chatListView)
+                            }
                             .padding()
                         } else if isSearching {
                             WNEmptyStateView(
@@ -304,9 +305,13 @@ struct ChatListDrawerView: View {
                         query: isSearching
                             ? search?.matchesQuery ?? ChatListSearchQuery.unfiltered(filter.chatListView)
                             : ChatListSearchQuery.unfiltered(filter.chatListView),
-                        // The unfiltered inbox and search results are bounded windows; the other
-                        // views are drawn from the complete presented list.
-                        isWindowed: isSearching || filter == .active,
+                        // Every tab reads Select All's universe from MDK. The inbox and search
+                        // results are bounded windows, and the other tabs are drawn by host
+                        // predicates that do not match MDK's views (MDK files a chat that is both
+                        // archived and left under Left only; the Archived tab lists it too). The
+                        // batch revalidates against MDK's view, so counting the host's rows would
+                        // promise chats it then silently drops.
+                        isWindowed: true,
                         visibleIds: visibleChats.map(\.id)
                     ),
                     initial: true
@@ -400,7 +405,8 @@ extension ChatListDrawerView {
                 )
                 ?? activeChats.filter { $0.hasUnread && !$0.belongsToLeft }
         case .archived:
-            chats = archivedChats
+            // A chat that is archived and left is filed under Left only, as in MDK's views.
+            chats = archivedChats.filter { !$0.belongsToLeft }
         case .left:
             chats =
                 model?.chats(
@@ -413,7 +419,7 @@ extension ChatListDrawerView {
         let archivedIds: Set<String>
         switch filter {
         case .archived, .left:
-            archivedIds = Set(archivedChats.map(\.id))
+            archivedIds = model?.archivedGroupIds ?? Set(archivedChats.map(\.id))
         case .active, .unread:
             archivedIds = []
         }
@@ -477,12 +483,11 @@ private struct ChatListHeader: View {
                 )
                 .frame(maxWidth: .infinity)
                 .onChange(of: workspace.searchText) { _, _ in
+                    // MDK's search (`ChatListSearchViewModel`) decides which chats match and owns
+                    // the progress shown in the list. This legacy search only supplies each
+                    // row's message snippet (`sidebarMessageSearchResult(for:)`), so it shows no
+                    // spinner of its own; a second one would duplicate the list's.
                     workspace.scheduleSidebarMessageSearch()
-                }
-
-                if workspace.isSearchingSidebarMessages {
-                    ProgressView()
-                        .controlSize(.small)
                 }
 
                 ChatListFilterMenu()
@@ -1394,6 +1399,31 @@ private struct ChatListSearchKey: Equatable {
 }
 
 /// Under search results capped at MDK's 500-id window: the rest exist but are not listed.
+/// A chat search MDK could not finish. Typing again reruns it, but nothing else would: the text
+/// it failed on is still the text in the field.
+private struct ChatListSearchFailedState: View {
+    @Environment(\.locale) private var locale
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            WNEmptyStateView(
+                title: L10n.string("Search couldn't be completed.", locale: locale),
+                systemImage: "magnifyingglass"
+            )
+            Button(L10n.string("Try Again", locale: locale), action: retry)
+                .buttonStyle(.wnSecondary)
+                .controlSize(.small)
+                .accessibilityIdentifier("chat.search.retry")
+        }
+    }
+}
+
+#Preview("ChatListSearchFailedState") {
+    ChatListSearchFailedState {}
+        .frame(width: 280)
+}
+
 private struct ChatListSearchTruncatedNote: View {
     @Environment(\.locale) private var locale
 
@@ -1417,4 +1447,14 @@ private struct ChatListSearchTruncatedNote: View {
 #Preview("ChatListSearchTruncatedNote") {
     ChatListSearchTruncatedNote()
         .frame(width: 280)
+}
+
+#Preview("ChatSidebarRowContent") {
+    VStack(alignment: .leading, spacing: 12) {
+        ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, isCollapsed: false, searchResult: nil)
+        ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, isCollapsed: true, searchResult: nil)
+    }
+    .padding()
+    .frame(width: 320)
+    .environment(WorkspaceState.preview())
 }

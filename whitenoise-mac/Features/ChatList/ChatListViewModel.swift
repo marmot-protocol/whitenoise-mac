@@ -121,17 +121,29 @@ final class ChatListViewModel {
                 )
             }
             .filter { chat in
+                // Each tab draws exactly what MDK's view of the same name holds (and iOS's tab of
+                // the same name shows): Select All and every bulk action read MDK's view, so a row
+                // drawn here but missing there would be selectable and then dropped. A chat that
+                // is both archived and left is filed under Left only, and Unread leaves out
+                // pending invites.
                 switch view {
                 case .chats:
                     !chat.belongsToLeft
                 case .unread:
-                    !chat.belongsToLeft && chat.hasUnread
+                    !chat.belongsToLeft && !chat.pendingConfirmation && (chat.hasUnread || chat.manuallyMarkedUnread)
                 case .archived:
-                    true
+                    !chat.belongsToLeft
                 case .left:
                     chat.belongsToLeft
                 }
             }
+    }
+
+    /// Every chat this account has archived, left ones included. The Left tab lists archived chats
+    /// beside active ones and offers Unarchive for them, so it cannot read the flag off the
+    /// Archived tab, which leaves left chats out.
+    var archivedGroupIds: Set<String> {
+        Set(presentedRows.lazy.filter(\.row.archived).map(\.row.groupIdHex))
     }
 
     /// Rows another window drew (search results), as the sidebar draws them. MDK already applied

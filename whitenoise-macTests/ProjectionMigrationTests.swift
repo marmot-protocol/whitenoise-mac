@@ -1621,7 +1621,9 @@ struct ProjectionMigrationTests {
         #expect(model.chats(view: .chats, nicknames: .none).map(\.id) == ["active"])
         #expect(model.chats(view: .unread, nicknames: .none).map(\.id) == ["active"])
         #expect(model.chats(view: .left, nicknames: .none).map(\.id) == ["left", "removed"])
-        #expect(model.chats(view: .archived, nicknames: .none).map(\.id) == ["removed"])
+        // MDK files a chat that is archived and left under Left only; the Archived tab follows it.
+        #expect(model.chats(view: .archived, nicknames: .none).isEmpty)
+        #expect(model.archivedGroupIds == ["removed"])
         model.stop()
     }
 
@@ -1688,7 +1690,60 @@ struct ProjectionMigrationTests {
         #expect(
             model.chats(view: .left, nicknames: .none).map(\.id)
                 == ["disbanded", "disbanding", "archived-disbanded"])
-        #expect(model.chats(view: .archived, nicknames: .none).map(\.id) == ["archived-disbanded"])
+        #expect(model.chats(view: .archived, nicknames: .none).isEmpty)
+        model.stop()
+    }
+
+    /// The Unread tab draws what MDK's Unread view holds, as iOS's does: a chat marked unread by
+    /// hand counts, a pending invite does not. Select All reads MDK's view, so any other row would
+    /// be selectable and then dropped.
+    @Test func preparedUnreadViewCountsManualUnreadAndLeavesOutInvites() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let unread = Self.presentedChatRow(
+            chatListRow(
+                groupIdHex: "unread",
+                title: "Unread",
+                preview: "hello",
+                sender: "peer",
+                timelineAt: 4,
+                unreadCount: 1,
+                hasUnread: true
+            ))
+        var markedRow = chatListRow(
+            groupIdHex: "marked",
+            title: "Marked",
+            preview: "hello",
+            sender: "peer",
+            timelineAt: 3
+        )
+        markedRow.manuallyMarkedUnread = true
+        let marked = Self.presentedChatRow(markedRow)
+        let invite = Self.presentedChatRow(
+            chatListRow(
+                groupIdHex: "invite",
+                title: "Invite",
+                preview: "hello",
+                sender: "peer",
+                timelineAt: 2,
+                unreadCount: 1,
+                hasUnread: true,
+                pendingConfirmation: true
+            ))
+        runtime.presentedChatListSnapshot = PresentedChatListSnapshotFfi(
+            rows: [unread, marked, invite],
+            presentationVersion: PresentationVersionFfi(
+                accountStoreEpoch: Data(repeating: 1, count: 16),
+                revision: 1
+            )
+        )
+        let model = ChatListViewModel(account: AccountItem.samples[0], runtime: runtime)
+
+        model.start()
+        for _ in 0..<100 where model.presentedRows.count != 3 {
+            await Task.yield()
+        }
+
+        #expect(model.chats(view: .unread, nicknames: .none).map(\.id) == ["unread", "marked"])
         model.stop()
     }
 

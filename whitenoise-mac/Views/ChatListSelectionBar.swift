@@ -4,7 +4,9 @@ import SwiftUI
 /// The bar under the chat list in selection mode: how many chats are selected, and what can be
 /// done to all of them — the Mac's counterpart to iOS's `ChatListSelectionBar`. Which actions it
 /// offers follows `ChatListSelection`: Unarchive only when every selected chat is archived, Unmute
-/// only when every one is muted, Leave whenever at least one can still be left.
+/// only when every one is muted, Leave whenever at least one can still be left. Each of those
+/// choices is read from the selected rows, so every action stays disabled until each selected id
+/// has resolved to a row.
 struct ChatListSelectionBar: View {
     @Environment(\.locale) private var locale
     @Environment(\.endingGroupIds) private var endingGroupIds
@@ -21,8 +23,11 @@ struct ChatListSelectionBar: View {
             archivedFlags: selected.map { archivedIds.contains($0.id) }
         )
         let mutes = ChatListSelection.bulkMuteMutes(mutedFlags: selected.map(\.muted))
+        // Archive/Unarchive, Mute/Unmute and Leave are chosen from the rows; until every selected
+        // id has one, the choice would rest on part of the selection.
+        let allResolved = !ids.isEmpty && selected.count == ids.count
         let leavable = ChatListSelection.leaveTargets(selected, endingGroupIds: endingGroupIds)
-        let canLeave = !leavable.isEmpty
+        let canLeave = allResolved && !leavable.isEmpty
 
         HStack(spacing: 8) {
             ChatListSelectionCount(count: ids.count, isBusy: model.isBusy)
@@ -36,13 +41,13 @@ struct ChatListSelectionBar: View {
             ) {
                 model.setArchived(archiveAction == .archive, groupIds: ids)
             }
-            .disabled(ids.isEmpty)
+            .disabled(!allResolved)
 
             if mutes {
                 ChatListSelectionMuteButton { duration in
                     model.setMuted(duration, groupIds: ids)
                 }
-                .disabled(ids.isEmpty)
+                .disabled(!allResolved)
             } else {
                 ChatListSelectionActionButton(
                     title: L10n.string("Unmute", locale: locale),
@@ -51,6 +56,7 @@ struct ChatListSelectionBar: View {
                 ) {
                     model.setMuted(nil, groupIds: ids)
                 }
+                .disabled(!allResolved)
             }
 
             ChatListSelectionActionButton(
@@ -59,7 +65,7 @@ struct ChatListSelectionBar: View {
                 role: .destructive,
                 identifier: "chat.selection.leave"
             ) {
-                model.requestLeave(leavable)
+                model.requestLeave(selected)
             }
             .disabled(!canLeave)
         }

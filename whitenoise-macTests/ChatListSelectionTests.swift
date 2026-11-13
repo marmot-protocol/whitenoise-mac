@@ -270,6 +270,64 @@ struct ChatListSelectionTests {
         #expect(model.alert?.message == L10n.plural("Couldn't leave %lld chats. Try again.", Int64(1)))
     }
 
+    /// A selected chat the bar could not resolve to a row was never checked for a blocker; leaving
+    /// the rest and then ending selection mode would drop it without a word.
+    @MainActor
+    @Test func aSelectedChatWithNoRowStopsTheLeaveAndStaysSelected() async throws {
+        let runtime = selectionRuntime(groupIds: ["a", "b"])
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        model.updateVisibleChats(["a", "b"])
+        model.begin(with: "a")
+        model.toggle("b")
+
+        #expect(model.requestLeave([selectionChat("a")]) == nil)
+
+        #expect(model.pendingLeave == nil)
+        #expect(!model.isBusy)
+        #expect(model.isActive)
+        #expect(model.selectedIds == ["a", "b"])
+        #expect(model.alert?.message == L10n.plural("Couldn't leave %lld chats. Try again.", Int64(1)))
+        #expect(runtime.leaveGroupCallCount == 0)
+    }
+
+    @MainActor
+    @Test func aChatWhoseEndGroupIsRunningIsNotOfferedForLeave() async throws {
+        let runtime = selectionRuntime(groupIds: ["a", "b"])
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        model.isEnding = { $0 == "b" }
+        let chats = [selectionChat("a"), selectionChat("b")]
+        model.updateVisibleChats(chats.map(\.id))
+        model.begin(with: "a")
+        model.toggle("b")
+
+        await model.requestLeave(chats)?.value
+
+        #expect(model.pendingLeave?.groupIds == ["a"])
+    }
+
+    /// End Group can start on a chat between the confirmation and the click; the leave would race
+    /// the disband, which the row menu prevents.
+    @MainActor
+    @Test func aChatWhoseEndGroupStartedAfterTheConfirmationIsNotLeft() async throws {
+        let runtime = selectionRuntime(groupIds: ["a", "b"])
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        let chats = [selectionChat("a"), selectionChat("b")]
+        model.updateVisibleChats(chats.map(\.id))
+        model.begin(with: "a")
+        model.toggle("b")
+        await model.requestLeave(chats)?.value
+        let confirmation = try #require(model.pendingLeave)
+        #expect(confirmation.groupIds == ["a", "b"])
+
+        model.isEnding = { $0 == "b" }
+        await model.confirmLeave(confirmation)?.value
+
+        #expect(runtime.leaveGroupCallCount == 1)
+        #expect(model.isActive)
+        #expect(model.selectedIds == ["b"])
+        #expect(model.alert?.message == L10n.plural("Couldn't leave %lld chats. Try again.", Int64(1)))
+    }
+
     /// An admin who is not the last one steps down before leaving. A batch cancelled while the
     /// eligibility read is suspended must not go on to publish that step-down.
     @MainActor
@@ -361,6 +419,79 @@ struct ChatListSelectionTests {
         #expect(model.canToggleAll)
     }
 
+    /// After a read gives up, a quiet list has no row change to retry on; one more read runs on
+    /// its own, so Select All does not stay off until selection mode is left and re-entered.
+    @MainActor
+    @Test func aFailedViewReadIsRetriedOnceWithoutARowChange() async throws {
+        let runtime = selectionRuntime(groupIds: ["a", "b"])
+        runtime.chatListIdsErrors = [ChatListSelectionTestError(), ChatListSelectionTestError()]
+        let model = ChatListSelectionViewModel(
+            accountRef: "account", runtime: runtime, failedReadRetryDelay: .zero)
+        model.updateVisibleChats(["a"], query: ChatListSearchQuery.unfiltered(.chats), isWindowed: true)
+
+        model.begin(with: "a")
+        await model.viewIdsTask?.value
+        // With no delay the retry may already have run by now; awaiting whichever is left.
+        await model.viewIdsTask?.value
+
+        // The retry failed too, and is not retried again.
+        #expect(runtime.chatListIdsCallCount == 2)
+        #expect(model.viewIdsTask == nil)
+        #expect(model.viewIds == nil)
+
+        // A row change still reads at once.
+        model.updateVisibleChats(["a"], query: ChatListSearchQuery.unfiltered(.chats), isWindowed: true)
+        await model.viewIdsTask?.value
+        #expect(model.viewIds == ["a", "b"])
+    }
+
+    /// Rows that keep changing push the refresh back only until it has waited `refreshMaxWait`;
+    /// after that a change leaves the pending read alone, so a busy inbox still refreshes.
+    @MainActor
+    @Test func aRefreshIsNotPushedBackPastItsMaxWait() async throws {
+        let runtime = selectionRuntime(groupIds: ["a", "b"])
+        let debounced = ChatListSelectionViewModel(
+            accountRef: "account", runtime: runtime, refreshDelay: .seconds(60), refreshMaxWait: .seconds(60))
+        let capped = ChatListSelectionViewModel(
+            accountRef: "account", runtime: runtime, refreshDelay: .seconds(60), refreshMaxWait: .zero)
+        for model in [debounced, capped] {
+            model.updateVisibleChats(["a"], query: ChatListSearchQuery.unfiltered(.chats), isWindowed: true)
+            model.begin(with: "a")
+            await model.viewIdsTask?.value
+            model.updateVisibleChats(["b", "a"], query: ChatListSearchQuery.unfiltered(.chats), isWindowed: true)
+        }
+        let debouncedFirst = try #require(debounced.viewIdsTask)
+        let cappedFirst = try #require(capped.viewIdsTask)
+
+        debounced.updateVisibleChats(["a", "b"], query: ChatListSearchQuery.unfiltered(.chats), isWindowed: true)
+        capped.updateVisibleChats(["a", "b"], query: ChatListSearchQuery.unfiltered(.chats), isWindowed: true)
+
+        #expect(debounced.viewIdsTask != debouncedFirst)
+        #expect(capped.viewIdsTask == cappedFirst)
+        debounced.end()
+        capped.end()
+    }
+
+    /// The first read is left to finish when rows change under it, so a chat that arrived
+    /// meanwhile is read once more after it lands.
+    @MainActor
+    @Test func rowsThatChangeDuringTheFirstReadAreReadAgainAfterIt() async throws {
+        let runtime = selectionRuntime(groupIds: ["a", "b"])
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime, refreshDelay: .zero)
+        model.updateVisibleChats(["a"], query: ChatListSearchQuery.unfiltered(.chats), isWindowed: true)
+
+        model.begin(with: "a")
+        let first = try #require(model.viewIdsTask)
+        model.updateVisibleChats(["b", "a"], query: ChatListSearchQuery.unfiltered(.chats), isWindowed: true)
+        #expect(model.viewIdsTask == first)
+        await first.value
+
+        // With no delay the follow-up may already have run by now; awaiting whichever is left.
+        await model.viewIdsTask?.value
+        #expect(runtime.chatListIdsCallCount == 2)
+        #expect(model.viewIdsTask == nil)
+    }
+
     @MainActor
     @Test func aWindowedListDropsOnlyChatsThatLeftTheView() async throws {
         let runtime = selectionRuntime(groupIds: ["a", "b", "c"])
@@ -375,6 +506,43 @@ struct ChatListSelectionTests {
         await model.viewIdsTask?.value
 
         #expect(model.selectedIds == ["a"])
+    }
+
+    /// MDK files a chat that is both archived and left under Left only. Were the Archived tab to
+    /// draw it, a click would select it and the view-id read would drop it again a moment later.
+    /// Every row the tab draws must still be selected once MDK's view has answered.
+    @MainActor
+    @Test func everyRowTheArchivedTabDrawsStaysSelectedAfterTheViewRead() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        var archived = messageGroup()
+        archived.groupIdHex = "archived"
+        archived.archived = true
+        var archivedLeft = messageGroup(selfMembership: .left)
+        archivedLeft.groupIdHex = "archived-left"
+        archivedLeft.archived = true
+        runtime.installGroups([archived, archivedLeft])
+        let list = ChatListViewModel(account: AccountItem.samples[0], runtime: runtime)
+        list.start()
+        defer { list.stop() }
+        for _ in 0..<100 where list.presentedRows.count != 2 {
+            await Task.yield()
+        }
+
+        let drawn = list.chats(view: .archived, nicknames: .none).map(\.id)
+        #expect(drawn == ["archived"])
+        // The Left tab still lists it, and still knows it is archived (it offers Unarchive).
+        #expect(list.chats(view: .left, nicknames: .none).map(\.id) == ["archived-left"])
+        #expect(list.archivedGroupIds == ["archived", "archived-left"])
+
+        let selection = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        selection.updateVisibleChats(drawn, query: ChatListSearchQuery.unfiltered(.archived), isWindowed: true)
+        let first = try #require(drawn.first)
+        selection.begin(with: first)
+        for id in drawn.dropFirst() { selection.toggle(id) }
+        await selection.viewIdsTask?.value
+
+        #expect(selection.selectedIds == Set(drawn))
+        #expect(selection.allSelected)
     }
 
     @MainActor
@@ -452,6 +620,8 @@ struct ChatListSelectionTests {
 }
 
 // MARK: - Fixtures
+
+private struct ChatListSelectionTestError: Error {}
 
 private func selectionChat(
     _ id: String,

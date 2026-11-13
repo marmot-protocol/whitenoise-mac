@@ -3057,6 +3057,9 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// Query windows end their `next()` stream instead of waiting, so a test can await the
     /// observing task.
     var chatListQueryWindowEndsWhenExhausted = false
+    /// Thrown, one per call and in order, by `openChatListQueryWindow` alone, before the shared
+    /// `chatListQueryErrors`.
+    var openChatListQueryWindowErrors: [Error] = []
 
     func chatListQueryIds(accountRef: String, query: ChatListViewQueryFfi) async throws -> [String] {
         chatListQueryIdsCalls.append(query)
@@ -3080,6 +3083,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         -> ChatListWindowSubscription
     {
         openChatListQueryWindowCalls.append((query, initialRows))
+        if !openChatListQueryWindowErrors.isEmpty { throw openChatListQueryWindowErrors.removeFirst() }
         if !chatListQueryErrors.isEmpty { throw chatListQueryErrors.removeFirst() }
         var listed: [String]?
         for node in query.filter {
@@ -3145,8 +3149,10 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
                 let isMember = row.selfMembership == .member
                 switch view {
                 case .chats: return !row.archived && isMember
-                case .unread: return !row.archived && isMember && row.hasUnread
-                case .archived: return row.archived
+                case .unread:
+                    return !row.archived && isMember && !row.pendingConfirmation
+                        && (row.hasUnread || row.manuallyMarkedUnread)
+                case .archived: return row.archived && isMember
                 case .left: return !isMember
                 }
             }

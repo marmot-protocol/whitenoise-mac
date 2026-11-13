@@ -16,6 +16,7 @@ import SwiftUI
 struct GroupDetailsQuickActionsRow: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.endingGroupIds) private var endingGroupIds
+    @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
     @Environment(SessionState.self) private var session
     @State private var isTimerPresented = false
     let chat: ChatItem
@@ -24,7 +25,8 @@ struct GroupDetailsQuickActionsRow: View {
     let onAddMembers: () -> Void
 
     private var isGroupCommitInFlight: Bool {
-        GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: endingGroupIds)
+        GroupCommitGuard.isInFlight(
+            workspace: workspace, endingGroupIds: endingGroupIds, isBulkLeavingChats: isBulkLeavingChats)
     }
 
     var body: some View {

@@ -48,6 +48,9 @@ struct ContentView: View {
             // End Group runs in a per-group model, outside `hasInFlightGroupCommit`; surfaces that
             // start a group commit read this to hold off until it is done.
             .environment(\.endingGroupIds, session.accountScope?.endingGroupIds ?? [])
+            // A bulk leave from the chat list publishes one commit per chat; the same surfaces wait
+            // it out.
+            .environment(\.isBulkLeavingChats, session.accountScope?.chatListSelection.isLeaving == true)
             .environment(
                 \.openURL,
                 OpenURLAction { url in

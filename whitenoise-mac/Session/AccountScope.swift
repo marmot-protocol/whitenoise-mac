@@ -118,6 +118,9 @@ final class AccountScope {
         )
         self.stickers = StickerLibrary(accountRef: account.accountRef, runtime: runtime)
         self.emojiSets = EmojiSetLibrary(accountRef: account.accountRef, runtime: runtime)
+        chatListSelection.isEnding = { [weak self] groupIdHex in
+            self?.endingGroupIds.contains(groupIdHex) == true
+        }
     }
 
     func start(connectivityAvailable: Bool) {
@@ -272,11 +275,18 @@ final class AccountScope {
 
     func disbandModel(groupIdHex: String) -> GroupDisbandViewModel {
         if let existing = groupDisband[groupIdHex] { return existing }
+        // A bulk leave from the chat list is a group commit too: End Group waits it out, as it
+        // waits out the shell's own commits.
+        var hooks = groupDisbandHooks
+        let isShellCommitInFlight = hooks.isOtherGroupCommitInFlight
+        hooks.isOtherGroupCommitInFlight = { [chatListSelection] in
+            isShellCommitInFlight() || chatListSelection.isLeaving
+        }
         let model = GroupDisbandViewModel(
             accountRef: account.accountRef,
             groupIdHex: groupIdHex,
             runtime: runtime,
-            hooks: groupDisbandHooks,
+            hooks: hooks,
             onEndingChanged: { [weak self] ending in
                 if ending {
                     self?.endingGroupIds.insert(groupIdHex)

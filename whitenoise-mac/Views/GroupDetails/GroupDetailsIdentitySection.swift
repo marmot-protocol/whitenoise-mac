@@ -17,6 +17,7 @@ import SwiftUI
 struct GroupDetailsIdentitySection: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.endingGroupIds) private var endingGroupIds
+    @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
     let chat: ChatItem
     let snapshot: GroupDetailsSnapshot
     let permissions: GroupDetailsPermissions
@@ -24,7 +25,8 @@ struct GroupDetailsIdentitySection: View {
     let onAddMembers: () -> Void
 
     private var isGroupCommitInFlight: Bool {
-        GroupCommitGuard.isInFlight(workspace: workspace, endingGroupIds: endingGroupIds)
+        GroupCommitGuard.isInFlight(
+            workspace: workspace, endingGroupIds: endingGroupIds, isBulkLeavingChats: isBulkLeavingChats)
     }
 
     var body: some View {

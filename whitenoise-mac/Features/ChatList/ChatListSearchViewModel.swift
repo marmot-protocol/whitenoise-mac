@@ -70,10 +70,11 @@ final class ChatListSearchViewModel {
         self.retryDelay = retryDelay
     }
 
-    /// Runs `text` over `view`. Blank text ends the search; the same query again does nothing.
+    /// Runs `text` over `view`. Blank text ends the search; the same query again does nothing,
+    /// unless the last run failed, so the user can try again without editing the text.
     func search(_ text: String, view: ChatListViewFfi) {
         let query = ChatListSearchQuery.matches(text: text, view: view)
-        guard query != matchesQuery else { return }
+        guard query != matchesQuery || phase == .failed else { return }
         cancel()
         matchesQuery = query
         matchIds = []
@@ -221,11 +222,7 @@ final class ChatListSearchViewModel {
             return
         }
         let windowQuery = ChatListSearchQuery.window(showing: ids, view: query.view)
-        let subscription = try await runtime.openChatListQueryWindow(
-            accountRef: accountRef,
-            query: windowQuery,
-            initialRows: ChatListSearchQuery.windowRows
-        )
+        let subscription = try await openWindow(windowQuery, runtime: runtime)
         try Task.checkCancellation()
         guard matchesQuery == query, let initial = runtime.chatListWindowSnapshot(subscription: subscription) else {
             return
@@ -234,6 +231,31 @@ final class ChatListSearchViewModel {
         install(initial)
         phase = .ready
         observeWindow(subscription, generation: initial.subscriptionGeneration, for: query, windowQuery, runtime)
+    }
+
+    /// Opens the results window. A transient failure (a busy or closed store) is tried again with
+    /// the window backoff, up to `ChatListWindowRetry.maxOpenAttempts` in all; a refusal or
+    /// cancellation is final at once. Without this, the search would show "couldn't be completed"
+    /// for a lock that clears a moment later.
+    private func openWindow(_ windowQuery: ChatListViewQueryFfi, runtime: any MarmotRuntime) async throws
+        -> ChatListWindowSubscription
+    {
+        var attempt = 1
+        while true {
+            do {
+                return try await runtime.openChatListQueryWindow(
+                    accountRef: accountRef,
+                    query: windowQuery,
+                    initialRows: ChatListSearchQuery.windowRows
+                )
+            } catch {
+                guard attempt < ChatListWindowRetry.maxOpenAttempts, ChatListWindowRetry.isRetryable(error) else {
+                    throw error
+                }
+            }
+            try await Task.sleep(for: ChatListWindowRetry.delay(afterAttempt: attempt, initial: retryDelay))
+            attempt += 1
+        }
     }
 
     /// Installs the window's snapshots as MDK pushes them. A retryable read failure reopens the
