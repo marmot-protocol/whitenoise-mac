@@ -252,8 +252,16 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// Resolved here rather than baked into `preview` at mapping time because it is localized:
     /// the chat list is not rebuilt on a language switch, so a stored translation would keep the
     /// previous language until some unrelated update happened to rebuild the row.
+    ///
+    /// An ended group is never "No messages yet": a disband leaves a system row in the timeline,
+    /// and the group may well have had messages before it that the row no longer carries. The line
+    /// says what that system row says instead. A row whose last message *is* that system row
+    /// arrives here with an empty `preview` too, so both cases follow a language switch.
     func previewPlaceholder(locale: Locale = AppLanguage.currentLocale) -> String? {
         guard preview.isEmpty else { return nil }
+        if lifecycle == .ended {
+            return GroupLifecycle.disbandedSystemText(locale: locale)
+        }
         guard ChatRowStatus.status(for: self) == .pendingInvite else {
             return L10n.string("No messages yet", locale: locale)
         }
