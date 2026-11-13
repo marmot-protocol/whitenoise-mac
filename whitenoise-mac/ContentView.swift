@@ -144,9 +144,10 @@ struct ContentView: View {
             // presentation that does not inherit it, so both have to re-inject it themselves.
             .sheet(isPresented: $workspace.isImprovementsPromptPresented) {
                 if let model = session.accountScope?.settingsModel.diagnostics {
-                    HelpImproveWhiteNoiseSheet(model: model)
-                        .environment(workspace)
-                        .environment(\.locale, workspace.preferredLocale)
+                    HelpImproveWhiteNoiseSheet(model: model) {
+                        workspace.dismissImprovementsPrompt()
+                    }
+                    .environment(\.locale, workspace.preferredLocale)
                 }
             }
             .onReceive(

@@ -2,82 +2,126 @@
 //  HelpImproveWhiteNoiseSheet.swift
 //  whitenoise-mac
 //
-//  The one-time data-sharing choice, offered over Chats the first time an identity gets there.
+//  The one-time data-sharing choice, offered over Chats the first time an identity gets there on
+//  a Mac that has not answered it yet.
 //
-//  Ported from `wn-ios-prototype`'s Diagnostics & Improvements prompt, which puts the ask in one
-//  compact card rather than a step inside sign-up: the introduction above the grouped controls, both
-//  switches directly reachable with no further navigation, the privacy detail below them, and a
-//  single dismissal because the choices apply the moment they are flipped. There is no Save, and no
-//  Cancel — leaving both off is a valid answer, and `Done` only closes what is already written.
+//  Worded and behaving as iOS's `DiagnosticsConsentSheet` does: the two switches first, each saying
+//  what it shares, then a footer that says the choice covers every account on this device and where
+//  to change it, with a "What’s shared" link to the full disclosure. The choices apply the moment
+//  they are flipped, so there is no Save and no Cancel — only closing, which records "leave both
+//  off" as a decline when nothing was chosen, so MarmotKit's receipt stops being pending and a
+//  second account signed up on this Mac is not asked again.
 //
 //  The two switches are `DataSharingToggleRows`, the same rows Privacy & Security shows, so this
-//  offers exactly the settings it claims to and cannot drift from them. What the prompt itself owns
-//  is the copy explaining the ask.
+//  offers exactly the settings it claims to and cannot drift from them.
 //
 
 import SwiftUI
 
 struct HelpImproveWhiteNoiseSheet: View {
-    @Environment(WorkspaceState.self) private var workspace
     let model: DiagnosticsSettingsViewModel
+    let onClose: () -> Void
+
+    @State private var showsSharingDetails = false
+    @State private var isFinishing = false
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            HelpImproveWhiteNoiseHeader(
+                showsSharingDetails: showsSharingDetails,
+                onBack: { showsSharingDetails = false },
+                onClose: finish
+            )
             Divider()
-            choices
+            if showsSharingDetails {
+                DiagnosticsSharingDetailsView()
+            } else {
+                HelpImproveWhiteNoiseChoices(
+                    model: model,
+                    onShowSharingDetails: { showsSharingDetails = true }
+                )
+            }
             Divider()
-            footer
+            HelpImproveWhiteNoiseFooter(
+                isDisabled: isFinishing || !model.canFinishPrompt,
+                onDone: finish
+            )
         }
-        .frame(width: 480, height: 440)
+        .frame(width: 480, height: 460)
+        .task {
+            if model.settings == nil { await model.load() }
+        }
     }
 
-    /// The prototype's leading toolbar Close, drawn where this app puts a sheet's dismissal: the
-    /// trailing end of the header, as `MessageEditHistorySheet` and `ProfileImagePickerSheet` do.
-    /// `help:` takes the catalog *key* — `GlassCircleCloseButton` localizes it itself.
-    ///
-    /// `.outline`, the secondary tier — `WnIconButton.outline`, the disc half of the `WnButton`
-    /// port — rather than the glass disc, which reads as a primary action and would compete with
-    /// `Done` below. The discs keep their ring: unifying the *push* tiers on the raised drawing
-    /// (see `WNSecondaryButtonStyle`) says nothing about `MessagesCircleControlBackground`, which
-    /// is a different component with its own vocabulary in the composer and the account rail.
-    private var header: some View {
-        HStack {
-            Text(L10n.string("Help Improve White Noise"))
-                .wnFont(.semiBold14)
-            Spacer()
-            GlassCircleCloseButton(appearance: .outline) {
-                workspace.dismissImprovementsPrompt()
+    /// Closes only once a pending receipt has been written as declined. A failed write leaves the
+    /// sheet up with its error showing, because nothing was recorded.
+    private func finish() {
+        guard !isFinishing else { return }
+        isFinishing = true
+        Task {
+            let canClose = await model.finishPrompt()
+            isFinishing = false
+            if canClose { onClose() }
+        }
+    }
+}
+
+/// The title — or "What’s shared" with a Back chevron while the disclosure is up — and the ✕.
+///
+/// `.outline` rather than the glass disc, which reads as a primary action and would compete with
+/// `Done` below. `help:` takes the catalog *key* — `GlassCircleCloseButton` localizes it itself.
+private struct HelpImproveWhiteNoiseHeader: View {
+    let showsSharingDetails: Bool
+    let onBack: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if showsSharingDetails {
+                GlassCircleCloseButton(symbol: "chevron.left", help: "Back", appearance: .outline, action: onBack)
+                Text(L10n.string("What’s shared"))
+                    .wnFont(.semiBold14)
+            } else {
+                Text(L10n.string("Help Improve White Noise"))
+                    .wnFont(.semiBold14)
             }
+            Spacer()
+            GlassCircleCloseButton(appearance: .outline, action: onClose)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
+}
 
-    private var choices: some View {
+private struct HelpImproveWhiteNoiseChoices: View {
+    let model: DiagnosticsSettingsViewModel
+    let onShowSharingDetails: () -> Void
+
+    var body: some View {
         Form {
             Section {
                 DataSharingToggleRows(model: model)
-            } header: {
-                Text(
-                    L10n.string(
-                        "Help us make messaging without a central point of control more reliable. Both of these are optional, and you can change them in Settings at any time."
-                    )
-                )
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
-                .textCase(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 8)
             } footer: {
-                Text(
-                    L10n.string(
-                        "Telemetry never includes messages, media, contacts, profile details, or keys. Audit logs obscure identifiers and are sent securely to White Noise for troubleshooting."
+                VStack(alignment: .leading, spacing: 8) {
+                    if let explanation = model.promptExplanation {
+                        Text(explanation)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(
+                        L10n.string(
+                            "These choices apply to all accounts on this device. You can change them anytime in Settings → Privacy & Security → Diagnostics & Improvements."
+                        )
                     )
-                )
+                    .fixedSize(horizontal: false, vertical: true)
+                    Button(action: onShowSharingDetails) {
+                        Text(L10n.string("What’s shared")).underline()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                }
                 .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // A build with no telemetry or audit credentials refuses the write and reports why.
@@ -87,31 +131,29 @@ struct HelpImproveWhiteNoiseSheet: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
     }
+}
 
-    /// `WNPrimaryButton` rather than a bare `Button` on a glass style: the component owns the type
-    /// rung, the interior padding and the border shape together, which is the whole reason it
-    /// exists — a call site that picked the style alone draws a differently-sized primary.
-    ///
-    /// `.small`, the quiet end of the scale: the sheet's content is two switches and three
-    /// sentences, and a full-height `Create profile`-sized slab under them claimed more of the
-    /// card than the decision warrants. The tier is unchanged — still the glass primary — so it
-    /// is the same button onboarding ends on, drawn at the rung this row actually needs.
-    private var footer: some View {
+/// `WNPrimaryButton` at `.small`: the component owns the type rung, padding and border shape
+/// together, and the sheet's content is two switches and a footer, so a full-height slab would
+/// claim more of the card than the decision warrants.
+private struct HelpImproveWhiteNoiseFooter: View {
+    let isDisabled: Bool
+    let onDone: () -> Void
+
+    var body: some View {
         HStack {
             Spacer()
-            WNPrimaryButton(size: .small) {
-                workspace.dismissImprovementsPrompt()
-            } label: {
+            WNPrimaryButton(size: .small, action: onDone) {
                 Text(L10n.string("Done")).frame(minWidth: 96)
             }
             .wnButtonShape(.capsule)
             .keyboardShortcut(.defaultAction)
+            .disabled(isDisabled)
         }
         .padding(16)
     }
 }
 
 #Preview {
-    HelpImproveWhiteNoiseSheet(model: .preview())
-        .environment(WorkspaceState.preview())
+    HelpImproveWhiteNoiseSheet(model: .preview(), onClose: {})
 }

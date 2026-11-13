@@ -906,6 +906,8 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
     var usageDiagnosticsSettingsError: Error?
+    /// Thrown by `setUsageDiagnosticsConsent` in place of recording the choice.
+    var setUsageDiagnosticsConsentError: Error?
     /// MDK's defaults: 30 days and 256 MiB per account.
     var storedAuditLogRetention = AuditLogRetentionFfi(maxAgeDays: 30, maxBytesPerAccount: 256 << 20)
     var auditLogRetentionError: Error?
@@ -1670,6 +1672,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     }
 
     func setUsageDiagnosticsConsent(enabled: Bool) throws -> UsageDiagnosticsSettingsFfi {
+        if let setUsageDiagnosticsConsentError { throw setUsageDiagnosticsConsentError }
         usageSettings.decision = enabled ? .granted : .declined
         usageSettings.previouslyEnabled = usageSettings.previouslyEnabled || enabled
         usageStatus.consent = usageSettings.decision
