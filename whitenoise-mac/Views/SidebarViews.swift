@@ -340,6 +340,10 @@ struct ChatListDrawerView: View {
             // replacing it ends selection mode rather than leaving it armed out of sight.
             if !shows { selection?.end() }
         }
+        // Hiding the chat list unmounts this drawer, so the `onChange` above never sees it go.
+        // Selection would stay armed with no Done button on screen, and the conversation header
+        // leaves Escape to that missing button.
+        .onDisappear { selection?.end() }
         .modifier(ChatListSelectionDialogs(model: selection))
     }
 

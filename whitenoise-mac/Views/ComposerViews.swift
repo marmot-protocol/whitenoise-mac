@@ -1875,6 +1875,11 @@ struct ConversationHeader: View {
     /// Opens search within this conversation; nil hides the control. ⌘F belongs to the Navigate
     /// menu's Find in Conversation, which runs the same action.
     var onSearch: (() -> Void)?
+    /// Whether Escape ends message selection, as it does the chat list's. Off while the chat list
+    /// is itself selecting, so only one Escape target is ever installed: that one ends first.
+    /// The shortcut is a key equivalent, so it also outranks an open in-chat search field's
+    /// `onExitCommand` and consumes the key: one Escape ends the selection, the next closes search.
+    var escapeEndsMessageSelection = true
 
     /// Under the chat title: "Catching up" while MDK is still fetching this chat's history,
     /// otherwise the disappearing-message timer as a bare clock icon + duration (no "Disappearing
@@ -1909,7 +1914,9 @@ struct ConversationHeader: View {
                         .background { MessagesCircleControlBackground() }
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut(escapeEndsMessageSelection ? .cancelAction : nil)
                 .help(L10n.string("Cancel selection"))
+                .accessibilityIdentifier("conversation.selection.cancel")
 
                 Text(
                     String(
