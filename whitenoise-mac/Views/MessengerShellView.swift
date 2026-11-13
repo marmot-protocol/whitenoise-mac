@@ -583,7 +583,8 @@ private struct ConversationView: View {
                 ConversationHeader(
                     chat: chat,
                     recoveryStatus: session.accountScope?.recoveryStatus,
-                    onSearch: searchCommand.open
+                    onSearch: searchCommand.open,
+                    escapeEndsMessageSelection: session.accountScope?.chatListSelection.isActive != true
                 )
                 .messageDeletionConfirmation()
                 .messageEditHistory(model: model)
@@ -918,6 +919,12 @@ private struct ConversationView: View {
             if workspace.isGroupDetailsPresented {
                 workspace.closeGroupDetails()
             }
+        }
+        // New Chat replaces the sidebar but leaves this conversation mounted. Its Escape (back in
+        // the compose flow) would lose to the selection's cancel shortcut, so the selection ends
+        // as the user moves to the sidebar, the way chat-list selection ends when the list goes.
+        .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
+            if isVisible { workspace.cancelMessageSelection() }
         }
     }
 
