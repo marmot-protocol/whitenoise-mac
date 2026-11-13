@@ -407,7 +407,7 @@ extension WorkspaceState {
             // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)`.
             let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
-            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
             lastError = UserFacingError.message(for: error)
         }
@@ -454,7 +454,7 @@ extension WorkspaceState {
                 authenticationMode = .landing
                 let enteredAccountIdHex = activeAccount?.accountIdHex
                 await activateReadyState()
-                presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+                await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
                 return
             }
             let summaries = try await FFIExecutor.run { try client.listAccounts() }
@@ -479,7 +479,7 @@ extension WorkspaceState {
             // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)`.
             let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
-            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
             lastError = SignInFailure.message
         }
@@ -631,7 +631,6 @@ extension WorkspaceState {
             }
             try await client.removeAccount(accountRef: account.accountRef)
             removeChatRestorationTarget(forOwnerAccountIdHex: removedAccountIdHex)
-            forgetImprovementsPrompt(forOwnerAccountIdHex: removedAccountIdHex)
             clearComposerDrafts(forAccountId: removedAccountId)
             purgeHiddenMessages(accountId: removedAccountId)
             purgePinnedChats(accountId: removedAccountId)
@@ -1081,7 +1080,10 @@ extension WorkspaceState {
         clearAllContactNicknames()
         clearAllRememberedDirectPeers()
         clearChatRestorationTargets()
-        clearImprovementsPromptRecords()
+        dismissImprovementsPrompt()
+        // The per-identity "offered" list shipped through v2026.11.16 and is no longer read; MarmotKit's
+        // receipt replaced it. An erased Mac keeps none of it.
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.improvementsPromptOfferedAccountIdHexes")
         isRefreshing = false
         isSending = false
         authenticationMode = .landing

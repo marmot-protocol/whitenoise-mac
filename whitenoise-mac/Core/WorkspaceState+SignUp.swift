@@ -46,7 +46,7 @@ extension WorkspaceState {
             // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)` for the switch window.
             let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
-            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         }
     }
 
@@ -178,7 +178,7 @@ extension WorkspaceState {
             // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)` for the switch window.
             let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
-            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
             lastError = UserFacingError.message(for: error)
         }

@@ -192,7 +192,7 @@ private struct DetailPaneView: View {
             let onboarding = session.accountScope?.onboarding
             await workspace.activateReadyState()
             onboarding?.didEnterChats()
-            workspace.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            await workspace.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         }
     }
 }
