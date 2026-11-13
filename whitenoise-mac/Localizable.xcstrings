@@ -55157,65 +55157,6 @@
         }
       }
     },
-    "Help us make messaging without a central point of control more reliable. Both of these are optional, and you can change them in Settings at any time." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hilf uns, Messaging ohne zentrale Kontrollinstanz zuverlässiger zu machen. Beides ist optional, und du kannst es jederzeit in den Einstellungen ändern."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ayúdanos a hacer más fiable la mensajería sin un punto central de control. Las dos son opcionales y puedes cambiarlas en Configuración cuando quieras."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aidez-nous à rendre plus fiable une messagerie sans point de contrôle central. Ces deux options sont facultatives et vous pouvez les modifier à tout moment dans les Paramètres."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aiutaci a rendere più affidabile la messaggistica senza un punto di controllo centrale. Entrambe le opzioni sono facoltative e puoi modificarle in qualsiasi momento in Impostazioni."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajude a tornar mais confiável a troca de mensagens sem um ponto central de controle. As duas são opcionais e você pode alterá-las nas Configurações quando quiser."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Помогите сделать обмен сообщениями без единого центра контроля надёжнее. Обе опции необязательны, и вы можете изменить их в Настройках в любой момент."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Merkezi bir denetim noktası olmadan mesajlaşmayı daha güvenilir hâle getirmemize yardım et. İkisi de isteğe bağlıdır ve istediğin zaman Ayarlar’dan değiştirebilirsin."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "帮助我们让没有中央控制点的消息传递更可靠。这两项都是可选的，你随时可以在设置中更改。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "協助我們讓沒有中央控制點的訊息傳遞更可靠。這兩項都是選用的，你隨時可以在設定中變更。"
-          }
-        }
-      }
-    },
     "Hermes" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -90886,6 +90827,518 @@
         }
       }
     },
+    "Automatically shares feature-use counts and app performance with White Noise." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teilt automatisch die Nutzungshäufigkeit von Funktionen und die App-Leistung mit White Noise."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatically shares feature-use counts and app performance with White Noise."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comparte automáticamente con White Noise los recuentos de uso de funciones y el rendimiento de la app."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partage automatiquement avec White Noise le nombre d’utilisations des fonctionnalités et les performances de l’app."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Condivide automaticamente con White Noise il numero di utilizzi delle funzioni e le prestazioni dell’app."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compartilha automaticamente com o White Noise as contagens de uso de recursos e o desempenho do app."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматически отправляет White Noise данные о частоте использования функций и производительности приложения."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Özellik kullanım sayılarını ve uygulama performansını White Noise ile otomatik olarak paylaşır."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动与 White Noise 分享功能使用次数和应用性能数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動與 White Noise 分享功能使用次數和 App 效能資料。"
+          }
+        }
+      }
+    },
+    "Automatically shares technical group logs, including group and message identifiers. May include logs already on this device." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teilt automatisch technische Gruppenprotokolle, einschließlich Gruppen- und Nachrichtenkennungen. Kann bereits auf diesem Gerät gespeicherte Protokolle enthalten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatically shares technical group logs, including group and message identifiers. May include logs already on this device."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comparte automáticamente registros técnicos de grupos, incluidos identificadores de grupos y mensajes. Puede incluir registros ya guardados en este dispositivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partage automatiquement les journaux techniques des groupes, y compris les identifiants de groupes et de messages. Peut inclure des journaux déjà présents sur cet appareil."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Condivide automaticamente i registri tecnici dei gruppi, inclusi gli identificativi di gruppi e messaggi. Può includere registri già presenti su questo dispositivo."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compartilha automaticamente registros técnicos de grupos, incluindo identificadores de grupos e mensagens. Pode incluir registros já armazenados neste dispositivo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматически отправляет технические журналы групп, включая идентификаторы групп и сообщений. Может включать журналы, уже сохранённые на этом устройстве."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grup ve mesaj tanımlayıcıları dâhil teknik grup günlüklerini otomatik olarak paylaşır. Bu cihazda zaten bulunan günlükleri de içerebilir."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动分享群组技术日志，包括群组和消息标识符。可能包含此设备上已有的日志。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動分享群組技術日誌，包括群組和訊息識別碼。可能包含此裝置上已有的日誌。"
+          }
+        }
+      }
+    },
+    "Data retention" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datenaufbewahrung"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data retention"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservación de datos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservation des données"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservazione dei dati"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retenção de dados"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сроки хранения данных"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Veri saklama"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据保留"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "資料保留"
+          }
+        }
+      }
+    },
+    "Enabling group diagnostic log sharing may upload logs already stored on this device." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn du das Teilen von Gruppendiagnoseprotokollen aktivierst, können auch bereits auf diesem Gerät gespeicherte Protokolle hochgeladen werden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enabling group diagnostic log sharing may upload logs already stored on this device."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al activar el envío de registros de diagnóstico de grupos, es posible que se suban registros ya almacenados en este dispositivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’activation du partage des journaux de diagnostic des groupes peut entraîner l’envoi de journaux déjà stockés sur cet appareil."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’attivazione della condivisione dei log diagnostici dei gruppi può comportare il caricamento di log già memorizzati su questo dispositivo."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ativar o compartilhamento de registros de diagnóstico de grupos pode enviar registros já armazenados neste dispositivo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "При включении отправки журналов диагностики групп могут быть отправлены журналы, уже сохранённые на этом устройстве."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grup tanılama günlüğü paylaşımını açmak, bu cihazda zaten kayıtlı olan günlüklerin yüklenmesine neden olabilir."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用群组诊断日志共享后，此设备上已存储的日志也可能被上传。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "啟用群組診斷記錄分享後，此裝置上已儲存的記錄也可能會被上傳。"
+          }
+        }
+      }
+    },
+    "Feature activity and telemetry data include feature usage counts and app performance metrics. Usage data uses temporary session identifiers, and telemetry uses a resettable installation identifier. Neither includes account or group identifiers." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daten zu Funktionsaktivitäten und Telemetrie umfassen Nutzungshäufigkeiten von Funktionen und Messwerte zur App-Leistung. Nutzungsdaten verwenden temporäre Sitzungskennungen, Telemetriedaten eine zurücksetzbare Installationskennung. Beide enthalten keine Konto- oder Gruppenkennungen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feature activity and telemetry data include feature usage counts and app performance metrics. Usage data uses temporary session identifiers, and telemetry uses a resettable installation identifier. Neither includes account or group identifiers."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los datos de actividad de funciones y telemetría incluyen recuentos de uso de funciones y métricas de rendimiento de la app. Los datos de uso emplean identificadores de sesión temporales, y la telemetría utiliza un identificador de instalación que se puede restablecer. Ninguno incluye identificadores de cuentas o grupos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les données d’activité des fonctionnalités et de télémétrie comprennent les nombres d’utilisations des fonctionnalités et les mesures de performance de l’app. Les données d’utilisation emploient des identifiants de session temporaires, et la télémétrie utilise un identifiant d’installation réinitialisable. Aucune de ces données ne contient d’identifiants de comptes ou de groupes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I dati sull’attività delle funzionalità e la telemetria includono conteggi di utilizzo delle funzionalità e metriche sulle prestazioni dell’app. I dati di utilizzo impiegano identificatori di sessione temporanei, mentre la telemetria utilizza un identificatore di installazione reimpostabile. Nessuno dei due include identificatori di account o gruppi."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os dados de atividade dos recursos e de telemetria incluem contagens de uso dos recursos e métricas de desempenho do app. Os dados de uso utilizam identificadores temporários de sessão, e a telemetria usa um identificador de instalação que pode ser redefinido. Nenhum deles inclui identificadores de contas ou grupos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Данные об использовании функций и телеметрия включают количество использований функций и показатели производительности приложения. Для данных об использовании применяются временные идентификаторы сеансов, а для телеметрии — сбрасываемый идентификатор установки. Ни те, ни другие не содержат идентификаторов аккаунтов или групп."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Özellik etkinliği ve telemetri verileri, özellik kullanım sayılarını ve uygulama performans ölçümlerini içerir. Kullanım verileri geçici oturum tanımlayıcıları, telemetri ise sıfırlanabilir bir kurulum tanımlayıcısı kullanır. İkisi de hesap veya grup tanımlayıcıları içermez."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "功能活动和遥测数据包括功能使用次数及应用性能指标。使用情况数据使用临时会话标识符，遥测数据则使用可重置的安装标识符。两者均不包含账号或群组标识符。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "功能活動與遙測資料包含功能使用次數及 App 效能指標。使用情況資料使用暫時的工作階段識別碼，遙測資料則使用可重設的安裝識別碼。兩者均不包含帳號或群組識別碼。"
+          }
+        }
+      }
+    },
+    "Group diagnostic logs" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gruppendiagnoseprotokolle"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group diagnostic logs"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Registros de diagnóstico de grupos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Journaux de diagnostic des groupes"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Registri diagnostici dei gruppi"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Registros de diagnóstico de grupos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диагностические журналы групп"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grup tanılama günlükleri"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群组诊断日志"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群組診斷日誌"
+          }
+        }
+      }
+    },
+    "Group diagnostic logs are deleted from our servers after 30 days, telemetry after 90 days, and product analytics after 180 days." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gruppendiagnoseprotokolle werden nach 30 Tagen von unseren Servern gelöscht, Telemetriedaten nach 90 Tagen und Produktanalysedaten nach 180 Tagen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group diagnostic logs are deleted from our servers after 30 days, telemetry after 90 days, and product analytics after 180 days."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los registros de diagnóstico de grupos se eliminan de nuestros servidores después de 30 días, la telemetría después de 90 días y los datos de análisis del producto después de 180 días."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les journaux de diagnostic des groupes sont supprimés de nos serveurs après 30 jours, la télémétrie après 90 jours et les données d’analyse du produit après 180 jours."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I log diagnostici dei gruppi vengono eliminati dai nostri server dopo 30 giorni, la telemetria dopo 90 giorni e i dati di analisi del prodotto dopo 180 giorni."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os registros de diagnóstico de grupos são excluídos dos nossos servidores após 30 dias, a telemetria após 90 dias e os dados de análise do produto após 180 dias."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Журналы диагностики групп удаляются с наших серверов через 30 дней, телеметрия — через 90 дней, а данные продуктовой аналитики — через 180 дней."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grup tanılama günlükleri 30 gün, telemetri verileri 90 gün ve ürün analizi verileri 180 gün sonra sunucularımızdan silinir."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群组诊断日志会在 30 天后、遥测数据会在 90 天后、产品分析数据会在 180 天后从我们的服务器中删除。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群組診斷記錄會在 30 天後、遙測資料會在 90 天後、產品分析資料會在 180 天後從我們的伺服器刪除。"
+          }
+        }
+      }
+    },
+    "Group diagnostic logs help investigate group reliability and consistency. They include technical identifiers, timestamps, and membership changes, using hashed references instead of member identities. They never contain message contents, profile names, group names, or private keys." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gruppendiagnoseprotokolle helfen dabei, die Zuverlässigkeit und Konsistenz von Gruppen zu untersuchen. Sie enthalten technische Kennungen, Zeitstempel und Änderungen der Mitgliedschaft. Statt der Identitäten von Mitgliedern werden gehashte Referenzen verwendet. Sie enthalten niemals Nachrichteninhalte, Profilnamen, Gruppennamen oder private Schlüssel."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group diagnostic logs help investigate group reliability and consistency. They include technical identifiers, timestamps, and membership changes, using hashed references instead of member identities. They never contain message contents, profile names, group names, or private keys."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los registros de diagnóstico de grupos ayudan a investigar la fiabilidad y coherencia de los grupos. Incluyen identificadores técnicos, marcas de tiempo y cambios en la composición de los grupos, y utilizan referencias derivadas mediante hash en lugar de las identidades de los miembros. Nunca contienen contenido de mensajes, nombres de perfiles, nombres de grupos ni claves privadas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les journaux de diagnostic des groupes permettent d’étudier la fiabilité et la cohérence des groupes. Ils comprennent des identifiants techniques, des horodatages et des changements de composition des groupes, en utilisant des références hachées plutôt que les identités des membres. Ils ne contiennent jamais le contenu des messages, les noms de profils, les noms de groupes ni les clés privées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I log diagnostici dei gruppi aiutano a verificare l’affidabilità e la coerenza dei gruppi. Includono identificatori tecnici, date e orari e modifiche alla composizione dei gruppi, utilizzando riferimenti derivati tramite hash al posto delle identità dei membri. Non contengono mai contenuti dei messaggi, nomi dei profili, nomi dei gruppi o chiavi private."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os registros de diagnóstico de grupos ajudam a investigar a confiabilidade e a consistência dos grupos. Eles incluem identificadores técnicos, registros de data e hora e alterações na composição dos grupos, usando referências derivadas por hash em vez das identidades dos membros. Nunca contêm conteúdo de mensagens, nomes de perfis, nomes de grupos ou chaves privadas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Журналы диагностики групп помогают исследовать надёжность и согласованность состояния групп. Они содержат технические идентификаторы, временные метки и изменения состава групп. Вместо идентификационных данных участников используются хешированные ссылки. Журналы никогда не содержат содержимое сообщений, имена профилей, названия групп или приватные ключи."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grup tanılama günlükleri, grupların güvenilirliğini ve tutarlılığını incelemeye yardımcı olur. Teknik tanımlayıcıları, zaman damgalarını ve üyelik değişikliklerini içerir; üyelerin kimlikleri yerine özetleme yoluyla oluşturulmuş referanslar kullanır. Asla mesaj içeriği, profil adları, grup adları veya özel anahtarlar içermez."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群组诊断日志有助于调查群组的可靠性和一致性。日志包含技术标识符、时间戳和成员变更，并使用经过哈希处理的引用来代替成员身份。日志绝不包含消息内容、个人资料名称、群组名称或私钥。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群組診斷記錄有助於調查群組的可靠性與一致性。記錄包含技術識別碼、時間戳記和成員變更，並使用經過雜湊處理的參照來取代成員身分。記錄絕不包含訊息內容、個人檔案名稱、群組名稱或私密金鑰。"
+          }
+        }
+      }
+    },
     "May not have reached everyone" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -90941,6 +91394,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "可能未送達所有人"
+          }
+        }
+      }
+    },
+    "Privacy Policy" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datenschutzerklärung"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Política de privacidad"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Politique de confidentialité"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Informativa sulla privacy"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Política de privacidade"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Политика конфиденциальности"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gizlilik Politikası"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隱私權政策"
           }
         }
       }
@@ -93253,65 +93770,6 @@
         }
       }
     },
-    "Telemetry never includes messages, media, contacts, profile details, or keys. Audit logs obscure identifiers and are sent securely to White Noise for troubleshooting." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Telemetrie enthält niemals Nachrichten, Medien, Kontakte, Profildaten oder Schlüssel. Audit-Logs verschleiern Identifikatoren und werden zur Fehlersuche sicher an White Noise gesendet."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La telemetría nunca incluye mensajes, multimedia, contactos, datos de perfil ni llaves. Los registros de auditoría ocultan los identificadores y se envían de forma segura a White Noise para diagnosticar problemas."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La télémétrie n’inclut jamais les messages, les médias, les contacts, les informations de profil ni les clés. Les journaux d’audit masquent les identifiants et sont envoyés de manière sécurisée à White Noise pour le dépannage."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La telemetria non include mai messaggi, media, contatti, dati del profilo o chiavi. I log di audit offuscano gli identificatori e vengono inviati in modo sicuro a White Noise per la risoluzione dei problemi."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A telemetria nunca inclui mensagens, mídia, contatos, dados de perfil ou chaves. Os logs de auditoria ocultam identificadores e são enviados com segurança para o White Noise para solução de problemas."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Телеметрия никогда не включает сообщения, медиа, контакты, данные профиля и ключи. Журналы аудита скрывают идентификаторы и безопасно отправляются в White Noise для диагностики."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Telemetri hiçbir zaman mesajları, medyayı, kişileri, profil bilgilerini veya anahtarları içermez. Denetim kayıtları tanımlayıcıları gizler ve sorun giderme için White Noise’a güvenli şekilde gönderilir."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "遥测绝不包含消息、媒体、联系人、个人资料或密钥。审计日志会模糊标识符，并安全发送给 White Noise 用于排查问题。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "遙測絕不包含訊息、媒體、聯絡人、個人檔案或金鑰。稽核日誌會模糊識別碼，並安全傳送給 White Noise 以便排解問題。"
-          }
-        }
-      }
-    },
     "Telemetry token" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -94703,6 +95161,70 @@
         }
       }
     },
+    "The scope of usage and diagnostics has changed. Review the updated information before sharing again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Umfang der Nutzungs- und Diagnosedaten hat sich geändert. Lies die aktualisierten Informationen, bevor du erneut zustimmst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The scope of usage and diagnostics has changed. Review the updated information before sharing again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El alcance de los datos de uso y diagnóstico ha cambiado. Revisa la información actualizada antes de volver a compartir."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le périmètre des données d’utilisation et de diagnostic a changé. Consultez les informations mises à jour avant de reprendre le partage."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’ambito dei dati di utilizzo e diagnostica è cambiato. Leggi le informazioni aggiornate prima di riattivare la condivisione."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O escopo dos dados de uso e diagnóstico mudou. Revise as informações atualizadas antes de compartilhar novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Состав данных об использовании и диагностике изменился. Ознакомьтесь с обновлённой информацией, прежде чем снова включать отправку."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanım ve tanılama verilerinin kapsamı değişti. Yeniden paylaşmadan önce güncellenen bilgileri inceleyin."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用情况和诊断数据的范围已更改。请先阅读更新后的信息，再重新开启共享。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用情況與診斷資料的範圍已變更。請先閱讀更新後的資訊，再重新開啟分享。"
+          }
+        }
+      }
+    },
     "The selected message is no longer available." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -94817,6 +95339,390 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法下載所選網路圖片。"
+          }
+        }
+      }
+    },
+    "These choices apply to all accounts on this device. You can change them anytime in Settings → Privacy & Security → Diagnostics & Improvements." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Einstellungen gelten für alle Konten auf diesem Gerät. Du kannst sie jederzeit unter Einstellungen → Datenschutz & Sicherheit → Diagnose & Verbesserungen ändern."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These choices apply to all accounts on this device. You can change them anytime in Settings → Privacy & Security → Diagnostics & Improvements."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estas opciones se aplican a todas las cuentas de este dispositivo. Puedes cambiarlas cuando quieras en Configuración → Privacidad y seguridad → Diagnóstico y mejoras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ces choix s’appliquent à tous les comptes sur cet appareil. Vous pouvez les modifier à tout moment dans Paramètres → Confidentialité et sécurité → Diagnostic et améliorations."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Queste scelte si applicano a tutti gli account su questo dispositivo. Puoi modificarle in qualsiasi momento in Impostazioni → Privacy e sicurezza → Diagnostica e miglioramenti."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estas escolhas se aplicam a todas as contas neste dispositivo. Você pode alterá-las a qualquer momento em Configurações → Privacidade e segurança → Diagnóstico e melhorias."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эти настройки действуют для всех аккаунтов на этом устройстве. Вы можете изменить их в любое время: Настройки → Конфиденциальность и безопасность → Диагностика и улучшения."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu seçimler bu cihazdaki tüm hesaplar için geçerlidir. Bunları istediğiniz zaman Ayarlar → Gizlilik ve güvenlik → Tanılama ve İyileştirmeler bölümünden değiştirebilirsiniz."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些选项适用于此设备上的所有账户。你可以随时在“设置 → 隐私与安全 → 诊断与改进”中更改。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這些選項適用於此裝置上的所有帳號。你可以隨時在「設定 → 隱私與安全 → 診斷與改進」中更改。"
+          }
+        }
+      }
+    },
+    "Turning sharing off" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teilen deaktivieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turning sharing off"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desactivar el uso compartido"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Désactiver le partage"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disattivare la condivisione"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desativar o compartilhamento"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключение отправки данных"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paylaşımı kapatma"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭分享"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉分享"
+          }
+        }
+      }
+    },
+    "Turning these off stops new recording and prevents new automatic uploads. An automatic log upload batch already in progress may finish. Turning these off does not delete data already stored on this device or our servers." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Deaktivieren dieser Optionen stoppt neue Aufzeichnungen und verhindert neue automatische Uploads. Ein bereits laufender automatischer Upload mehrerer Protokolle kann noch abgeschlossen werden. Bereits auf diesem Gerät oder unseren Servern gespeicherte Daten werden dadurch nicht gelöscht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turning these off stops new recording and prevents new automatic uploads. An automatic log upload batch already in progress may finish. Turning these off does not delete data already stored on this device or our servers."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al desactivar estas opciones, se dejan de recopilar nuevos registros y se impiden nuevas subidas automáticas. Un lote de registros cuya subida automática ya esté en curso podría terminar de subirse. Desactivar estas opciones no elimina los datos ya almacenados en este dispositivo ni en nuestros servidores."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La désactivation de ces options arrête les nouveaux enregistrements et empêche les nouveaux envois automatiques. L’envoi automatique d’un lot de journaux déjà en cours peut se terminer. La désactivation ne supprime pas les données déjà stockées sur cet appareil ou sur nos serveurs."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La disattivazione di queste opzioni interrompe le nuove registrazioni e impedisce nuovi caricamenti automatici. Il caricamento automatico di un insieme di log già in corso potrebbe completarsi. La disattivazione non elimina i dati già memorizzati su questo dispositivo o sui nostri server."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desativar essas opções interrompe novas gravações e impede novos envios automáticos. Um lote de registros cujo envio automático já esteja em andamento pode terminar de ser enviado. Desativar essas opções não exclui os dados já armazenados neste dispositivo ou nos nossos servidores."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключение этих параметров прекращает новую запись и предотвращает новые автоматические отправки. Автоматическая отправка пакета журналов, которая уже началась, может завершиться. Отключение не удаляет данные, уже сохранённые на этом устройстве или наших серверах."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu seçenekleri kapatmak yeni kayıtları durdurur ve yeni otomatik yüklemeleri engeller. Otomatik yüklemesi zaten başlamış olan bir günlük grubu yüklenmeye devam edip tamamlanabilir. Bu seçenekleri kapatmak, bu cihazda veya sunucularımızda zaten kayıtlı olan verileri silmez."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭这些选项会停止新的记录并阻止新的自动上传。已开始自动上传的一批日志可能仍会完成上传。关闭这些选项不会删除此设备或我们的服务器上已存储的数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉這些選項會停止新的記錄並阻止新的自動上傳。已開始自動上傳的一批記錄可能仍會完成上傳。關閉這些選項不會刪除此裝置或我們的伺服器上已儲存的資料。"
+          }
+        }
+      }
+    },
+    "Usage and telemetry" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nutzung und Telemetrie"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usage and telemetry"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uso y telemetría"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisation et télémétrie"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilizzo e telemetria"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uso e telemetria"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Использование и телеметрия"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kullanım ve telemetri"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用情况与遥测"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用情況與遙測"
+          }
+        }
+      }
+    },
+    "What’s shared" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was geteilt wird"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What’s shared"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qué se comparte"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Données partagées"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cosa viene condiviso"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O que é compartilhado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Какие данные отправляются"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neler paylaşılır"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享的数据"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享的資料"
+          }
+        }
+      }
+    },
+    "You previously shared reliability metrics. Sharing now also includes feature usage, so we need your permission again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du hast zuvor Zuverlässigkeitsmetriken geteilt. Da nun auch die Nutzung von Funktionen erfasst wird, benötigen wir erneut deine Zustimmung."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You previously shared reliability metrics. Sharing now also includes feature usage, so we need your permission again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antes compartías métricas de fiabilidad. Ahora también se incluye el uso de funciones, por lo que necesitamos tu permiso de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous partagiez auparavant des mesures de fiabilité. Le partage inclut désormais aussi l’utilisation des fonctionnalités : nous avons donc besoin d’une nouvelle autorisation."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In precedenza condividevi metriche di affidabilità. Ora la condivisione include anche l’uso delle funzionalità, quindi serve nuovamente il tuo consenso."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você compartilhava métricas de confiabilidade. O compartilhamento agora também inclui o uso de recursos, então precisamos da sua permissão novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ранее вы отправляли показатели надёжности. Теперь в данные входит и использование функций, поэтому нам снова нужно ваше разрешение."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daha önce güvenilirlik ölçümlerini paylaşıyordunuz. Paylaşım artık özellik kullanımını da içerdiği için yeniden izninize ihtiyacımız var."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你之前共享了可靠性指标。现在共享范围还包括功能使用情况，因此我们需要再次征得你的同意。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你之前分享了可靠性指標。現在分享範圍也包含功能使用情況，因此我們需要再次取得你的同意。"
           }
         }
       }

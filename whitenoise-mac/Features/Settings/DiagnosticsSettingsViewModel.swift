@@ -127,6 +127,48 @@ final class DiagnosticsSettingsViewModel {
         await load()
     }
 
+    // MARK: - The first-run prompt
+
+    /// Nobody on this Mac has answered the usage question yet, or the policy changed since.
+    /// MarmotKit's receipt is device-wide, so this is what keeps the prompt to the first account.
+    var isPromptPending: Bool { settings?.decision == .acceptanceRequired }
+
+    /// Whether closing the prompt can run now: never while a write is in flight, so a decline
+    /// cannot race the switch the user just flipped.
+    var canFinishPrompt: Bool { !isLoading && !isSavingUsage && !isSavingAudit }
+
+    /// Why a Mac that already answered is being asked again. Mirrors iOS's
+    /// `DeviceDiagnosticsConsent.explanation` case for case, so both apps read MarmotKit's receipt
+    /// the same way.
+    var promptExplanation: String? {
+        guard let settings, isPromptPending else { return nil }
+        if settings.previouslyEnabled && settings.policyRevision.isEmpty {
+            return L10n.string(
+                "You previously shared reliability metrics. Sharing now also includes feature usage, so we need your permission again."
+            )
+        }
+        if !settings.policyRevision.isEmpty {
+            return L10n.string(
+                "The scope of usage and diagnostics has changed. Review the updated information before sharing again."
+            )
+        }
+        return nil
+    }
+
+    /// Closes the prompt the way iOS does: leaving the usage switch untouched is an answer, so a
+    /// still-pending receipt is written as declined. Without that the receipt would stay pending
+    /// and the next account signed up on this Mac would be asked the same question again.
+    ///
+    /// Returns whether the sheet may close. A failed write keeps it open with the error showing,
+    /// because the choice was not recorded. An unreadable receipt (`settings == nil`) is not
+    /// pending, so the sheet closes and Privacy & Security remains the place to choose.
+    func finishPrompt() async -> Bool {
+        guard canFinishPrompt else { return false }
+        guard isPromptPending else { return true }
+        await setEnabled(false)
+        return error == nil && !isPromptPending
+    }
+
     func flush() async {
         guard let runtime else { return }
         do {

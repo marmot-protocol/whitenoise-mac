@@ -119,8 +119,6 @@ final class WorkspaceState {
     @ObservationIgnored var contactNicknameRevision: UInt64 = 0
     @ObservationIgnored var cachedContactNicknames: NicknameStamped<ContactNicknames>?
     @ObservationIgnored let chatRestorationStore: any ChatRestorationStoring
-    /// Which identities have already been offered the one-time "Help Improve White Noise" choice.
-    @ObservationIgnored let improvementsPromptStore: any ImprovementsPromptStoring
     /// Set only for the duration of an automatic selection made past a preserved memory. See
     /// `withRememberedChatPreserved(_:_:)`.
     @ObservationIgnored var isPreservingRememberedChat = false
@@ -1199,7 +1197,6 @@ final class WorkspaceState {
         contactNicknameStore: (any ContactNicknameStoring)? = nil,
         directPeerMemoryStore: (any DirectPeerMemoryStoring)? = nil,
         chatRestorationStore: (any ChatRestorationStoring)? = nil,
-        improvementsPromptStore: (any ImprovementsPromptStoring)? = nil,
         quickReactionStore: (any QuickReactionStoring)? = nil,
         mediaDownloadDestinationStore: (any MediaDownloadDestinationStoring)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() },
@@ -1237,8 +1234,6 @@ final class WorkspaceState {
             chatRestorationStore ?? UserDefaultsChatRestorationStore()
         self.chatRestorationStore = resolvedChatRestorationStore
         self.restoreLastSelectedChat = resolvedChatRestorationStore.isEnabled
-        self.improvementsPromptStore =
-            improvementsPromptStore ?? UserDefaultsImprovementsPromptStore()
         let resolvedQuickReactionStore =
             quickReactionStore ?? UserDefaultsQuickReactionStore()
         self.quickReactionStore = resolvedQuickReactionStore

@@ -272,43 +272,13 @@ struct AccountTests: WorkspaceTestSupport {
 
     // MARK: - The one-time "Help Improve White Noise" prompt
 
-    /// Injected everywhere below, never `UserDefaults.standard`: an un-injected store writes into
-    /// the test host's own preferences, so the first run would record the account and every later
-    /// run would find it already offered and pass for the wrong reason.
-    @MainActor
-    final class FakeImprovementsPromptStore: ImprovementsPromptStoring {
-        private(set) var offered: Set<String>
-        private(set) var clearAllCallCount = 0
-
-        init(offered: Set<String> = []) {
-            self.offered = offered
-        }
-
-        func hasBeenOffered(toOwnerAccountIdHex accountIdHex: String) -> Bool {
-            offered.contains(accountIdHex.lowercased())
-        }
-
-        func markOffered(toOwnerAccountIdHex accountIdHex: String) {
-            offered.insert(accountIdHex.lowercased())
-        }
-
-        func forget(ownerAccountIdHex accountIdHex: String) {
-            offered.remove(accountIdHex.lowercased())
-        }
-
-        func clearAll() {
-            clearAllCallCount += 1
-            offered.removeAll()
-        }
-    }
-
+    /// The prompt's only record is MarmotKit's device-wide usage receipt — the fake starts it at
+    /// `.acceptanceRequired`, a Mac that has never answered.
     private static let improvementsPromptAccountIdHex =
         "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
 
     @MainActor
-    private static func improvementsPromptWorkspace(
-        store: FakeImprovementsPromptStore
-    ) -> (WorkspaceState, FakeMarmotRuntime) {
+    private static func improvementsPromptWorkspace() -> (WorkspaceState, FakeMarmotRuntime) {
         let created = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: improvementsPromptAccountIdHex,
@@ -319,14 +289,13 @@ struct AccountTests: WorkspaceTestSupport {
             unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
-        let state = WorkspaceState(improvementsPromptStore: store, clientFactory: { runtime })
+        let state = WorkspaceState(clientFactory: { runtime })
         return (state, runtime)
     }
 
     @MainActor
     @Test func signingUpOffersTheImprovementsPromptOverAReadyChatsScreen() async throws {
-        let store = FakeImprovementsPromptStore()
-        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+        let (state, _) = Self.improvementsPromptWorkspace()
 
         await state.bootstrap()
         await state.signUp()
@@ -390,8 +359,7 @@ struct AccountTests: WorkspaceTestSupport {
 
     @MainActor
     @Test func signingInOffersTheImprovementsPrompt() async throws {
-        let store = FakeImprovementsPromptStore()
-        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+        let (state, _) = Self.improvementsPromptWorkspace()
 
         await state.bootstrap()
         state.showLogin()
@@ -402,12 +370,13 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.isImprovementsPromptPresented)
     }
 
-    /// The defect this exists for: an identity that already answered — or deliberately declined by
-    /// closing — being asked again on its next sign-in.
+    /// The defect this exists for: the choice is device-wide, so once this Mac has answered it —
+    /// either way — a later sign-in, including a second account, must not be asked again.
     @MainActor
-    @Test func anIdentityAlreadyOfferedTheImprovementsChoiceIsNotAskedAgain() async throws {
-        let store = FakeImprovementsPromptStore(offered: [Self.improvementsPromptAccountIdHex])
-        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+    @Test(arguments: [UsageDiagnosticsDecisionFfi.declined, .granted])
+    func aMacThatAlreadyAnsweredIsNotAskedAgain(_ decision: UsageDiagnosticsDecisionFfi) async throws {
+        let (state, runtime) = Self.improvementsPromptWorkspace()
+        runtime.usageSettings.decision = decision
 
         await state.bootstrap()
         state.showLogin()
@@ -418,22 +387,58 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(!state.isImprovementsPromptPresented)
     }
 
-    /// Recorded when it goes up, not when it comes down. Dismissing is a valid answer ("leave both
-    /// off"), and the prompt is only ever reached from a fresh sign-up or sign-in — so a quit with
-    /// it still open must not leave the identity un-asked forever *or* asked twice.
+    /// An unreadable receipt is not a pending one: asking anyway could repeat the prompt on every
+    /// sign-in, so the identity enters Chats unasked and Privacy & Security stays the place to choose.
     @MainActor
-    @Test func theIdentityIsRecordedTheMomentTheImprovementsPromptIsPresented() async throws {
-        let store = FakeImprovementsPromptStore()
-        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+    @Test func anUnreadableReceiptDoesNotAsk() async throws {
+        let (state, runtime) = Self.improvementsPromptWorkspace()
+        runtime.usageDiagnosticsSettingsError = MarmotKitError.Io(details: "busy")
 
         await state.bootstrap()
         await state.signUp()
 
-        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
-
-        state.dismissImprovementsPrompt()
+        #expect(state.phase == .ready)
         #expect(!state.isImprovementsPromptPresented)
-        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+    }
+
+    /// "Show only on the first account": the first sign-up is asked, closing the sheet without
+    /// touching a switch records a decline, and the second account signed up on this Mac is not
+    /// asked again — the same receipt-driven flow as iOS.
+    @MainActor
+    @Test func closingThePromptRecordsADeclineSoTheNextAccountIsNotAsked() async throws {
+        let (state, runtime) = Self.improvementsPromptWorkspace()
+        let diagnostics = DiagnosticsSettingsViewModel(runtime: runtime)
+
+        await state.bootstrap()
+        await state.signUp()
+        #expect(state.isImprovementsPromptPresented)
+
+        await diagnostics.load()
+        #expect(diagnostics.isPromptPending)
+        #expect(await diagnostics.finishPrompt())
+        state.dismissImprovementsPrompt()
+
+        #expect(runtime.usageSettings.decision == .declined)
+        #expect(!state.isImprovementsPromptPresented)
+
+        // A second account entering Chats on the same Mac.
+        await state.presentImprovementsPromptIfNeeded(
+            forEnteredAccountIdHex: state.activeAccount?.accountIdHex
+        )
+        #expect(!state.isImprovementsPromptPresented)
+    }
+
+    /// A choice the user made with a switch is the answer; closing must not overwrite it.
+    @MainActor
+    @Test func closingThePromptAfterOptingInKeepsTheOptIn() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let diagnostics = DiagnosticsSettingsViewModel(runtime: runtime)
+
+        await diagnostics.load()
+        await diagnostics.setEnabled(true)
+
+        #expect(await diagnostics.finishPrompt())
+        #expect(runtime.usageSettings.decision == .granted)
     }
 
     /// The regression that shipped: the hook went on `signUp()`, which **no view calls**. The
@@ -444,8 +449,7 @@ struct AccountTests: WorkspaceTestSupport {
     /// rather than through `signUp()`, so it keeps failing if the pane is ever repointed again.
     @MainActor
     @Test func completingSignUpFromThePaneOffersTheImprovementsPrompt() async throws {
-        let store = FakeImprovementsPromptStore()
-        let (state, runtime) = Self.improvementsPromptWorkspace(store: store)
+        let (state, runtime) = Self.improvementsPromptWorkspace()
 
         await state.bootstrap()
         state.showSignUp()
@@ -459,14 +463,13 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(runtime.initialProfileArguments.map(\.displayName) == ["Pepi"])
         #expect(runtime.publishUserProfileCallCount == 0)
         #expect(state.isImprovementsPromptPresented)
-        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
     }
 
     /// MarmotKit 0.13: the name and about the user typed are identity creation's first kind 0,
     /// so a sign-up without a photo never publishes the key-derived default first.
     @MainActor
     @Test func signUpWithoutAPhotoCreatesTheIdentityWithTheTypedProfileAndPublishesNothingElse() async throws {
-        let (state, runtime) = Self.improvementsPromptWorkspace(store: FakeImprovementsPromptStore())
+        let (state, runtime) = Self.improvementsPromptWorkspace()
 
         await state.bootstrap()
         state.showSignUp()
@@ -488,7 +491,7 @@ struct AccountTests: WorkspaceTestSupport {
     /// and returns what its bootstrap publishes; the typed profile must still reach relays then.
     @MainActor
     @Test func signUpPublishesTheTypedProfileWhenIdentityCreationIgnoredIt() async throws {
-        let (state, runtime) = Self.improvementsPromptWorkspace(store: FakeImprovementsPromptStore())
+        let (state, runtime) = Self.improvementsPromptWorkspace()
         runtime.ignoresInitialProfile = true
 
         await state.bootstrap()
@@ -506,7 +509,7 @@ struct AccountTests: WorkspaceTestSupport {
     /// returned: it cannot know the typed one went out and must publish it itself.
     @MainActor
     @Test func signUpRetryAfterStartFailurePublishesTheTypedProfile() async throws {
-        let (state, runtime) = Self.improvementsPromptWorkspace(store: FakeImprovementsPromptStore())
+        let (state, runtime) = Self.improvementsPromptWorkspace()
 
         await state.bootstrap()
         state.showSignUp()
@@ -535,8 +538,7 @@ struct AccountTests: WorkspaceTestSupport {
     /// offered the choice too. Reaching it needs a publish failure to leave the account behind.
     @MainActor
     @Test func leavingTheSignUpPaneWithAMintedIdentityOffersTheImprovementsPrompt() async throws {
-        let store = FakeImprovementsPromptStore()
-        let (state, runtime) = Self.improvementsPromptWorkspace(store: store)
+        let (state, runtime) = Self.improvementsPromptWorkspace()
 
         await state.bootstrap()
         state.showSignUp()
@@ -569,46 +571,24 @@ struct AccountTests: WorkspaceTestSupport {
             running: false,
             unlinked: false
         )
-        let store = FakeImprovementsPromptStore()
         let runtime = FakeMarmotRuntime(accounts: [account])
-        let state = WorkspaceState(improvementsPromptStore: store, clientFactory: { runtime })
+        let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
 
         #expect(state.phase == .ready)
         #expect(!state.isImprovementsPromptPresented)
-        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+        #expect(runtime.usageSettings.decision == .acceptanceRequired)
     }
 
+    /// "Erase App Data" takes down a prompt that is up.
     @MainActor
-    @Test func removingAnIdentityDropsItsImprovementsPromptRecord() async throws {
-        let store = FakeImprovementsPromptStore()
-        let (state, _) = Self.improvementsPromptWorkspace(store: store)
-
-        await state.bootstrap()
-        await state.signUp()
-        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
-
-        state.dismissImprovementsPrompt()
-        await state.removeActiveAccount()
-
-        // A later sign-in with the same key is a fresh identity on this Mac, and inherits nothing.
-        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
-    }
-
-    /// "Erase App Data" resets the Mac to a newly installed state, which has asked nobody.
-    @MainActor
-    @Test func resettingToANewInstallClearsEveryImprovementsPromptRecord() async throws {
-        let store = FakeImprovementsPromptStore(
-            offered: [Self.improvementsPromptAccountIdHex, "0011"]
-        )
-        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+    @Test func resettingToANewInstallClosesTheImprovementsPrompt() async throws {
+        let (state, _) = Self.improvementsPromptWorkspace()
 
         state.isImprovementsPromptPresented = true
         state.resetToNewInstallState(storageRootPath: TestStorageRoot.isolated.resolvedPath())
 
-        #expect(store.clearAllCallCount == 1)
-        #expect(store.offered.isEmpty)
         #expect(!state.isImprovementsPromptPresented)
     }
 
@@ -623,34 +603,27 @@ struct AccountTests: WorkspaceTestSupport {
     /// the guard is pinned deterministically.
     @MainActor
     @Test func theImprovementsPromptIsDroppedWhenTheIdentityChangedWhileEntering() async throws {
-        let store = FakeImprovementsPromptStore(offered: [Self.improvementsPromptAccountIdHex])
-        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+        let (state, _) = Self.improvementsPromptWorkspace()
 
         await state.bootstrap()
         state.showLogin()
         state.loginIdentity = "nsec1desktop"
         await state.login()
-        #expect(!state.isImprovementsPromptPresented)
-
-        // The identity now active has never been offered the choice, so the record is no longer
-        // what keeps the prompt down — only the identity guard is.
-        store.clearAll()
+        // The receipt is still pending, so only the identity guard keeps the prompt down below.
+        state.dismissImprovementsPrompt()
 
         let identityThatEntered = String(repeating: "f", count: 64)
-        state.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: identityThatEntered)
+        await state.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: identityThatEntered)
 
         #expect(!state.isImprovementsPromptPresented)
-        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
-        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: identityThatEntered))
 
         // Positive control: the guard refuses a *mismatch*, not every caller. Without this the
         // test above would still pass if the prompt had simply been broken outright.
-        state.presentImprovementsPromptIfNeeded(
+        await state.presentImprovementsPromptIfNeeded(
             forEnteredAccountIdHex: Self.improvementsPromptAccountIdHex
         )
 
         #expect(state.isImprovementsPromptPresented)
-        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
     }
 
     @MainActor
