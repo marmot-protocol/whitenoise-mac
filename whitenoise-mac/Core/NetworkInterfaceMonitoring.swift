@@ -1,6 +1,9 @@
-//
+// coverage:ignore-file
 //  NetworkInterfaceMonitoring.swift
 //  whitenoise-mac
+//
+//  Ignored by coverage: it wraps the system `NWPathMonitor`, which no unit test can script.
+//  Tests drive the offline banner through the `NetworkInterfaceMonitoring` protocol instead.
 //
 //  First half of the offline check: whether the OS believes there is a network
 //  interface to send anything over.

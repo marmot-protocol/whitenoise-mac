@@ -32,7 +32,8 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 .
 ├── AGENTS.md                  Notes for automated agents working in this repo
 ├── Config/                    Build settings & secrets (xcconfig + Info.plist)
-│   ├── AppBuild.xcconfig       Shared Debug/Release build settings (production flavor)
+│   ├── AppBuild.xcconfig       Shared build settings (production flavor, Release)
+│   ├── Development.xcconfig    Development flavor overrides (Debug)
 │   ├── Staging.xcconfig        Staging flavor overrides (Debug-Staging / Release-Staging)
 │   ├── AppSecrets.xcconfig.example  Template for local-only secrets (gitignored copy)
 │   └── Info.plist              App bundle metadata + telemetry keys
@@ -98,31 +99,36 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 3. **Select the `whitenoise-mac` scheme** and build/run (⌘R) on a "My Mac"
    destination.
 
-### Production and staging
+### Production, development and staging
 
-Like the iOS app, the Mac app builds in two flavors that install side by side:
+The Mac app builds in three flavors that install side by side:
 
-| | Production | Staging |
-| --- | --- | --- |
-| Scheme | `whitenoise-mac` | `whitenoise-mac (Staging)` |
-| Configurations | `Debug`, `Release` | `Debug-Staging`, `Release-Staging` |
-| App | `White Noise.app` | `White Noise Staging.app` (shown as "WN Staging", blue icon) |
-| Bundle ID | `dev.ipf.whitenoise.mac` | `dev.ipf.whitenoise.mac.staging` |
-| Application Support | `White Noise/` | `White Noise Staging/` |
-| Keychain services | `com.marmot.whitenoise`, `dev.ipf.whitenoise.media-cache` | the same with a `.staging` suffix |
-| URL scheme | `marmot` | `marmot-staging` |
-| Moderation reports | staging key in Debug, production key in Release | always the staging key |
+| | Production | Development | Staging |
+| --- | --- | --- | --- |
+| Scheme | `whitenoise-mac` | `whitenoise-mac` | `whitenoise-mac (Staging)` |
+| Configurations | `Release` | `Debug` | `Debug-Staging`, `Release-Staging` |
+| App | `White Noise.app` | `White Noise Dev.app` (shown as "WN Dev", blue icon) | `White Noise Staging.app` (shown as "WN Staging", blue icon) |
+| Bundle ID | `dev.ipf.whitenoise.mac` | `dev.ipf.whitenoise.mac.dev` | `dev.ipf.whitenoise.mac.staging` |
+| Application Support | `White Noise/` | `White Noise Dev/` | `White Noise Staging/` |
+| Keychain services | `com.marmot.whitenoise`, `dev.ipf.whitenoise.media-cache` | the same with a `.dev` suffix | the same with a `.staging` suffix |
+| URL scheme | `marmot` | `marmot-dev` | `marmot-staging` |
+| Moderation reports | production key | staging key | staging key |
 
-Staging shares no data with production, so it can be deleted and rebuilt from
-scratch to test flows (onboarding, sign-in, migrations) without touching your
-real account. From the command line:
+Development and staging share no data with production, so they can be deleted
+and rebuilt from scratch to test flows (onboarding, sign-in, migrations) without
+touching your real account. A Debug build never reads or writes an installed
+White Noise; debugging against real data needs a Release build. From the
+command line:
 
 ```sh
+just run             # build Debug and launch White Noise Dev
+just reset-dev       # wipe every byte of development data
 just run-staging     # build Debug-Staging and launch White Noise Staging
 just reset-staging   # wipe every byte of staging data; production is untouched
 ```
 
-Unit tests always run against the production flavor.
+Unit tests run against the development flavor, and the test host never opens
+a Marmot root or connects to a relay of its own.
 
 > The app uses a single `Window` scene (not `WindowGroup`) intentionally — the
 > whole UI is driven by one shared `WorkspaceState`, so multi-window is
@@ -174,9 +180,10 @@ xcodebuild test \
 
 - `whitenoise-macTests/` — the unit-test target run by the shared scheme above.
 
-When validating the running app, keep exactly one `White Noise` instance alive
-(see `AGENTS.md`): do not use `open -n`; quit/terminate the existing process
-before relaunching.
+When validating the running app, keep exactly one `White Noise Dev` instance
+alive (see `AGENTS.md`): do not use `open -n`; quit/terminate the existing
+process before relaunching. Never quit an installed `White Noise`: it is the
+real app.
 
 ## Security & privacy
 

@@ -2849,6 +2849,31 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(!state.showsMessengerChrome)
     }
 
+    /// MDK keeps device-bound account databases under the Marmot root, so a restored backup of it
+    /// is unreadable. An install from before the exclusion existed already has the directory, which
+    /// is why resolving an existing root has to mark it too.
+    @Test(arguments: [false, true])
+    func marmotStorageRootIsExcludedFromBackup(rootAlreadyExists: Bool) throws {
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-storage-root-tests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+        let expectedRoot =
+            sandbox
+            .appendingPathComponent(AppFlavor.current.applicationSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("Marmot", isDirectory: true)
+        if rootAlreadyExists {
+            try fileManager.createDirectory(at: expectedRoot, withIntermediateDirectories: true)
+        }
+
+        let path = try MarmotStorageRoot.resolve(baseURL: sandbox, fileManager: fileManager)
+
+        #expect(path == expectedRoot.path)
+        let values = try URL(fileURLWithPath: path).resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(values.isExcludedFromBackup == true)
+    }
+
     @Test func marmotStorageRootPropagatesDirectoryCreationFailures() throws {
         let fileManager = FileManager.default
         let sandbox = fileManager.temporaryDirectory
@@ -2856,12 +2881,13 @@ struct AccountTests: WorkspaceTestSupport {
         try fileManager.createDirectory(at: sandbox, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: sandbox) }
 
-        let blockedParent = sandbox.appendingPathComponent("White Noise", isDirectory: false)
+        let blockedParent = sandbox.appendingPathComponent(
+            AppFlavor.current.applicationSupportDirectoryName, isDirectory: false)
         try Data().write(to: blockedParent)
 
         let expectedRoot =
             sandbox
-            .appendingPathComponent("White Noise", isDirectory: true)
+            .appendingPathComponent(AppFlavor.current.applicationSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("Marmot", isDirectory: true)
             .path
 
@@ -2886,7 +2912,8 @@ struct AccountTests: WorkspaceTestSupport {
         try fileManager.createDirectory(at: sandbox, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: sandbox) }
 
-        let whiteNoiseDirectory = sandbox.appendingPathComponent("White Noise", isDirectory: true)
+        let whiteNoiseDirectory = sandbox.appendingPathComponent(
+            AppFlavor.current.applicationSupportDirectoryName, isDirectory: true)
         try fileManager.createDirectory(at: whiteNoiseDirectory, withIntermediateDirectories: true)
 
         let marmotRoot = whiteNoiseDirectory.appendingPathComponent("Marmot", isDirectory: false)

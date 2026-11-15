@@ -49,7 +49,8 @@ assert_entitlement_true() {
 
 build_settings_file="$(mktemp)"
 staging_build_settings_file="$(mktemp)"
-trap 'rm -f "$build_settings_file" "$staging_build_settings_file"' EXIT
+debug_build_settings_file="$(mktemp)"
+trap 'rm -f "$build_settings_file" "$staging_build_settings_file" "$debug_build_settings_file"' EXIT
 
 xcodebuild \
   -project "$PROJECT" \
@@ -62,6 +63,12 @@ xcodebuild \
   -target "$APP_TARGET" \
   -configuration Release-Staging \
   -showBuildSettings > "$staging_build_settings_file"
+
+xcodebuild \
+  -project "$PROJECT" \
+  -target "$APP_TARGET" \
+  -configuration Debug \
+  -showBuildSettings > "$debug_build_settings_file"
 
 build_setting() {
   local key="$1"
@@ -93,11 +100,20 @@ assert_staging_build_setting_equals() {
   [[ "$actual" == "$expected" ]] || fail "Release-Staging build setting $key expected '$expected' but found '$actual'"
 }
 
+assert_debug_build_setting_equals() {
+  local key="$1"
+  local expected="$2"
+  local actual
+  actual="$(build_setting "$key" "$debug_build_settings_file")"
+  [[ "$actual" == "$expected" ]] || fail "Debug build setting $key expected '$expected' but found '$actual'"
+}
+
 plutil -lint "$INFO_PLIST" >/dev/null
 plutil -lint "$ENTITLEMENTS" >/dev/null
 
 # The display name, URL scheme and flavor come from the build flavor (Config/AppBuild.xcconfig for
-# production, Config/Staging.xcconfig for staging); their production values are asserted below.
+# production, Config/Staging.xcconfig for staging, Config/Development.xcconfig for Debug); their
+# production values are asserted below.
 assert_plist_equals "$INFO_PLIST" "CFBundleDisplayName" "\$(WN_DISPLAY_NAME)"
 assert_plist_equals "$INFO_PLIST" "CFBundleURLTypes:0:CFBundleURLSchemes:0" "\$(WN_URL_SCHEME)"
 assert_plist_equals "$INFO_PLIST" "WhiteNoiseBuildFlavor" "\$(WN_FLAVOR)"
@@ -141,6 +157,17 @@ assert_staging_build_setting_equals "WN_TELEMETRY_ENVIRONMENT" "staging"
 assert_staging_build_setting_equals "ASSETCATALOG_COMPILER_APPICON_NAME" "AppIcon-Staging"
 assert_staging_build_setting_equals "CODE_SIGN_ENTITLEMENTS" "whitenoise-mac/whitenoise-mac.entitlements"
 assert_staging_build_setting_equals "ENABLE_APP_SANDBOX" "YES"
+
+# Debug is the development flavor, and the unit-test host. As production it would share a real
+# install's preferences domain, Application Support directory, keychain items and URL scheme.
+assert_debug_build_setting_equals "PRODUCT_BUNDLE_IDENTIFIER" "dev.ipf.whitenoise.mac.dev"
+assert_debug_build_setting_equals "PRODUCT_NAME" "White Noise Dev"
+assert_debug_build_setting_equals "PRODUCT_MODULE_NAME" "$(build_setting "PRODUCT_MODULE_NAME")"
+assert_debug_build_setting_equals "WN_FLAVOR" "development"
+assert_debug_build_setting_equals "WN_URL_SCHEME" "marmot-dev"
+assert_debug_build_setting_equals "WN_TELEMETRY_ENVIRONMENT" "development"
+assert_debug_build_setting_equals "CODE_SIGN_ENTITLEMENTS" "whitenoise-mac/whitenoise-mac.entitlements"
+assert_debug_build_setting_equals "ENABLE_APP_SANDBOX" "YES"
 
 # MarmotKit is a pinned remote binary target, so there is no XCFramework in the
 # repo to inspect. What can drift instead is the pin itself: the three `let`s in

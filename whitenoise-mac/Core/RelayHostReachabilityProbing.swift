@@ -1,6 +1,9 @@
-//
+// coverage:ignore-file
 //  RelayHostReachabilityProbing.swift
 //  whitenoise-mac
+//
+//  Ignored by coverage: it opens real TCP sockets to relay hosts, which no unit test may do.
+//  Tests drive the offline banner through the `RelayHostReachabilityProbing` protocol instead.
 //
 
 import Foundation

@@ -2,6 +2,10 @@ import Foundation
 
 struct AppLaunchConfiguration {
     let uiFixtureName: String?
+    /// XCTest launched this process to host the unit tests. The tests build their own workspaces on
+    /// fake runtimes, so the host's own must never start: it would open the flavor's real Marmot
+    /// root and keychain items and connect to relays for the whole run.
+    let isUnitTestHost: Bool
 
     /// A DEBUG launch on an in-memory fixture runtime (`-uiFixture`), which the shell keeps off
     /// the network and away from system prompts.
@@ -18,7 +22,8 @@ struct AppLaunchConfiguration {
             uiFixtureName: fixtureName(
                 arguments: ProcessInfo.processInfo.arguments,
                 environment: ProcessInfo.processInfo.environment
-            )
+            ),
+            isUnitTestHost: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         )
     }
 

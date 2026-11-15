@@ -5,29 +5,37 @@ build/test workflow or the MarmotKit boundary changes.
 
 ## Running the app
 
-- When validating the macOS app, keep exactly one `White Noise` instance running (the staging
-  app is a separate process, `White Noise Staging`, and may run alongside it).
-  Do not use `open -n`; before relaunching, quit or terminate the existing
-  `White Noise` process, then launch a single replacement through Xcode or the
-  built app.
+- When validating the macOS app, keep exactly one `White Noise Dev` instance running (the Debug
+  build; an installed `White Noise` and the `White Noise Staging` app are separate processes and
+  may run alongside it). Do not use `open -n`; before relaunching, quit or terminate the existing
+  `White Noise Dev` process, then launch a single replacement through Xcode or `just run`.
+  Never quit or relaunch an installed `White Noise`: it is the user's real app.
 
 ## Build flavors
 
-The app builds as **production** (scheme `whitenoise-mac`, configurations `Debug`/`Release`,
-`dev.ipf.whitenoise.mac`) or **staging** (scheme `whitenoise-mac (Staging)`, configurations
-`Debug-Staging`/`Release-Staging`, `dev.ipf.whitenoise.mac.staging`, product `White Noise Staging`).
-Flavor values live in `Config/AppBuild.xcconfig` (production defaults) and `Config/Staging.xcconfig`;
-the app reads its flavor from the `WhiteNoiseBuildFlavor` Info.plist key through
-`Core/AppFlavor.swift`.
+The app builds as **production** (scheme `whitenoise-mac`, configuration `Release`,
+`dev.ipf.whitenoise.mac`), **development** (scheme `whitenoise-mac`, configuration `Debug`,
+`dev.ipf.whitenoise.mac.dev`, product `White Noise Dev`) or **staging** (scheme
+`whitenoise-mac (Staging)`, configurations `Debug-Staging`/`Release-Staging`,
+`dev.ipf.whitenoise.mac.staging`, product `White Noise Staging`). Flavor values live in
+`Config/AppBuild.xcconfig` (production defaults), `Config/Development.xcconfig` and
+`Config/Staging.xcconfig`; the app reads its flavor from the `WhiteNoiseBuildFlavor` Info.plist key
+through `Core/AppFlavor.swift`.
 
 - Production's bundle id, product name, Application Support directory (`White Noise`), keychain
   services and URL scheme (`marmot`) are what existing installs use. Never change them.
 - A new on-disk root or keychain service must be named through `AppFlavor`, not a literal: an
   unsigned build (`just run`) is unsandboxed and the login keychain is shared by service name, so
-  the bundle id alone does not keep staging off production's data.
-- Tests run only against the production flavor (`AppFlavorTests` asserts the host is production).
-- `just run-staging` / `just reset-staging` build and wipe the staging app; `just sanity` asserts
-  both flavors' identities.
+  the bundle id alone does not keep staging or development off production's data.
+- Debug is never production, so a Debug build (Xcode, `just run`, the unit-test host, a
+  `-uiFixture` launch) cannot read or write a real install. Debugging against real data needs a
+  Release build.
+- Unit tests run against the development flavor (`AppFlavorTests` asserts the host is
+  development). The test host never bootstraps its own workspace (`AppLaunchConfiguration
+  .isUnitTestHost`): it opens no Marmot root and connects to no relay, and every test builds its
+  own workspace on a fake runtime.
+- `just run` / `just reset-dev` build and wipe the development app, `just run-staging` /
+  `just reset-staging` the staging app; `just sanity` asserts all three flavors' identities.
 
 ## Building and testing
 

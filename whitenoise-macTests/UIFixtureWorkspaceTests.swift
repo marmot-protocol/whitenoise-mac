@@ -62,8 +62,8 @@ struct UIFixtureWorkspaceTests: WorkspaceTestSupport {
         }
     }
 
-    /// A fixture launch is the same app as a normal one, so the shared media cache would be the real
-    /// install's Application Support directory and keychain item. Its images go in its own.
+    /// A fixture launch is the same app as a normal Debug one, so the shared media cache would be the
+    /// development app's Application Support directory and keychain item. Its images go in its own.
     @Test func heavyChatFixtureCachesMediaInItsOwnDirectory() async throws {
         try await Self.withHeavyChat { state, _, _ in
             let cacheDirectory = try #require(state.mediaDiskCache.testingResolvedDirectoryURL)
