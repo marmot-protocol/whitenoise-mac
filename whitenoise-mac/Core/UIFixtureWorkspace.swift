@@ -67,6 +67,10 @@
                 conversationWindowVisibilityProvider: { true },
                 clientFactory: { runtime }
             )
+            // Named before bootstrap, so bootstrap keeps it rather than picking one and saving that
+            // as the account the next normal launch reopens: a fixture launch shares the app's
+            // preferences.
+            state.activeAccountId = AccountItem(summary: account).id
             // Opens on the heavy chat, so a UI test starts at its transcript.
             state.selection = .chat(heavyChatId)
             return state

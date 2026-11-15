@@ -35,4 +35,18 @@ struct UIFixtureWorkspaceTests: WorkspaceTestSupport {
         #expect(messages.contains { !$0.timeline.media.isEmpty })
         #expect(messages.contains { $0.references.reactions.totalCount > 0 })
     }
+
+    /// A fixture launch is the same app as a normal one, so it shares its preferences. Its bootstrap
+    /// must not replace the account the next normal launch reopens.
+    @Test func heavyChatFixtureLeavesTheSavedAccountAlone() async throws {
+        let key = WorkspaceState.activeAccountKey
+        let saved = UserDefaults.standard.string(forKey: key)
+        defer { UserDefaults.standard.set(saved, forKey: key) }
+        UserDefaults.standard.set("a-real-account", forKey: key)
+
+        let (state, _, _) = try await Self.openHeavyChat()
+
+        #expect(state.activeAccount != nil)
+        #expect(UserDefaults.standard.string(forKey: key) == "a-real-account")
+    }
 }
