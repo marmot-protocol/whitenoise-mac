@@ -81,7 +81,10 @@ state, and order-dependent breakage only shows up in a full pass.
 
 UI performance tests live in `whitenoise-macUITests/`, are isolated in the
 `UIPerformance` test plan, and launch the app with the DEBUG-only
-`-uiFixture heavy-chat` argument for deterministic chat/search/media data.
+`-uiFixture heavy-chat` argument for deterministic chat/search/media data. The fixture
+(`Core/UIFixtureWorkspace.swift`) runs the app's real bootstrap, account scope and
+conversation window over `FakeMarmotRuntime`, so it opens on the heavy chat's transcript. The
+transcript is an `NSTableView`: find it as `app.tables["conversation.transcript"]`.
 
 ## Test isolation on disk
 
@@ -223,8 +226,10 @@ build.
   Intel or universal build upstream, so the app stays arm64-only.
 - `MarmotRuntime` (in `Core/MarmotClient.swift`) is the `nonisolated` protocol the
   app calls; the concrete `MarmotClient` forwards thinly to the generated `Marmot`
-  object, and `FakeMarmotRuntime` in the tests mirrors it. **Adding an FFI method
-  means updating all three.**
+  object, and `FakeMarmotRuntime` mirrors it. **Adding an FFI method means updating all
+  three.** The fake and the test support it needs live in `whitenoise-mac/DebugSupport/`,
+  compiled into DEBUG builds only (and ignored by coverage) so the UI fixture can run on it;
+  the tests use it through `FakeMarmotRuntime(accounts:)`, which keeps the per-test storage root.
 - Projection subscriptions are owned below `Session/AccountScope.swift` and use
   cancellation-aware `nextCancellable()` bridges. Since 0.16.0 MarmotKit generates five of them
   (chat list, chat-list window, account attention, conversation window, block list); the
