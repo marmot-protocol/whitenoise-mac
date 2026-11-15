@@ -370,7 +370,9 @@
                         MediaLocatorFfi(kind: "blossom", value: "https://fixture.invalid/\(fileName)")
                     ],
                     ciphertextSha256: hex64(messageIndex &* 31 &+ attachmentIndex),
-                    plaintextSha256: hex64(messageIndex &* 43 &+ attachmentIndex &+ 10_000),
+                    // The digest of the bytes the runtime serves: the media cache keeps only bytes
+                    // that match their reference, so a made-up digest is never cached.
+                    plaintextSha256: fixtureImageDigest,
                     nonceHex: hex24(messageIndex &* 59 &+ attachmentIndex),
                     fileName: fileName,
                     mediaType: "image/png",
@@ -412,7 +414,9 @@
             }
         }
 
-        private static var fixtureImageData: Data {
+        private static let fixtureImageDigest = MessageMediaDiskCacheKey.plaintextDigest(for: fixtureImageData)
+
+        private static let fixtureImageData: Data = {
             let fallback =
                 Data(
                     base64Encoded:
@@ -435,7 +439,8 @@
                 let png = bitmap.representation(using: .png, properties: [:])
             else { return fallback }
             return png
-        }
+        }()
+
         private static func markdownDocument(
             blocks: [MarkdownBlockFfi],
             truncated: Bool

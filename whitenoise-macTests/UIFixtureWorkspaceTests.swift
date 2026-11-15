@@ -72,6 +72,26 @@ struct UIFixtureWorkspaceTests: WorkspaceTestSupport {
         }
     }
 
+    /// The media cache keeps only bytes whose digest matches the reference, so a fixture image whose
+    /// reference names other bytes is never cached and the warm-cache path goes unexercised.
+    @Test func heavyChatFixtureMediaMatchesItsReferences() async throws {
+        try await Self.withHeavyChat { state, account, model in
+            let client = try #require(state.client)
+            let references = try #require(model.snapshot?.messages).flatMap { message in
+                message.timeline.media.compactMap { outcome -> MediaAttachmentReferenceFfi? in
+                    if case .accepted(_, let reference) = outcome { return reference }
+                    return nil
+                }
+            }
+            #expect(!references.isEmpty)
+            for reference in references.prefix(3) {
+                let download = try await client.downloadMedia(
+                    accountRef: account.accountRef, groupIdHex: model.groupIdHex, reference: reference)
+                #expect(MessageMediaDiskCacheKey.plaintextDigest(for: download.plaintext) == reference.plaintextSha256)
+            }
+        }
+    }
+
     /// A fixture launch is the same app as a normal one, so it shares its preferences. Its bootstrap
     /// must not replace the account the next normal launch reopens.
     @Test func heavyChatFixtureLeavesTheSavedAccountAlone() async throws {
