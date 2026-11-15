@@ -14,56 +14,66 @@
         }
     }
 
+    /// The DEBUG-only `-uiFixture heavy-chat` workspace: one signed-in account on an in-memory
+    /// `FakeMarmotRuntime`, so a UI test drives the app's real session, chat list and conversation
+    /// code against deterministic data, with no network and nothing read from or written to the
+    /// user's real account directory.
+    ///
+    /// It has to be a runtime underneath rather than rows handed to the views: the conversation
+    /// pane is built from the account scope, which exists only once the runtime has brought the
+    /// account online. A fixture that seeded the views directly stopped showing a transcript when
+    /// the conversation moved onto `AccountScope`.
     private enum UIFixtureWorkspace {
-        private static let account = AccountItem(
-            id: "ui-fixture-account",
-            accountRef: "ui-fixture",
-            displayName: "UI Fixture",
+        private static let account = AccountSummaryFfi(
+            label: "UI Fixture",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
-            npub: nil,
-            initials: "UI",
-            pictureURL: nil,
-            localSigning: false,
-            isRunning: false
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
         )
 
         private static let heavyChatId = "ui-fixture-heavy-chat"
+        private static let heavyChatTitle = "Heavy Chat Fixture"
         private static let baseDate = Date(timeIntervalSince1970: 1_787_000_000)
+        private static let messageCount = 900
 
         static func makeHeavyChatWorkspace() -> WorkspaceState {
-            let chats = makeChats()
-            let allMessages = makeMessages()
-            let messages = Array(allMessages.suffix(WorkspaceState.timelineWindowLimit))
+            // A fresh directory per launch: the file stores `WorkspaceState` keeps beside the core
+            // (hidden messages, pins, nicknames) never see another launch's records.
+            let storageRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("whitenoise-ui-fixture-\(UUID().uuidString)", isDirectory: true)
+            let runtime = FakeMarmotRuntime(accounts: [account], storageRootPath: storageRoot.path)
+            runtime.installProfile(
+                accountIdHex: account.accountIdHex,
+                profile: UserProfileMetadataFfi(
+                    name: "ui-fixture",
+                    displayName: "UI Fixture",
+                    about: nil,
+                    picture: nil,
+                    nip05: nil,
+                    lud16: nil
+                )
+            )
+            runtime.installGroups(makeGroups())
+
+            let messages = Array(makeMessages().suffix(WorkspaceState.timelineWindowLimit))
+            runtime.conversationWindowInitialSnapshots[heavyChatId] = conversationSnapshot(messages: messages)
+            installMedia(for: messages, in: runtime)
+
             let state = WorkspaceState(
-                accounts: [account],
-                chatsByAccount: [account.id: chats],
-                messagesByChat: [heavyChatId: messages],
                 appActivityProvider: { true },
                 conversationWindowVisibilityProvider: { true },
-                clientFactory: { throw PreviewRuntimeError() }
+                clientFactory: { runtime }
             )
-            state.activeAccountId = account.id
+            // Opens on the heavy chat, so a UI test starts at its transcript.
             state.selection = .chat(heavyChatId)
-            preloadMediaDownloads(for: messages, in: state)
             return state
         }
 
-        private static func makeChats() -> [ChatItem] {
-            var chats = [
-                ChatItem(
-                    id: heavyChatId,
-                    title: "Heavy Chat Fixture",
-                    subtitle: "\(WorkspaceState.timelineWindowLimit) visible of 900 messages",
-                    preview:
-                        "Deterministic scroll, markdown, reaction, and media stress data at the production window cap.",
-                    updatedAt: baseDate,
-                    avatarSeed: heavyChatId,
-                    pictureURL: nil,
-                    unreadCount: 12,
-                    unreadMentionCount: 3
-                )
-            ]
-
+        private static func makeGroups() -> [AppGroupRecordFfi] {
+            var groups = [group(id: heavyChatId, name: heavyChatTitle)]
             for index in 1...220 {
                 let bucket: String
                 switch index % 5 {
@@ -78,56 +88,154 @@
                 default:
                     bucket = "Search Load"
                 }
-
-                chats.append(
-                    ChatItem(
-                        id: "ui-fixture-chat-\(index)",
-                        title: "\(bucket) \(index)",
-                        subtitle: index % 4 == 0 ? "Direct message" : "\(2 + index % 37) members",
-                        preview: "Fixture preview \(index) with searchable terms and stable ordering.",
-                        updatedAt: baseDate.addingTimeInterval(Double(-index * 137)),
-                        avatarSeed: "ui-fixture-chat-\(index)",
-                        pictureURL: nil,
-                        unreadCount: index % 7,
-                        unreadMentionCount: index % 19 == 0 ? 1 : 0,
-                        isDirect: index % 4 == 0
-                    )
-                )
+                groups.append(group(id: "ui-fixture-chat-\(index)", name: "\(bucket) \(index)"))
             }
-
-            return chats
+            return groups
         }
 
-        private static func makeMessages() -> [MessageItem] {
-            (0..<900).map { index in
-                let isOutgoing = index % 3 == 0
-                let sender = senderName(index: index, isOutgoing: isOutgoing)
-                let mediaAttachments = makeMediaAttachments(messageIndex: index)
-                let usesMarkdown = index % 7 == 0
-                let body = messageBody(index: index, usesMarkdown: usesMarkdown, hasMedia: !mediaAttachments.isEmpty)
-                let invalidationStatus = deliveryFixtureInvalidationStatus(index: index)
+        private static func group(id: String, name: String) -> AppGroupRecordFfi {
+            AppGroupRecordFfi(
+                groupIdHex: id,
+                endpoint: "",
+                name: name,
+                description: "",
+                admins: [],
+                relays: MarmotClient.seedRelays,
+                nostrGroupIdHex: "",
+                avatarUrl: nil,
+                avatarDim: nil,
+                avatarThumbhash: nil,
+                imageHashHex: nil,
+                encryptedMedia: encryptedMediaComponent(),
+                disappearingMessageSecs: 0,
+                archived: false,
+                pendingConfirmation: false,
+                selfMembership: .member,
+                welcomerAccountIdHex: nil,
+                viaWelcomeMessageIdHex: nil
+            )
+        }
 
-                return MessageItem(
-                    id: "ui-fixture-message-\(index)",
-                    groupIdHex: heavyChatId,
+        private static func makeMessages() -> [ConversationMessageFfi] {
+            (0..<messageCount).map { index in
+                let isOutgoing = index % 3 == 0
+                let media = makeMediaReferences(messageIndex: index)
+                let usesMarkdown = index % 7 == 0
+                let invalidationStatus = deliveryFixtureInvalidationStatus(index: index)
+                let record = timelineMessage(
+                    id: messageId(index),
                     // Every ordinary row is relay-confirmed. Without a source id an old outgoing row
                     // reads as an unconfirmed send past its grace window and shows the red marker,
                     // which would hide the delivery fixtures below among 300 false failures.
                     sourceMessageIdHex: invalidationStatus == MessageItem.localPublishFailedStatus
                         ? nil : "ui-fixture-source-\(index)",
-                    senderAccountIdHex: senderAccountId(index: index, isOutgoing: isOutgoing),
-                    senderName: sender,
-                    body: body,
-                    contentMarkdown: usesMarkdown ? richMarkdownDocument(index: index) : nil,
-                    sentAt: baseDate.addingTimeInterval(Double(index * 61)),
-                    timelineAt: UInt64(1_787_000_000 + index),
-                    invalidationStatus: invalidationStatus,
-                    isOutgoing: isOutgoing,
-                    reactions: reactions(index: index),
-                    replyContext: replyContext(index: index),
-                    mediaAttachments: mediaAttachments
+                    direction: isOutgoing ? "outbound" : "inbound",
+                    groupIdHex: heavyChatId,
+                    sender: senderAccountId(index: index, isOutgoing: isOutgoing),
+                    plaintext: messageBody(index: index, usesMarkdown: usesMarkdown, hasMedia: !media.isEmpty),
+                    recordedAt: UInt64(baseDate.timeIntervalSince1970) + UInt64(index * 61),
+                    media: media,
+                    replyToMessageIdHex: replyTarget(index: index).map { messageId($0) },
+                    replyPreview: replyPreview(index: index),
+                    contentTokens: usesMarkdown ? richMarkdownDocument(index: index) : emptyMarkdownDocument(),
+                    invalidationStatus: invalidationStatus
+                )
+                return ConversationMessageFfi(
+                    timeline: record,
+                    references: ConversationMessageReferencesFfi(
+                        messageIdHex: record.messageIdHex,
+                        sender: record.sender,
+                        replyAuthor: replyTarget(index: index).map {
+                            senderAccountId(index: $0, isOutgoing: $0 % 3 == 0)
+                        },
+                        mentions: [],
+                        mentionsTruncated: false,
+                        replyMentions: [],
+                        replyMentionsTruncated: false,
+                        system: nil,
+                        reactions: reactions(index: index)
+                    )
                 )
             }
+        }
+
+        private static func conversationSnapshot(messages: [ConversationMessageFfi]) -> ConversationWindowSnapshotFfi {
+            ConversationWindowSnapshotFfi(
+                revision: ConversationWindowRevisionFfi(generation: "ui-fixture", sequence: 1),
+                header: ConversationHeaderFfi(
+                    selected: ConversationPresentationFfi(
+                        title: .literal(text: heavyChatTitle),
+                        avatar: .placeholder(stableSeed: heavyChatId, source: .groupFallback),
+                        titleSource: .group,
+                        avatarSource: .groupFallback,
+                        peerId: nil,
+                        resolution: .cached
+                    ),
+                    memberCount: UInt64(senderNames.count + 1),
+                    archived: false,
+                    epoch: 1,
+                    lifecycle: .stable,
+                    disbanding: false,
+                    unrecoverable: false,
+                    capabilities: ConversationCapabilitiesFfi(
+                        participation: .active,
+                        isSelfAdmin: false,
+                        isLastAdmin: false,
+                        canSend: true,
+                        canInvite: false,
+                        canEditGroup: false,
+                        canLeave: true,
+                        requiresSelfDemoteBeforeLeave: false,
+                        canCancelLeave: false,
+                        canEnableDisbanding: false,
+                        canDisband: false
+                    ),
+                    avatarAsset: nil
+                ),
+                messages: messages,
+                identities: identities(),
+                readState: ConversationOpenReadStateFfi(
+                    initialized: true,
+                    lastReadMessageIdHex: messages.last?.timeline.messageIdHex,
+                    lastReadTimelineAt: messages.last?.timeline.timelineAt,
+                    manuallyMarkedUnread: false,
+                    unreadCount: 0,
+                    unreadMentionCount: 0,
+                    firstUnreadMessageIdHex: nil
+                ),
+                draft: SelectedMessageDraftFfi(
+                    revision: MessageDraftRevisionFfi(noPointer: .init()),
+                    draft: nil
+                ),
+                pendingConfirmation: false,
+                anchor: ConversationAnchorOutcomeFfi(kind: .latest, index: nil),
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            )
+        }
+
+        /// The names the transcript shows for each sender, carried by the window as the core's
+        /// prepared presentation.
+        private static func identities() -> [ConversationIdentityFfi] {
+            var identities = [identity(accountIdHex: account.accountIdHex, displayName: "UI Fixture")]
+            for (offset, name) in senderNames.enumerated() {
+                identities.append(identity(accountIdHex: incomingSenderId(offset), displayName: name))
+            }
+            return identities
+        }
+
+        private static func identity(accountIdHex: String, displayName: String) -> ConversationIdentityFfi {
+            ConversationIdentityFfi(
+                accountIdHex: accountIdHex,
+                displayName: displayName,
+                avatar: .placeholder(stableSeed: accountIdHex, source: .peerProfile),
+                hasCachedProfile: true,
+                avatarAsset: nil
+            )
+        }
+
+        private static func messageId(_ index: Int) -> String {
+            "ui-fixture-message-\(index)"
         }
 
         /// The delivery footer's three non-routine states, near the bottom of the chat so QA sees them
@@ -142,16 +250,14 @@
             }
         }
 
-        private static func senderName(index: Int, isOutgoing: Bool) -> String {
-            if isOutgoing { return "UI Fixture" }
-            let names = ["Avery", "Mina", "Noor", "Rafa", "Sam", "Tess", "Vik"]
-            return names[index % names.count]
-        }
+        private static let senderNames = ["Avery", "Mina", "Noor", "Rafa", "Sam", "Tess", "Vik"]
 
         private static func senderAccountId(index: Int, isOutgoing: Bool) -> String {
-            isOutgoing
-                ? account.accountIdHex
-                : hex64(index &* 97 &+ 3)
+            isOutgoing ? account.accountIdHex : incomingSenderId(index % senderNames.count)
+        }
+
+        private static func incomingSenderId(_ offset: Int) -> String {
+            hex64(offset &* 97 &+ 3)
         }
 
         private static func messageBody(index: Int, usesMarkdown: Bool, hasMedia: Bool) -> String {
@@ -188,66 +294,100 @@
             }
         }
 
-        private static func reactions(index: Int) -> [MessageReaction] {
-            guard index % 23 == 0 else { return [] }
-            return [
-                MessageReaction(emoji: "+1", count: 2, isOwn: index % 2 == 0),
-                MessageReaction(emoji: "OK", count: 1, isOwn: false),
+        private static func reactions(index: Int) -> ConversationReactionsFfi {
+            guard index % 23 == 0 else {
+                return ConversationReactionsFfi(totalCount: 0, totalKinds: 0, items: [], omittedKinds: 0)
+            }
+            let items = [
+                ConversationReactionFfi(
+                    emoji: "+1",
+                    count: 2,
+                    reactors: [incomingSenderId(0), account.accountIdHex],
+                    viewerReacted: index % 2 == 0,
+                    reactionMessageIdHex: "ui-fixture-reaction-\(index)-0"
+                ),
+                ConversationReactionFfi(
+                    emoji: "OK",
+                    count: 1,
+                    reactors: [incomingSenderId(1)],
+                    viewerReacted: false,
+                    reactionMessageIdHex: "ui-fixture-reaction-\(index)-1"
+                ),
             ]
+            return ConversationReactionsFfi(totalCount: 3, totalKinds: 2, items: items, omittedKinds: 0)
         }
 
-        private static func replyContext(index: Int) -> MessageReplyContext? {
+        private static func replyTarget(index: Int) -> Int? {
             guard index > 4, index % 19 == 0 else { return nil }
-            return MessageReplyContext(
-                targetMessageId: "ui-fixture-message-\(index - 4)",
-                senderName: senderName(index: index - 4, isOutgoing: (index - 4) % 3 == 0),
-                body: "Earlier fixture message \(index - 4)"
+            return index - 4
+        }
+
+        private static func replyPreview(index: Int) -> TimelineReplyPreviewFfi? {
+            guard let target = replyTarget(index: index) else { return nil }
+            return TimelineReplyPreviewFfi(
+                messageIdHex: messageId(target),
+                sender: senderAccountId(index: target, isOutgoing: target % 3 == 0),
+                plaintext: "Earlier fixture message \(target)",
+                contentTokens: emptyMarkdownDocument(),
+                kind: 9,
+                mediaJson: nil,
+                media: [],
+                agentTextStreamJson: nil,
+                deleted: false,
+                invalidationStatus: nil
             )
         }
 
-        private static func makeMediaAttachments(messageIndex: Int) -> [MessageMediaAttachment] {
+        private static func makeMediaReferences(messageIndex: Int) -> [MediaAttachmentReferenceFfi] {
             let mediaDenseTail = messageIndex >= 820 && messageIndex % 2 == 0
             guard messageIndex % 13 == 0 || mediaDenseTail else { return [] }
 
             let count = mediaDenseTail ? 4 : 1 + (messageIndex % 4)
             return (0..<count).map { attachmentIndex in
                 let fileName = "fixture-\(messageIndex)-\(attachmentIndex).png"
-                return MessageMediaAttachment(
-                    id: "ui-fixture-media-\(messageIndex)-\(attachmentIndex)",
-                    reference: MediaAttachmentReferenceFfi(
-                        locators: [
-                            MediaLocatorFfi(kind: "blossom", value: "https://fixture.invalid/\(fileName)")
-                        ],
-                        ciphertextSha256: hex64(messageIndex &* 31 &+ attachmentIndex),
-                        plaintextSha256: hex64(messageIndex &* 43 &+ attachmentIndex &+ 10_000),
-                        nonceHex: hex24(messageIndex &* 59 &+ attachmentIndex),
-                        fileName: fileName,
-                        mediaType: "image/png",
-                        version: .v1,
-                        sourceEpoch: UInt64(messageIndex),
-                        dim: "160x120",
-                        thumbhash: nil
-                    )
+                return MediaAttachmentReferenceFfi(
+                    locators: [
+                        MediaLocatorFfi(kind: "blossom", value: "https://fixture.invalid/\(fileName)")
+                    ],
+                    ciphertextSha256: hex64(messageIndex &* 31 &+ attachmentIndex),
+                    plaintextSha256: hex64(messageIndex &* 43 &+ attachmentIndex &+ 10_000),
+                    nonceHex: hex24(messageIndex &* 59 &+ attachmentIndex),
+                    fileName: fileName,
+                    mediaType: "image/png",
+                    version: .v1,
+                    sourceEpoch: UInt64(messageIndex),
+                    dim: "160x120",
+                    thumbhash: nil
                 )
             }
         }
 
-        private static func preloadMediaDownloads(for messages: [MessageItem], in state: WorkspaceState) {
+        /// Serves every fixture image through the runtime, so the transcript's tiles load on the
+        /// same download path a real image takes.
+        private static func installMedia(for messages: [ConversationMessageFfi], in runtime: FakeMarmotRuntime) {
             let imageData = fixtureImageData
             for message in messages {
-                for attachment in message.mediaAttachments {
-                    state.mediaDownloadStateStore(for: message, attachment: attachment)
-                        .update(
-                            .loaded(
-                                MessageMediaDownload(
-                                    data: imageData,
-                                    fileName: attachment.fileName,
-                                    mediaType: attachment.mediaType,
-                                    sizeBytes: UInt64(imageData.count),
-                                    payloadId: "ui-fixture-payload-\(attachment.id)"
-                                )
-                            )
+                let record = message.timeline
+                for case .accepted(let attachmentIndex, let reference) in record.media {
+                    runtime.installMediaRecord(
+                        MediaRecordFfi(
+                            messageIdHex: record.messageIdHex,
+                            attachmentIndex: attachmentIndex,
+                            direction: record.direction,
+                            groupIdHex: heavyChatId,
+                            sender: record.sender,
+                            reference: reference,
+                            caption: nil,
+                            recordedAt: record.timelineAt,
+                            receivedAt: record.receivedAt
+                        ),
+                        download: MediaDownloadResultFfi(
+                            plaintext: imageData,
+                            fileName: reference.fileName,
+                            mediaType: reference.mediaType,
+                            sizeBytes: UInt64(imageData.count)
                         )
+                    )
                 }
             }
         }

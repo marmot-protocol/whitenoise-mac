@@ -1,0 +1,4639 @@
+// coverage:ignore-file
+//
+//  FakeMarmotRuntime.swift
+//
+//  The in-memory `MarmotRuntime` the unit tests drive, plus the value types it records into.
+//  It lives in the app target, compiled into DEBUG builds only, so the UI fixture
+//  (`UIFixtureWorkspace`) can run the app's real session and conversation code on top of it:
+//  UI tests drive the app from another process, so the fake has to be inside this one. Release
+//  builds contain none of it. It is the one fake, so adding an FFI method still means updating
+//  three things: `MarmotRuntime`, `MarmotClient` and this file.
+//
+//  Ignored by coverage: it is a test double, not app behaviour.
+//
+
+#if DEBUG
+    import CryptoKit
+    import Foundation
+    import MarmotKit
+
+    nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
+        private var storedAccounts: [AccountSummaryFfi]
+        /// The account that `login` / `createIdentityWithProfile` will materialise. `var` so a
+        /// test can point the next add at a different account (multi-account flows).
+        var createdAccount: AccountSummaryFfi?
+        private(set) var startCallCount = 0
+        var didStart: Bool { startCallCount > 0 }
+        /// When set, `start()` throws it instead of bringing accounts online, modelling
+        /// the runtime failing to come online (e.g. shutting down). Used to exercise the
+        /// add-account failure path that must not commit the active-account switch (#333).
+        var startError: Error?
+        /// Where the app writes the files it keeps beside the core — the hidden-message,
+        /// pinned-chat, contact-nickname and direct-peer stores `WorkspaceState` builds for
+        /// itself whenever a test does not inject one. Defaulted per test by
+        /// `TestStorageRoot.isolated` in the tests; see that type for why it is not one shared constant.
+        let storageRootPath: String
+        private var profile = UserProfileMetadataFfi(
+            name: "desktop",
+            displayName: "Desktop Account",
+            about: nil,
+            picture: "https://example.com/avatar.png",
+            nip05: nil,
+            lud16: nil
+        )
+        /// Overrides the account's published NIP-65 write relays, so a test can prove a peer
+        /// profile refresh searches them alongside the seed relays.
+        func installAccountNip65Relays(_ relays: [String]) {
+            relayLists = AccountRelayListsFfi(
+                complete: relayLists.complete,
+                missing: relayLists.missing,
+                defaultRelays: relayLists.defaultRelays,
+                bootstrapRelays: relayLists.bootstrapRelays,
+                nip65: RelayListFfi(kind: 10002, relays: relays),
+                inbox: relayLists.inbox
+            )
+        }
+
+        private var relayLists = AccountRelayListsFfi(
+            complete: true,
+            missing: [],
+            defaultRelays: MarmotClient.seedRelays,
+            bootstrapRelays: MarmotClient.seedRelays,
+            nip65: RelayListFfi(kind: 10002, relays: MarmotClient.seedRelays),
+            inbox: RelayListFfi(kind: 10050, relays: MarmotClient.seedRelays)
+        )
+        private var keyPackages = [
+            AccountKeyPackageFfi(
+                accountRef: "Desktop Account",
+                accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+                keyPackageId: "slot-local",
+                keyPackageRefHex: "ref-local",
+                eventIdHex: "event-local",
+                publishedAt: 1_700_000_000,
+                keyPackageBytes: 512,
+                sourceRelays: MarmotClient.seedRelays,
+                local: true,
+                relay: false
+            ),
+            AccountKeyPackageFfi(
+                accountRef: nil,
+                accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+                keyPackageId: "slot-fetched",
+                keyPackageRefHex: "ref-fetched",
+                eventIdHex: "event-fetched",
+                publishedAt: 1_700_000_100,
+                keyPackageBytes: 520,
+                sourceRelays: [],
+                local: false,
+                relay: true
+            ),
+        ]
+        var attachmentPolicy = AttachmentDownloadPolicyFfi(
+            automatic: false,
+            retainedBytes: 2 * 1_024 * 1_024 * 1_024,
+            diskReserve: 256 * 1_024 * 1_024,
+            transferLimit: 64 * 1_024 * 1_024
+        )
+        var setupReadiness: AccountSetupReadinessFfi = .networkReady
+        var attachmentPermissionGeneration = "test-attachment-permission"
+        private(set) var attachmentPermissionUpdates: [AttachmentAutomaticPermissionFfi] = []
+        var attachmentHistoryPageResult: AttachmentPageReadFfi = .restartRequired
+        /// Served in order before falling back to `attachmentHistoryPageResult`, for multi-page reads.
+        var attachmentHistoryPageQueue: [AttachmentPageReadFfi] = []
+        private(set) var attachmentHistoryPageReadCount = 0
+        var attachmentLocalAssetResults: [AttachmentLocalAssetFfi] = []
+        var attachmentTransferSnapshots: [AttachmentTransferSnapshotFfi] = []
+        var attachmentTransferDelayNanoseconds: UInt64 = 0
+        var automaticAttachmentResult = AutomaticAttachmentRequestFfi(
+            status: AttachmentTransferStatusFfi(
+                reference: nil, state: .notRequested, attempt: 0, received: 0, total: nil, retryAt: nil
+            ),
+            newlyQueued: false
+        )
+        var downloadAttachmentAgainResult: String?
+        private(set) var explicitAttachmentDownloadTargets: [AttachmentLocalTargetFfi] = []
+        var explicitAttachmentRequestResult: String?
+        private(set) var explicitAttachmentRequestTargets: [AttachmentLocalTargetFfi] = []
+        var attachmentControlResult = true
+        var attachmentBytesByReference: [String: Data] = [:]
+        var avatarAssets: [AvatarAssetFfi] = []
+        var avatarBytes: [AvatarBytesFfi] = []
+        private(set) var requestedAvatarTargetBatches: [[String]] = []
+        private(set) var readAvatarReferenceBatches: [[String]] = []
+        private(set) var didClearAvatarCache = false
+        // Manage Storage. Pages are served once each, in order; cursors are opaque handles the fake
+        // cannot mint, so every served page ends its listing.
+        var attachmentStorageUsageResult = AttachmentStorageUsageFfi(
+            mediaBytes: 0, legacyBytes: 0, attachmentCount: 0, databaseBytes: 0, databaseFreeBytes: 0,
+            migration: .notNeeded, migrationBytes: 0, cacheBytes: 0
+        )
+        var attachmentStorageUsageError: Error?
+        private(set) var attachmentStorageUsageReadCount = 0
+        var chatStorageUsage: [ChatAttachmentUsageFfi] = []
+        private(set) var chatStoragePageReadCount = 0
+        var retainedAttachmentSummaries: [RetainedAttachmentSummaryFfi] = []
+        private(set) var largestRetainedAttachmentReads: [String?] = []
+        var bulkAttachmentRemovalError: Error?
+        private(set) var removedChatAttachmentGroups: [String] = []
+        private(set) var removedAttachmentsOlderThan: [(receivedBefore: UInt64, groupIdHex: String?)] = []
+        private(set) var controlledAttachments: [(reference: String, control: AttachmentControlFfi)] = []
+        var attachmentHandoffResults: [Result<AttachmentHandoffFfi?, Error>] = []
+        private(set) var openedAttachmentHandoffTargets: [AttachmentLocalTargetFfi] = []
+        private(set) var releasedAttachmentHandoffLeases: [String] = []
+        var blockedUsers: [BlockedUserFfi] = []
+        var blockedUserSnapshots: [BlockListSnapshotFfi] = []
+        var blockUserError: Error?
+        var unblockUserError: Error?
+        var quarantinedGroupRecords: [AppQuarantinedGroupFfi] = []
+        var groupRecoveryStatuses: [String: GroupRecoveryStatusFfi] = [:]
+        /// The account's "history may be incomplete" notices. `dismissHistoryNotice` removes by id and
+        /// answers `false` for an id it no longer holds, as the core does for a re-armed occurrence.
+        var historyNoticeRecords: [HistoryNoticeFfi] = []
+        var historyNoticesError: Error?
+        private(set) var historyNoticesCallCount = 0
+        private(set) var dismissedHistoryNoticeIds: [String] = []
+        /// `accountRecoveryStatus`: catching-up groups and inbox. Notices come from `historyNoticeRecords`.
+        var catchingUpGroupIds: [String] = []
+        var inboxCatchingUp = false
+        var accountRecoveryStatusError: Error?
+        private(set) var accountRecoveryStatusCallCount = 0
+        /// `cancelLeave`: the groups it was called for, and an optional refusal.
+        private(set) var cancelLeaveGroupIds: [String] = []
+        var cancelLeaveError: Error?
+        /// `reactionAttachment`, keyed by reaction message id.
+        var reactionAttachments: [String: AttachmentEntryFfi] = [:]
+        private(set) var reactionAttachmentRequests: [String] = []
+        /// Every stored sticker pack; `installed` marks the account's installed ones.
+        var stickerPackStore: [StickerPackFfi] = []
+        var stickerPacksError: Error?
+        var syncStickerPacksError: Error?
+        private(set) var syncStickerPacksCallCount = 0
+        /// Packs `fetchStickerPack` resolves, keyed by the pasted input.
+        var fetchableStickerPacks: [String: StickerPackFfi] = [:]
+        var stickerPackActionError: Error?
+        var stickerAssets: [String: Data] = [:]
+        var fetchStickerAssetError: Error?
+        private(set) var fetchStickerAssetRequests: [StickerRefFfi] = []
+        var sendStickerError: Error?
+        private(set) var sentStickers: [(groupIdHex: String, ref: StickerRefFfi)] = []
+        /// Every stored emoji set; `installed` marks installed ones.
+        var emojiSetStore: [EmojiSetFfi] = []
+        var fetchableEmojiSets: [String: EmojiSetFfi] = [:]
+        var emojiSetActionError: Error?
+        private(set) var syncEmojiSetsCallCount = 0
+        /// Held relay syncs wait here until released, so a test can observe a browser still loading.
+        let syncEmojiSetsGate = AsyncFfiGate()
+        /// Bytes for every emoji, keyed by shortcode, served for previews and installs.
+        var emojiSetAssetBytes: [String: Data] = [:]
+        /// Held installs wait here until released, so a test can observe progress and cancel.
+        let installEmojiSetGate = AsyncFfiGate()
+        private(set) var installEmojiSetControls: [EmojiSetInstallControlFfi] = []
+        private(set) var taggedMediaSends:
+            [(groupIdHex: String, caption: String?, attachments: [MediaAttachmentReferenceFfi], tags: [[String]])] = []
+        /// Thrown by the next `sendTaggedMedia` calls, one per call, in order.
+        var sendTaggedMediaErrors: [Error] = []
+        private(set) var mediaReactions:
+            [(
+                groupIdHex: String, target: String, emoji: String, attachments: [MediaAttachmentReferenceFfi],
+                tags: [[String]]
+            )] = []
+        var reactWithMediaError: Error?
+        let eventHub = FakeEventHub()
+        var contentReportPage = ContentReportPageFfi(reports: [], nextCursor: nil)
+        private(set) var contentReportRequests: [(groupIdHex: String, messageId: String?)] = []
+        var agentPublisher: AgentTextPublisher?
+        private(set) var agentPublisherRequests:
+            [(accountRef: String, groupIdHex: String, options: PublisherOptionsFfi)] =
+                []
+        private(set) var reportRequests:
+            [(
+                groupIdHex: String, messageId: String, reason: ReportReasonFfi, explanation: String
+            )] = []
+        private(set) var dismissedReportIDs: [[String]] = []
+        var isModerationReportingAvailable = false
+        var moderationReportError: Error?
+        var moderationReportDisposition: SendAcceptDispositionFfi = .published
+        private(set) var moderationReportRequests:
+            [(
+                reportedPubkey: String, reason: ReportReasonFfi, explanation: String, origin: ModerationReportOriginFfi
+            )] = []
+        private(set) var forgottenGroupIDs: [String] = []
+        var onboardingState: OnboardingSnapshotFfi?
+        var onboardingUpdates: [OnboardingSnapshotFfi] = []
+        /// The subscription `subscribeOnboarding` handed out last, for a test to `deliver` to.
+        private(set) var onboardingSubscription: FakeOnboardingSubscription?
+        private(set) var begunOnboardingIdentities: [String] = []
+        /// Thrown by `beginOnboarding` instead of starting one, for a test of how a refused sign-in
+        /// is reported.
+        var beginOnboardingError: Error?
+        private(set) var onboardingDiscoveryRelayUpdates: [[String]] = []
+        private(set) var cancelOnboardingCallCount = 0
+        private(set) var runOnboardingCallCount = 0
+        private(set) var proposedOnboardingProfiles: [UserProfileMetadataFfi] = []
+        /// Thrown by `runOnboarding` in place of a checkpoint: storage failing, the account closed.
+        var runOnboardingError: Error?
+        /// Armed, parks `runOnboarding` until released — a check MarmotKit is still working on.
+        let onboardingRunGate = AsyncFfiGate()
+        var usageSettings = UsageDiagnosticsSettingsFfi(
+            decision: .acceptanceRequired,
+            policyRevision: "test-policy",
+            registryRevision: "test-registry",
+            updatedAtMs: 0,
+            previouslyEnabled: false
+        )
+        var usageStatus = UsageDiagnosticsStatusFfi(
+            consent: .acceptanceRequired,
+            telemetry: .consentRequired,
+            productAnalytics: .consentRequired,
+            queuedEvents: 0,
+            droppedEvents: 0,
+            acceptedBatches: 0,
+            failedBatches: 0
+        )
+        var productRecordResult: ProductRecordResultFfi = .recorded
+        private(set) var recordedHostTimings: [(String, UInt64, HostPerformanceOutcomeFfi)] = []
+        private(set) var recordedProductEvents: [ProductEventFfi] = []
+        private(set) var productAnalyticsRuntimeConfig: ProductAnalyticsRuntimeConfigFfi?
+        private(set) var productAnalyticsRuntimeConfigSetCallCount = 0
+        private(set) var productAnalyticsActivity: ProductAnalyticsActivityFfi?
+        private(set) var productAnalyticsActivities: [ProductAnalyticsActivityFfi] = []
+        private(set) var productAnalyticsFlushCount = 0
+        /// Kind-3 follow lists keyed by `accountRef`, lowercased hex.
+        private var followsByAccountRef: [String: Set<String>] = [:]
+        private(set) var followMutationCalls: [FollowMutationCall] = []
+        /// Injected failure for `followUser` / `unfollowUser` — notably
+        /// `MarmotKitError.FollowListUnavailable`, which is a refusal to publish, not a partial write.
+        var followMutationError: Error?
+        /// Injected failure for the network-free cached reads.
+        var followReadError: Error?
+        /// Forces the list a mutation returns, so a test can drive the case where the core
+        /// published something other than what was requested.
+        var followMutationResultOverride: [String]?
+        private(set) var isFollowingCallCount = 0
+        private let followMutationGate = AsyncFfiGate()
+        private let followReadGate = BlockingFfiGate()
+        private let followListReadGate = BlockingFfiGate()
+        private var groups: [AppGroupRecordFfi] = []
+        /// Groups whose SelfRemove has published but not yet been committed by a remaining member —
+        /// the durable, possibly permanent `leaveRequestPending` the chat list has to render.
+        private var pendingLeaveGroupIds: Set<String> = []
+        private var messagesByGroupId: [String: [AppMessageRecordFfi]] = [:]
+        private var timelinePagesByGroupId: [String: TimelinePageFfi] = [:]
+        private var timelineUpdatesByGroupId: [String: [TimelineSubscriptionUpdateFfi]] = [:]
+        private var mediaRecordsByGroupId: [String: [MediaRecordFfi]] = [:]
+        private var mediaDownloadsByPlaintextSha256: [String: MediaDownloadResultFfi] = [:]
+        private var chatListUpdates: [ChatListSubscriptionUpdateFfi] = []
+        var presentedChatListSnapshot: PresentedChatListSnapshotFfi?
+        var presentedChatListUpdates: [PresentedChatListUpdateFfi] = []
+        var chatListWindowInitialSnapshot: ChatListWindowSnapshotFfi?
+        var chatListWindowUpdates: [ChatListWindowSnapshotFfi] = []
+        var chatListWindowPageSnapshots: [ChatListWindowSnapshotFfi] = []
+        var accountAttentionInitialSnapshot: AccountAttentionSnapshotFfi?
+        var accountAttentionUpdates: [AccountAttentionSnapshotFfi] = []
+        var conversationWindowInitialSnapshots: [String: ConversationWindowSnapshotFfi] = [:]
+        var conversationWindowUpdates: [String: [ConversationWindowSnapshotFfi]] = [:]
+        var conversationWindowUpdateDelayNanoseconds: UInt64 = 0
+        private(set) var openedConversationWindowModes: [String: [ConversationOpenModeFfi]] = [:]
+        private(set) var openedConversationWindows: [String: FakeConversationWindowSubscription] = [:]
+        var messageEditHistoryPages: [String: [TimelineEditHistoryPageFfi]] = [:]
+        private(set) var messageEditHistoryRequests:
+            [(messageIdHex: String, beforeEditedAt: UInt64?, beforeMessageIdHex: String?, limit: UInt32)] = []
+        var selectedDrafts: [String: SelectedMessageDraftFfi] = [:]
+        var localSendStatuses: [String: LocalSendStatusFfi] = [:]
+        var localSendStatusFallback: LocalSendStatusFfi?
+        private(set) var sentTextClientTokens: [String] = []
+        var localSendAcceptance: LocalSendAcceptanceFfi?
+        private(set) var createdGroupMemberRefs: [String] = []
+        /// Every `createGroup` call in order, refused ones included — `createdGroupMemberRefs` records
+        /// only the roster that went through, so it cannot show how a refusal was chased down.
+        private(set) var createGroupAttempts: [[String]] = []
+        /// Peers passed to `startDirectConversation`, in call order.
+        private(set) var startDirectConversationPeers: [String] = []
+        /// When set, `startDirectConversation` answers with this existing group instead of creating one.
+        var startDirectConversationReusedGroupId: String?
+        /// Run at the top of every member-resolving call, before it refuses or commits. A test can read
+        /// the workspace from here to see what the UI would have been rendering *while* a press is still
+        /// working through the roster.
+        var onMemberResolutionAttempt: (@Sendable () async -> Void)?
+        private(set) var createdGroupName: String?
+        private(set) var createdGroupDescription: String?
+        /// Member refs the core would refuse for want of a published KeyPackage. `createGroup` mirrors
+        /// the real member-resolution order: it stops at the *first* one it finds in `memberRefs` and
+        /// throws `MissingKeyPackage` naming that account, so a roster with several surfaces them one
+        /// attempt at a time. Keyed by member ref, valued by the account id hex the core reports.
+        var missingKeyPackageAccountIdHexByMemberRef: [String: String] = [:]
+        /// Of the refs in `missingKeyPackageAccountIdHexByMemberRef`, those whose only KeyPackages are
+        /// from an outdated app: the refusal carries `.obsoleteOnly` instead of `.notFound`.
+        var obsoleteKeyPackageMemberRefs: Set<String> = []
+        /// Member refs the core would refuse over a KeyPackage that exists but cannot be used. Unlike
+        /// `missingKeyPackageAccountIdHexByMemberRef`, `InvalidKeyPackageEvent` names no account, so a
+        /// roster containing one of these is refused without saying who is at fault. Resolution order
+        /// is shared with the missing-KeyPackage set: whichever comes first in `memberRefs` wins.
+        var invalidKeyPackageMemberRefs: Set<String> = []
+        /// Member refs whose resolution fails in a way that has nothing to do with KeyPackages — a
+        /// person with no relay list to fetch one from, say. Shares the same resolution order: an error
+        /// like this still stops the whole create at the member it belongs to.
+        var unresolvableMemberRefs: Set<String> = []
+        /// Thrown by `createGroup` regardless of the roster, for failures that name nobody.
+        var createGroupFailure: Error?
+        /// Holds `createGroupFailure` back until this many attempts have been made, posing as a failure
+        /// that is about the account rather than any member and only starts once resolution gets past
+        /// the roster.
+        var createGroupFailureAfterAttempts = 0
+        /// Forgets every missing KeyPackage once this many `createGroup` attempts have been made, posing
+        /// as a member who publishes one *between* two attempts of the same press.
+        var forgetsMissingKeyPackagesAfterAttempts: Int?
+        private(set) var repliedMessage: SentReply?
+        private(set) var reactedMessage: SentReaction?
+        private(set) var unreactedMessage: UnreactedMessage?
+        // `castPollVote` is `nonisolated async`, so overlapping votes record from the cooperative pool
+        // concurrently; like the upload recorders, poll state lives behind `recordedStateLock`.
+        var createdPolls: [CreatedPoll] {
+            recordedStateLock.withLock { _createdPolls }
+        }
+        private var _createdPolls: [CreatedPoll] = []
+        var castPollVotes: [CastPollVote] {
+            recordedStateLock.withLock { _castPollVotes }
+        }
+        private var _castPollVotes: [CastPollVote] = []
+        /// Thrown by `createPoll` and `castPollVote` after recording the call.
+        var pollActionError: Error? {
+            get { recordedStateLock.withLock { _pollActionError } }
+            set { recordedStateLock.withLock { _pollActionError = newValue } }
+        }
+        private var _pollActionError: Error?
+        /// The Nth `castPollVote` suspends at `pollVoteGates[N]` while that gate is armed, so a test can
+        /// hold several votes in flight and settle them in an order of its choosing.
+        var pollVoteGates: [AsyncFfiGate] {
+            get { recordedStateLock.withLock { _pollVoteGates } }
+            set { recordedStateLock.withLock { _pollVoteGates = newValue } }
+        }
+        private var _pollVoteGates: [AsyncFfiGate] = []
+        /// Pages `pollVotes` returns, one per call in order; an exhausted queue returns an empty page.
+        /// `pollVotes` runs on `FFIExecutor`'s concurrent queue, so this lives behind the lock too.
+        var pollVotePages: [PollVotePageFfi] {
+            get { recordedStateLock.withLock { _pollVotePages } }
+            set { recordedStateLock.withLock { _pollVotePages = newValue } }
+        }
+        private var _pollVotePages: [PollVotePageFfi] = []
+        /// Every `pollVotes` call, recorded before it blocks or throws.
+        var pollVotesRequests: [PollVotesRequest] {
+            recordedStateLock.withLock { _pollVotesRequests }
+        }
+        private var _pollVotesRequests: [PollVotesRequest] = []
+        /// Thrown by `pollVotes` after recording the call.
+        var pollVotesError: Error? {
+            get { recordedStateLock.withLock { _pollVotesError } }
+            set { recordedStateLock.withLock { _pollVotesError = newValue } }
+        }
+        private var _pollVotesError: Error?
+        /// The Nth `pollVotes` call blocks at `pollVotesGates[N]` while that gate is armed. The page it
+        /// returns is taken from the queue *after* the gate releases, so a held call answers with
+        /// whatever page is next at that moment.
+        var pollVotesGates: [BlockingFfiGate] {
+            get { recordedStateLock.withLock { _pollVotesGates } }
+            set { recordedStateLock.withLock { _pollVotesGates = newValue } }
+        }
+        private var _pollVotesGates: [BlockingFfiGate] = []
+        /// Lists `messageReactions` returns, one per call in order; an exhausted queue repeats
+        /// `messageReactionsFallback`. Runs on `FFIExecutor`'s concurrent queue, so behind the lock.
+        var messageReactionsResults: [[TimelineUserReactionFfi]] {
+            get { recordedStateLock.withLock { _messageReactionsResults } }
+            set { recordedStateLock.withLock { _messageReactionsResults = newValue } }
+        }
+        private var _messageReactionsResults: [[TimelineUserReactionFfi]] = []
+        var messageReactionsFallback: [TimelineUserReactionFfi] {
+            get { recordedStateLock.withLock { _messageReactionsFallback } }
+            set { recordedStateLock.withLock { _messageReactionsFallback = newValue } }
+        }
+        private var _messageReactionsFallback: [TimelineUserReactionFfi] = []
+        /// Every `messageReactions` call, recorded before it blocks or throws.
+        var messageReactionsRequests: [MessageReactionsRequest] {
+            recordedStateLock.withLock { _messageReactionsRequests }
+        }
+        private var _messageReactionsRequests: [MessageReactionsRequest] = []
+        /// Thrown by `messageReactions` after recording the call.
+        var messageReactionsError: Error? {
+            get { recordedStateLock.withLock { _messageReactionsError } }
+            set { recordedStateLock.withLock { _messageReactionsError = newValue } }
+        }
+        private var _messageReactionsError: Error?
+        /// The Nth `messageReactions` call blocks at `messageReactionsGates[N]` while that gate is
+        /// armed. Its answer is taken *after* the gate releases.
+        var messageReactionsGates: [BlockingFfiGate] {
+            get { recordedStateLock.withLock { _messageReactionsGates } }
+            set { recordedStateLock.withLock { _messageReactionsGates = newValue } }
+        }
+        private var _messageReactionsGates: [BlockingFfiGate] = []
+        private(set) var deletedMessage: DeletedMessage?
+        private(set) var editedMessage: EditedMessage?
+        private(set) var sentText: SentText?
+        /// Recorded on the far side of the FFI gate, unlike `sentText`, so the order here is the order
+        /// the texts actually published in rather than the order the calls were made.
+        private(set) var publishedTexts: [SentText] = []
+        private(set) var retriedGroupIdHex: String?
+        // Stage-time uploads run one detached task per attachment, and `uploadMedia` is `nonisolated
+        // async`, so those tasks execute it concurrently on the cooperative pool rather than on the
+        // caller's actor. Everything it records therefore lives behind `recordedStateLock`, read back
+        // through the same lock so a test's assertions cannot race an upload still in flight.
+        var uploadedMedia: UploadedMedia? {
+            recordedStateLock.withLock { _uploadedMedia }
+        }
+        private var _uploadedMedia: UploadedMedia?
+        /// Every stage-time upload, in call order — attachments now upload one call each, so the last
+        /// call alone no longer describes what the composer did.
+        var uploadedMediaRequests: [UploadedMedia] {
+            recordedStateLock.withLock { _uploadedMediaRequests }
+        }
+        private var _uploadedMediaRequests: [UploadedMedia] = []
+        var tokenizedMediaSubmissions: [TokenizedMediaSubmission] {
+            recordedStateLock.withLock { _tokenizedMediaSubmissions }
+        }
+        private var _tokenizedMediaSubmissions: [TokenizedMediaSubmission] = []
+        var sentMediaAttachments: [SentMediaAttachments] {
+            recordedStateLock.withLock { _sentMediaAttachments }
+        }
+        private var _sentMediaAttachments: [SentMediaAttachments] = []
+        var sendMediaAttachmentsCallCount: Int {
+            recordedStateLock.withLock { _sendMediaAttachmentsCallCount }
+        }
+        private var _sendMediaAttachmentsCallCount = 0
+        var sendMediaAttachmentsError: Error?
+        /// File names whose *next* upload attempt throws, so a test can drive the failed → retry path.
+        var uploadMediaFailingFileNames: Set<String> {
+            get { recordedStateLock.withLock { _uploadMediaFailingFileNames } }
+            set { recordedStateLock.withLock { _uploadMediaFailingFileNames = newValue } }
+        }
+        private var _uploadMediaFailingFileNames: Set<String> = []
+        /// File names whose upload returns success but no attachment, so a test can drive the
+        /// reference-less result the composer has to treat as a failure rather than as still in flight.
+        var uploadMediaEmptyResultFileNames: Set<String> {
+            get { recordedStateLock.withLock { _uploadMediaEmptyResultFileNames } }
+            set { recordedStateLock.withLock { _uploadMediaEmptyResultFileNames = newValue } }
+        }
+        private var _uploadMediaEmptyResultFileNames: Set<String> = []
+        let uploadReleaseGate = UploadReleaseGate()
+        private var _uploadedAttachmentSequence = 0
+        private var storedMessageDraftsByAccountRef: [String: [String: MessageDraftFfi]] = [:]
+        private var messageDraftTimestamp: Int64 = 1_700_000_000_000
+        private let messageDraftReadGate = BlockingFfiGate()
+        var messageDraftReadGateEnabled: Bool {
+            get { messageDraftReadGate.isEnabled }
+            set { messageDraftReadGate.isEnabled = newValue }
+        }
+        var didReachMessageDraftReadGate: Bool {
+            messageDraftReadGate.didReach
+        }
+        // Issue #78 reentrancy-test support: count message-action FFI calls so a test can prove
+        // an overlapping duplicate was dropped by the WorkspaceState guard before reaching the runtime.
+        private(set) var sendTextCallCount = 0
+        var sendTextError: Error?
+        private(set) var retryGroupConvergenceCallCount = 0
+        var retryGroupConvergenceError: Error?
+        private(set) var replyToMessageCallCount = 0
+        var replyToMessageError: Error?
+        private(set) var reactToMessageCallCount = 0
+        private(set) var unreactFromMessageCallCount = 0
+        private(set) var deleteMessageCallCount = 0
+        private(set) var editMessageCallCount = 0
+        var uploadMediaCallCount: Int {
+            recordedStateLock.withLock { _uploadMediaCallCount }
+        }
+        private var _uploadMediaCallCount = 0
+        var listMediaCallCount: Int {
+            recordedStateLock.withLock { _listMediaCallCount }
+        }
+        private var _listMediaCallCount = 0
+        var downloadMediaCallCount: Int {
+            recordedStateLock.withLock { _downloadMediaCallCount }
+        }
+        private var _downloadMediaCallCount = 0
+        var downloadedMediaReferences: [MediaAttachmentReferenceFfi] {
+            recordedStateLock.withLock { _downloadedMediaReferences }
+        }
+        private var _downloadedMediaReferences: [MediaAttachmentReferenceFfi] = []
+        private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
+        private(set) var updateGroupAvatarUrlCallCount = 0
+        private(set) var updatedEncryptedGroupImage: Data?
+        private(set) var updatedEncryptedGroupImageMediaType: String?
+        private(set) var updateGroupImageCallCount = 0
+        private(set) var clearGroupImageCallCount = 0
+        private(set) var downloadGroupImageCallCount = 0
+        var downloadedGroupImage = Data([0x89, 0x50, 0x4E, 0x47])
+        /// Advisory refusals the fake core raises on group changes, by group: each stands until the
+        /// test clears it, exactly as MDK's does until the group catches up or the relay accepts.
+        /// An acknowledgement of the matching kind admits one attempt past it.
+        var groupChangeAdvisoryRefusals: [String: MarmotKitError] = [:]
+        private var admittedGroupChangeAttempts: [String: Int] = [:]
+        /// `catchingUp:` / `commitUndelivered:` plus the group, in acknowledgement order.
+        private(set) var groupChangeAdvisoryAcknowledgements: [String] = []
+        private(set) var updatedGroupProfile: UpdatedGroupProfile?
+        private(set) var updateGroupProfileCallCount = 0
+        private(set) var archivedGroup: ArchivedGroup?
+        private(set) var setGroupArchivedCallCount = 0
+        var setGroupArchivedError: Error?
+        private(set) var leftGroupIdHex: String?
+        private(set) var leaveGroupCallCount = 0
+        var leaveGroupError: Error?
+        /// Ordered log of the group mutations a leave can issue, so tests can assert that a
+        /// self-demote precedes the leave it unblocks rather than merely accompanying it.
+        private(set) var groupMutationOrder: [String] = []
+        var promoteAdminError: Error?
+        var removeMembersError: Error?
+        /// Suppresses the management-state recomputation a promotion normally triggers, so a test can
+        /// pose as a core that still reports this account as the blocked sole admin after the promote
+        /// committed.
+        var keepsManagementStateAfterPromote = false
+        private(set) var acceptedInviteGroupIds: [String] = []
+        private(set) var acceptGroupInviteCallCount = 0
+        private(set) var declinedInviteGroupIds: [String] = []
+        private(set) var declineGroupInviteCallCount = 0
+        private(set) var invitedMemberRefs: [String] = []
+        /// Every invite call in order, refused ones included — `invitedMemberRefs` records only the
+        /// roster that committed, so it cannot show how a refusal was chased down.
+        private(set) var inviteMemberRefAttempts: [[String]] = []
+        private(set) var inviteMembersDetailedCallCount = 0
+        private(set) var promotedAdminRef: String?
+        private(set) var promoteAdminDetailedCallCount = 0
+        private(set) var demotedAdminRef: String?
+        private(set) var demoteAdminDetailedCallCount = 0
+        private(set) var selfDemotedGroupIdHex: String?
+        private(set) var selfDemoteAdminDetailedCallCount = 0
+        private(set) var removedMemberRefs: [String] = []
+        private(set) var enableGroupDisbandingCallCount = 0
+        private(set) var disbandGroupCallCount = 0
+        private(set) var acknowledgeDisbandFailureCallCount = 0
+        var enableGroupDisbandingError: Error?
+        var disbandGroupError: Error?
+        var acknowledgeDisbandFailureError: Error?
+        /// What `enableGroupDisbanding` leaves `canDisband` at. A core that installs the lifecycle
+        /// component but still finds a blocker reports `false` here.
+        var canDisbandAfterEnabling = true
+        /// Whether `disbandGroup` records the request on the group's details and management state
+        /// before returning. `false` stands in for a core whose projections lag the durable acceptance.
+        var disbandGroupUpdatesState = true
+        private(set) var removeMembersDetailedCallCount = 0
+        private(set) var lastPackageFetchBootstrapRelays: [String] = []
+        private(set) var lastPublishedProfileDefaultRelays: [String] = []
+        private(set) var lastPublishedProfileBootstrapRelays: [String] = []
+        /// How many times the profile was actually pushed at the network. A deterministic witness for
+        /// "Cancel published nothing", which the relay arrays cannot be: they start empty.
+        private(set) var publishUserProfileCallCount = 0
+        private(set) var lastPublishedProfile: UserProfileMetadataFfi?
+        private(set) var uploadedProfileImageData: Data?
+        private(set) var uploadedProfileImageMediaType: String?
+        private(set) var uploadedProfileImageBlossomServer: String?
+        var uploadedProfileImageURL = "https://blossom.example/profile-image.jpg"
+        private(set) var lastSetInboxBootstrapRelays: [String] = []
+        private(set) var lastSetNip65BootstrapRelays: [String] = []
+        var refreshedProfileIds: [String] {
+            recordedStateLock.withLock { _refreshedProfileIds }
+        }
+        private var _refreshedProfileIds: [String] = []
+        /// Relay set the most recent `refreshProfile` searched.
+        var lastProfileRefreshRelays: [String] {
+            recordedStateLock.withLock { _lastProfileRefreshRelays }
+        }
+        private var _lastProfileRefreshRelays: [String] = []
+        private(set) var markedReadMessageIds: [String] = []
+        private(set) var localAccountKeyPackagesCallCount = 0
+        private(set) var refreshAccountKeyPackagesCallCount = 0
+        private(set) var accountKeyPackageRelayEventsCallCount = 0
+        /// Number of times `userProfile` was queried — used to assert settings-load coalescing
+        /// (issue #4 regression): overlapping `loadSettingsData()` calls for the same account must
+        /// not duplicate the per-account profile fetch.
+        private(set) var userProfileCallCount = 0
+        private(set) var accountRelayListsCallCount = 0
+        /// Per-group call count for `groupDetails`, used to assert chat-list enrichment runs
+        /// through the incremental per-row path (issue #40 regression).
+        var groupDetailsCallCounts: [String: Int] {
+            recordedStateLock.withLock { _groupDetailsCallCounts }
+        }
+        private var _groupDetailsCallCounts: [String: Int] = [:]
+        var groupDetailsFailureGroupIds = Set<String>()
+        var chatListSubscriptionCount: Int {
+            recordedStateLock.withLock { _chatListSubscriptionCount }
+        }
+        private var _chatListSubscriptionCount = 0
+        private(set) var chatListWindowSubscriptionCount = 0
+        private(set) var lastChatListWindowInitialRows: UInt32?
+        var notificationSubscriptionCount: Int {
+            recordedStateLock.withLock { _notificationSubscriptionCount }
+        }
+        private var _notificationSubscriptionCount = 0
+        var timelineSubscriptionCount: Int {
+            recordedStateLock.withLock { _timelineSubscriptionCount }
+        }
+        private var _timelineSubscriptionCount = 0
+        var timelineSubscriptionAccountRefs: [String] {
+            recordedStateLock.withLock { _timelineSubscriptionAccountRefs }
+        }
+        private var _timelineSubscriptionAccountRefs: [String] = []
+        var lastTimelineSubscription: FakeTimelineMessagesSubscription? {
+            recordedStateLock.withLock { _lastTimelineSubscription }
+        }
+        private var _lastTimelineSubscription: FakeTimelineMessagesSubscription?
+        var chatListStreamEndsAfterUpdates = false
+        /// Simulates async relay/runtime latency before a chat-list subscription is ready.
+        var chatListSubscriptionDelayNanoseconds: UInt64 = 0
+        /// Ordered script of web-of-trust search updates every `searchUsers` subscription replays.
+        var userSearchUpdates: [UserSearchUpdateFfi] = []
+        /// Per-update latency, so a test can change the query or switch accounts mid-stream.
+        var userSearchUpdateDelayNanoseconds: UInt64 = 0
+        /// When set, `searchUsers` throws instead of returning a subscription.
+        var searchUsersError: Error?
+        var userSearchCalls: [UserSearchCall] {
+            recordedStateLock.withLock { _userSearchCalls }
+        }
+        private var _userSearchCalls: [UserSearchCall] = []
+        /// Total `nextUpdate()` calls across every subscription this runtime handed out. A host that
+        /// abandons a search must release the subscription rather than draining it, and this counter
+        /// is the only observable consequence of getting that wrong.
+        var userSearchNextUpdateCount: Int {
+            recordedStateLock.withLock { _userSearchNextUpdateCount }
+        }
+        private var _userSearchNextUpdateCount = 0
+
+        struct UserSearchCall: Equatable {
+            let accountIdHex: String
+            let query: String
+            let radiusStart: UInt8
+            let radiusEnd: UInt8
+        }
+        var notificationStreamEndsImmediately = false
+        var timelineStreamEndsAfterUpdates = false
+        private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
+        var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
+        var accountIdsMissingProfiles = Set<String>()
+        var timelineMessagesHandler: ((TimelineMessageQueryFfi) throws -> TimelinePageFfi)?
+        private let syncCallThreadLock = NSLock()
+        private var syncCallThreads: [String: [Bool]] = [:]
+        /// Guards recorded-call state mutated by concurrent runtime calls while tests poll it mid-flight.
+        private let recordedStateLock = NSLock()
+        /// When set, `subscribeNotifications()` throws this error, simulating a background
+        /// notification-listener failure for routing tests.
+        var subscribeNotificationsError: Error?
+        /// Simulates the async relay/runtime delay before the first timeline snapshot is available.
+        var timelineSubscriptionDelayNanoseconds: UInt64 = 0
+        var timelineUpdateDelayNanoseconds: UInt64 = 0
+        /// Issue #78 reentrancy-test support: when armed, the first message-action FFI call
+        /// (`sendText`/`replyToMessage`/`reactToMessage`/`deleteMessage`) suspends until
+        /// `releaseMessageActionGate()` is invoked, holding the first invocation in-flight so a
+        /// test can issue an overlapping second call and assert the WorkspaceState guard dropped it.
+        private let messageActionGate = AsyncFfiGate()
+        var messageActionGateEnabled: Bool {
+            get { messageActionGate.isEnabled }
+            set { messageActionGate.isEnabled = newValue }
+        }
+        var didReachMessageActionGate: Bool {
+            messageActionGate.didReach
+        }
+        /// Issue #230 media-cache teardown-test support: when armed, the first `downloadMedia`
+        /// call suspends after capturing the download bytes so a purge can complete before it returns.
+        private let mediaDownloadGate = AsyncFfiGate()
+        var mediaDownloadGateEnabled: Bool {
+            get { mediaDownloadGate.isEnabled }
+            set { mediaDownloadGate.isEnabled = newValue }
+        }
+        var didReachMediaDownloadGate: Bool {
+            mediaDownloadGate.didReach
+        }
+        /// Issue #286 reference-resolution cache-test support: when armed, the first synchronous
+        /// `listMedia` call blocks on the FFI queue so overlapping attachment loads can join it.
+        private let listMediaGate = BlockingFfiGate()
+        var listMediaGateEnabled: Bool {
+            get { listMediaGate.isEnabled }
+            set { listMediaGate.isEnabled = newValue }
+        }
+        var didReachListMediaGate: Bool {
+            listMediaGate.didReach
+        }
+        private let markTimelineMessageReadGate = BlockingFfiGate()
+        var markTimelineMessageReadGateEnabled: Bool {
+            get { markTimelineMessageReadGate.isEnabled }
+            set { markTimelineMessageReadGate.isEnabled = newValue }
+        }
+        var didReachMarkTimelineMessageReadGate: Bool {
+            markTimelineMessageReadGate.didReach
+        }
+        var markTimelineMessageReadError: Error?
+        /// Issue #134 reentrancy-test support: when armed, the first group-avatar update FFI call
+        /// suspends until `releaseGroupAvatarUpdateGate()` is invoked, holding the first invocation
+        /// in-flight so a test can issue an overlapping clear/set action and assert the guard dropped it.
+        private let groupAvatarUpdateGate = AsyncFfiGate()
+        var groupAvatarUpdateGateEnabled: Bool {
+            get { groupAvatarUpdateGate.isEnabled }
+            set { groupAvatarUpdateGate.isEnabled = newValue }
+        }
+        var didReachGroupAvatarUpdateGate: Bool {
+            groupAvatarUpdateGate.didReach
+        }
+        /// Issue #553 reentrancy-test support: when armed, the first pending-invite FFI call (accept or
+        /// decline) suspends until `releaseGroupInviteGate()` is invoked so a test can close group
+        /// details mid-operation and assert overlapping accept/decline invocations do not reach FFI.
+        private let groupInviteGate = AsyncFfiGate()
+        var groupInviteGateEnabled: Bool {
+            get { groupInviteGate.isEnabled }
+            set { groupInviteGate.isEnabled = newValue }
+        }
+        var didReachGroupInviteGate: Bool {
+            groupInviteGate.didReach
+        }
+        /// Issue #310 reentrancy-test support: when armed, the first group mutation FFI call suspends
+        /// until `releaseGroupMutationGate()` is invoked, holding the first invocation in-flight so a
+        /// test can issue an overlapping duplicate and assert the WorkspaceState guard dropped it.
+        private let groupMutationGate = AsyncFfiGate()
+        var groupMutationGateEnabled: Bool {
+            get { groupMutationGate.isEnabled }
+            set { groupMutationGate.isEnabled = newValue }
+        }
+        var didReachGroupMutationGate: Bool {
+            groupMutationGate.didReach
+        }
+        /// Issue #135 last-request-wins-test support: when armed, the first `groupDetails` FFI call
+        /// suspends until `releaseGroupDetailsGate()` is invoked, holding the older `loadGroupDetails`
+        /// in-flight so a test can run a newer overlapping load to completion and then assert the stale
+        /// older completion does not clobber the newer snapshot or drop the shared spinner.
+        private let groupDetailsGate = AsyncFfiGate()
+        var groupDetailsGateEnabled: Bool {
+            get { groupDetailsGate.isEnabled }
+            set { groupDetailsGate.isEnabled = newValue }
+        }
+        var didReachGroupDetailsGate: Bool {
+            groupDetailsGate.didReach
+        }
+        /// Reentrancy-test support for the two-phase chat leave: when armed, the first
+        /// `groupManagementState` FFI call suspends until `releaseGroupManagementStateGate()` is
+        /// invoked, so a test can hold one eligibility fetch in flight and run an overlapping
+        /// preparation to completion against it. Without this the installed-state path returns without
+        /// ever suspending, and two `async let` preparations on the main actor run strictly one after
+        /// the other — never overlapping at all.
+        private let groupManagementStateGate = AsyncFfiGate()
+        var groupManagementStateGateEnabled: Bool {
+            get { groupManagementStateGate.isEnabled }
+            set { groupManagementStateGate.isEnabled = newValue }
+        }
+        var didReachGroupManagementStateGate: Bool {
+            groupManagementStateGate.didReach
+        }
+        func waitUntilGroupManagementStateGateReached() async {
+            await groupManagementStateGate.waitUntilReached()
+        }
+        /// Issue #229 stale-account-test support: when armed, the first `createGroup` FFI call suspends
+        /// until `releaseCreateGroupGate()` is invoked, holding `createNewChat()` in-flight so a test can
+        /// switch the active account before the create resolves and assert the freshly created group is
+        /// not grafted onto / selected under the switched-to account.
+        private let createGroupGate = AsyncFfiGate()
+        var createGroupGateEnabled: Bool {
+            get { createGroupGate.isEnabled }
+            set { createGroupGate.isEnabled = newValue }
+        }
+        var didReachCreateGroupGate: Bool {
+            createGroupGate.didReach
+        }
+        /// Hold `createIdentityWithProfile` / `login` in flight so a test can observe which authentication
+        /// path is running while it runs — the state a progress label reads.
+        private let createIdentityGate = AsyncFfiGate()
+        var createIdentityGateEnabled: Bool {
+            get { createIdentityGate.isEnabled }
+            set { createIdentityGate.isEnabled = newValue }
+        }
+        var didReachCreateIdentityGate: Bool {
+            createIdentityGate.didReach
+        }
+        private let loginGate = AsyncFfiGate()
+        var loginGateEnabled: Bool {
+            get { loginGate.isEnabled }
+            set { loginGate.isEnabled = newValue }
+        }
+        var didReachLoginGate: Bool {
+            loginGate.didReach
+        }
+        /// Issue #228 last-request-wins support for synchronous notification FFI reads: when armed,
+        /// the first `notificationSettings` call blocks on the FFI queue until released, holding an
+        /// older account's result while the test switches accounts and loads the newer snapshot.
+        private let notificationSettingsGate = BlockingFfiGate()
+        var notificationSettingsGateEnabled: Bool {
+            get { notificationSettingsGate.isEnabled }
+            set { notificationSettingsGate.isEnabled = newValue }
+        }
+        var didReachNotificationSettingsGate: Bool {
+            notificationSettingsGate.didReach
+        }
+        private let productAnalyticsRuntimeConfigGate = BlockingFfiGate()
+        var productAnalyticsRuntimeConfigGateEnabled: Bool {
+            get { productAnalyticsRuntimeConfigGate.isEnabled }
+            set { productAnalyticsRuntimeConfigGate.isEnabled = newValue }
+        }
+        var didReachProductAnalyticsRuntimeConfigGate: Bool {
+            productAnalyticsRuntimeConfigGate.didReach
+        }
+        var setNativePushEnabledError: Error?
+        private(set) var nativePushEnabledSet: Bool?
+        private(set) var setNativePushEnabledCallCount = 0
+        /// Issue #228 equivalent gate for the synchronous `setLocalNotificationsEnabled` FFI write.
+        private let setLocalNotificationsGate = BlockingFfiGate()
+        var setLocalNotificationsGateEnabled: Bool {
+            get { setLocalNotificationsGate.isEnabled }
+            set { setLocalNotificationsGate.isEnabled = newValue }
+        }
+        var didReachSetLocalNotificationsGate: Bool {
+            setLocalNotificationsGate.didReach
+        }
+        /// Issue #366 reentrancy-test support: when armed, the first synchronous
+        /// `auditLogFiles` read blocks on the off-main FFI batch while a test issues
+        /// an overlapping load that must be coalesced by WorkspaceState.
+        private let auditLogFilesGate = BlockingFfiGate()
+        var auditLogFilesGateEnabled: Bool {
+            get { auditLogFilesGate.isEnabled }
+            set { auditLogFilesGate.isEnabled = newValue }
+        }
+        var didReachAuditLogFilesGate: Bool {
+            auditLogFilesGate.didReach
+        }
+        /// Issue #283 stale-account-test support: when armed, the first synchronous `userProfile` FFI
+        /// read blocks on the off-main FFI batch until released, holding `performSettingsLoad`'s profile
+        /// fetch in-flight so a test can switch the active account and assert account A's stale profile
+        /// is not written onto account B's `profileDraft` / `accounts[]` entry.
+        private let userProfileGate = BlockingFfiGate()
+        var userProfileGateEnabled: Bool {
+            get { userProfileGate.isEnabled }
+            set { userProfileGate.isEnabled = newValue }
+        }
+        var didReachUserProfileGate: Bool {
+            userProfileGate.didReach
+        }
+        /// Issue #283 equivalent gate for the synchronous `accountRelayLists` FFI read, holding
+        /// `performSettingsLoad`'s relay fetch in-flight across an account switch.
+        private let accountRelayListsGate = BlockingFfiGate()
+        var accountRelayListsGateEnabled: Bool {
+            get { accountRelayListsGate.isEnabled }
+            set { accountRelayListsGate.isEnabled = newValue }
+        }
+        var didReachAccountRelayListsGate: Bool {
+            accountRelayListsGate.didReach
+        }
+        /// Issue #287 stale-account-test support: when armed, the first `publishUserProfile` FFI call
+        /// suspends until `releasePublishUserProfileGate()` is invoked, holding `saveProfile()` in-flight
+        /// so a test can switch the active account before the publish resolves and assert the just-saved
+        /// profile is not misattributed to the switched-to account.
+        private let publishUserProfileGate = AsyncFfiGate()
+        var publishUserProfileGateEnabled: Bool {
+            get { publishUserProfileGate.isEnabled }
+            set { publishUserProfileGate.isEnabled = newValue }
+        }
+        var didReachPublishUserProfileGate: Bool {
+            publishUserProfileGate.didReach
+        }
+        /// Issue #287 equivalent gate for the `setAccountNip65Relays` / `setAccountInboxRelays` FFI
+        /// writes: when armed, the first relay-save call suspends until `releaseSetAccountRelaysGate()`,
+        /// holding `saveRelaySettings()` in-flight across an account switch.
+        private let setAccountRelaysGate = AsyncFfiGate()
+        var setAccountRelaysGateEnabled: Bool {
+            get { setAccountRelaysGate.isEnabled }
+            set { setAccountRelaysGate.isEnabled = newValue }
+        }
+        var didReachSetAccountRelaysGate: Bool {
+            setAccountRelaysGate.didReach
+        }
+        private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
+        private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
+        private var groupDetailsById: [String: GroupDetailsFfi] = [:]
+        private var groupManagementStateById: [String: GroupManagementStateFfi] = [:]
+        var notificationSettings = NotificationSettingsFfi(
+            accountRef: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localNotificationsEnabled: false,
+            nativePushEnabled: false
+        )
+        private var notificationSettingsByAccountRef: [String: NotificationSettingsFfi] = [:]
+        var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
+        var storedAuditLogFiles: [AuditLogFileFfi] = []
+        var usageDiagnosticsSettingsError: Error?
+        /// MDK's defaults: 30 days and 256 MiB per account.
+        var storedAuditLogRetention = AuditLogRetentionFfi(maxAgeDays: 30, maxBytesPerAccount: 256 << 20)
+        var auditLogRetentionError: Error?
+        /// Holds `auditLogRetention` after it has read the stored policy, so a test can save while a
+        /// stale read is still in flight.
+        let auditLogRetentionGate = BlockingFfiGate()
+        private(set) var setAuditLogRetentionCalls: [AuditLogRetentionFfi] = []
+        var auditLogDeleteFailurePaths: Set<String> = []
+        var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultV5Ffi(
+            enabled: true,
+            v4Uploaded: [],
+            v4SkippedReason: nil,
+            v5: nil
+        )
+        /// Thrown by `setAuditOtlpConfigV5`, standing in for the core rejecting a destination.
+        var setAuditOtlpConfigV5Error: Error?
+        private(set) var localNotificationsEnabledSet: Bool?
+        private(set) var auditLogTrackerConfig: AuditLogTrackerConfigV4Ffi?
+        private(set) var auditLogTrackerConfigSetCallCount = 0
+        private(set) var auditOtlpConfigV5: AuditOtlpConfigV5Ffi?
+        private(set) var auditOtlpConfigV5SetCallCount = 0
+        private(set) var deletedAuditLogFilePaths: [String] = []
+        private(set) var didPostAuditLogTrackerUpdate = false
+        private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
+        private(set) var relayTelemetryRuntimeConfigSetCallCount = 0
+        var productAnalyticsRuntimeConfigError: Error?
+        private(set) var removedAccountRefs: [String] = []
+        var removeAccountError: Error?
+        /// Fails `accountRelayLists` for these accounts only, so a settings load can fail for one
+        /// identity while another loads cleanly.
+        var accountRelayListsErrorByAccountRef: [String: Error] = [:]
+        private(set) var didDeleteAllLocalData = false
+        var deleteAllLocalDataError: Error?
+        var signOutError: Error?
+        /// When set, `publishUserProfile` throws instead of publishing — the failure that leaves a
+        /// minted-but-unpublished identity behind for `cancelSignUp()` to carry forward into the app.
+        var publishUserProfileError: Error?
+        /// Optional hook fired after `deleteAllLocalData` starts but before storage is cleared,
+        /// used to simulate a racing account mutation while a full wipe is in flight.
+        var onDeleteAllLocalDataMidFlight: (@Sendable () async -> Void)?
+        /// Optional hook fired inside `removeAccount` after the ref is recorded but before the
+        /// account is actually dropped, used to simulate a racing UI action (e.g. the user
+        /// selecting the account currently being removed) mid-await.
+        var onRemoveAccountMidFlight: (@Sendable (String) async -> Void)?
+        /// Optional hook fired inside `signOut` after the ref is recorded and the stored account is
+        /// marked signed out, but before the call returns, used to simulate a racing UI action (e.g.
+        /// the user selecting another account while sign-out is in flight) mid-await.
+        var onSignOutAccountMidFlight: (@Sendable (String) async -> Void)?
+        /// Optional hook fired inside `signInAccount` after the stored account is marked signed in,
+        /// but before the call returns, used to simulate a racing UI action (e.g. the user selecting
+        /// another account while sign-in is in flight) mid-await.
+        var onSignInAccountMidFlight: (@Sendable (String) async -> Void)?
+        /// Optional hook fired inside `userProfile`, on the off-main FFI batch thread. A test can
+        /// use it to advance an injected clock and model a slow batch (whitenoise-mac#181).
+        var onUserProfileLookup: (@Sendable (String) -> Void)?
+
+        /// Tests do not call this: the test target's convenience initialiser picks a storage root
+        /// isolated to the running test (`TestStorageRoot`).
+        init(
+            accounts: [AccountSummaryFfi],
+            createdAccount: AccountSummaryFfi? = nil,
+            storageRootPath: String
+        ) {
+            self.storedAccounts = accounts
+            self.createdAccount = createdAccount
+            self.storageRootPath = storageRootPath
+        }
+
+        func start() async throws {
+            startCallCount += 1
+            if let startError {
+                throw startError
+            }
+            storedAccounts = storedAccounts.map { account in
+                var runningAccount = account
+                runningAccount.running = true
+                return runningAccount
+            }
+        }
+
+        func listAccounts() throws -> [AccountSummaryFfi] {
+            recordSyncCall("listAccounts")
+            return storedAccounts
+        }
+
+        func clearSyncCallThreadRecords() {
+            syncCallThreadLock.lock()
+            syncCallThreads = [:]
+            syncCallThreadLock.unlock()
+        }
+
+        func syncCallThreadRecord(_ name: String) -> [Bool] {
+            syncCallThreadLock.lock()
+            let threads = syncCallThreads[name] ?? []
+            syncCallThreadLock.unlock()
+            return threads
+        }
+
+        private func recordSyncCall(_ name: String) {
+            syncCallThreadLock.lock()
+            syncCallThreads[name, default: []].append(Thread.isMainThread)
+            syncCallThreadLock.unlock()
+        }
+
+        func npub(accountIdHex: String) -> String? {
+            recordSyncCall("npub")
+            return "npub1\(accountIdHex.prefix(12))"
+        }
+
+        func displayName(accountIdHex: String) -> String? {
+            recordSyncCall("displayName")
+            guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
+            let resolvedProfile = profilesByAccountId[accountIdHex] ?? profile
+            return resolvedProfile.displayName ?? resolvedProfile.name
+        }
+
+        func userProfile(accountIdHex: String) throws -> UserProfileMetadataFfi? {
+            userProfileCallCount += 1
+            recordSyncCall("userProfile")
+            // Test-only hook fired inside the off-main profile-resolution batch, used to
+            // simulate a slow batch advancing the wall clock so the post-FFI cache stamp can
+            // be distinguished from a pre-FFI one (whitenoise-mac#181).
+            onUserProfileLookup?(accountIdHex)
+            // Snapshot the result *before* the gate so a held older load returns its account's profile
+            // and a later switch/reinstall cannot retroactively change them (issue #283).
+            let result: UserProfileMetadataFfi? =
+                accountIdsMissingProfiles.contains(accountIdHex) ? nil : (profilesByAccountId[accountIdHex] ?? profile)
+            userProfileGate.passIfArmed()
+            return result
+        }
+
+        func releaseUserProfileGate() {
+            userProfileGate.release()
+        }
+
+        func normalizeMemberRef(memberRef: String) throws -> MemberRefFfi {
+            recordSyncCall("normalizeMemberRef")
+            if let member = normalizedMembersByRef[memberRef] {
+                return member
+            }
+            return MemberRefFfi(
+                memberRef: memberRef,
+                accountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                npub: "npub1alyce"
+            )
+        }
+
+        func refreshProfile(accountIdHex: String, relays: [String]) async throws {
+            recordedStateLock.withLock {
+                _refreshedProfileIds.append(accountIdHex)
+                _lastProfileRefreshRelays = relays
+            }
+            if let delay = profileRefreshDelaysByAccountId[accountIdHex] {
+                try await Task.sleep(nanoseconds: delay)
+            }
+        }
+
+        func clearRefreshedProfileIds() {
+            recordedStateLock.withLock { _refreshedProfileIds = [] }
+        }
+
+        func clearTimelineMessageQueries() {
+            timelineMessageQueries = []
+        }
+
+        func installDirectGroup(
+            _ group: AppGroupRecordFfi,
+            selfAccountIdHex: String,
+            otherAccountIdHex: String,
+            otherDisplayName: String,
+            otherProfile: UserProfileMetadataFfi
+        ) {
+            groups = [group]
+            registerDirectGroupDetails(
+                group,
+                selfAccountIdHex: selfAccountIdHex,
+                otherAccountIdHex: otherAccountIdHex,
+                otherDisplayName: otherDisplayName,
+                otherProfile: otherProfile
+            )
+        }
+
+        /// Install a direct group *alongside* the supplied companion groups (which stay raw group
+        /// chats) instead of replacing the whole group set. Lets a test keep the direct chat
+        /// non-selected while another, more-recent chat is auto-selected on bootstrap.
+        func installDirectGroup(
+            _ group: AppGroupRecordFfi,
+            alongside companions: [AppGroupRecordFfi],
+            selfAccountIdHex: String,
+            otherAccountIdHex: String,
+            otherDisplayName: String,
+            otherProfile: UserProfileMetadataFfi
+        ) {
+            installGroups(companions + [group])
+            registerDirectGroupDetails(
+                group,
+                selfAccountIdHex: selfAccountIdHex,
+                otherAccountIdHex: otherAccountIdHex,
+                otherDisplayName: otherDisplayName,
+                otherProfile: otherProfile
+            )
+        }
+
+        private func registerDirectGroupDetails(
+            _ group: AppGroupRecordFfi,
+            selfAccountIdHex: String,
+            otherAccountIdHex: String,
+            otherDisplayName: String,
+            otherProfile: UserProfileMetadataFfi
+        ) {
+            profilesByAccountId[otherAccountIdHex] = otherProfile
+            let details = GroupDetailsFfi(
+                group: group,
+                members: [
+                    GroupMemberDetailsFfi(
+                        memberIdHex: selfAccountIdHex,
+                        account: "Desktop Account",
+                        local: true,
+                        isAdmin: true,
+                        isSelf: true,
+                        npub: "npub1self",
+                        displayName: "Desktop Account"
+                    ),
+                    GroupMemberDetailsFfi(
+                        memberIdHex: otherAccountIdHex,
+                        account: nil,
+                        local: false,
+                        isAdmin: false,
+                        isSelf: false,
+                        npub: "npub1alyce",
+                        displayName: otherDisplayName
+                    ),
+                ]
+            )
+            groupDetailsById[group.groupIdHex] = details
+            groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
+        }
+
+        func installMessages(_ messages: [AppMessageRecordFfi], groupIdHex: String) {
+            messagesByGroupId[groupIdHex] = messages
+            timelinePagesByGroupId[groupIdHex] = projectedTimeline(from: messages)
+        }
+
+        func installTimelinePage(_ page: TimelinePageFfi, groupIdHex: String) {
+            timelinePagesByGroupId[groupIdHex] = page
+        }
+
+        func installGroup(_ group: AppGroupRecordFfi) {
+            groups = [group]
+            let details = GroupDetailsFfi(group: group, members: [])
+            groupDetailsById[group.groupIdHex] = details
+            groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
+        }
+
+        func installMessageDraft(_ draft: MessageDraftFfi, accountRef: String) {
+            recordedStateLock.withLock {
+                storedMessageDraftsByAccountRef[accountRef, default: [:]][draft.groupIdHex] = draft
+            }
+            selectedDrafts[draft.groupIdHex] = nil
+        }
+
+        func storedMessageDraft(accountRef: String, groupIdHex: String) -> MessageDraftFfi? {
+            recordedStateLock.withLock {
+                storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+            }
+        }
+
+        func installGroups(_ groups: [AppGroupRecordFfi]) {
+            self.groups = groups
+            for group in groups {
+                let details = GroupDetailsFfi(group: group, members: [])
+                groupDetailsById[group.groupIdHex] = details
+                groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
+            }
+        }
+
+        func installGroupDetails(_ details: GroupDetailsFfi, managementState: GroupManagementStateFfi? = nil) {
+            groups = [details.group]
+            groupDetailsById[details.group.groupIdHex] = details
+            groupManagementStateById[details.group.groupIdHex] =
+                managementState ?? defaultGroupManagementState(for: details)
+        }
+
+        func installGroupDetailsRecord(_ details: GroupDetailsFfi, managementState: GroupManagementStateFfi? = nil) {
+            if let index = groups.firstIndex(where: { $0.groupIdHex == details.group.groupIdHex }) {
+                groups[index] = details.group
+            } else {
+                groups.append(details.group)
+            }
+            groupDetailsById[details.group.groupIdHex] = details
+            groupManagementStateById[details.group.groupIdHex] =
+                managementState ?? defaultGroupManagementState(for: details)
+        }
+
+        func installChatListUpdates(_ updates: [ChatListSubscriptionUpdateFfi]) {
+            chatListUpdates = updates
+        }
+
+        func installTimelineUpdates(_ updates: [TimelineSubscriptionUpdateFfi], groupIdHex: String) {
+            timelineUpdatesByGroupId[groupIdHex] = updates
+        }
+
+        func installMediaRecord(_ record: MediaRecordFfi, download: MediaDownloadResultFfi) {
+            mediaRecordsByGroupId[record.groupIdHex, default: []].append(record)
+            mediaDownloadsByPlaintextSha256[record.reference.plaintextSha256] = download
+        }
+
+        func installProfile(accountIdHex: String, profile: UserProfileMetadataFfi) {
+            profilesByAccountId[accountIdHex] = profile
+        }
+
+        func installRelayLists(
+            defaultRelays: [String],
+            bootstrapRelays: [String],
+            nip65: [String],
+            inbox: [String],
+            complete: Bool = true,
+            missing: [MissingRelayListKindFfi] = []
+        ) {
+            relayLists = AccountRelayListsFfi(
+                complete: complete,
+                missing: missing,
+                defaultRelays: defaultRelays,
+                bootstrapRelays: bootstrapRelays,
+                nip65: RelayListFfi(kind: 10002, relays: nip65),
+                inbox: RelayListFfi(kind: 10050, relays: inbox)
+            )
+        }
+
+        func installNormalizedMemberRef(query: String, accountIdHex: String, npub: String) {
+            normalizedMembersByRef[query] = MemberRefFfi(
+                memberRef: query,
+                accountIdHex: accountIdHex,
+                npub: npub
+            )
+        }
+
+        /// The relay arguments of every account-creating call, in order: identity creation, legacy
+        /// login, and onboarding (whose `discoveryRelays` stand in for bootstrap).
+        struct AccountRelayArguments: Equatable {
+            var defaultRelays: [String]
+            var bootstrapRelays: [String]
+            var inboxRelays: [String]
+        }
+        private(set) var accountRelayArguments: [AccountRelayArguments] = []
+
+        func createIdentityWithProfile(
+            defaultRelays: [String], bootstrapRelays: [String], inboxRelays: [String]
+        ) async throws -> IdentityCreationResultFfi {
+            accountRelayArguments.append(
+                .init(defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays, inboxRelays: inboxRelays))
+            guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
+            await createIdentityGate.passIfArmed()
+            addOrReplaceAccount(createdAccount)
+            return IdentityCreationResultFfi(account: createdAccount, profile: profile, readiness: setupReadiness)
+        }
+
+        /// The profile each `createIdentityWithInitialProfile` call asked for, in order.
+        private(set) var initialProfileArguments: [UserProfileMetadataFfi] = []
+        /// Mimics a setup resumed past its first local step, which MDK says ignores the supplied
+        /// profile and returns whatever its bootstrap already publishes.
+        var ignoresInitialProfile = false
+
+        func createIdentityWithInitialProfile(
+            profile initialProfile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String],
+            inboxRelays: [String]
+        ) async throws -> IdentityCreationResultFfi {
+            initialProfileArguments.append(initialProfile)
+            accountRelayArguments.append(
+                .init(defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays, inboxRelays: inboxRelays))
+            guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
+            await createIdentityGate.passIfArmed()
+            addOrReplaceAccount(createdAccount)
+            if !ignoresInitialProfile { profile = initialProfile }
+            return IdentityCreationResultFfi(account: createdAccount, profile: profile, readiness: setupReadiness)
+        }
+
+        func releaseCreateIdentityGate() {
+            createIdentityGate.release()
+        }
+
+        func login(
+            identity: String, defaultRelays: [String], bootstrapRelays: [String], inboxRelays: [String]
+        ) async throws -> AccountSummaryFfi {
+            accountRelayArguments.append(
+                .init(defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays, inboxRelays: inboxRelays))
+            guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
+            await loginGate.passIfArmed()
+            addOrReplaceAccount(createdAccount)
+            return createdAccount
+        }
+
+        func beginOnboarding(nsec: String, options: OnboardingOptionsFfi) async throws -> OnboardingSnapshotFfi {
+            if let beginOnboardingError { throw beginOnboardingError }
+            accountRelayArguments.append(
+                .init(
+                    defaultRelays: options.defaultRelays, bootstrapRelays: options.discoveryRelays,
+                    inboxRelays: options.inboxRelays))
+            guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
+            begunOnboardingIdentities.append(nsec)
+            await loginGate.passIfArmed()
+            addOrReplaceAccount(createdAccount)
+            if let onboardingState { return onboardingState }
+            let ready = OnboardingSnapshotFfi(
+                accountIdHex: createdAccount.accountIdHex,
+                recoveryEpoch: nil,
+                revision: 1,
+                ready: true,
+                steps: [],
+                proposal: nil,
+                singleDeviceNotice: nil,
+                cancellationPending: false
+            )
+            onboardingState = ready
+            return ready
+        }
+
+        func beginExternalSignerOnboarding(
+            publicKey: String,
+            signer: ExternalAccountSignerFfi,
+            options: OnboardingOptionsFfi
+        ) async throws -> OnboardingSnapshotFfi {
+            try await beginOnboarding(nsec: publicKey, options: options)
+        }
+
+        func releaseLoginGate() {
+            loginGate.release()
+        }
+
+        /// Mirrors the real runtime: `login` / `createIdentityWithProfile` add the account to
+        /// the known set (replacing any existing entry with the same id) rather
+        /// than discarding accounts already brought up this session. The account is
+        /// not marked `running` here — only `start()` brings accounts online, which
+        /// is the behaviour issues #31 / #74 exercise.
+        private func addOrReplaceAccount(_ account: AccountSummaryFfi) {
+            if let index = storedAccounts.firstIndex(where: { $0.accountIdHex == account.accountIdHex }) {
+                storedAccounts[index] = account
+            } else {
+                storedAccounts.append(account)
+            }
+        }
+
+        func publishUserProfile(
+            accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]
+        ) async throws -> UserProfileMetadataFfi {
+            publishUserProfileCallCount += 1
+            lastPublishedProfileDefaultRelays = defaultRelays
+            lastPublishedProfileBootstrapRelays = bootstrapRelays
+            if let publishUserProfileError {
+                throw publishUserProfileError
+            }
+            self.profile = profile
+            lastPublishedProfile = profile
+            await publishUserProfileGate.passIfArmed()
+            return profile
+        }
+
+        func uploadProfileImage(accountRef: String, data: Data, mediaType: String, blossomServer: String?) async throws
+            -> String
+        {
+            uploadedProfileImageData = data
+            uploadedProfileImageMediaType = mediaType
+            uploadedProfileImageBlossomServer = blossomServer
+            return uploadedProfileImageURL
+        }
+
+        func releasePublishUserProfileGate() {
+            publishUserProfileGate.release()
+        }
+
+        func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {
+            accountRelayListsCallCount += 1
+            recordSyncCall("accountRelayLists")
+            // Snapshot the result *before* the gate so a held older load returns its account's relays
+            // and a later switch/reinstall cannot retroactively change them (issue #283).
+            let result = relayLists
+            accountRelayListsGate.passIfArmed()
+            if let error = accountRelayListsErrorByAccountRef[accountRef] { throw error }
+            return result
+        }
+
+        func releaseAccountRelayListsGate() {
+            accountRelayListsGate.release()
+        }
+
+        func localAccountKeyPackages(accountRef: String) throws -> [AccountKeyPackageInventoryEntryFfi] {
+            localAccountKeyPackagesCallCount += 1
+            return keyPackages.map {
+                AccountKeyPackageInventoryEntryFfi(record: $0, localState: $0.local ? .current : .notLocal)
+            }
+        }
+
+        func refreshAccountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws
+            -> [AccountKeyPackageInventoryEntryFfi]
+        {
+            refreshAccountKeyPackagesCallCount += 1
+            lastPackageFetchBootstrapRelays = bootstrapRelays
+            return try localAccountKeyPackages(accountRef: accountRef)
+        }
+
+        func accountKeyPackageRelayEvents(accountRef: String, bootstrapRelays: [String]) async throws
+            -> [AccountKeyPackageRelayEventFfi]
+        {
+            accountKeyPackageRelayEventsCallCount += 1
+            lastPackageFetchBootstrapRelays = bootstrapRelays
+            return keyPackages.map { record in
+                AccountKeyPackageRelayEventFfi(
+                    accountIdHex: record.accountIdHex,
+                    keyPackageId: record.keyPackageId,
+                    keyPackageRefHex: record.keyPackageRefHex,
+                    eventIdHex: record.eventIdHex,
+                    createdAt: record.publishedAt,
+                    keyPackageBytes: record.keyPackageBytes,
+                    sourceRelays: record.sourceRelays,
+                    isCurrent: record.local
+                )
+            }
+        }
+
+        func accountFollows(accountRef: String) throws -> [String] {
+            recordSyncCall("accountFollows")
+            let resolved = followsByAccountRef[accountRef]?.sorted() ?? []
+            followListReadGate.passIfArmed()
+            if let followReadError { throw followReadError }
+            return resolved
+        }
+
+        func isFollowing(accountRef: String, userRef: String) throws -> Bool {
+            recordSyncCall("isFollowing")
+            isFollowingCallCount += 1
+            // Resolved before the gate on purpose: a gated read models the core answering from its
+            // cache and the app receiving that answer later, which is exactly what makes a late
+            // read *stale*. Resolving after the gate would let the fake see writes the real read
+            // never could, and no test could reproduce a stale answer landing on fresh state.
+            let resolved = followsByAccountRef[accountRef]?.contains(userRef.lowercased()) ?? false
+            followReadGate.passIfArmed()
+            if let followReadError { throw followReadError }
+            return resolved
+        }
+
+        var followReadGateEnabled: Bool {
+            get { followReadGate.isEnabled }
+            set { followReadGate.isEnabled = newValue }
+        }
+
+        var didReachFollowReadGate: Bool {
+            followReadGate.didReach
+        }
+
+        func releaseFollowReadGate() {
+            followReadGate.release()
+        }
+
+        var followListReadGateEnabled: Bool {
+            get { followListReadGate.isEnabled }
+            set { followListReadGate.isEnabled = newValue }
+        }
+
+        var didReachFollowListReadGate: Bool {
+            followListReadGate.didReach
+        }
+
+        func releaseFollowListReadGate() {
+            followListReadGate.release()
+        }
+
+        func followUser(accountRef: String, userRef: String) async throws -> [String] {
+            try await mutateFollow(accountRef: accountRef, userRef: userRef, isFollow: true)
+        }
+
+        func unfollowUser(accountRef: String, userRef: String) async throws -> [String] {
+            try await mutateFollow(accountRef: accountRef, userRef: userRef, isFollow: false)
+        }
+
+        private func mutateFollow(accountRef: String, userRef: String, isFollow: Bool) async throws -> [String] {
+            followMutationCalls.append(
+                FollowMutationCall(accountRef: accountRef, userRef: userRef, isFollow: isFollow)
+            )
+            await followMutationGate.passIfArmed()
+            if let followMutationError { throw followMutationError }
+            var follows = followsByAccountRef[accountRef] ?? []
+            if isFollow {
+                follows.insert(userRef.lowercased())
+            } else {
+                follows.remove(userRef.lowercased())
+            }
+            followsByAccountRef[accountRef] = follows
+            // The real core returns the complete list it actually published, which is not
+            // necessarily the one the caller asked for.
+            return followMutationResultOverride ?? follows.sorted()
+        }
+
+        func installFollows(accountRef: String, follows: [String]) {
+            followsByAccountRef[accountRef] = Set(follows.map { $0.lowercased() })
+        }
+
+        var followMutationGateEnabled: Bool {
+            get { followMutationGate.isEnabled }
+            set { followMutationGate.isEnabled = newValue }
+        }
+
+        var didReachFollowMutationGate: Bool {
+            followMutationGate.didReach
+        }
+
+        func releaseFollowMutationGate() {
+            followMutationGate.release()
+        }
+
+        func installRelayLists(_ lists: AccountRelayListsFfi) {
+            relayLists = lists
+        }
+
+        func auditLogFiles() throws -> [AuditLogFileFfi] {
+            recordSyncCall("auditLogFiles")
+            auditLogFilesGate.passIfArmed()
+            return storedAuditLogFiles
+        }
+
+        func auditLogSettings() throws -> AuditLogSettingsFfi {
+            recordSyncCall("auditLogSettings")
+            return storedAuditLogSettings
+        }
+
+        func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi {
+            guard !auditLogDeleteFailurePaths.contains(path) else {
+                throw FakeMarmotRuntimeError.auditLogDeleteFailed
+            }
+            deletedAuditLogFilePaths.append(path)
+            storedAuditLogFiles.removeAll { $0.path == path }
+            return AuditLogDeleteResultFfi(stillRecording: storedAuditLogSettings.enabled)
+        }
+
+        func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi {
+            recordSyncCall("notificationSettings")
+            let result = notificationSettingsByAccountRef[accountRef] ?? notificationSettings
+            passNotificationSettingsGateIfArmed()
+            return result
+        }
+
+        func installNotificationSettings(accountRef: String, settings: NotificationSettingsFfi) {
+            notificationSettingsByAccountRef[accountRef] = settings
+        }
+
+        private func passNotificationSettingsGateIfArmed() {
+            notificationSettingsGate.passIfArmed()
+        }
+
+        func releaseNotificationSettingsGate() {
+            notificationSettingsGate.release()
+        }
+
+        func auditLogRetention() throws -> AuditLogRetentionFfi {
+            recordSyncCall("auditLogRetention")
+            if let auditLogRetentionError { throw auditLogRetentionError }
+            let read = storedAuditLogRetention
+            auditLogRetentionGate.passIfArmed()
+            return read
+        }
+
+        /// Clamps the way MDK does, so a test sees the value MDK would store.
+        func setAuditLogRetention(retention: AuditLogRetentionFfi) throws -> AuditLogRetentionFfi {
+            recordSyncCall("setAuditLogRetention")
+            setAuditLogRetentionCalls.append(retention)
+            if let auditLogRetentionError { throw auditLogRetentionError }
+            storedAuditLogRetention = AuditLogRetentionFfi(
+                maxAgeDays: min(max(retention.maxAgeDays, 1), 30),
+                maxBytesPerAccount: max(retention.maxBytesPerAccount, 16 << 20)
+            )
+            return storedAuditLogRetention
+        }
+
+        func postAuditLogTrackerUpdateV5() async throws -> AuditLogTrackerUpdateResultV5Ffi {
+            didPostAuditLogTrackerUpdate = true
+            return nextAuditLogTrackerUpdate
+        }
+
+        var setAuditLogSettingsError: Error?
+
+        func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi {
+            if let setAuditLogSettingsError { throw setAuditLogSettingsError }
+            storedAuditLogSettings = settings
+            return storedAuditLogSettings
+        }
+
+        func setAuditLogTrackerConfig(config: AuditLogTrackerConfigV4Ffi) throws -> AuditLogTrackerConfigV4Ffi {
+            auditLogTrackerConfigSetCallCount += 1
+            recordSyncCall("setAuditLogTrackerConfig")
+            auditLogTrackerConfig = config
+            return config
+        }
+
+        func setAuditOtlpConfigV5(config: AuditOtlpConfigV5Ffi) throws -> AuditOtlpConfigV5Ffi {
+            auditOtlpConfigV5SetCallCount += 1
+            recordSyncCall("setAuditOtlpConfigV5")
+            if let setAuditOtlpConfigV5Error { throw setAuditOtlpConfigV5Error }
+            auditOtlpConfigV5 = config
+            // The core confirms what it stored but never echoes the token back.
+            var stored = config
+            stored.authorizationBearerToken = nil
+            return stored
+        }
+
+        func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi {
+            recordSyncCall("setLocalNotificationsEnabled")
+            localNotificationsEnabledSet = enabled
+            var updated = notificationSettingsByAccountRef[accountRef] ?? notificationSettings
+            updated.localNotificationsEnabled = enabled
+            if notificationSettingsByAccountRef[accountRef] != nil {
+                notificationSettingsByAccountRef[accountRef] = updated
+            } else {
+                notificationSettings = updated
+            }
+            passSetLocalNotificationsGateIfArmed()
+            return updated
+        }
+
+        func setNativePushEnabled(accountRef: String, enabled: Bool) async throws -> NotificationSettingsFfi {
+            if let setNativePushEnabledError { throw setNativePushEnabledError }
+            nativePushEnabledSet = enabled
+            setNativePushEnabledCallCount += 1
+            var updated = notificationSettingsByAccountRef[accountRef] ?? notificationSettings
+            updated.nativePushEnabled = enabled
+            if notificationSettingsByAccountRef[accountRef] != nil {
+                notificationSettingsByAccountRef[accountRef] = updated
+            } else {
+                notificationSettings = updated
+            }
+            return updated
+        }
+
+        private func passSetLocalNotificationsGateIfArmed() {
+            setLocalNotificationsGate.passIfArmed()
+        }
+
+        func releaseSetLocalNotificationsGate() {
+            setLocalNotificationsGate.release()
+        }
+
+        func releaseAuditLogFilesGate() {
+            auditLogFilesGate.release()
+        }
+
+        func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws {
+            relayTelemetryRuntimeConfigSetCallCount += 1
+            relayTelemetryRuntimeConfig = config
+        }
+
+        func usageDiagnosticsSettings() throws -> UsageDiagnosticsSettingsFfi {
+            if let usageDiagnosticsSettingsError { throw usageDiagnosticsSettingsError }
+            return usageSettings
+        }
+
+        func usageDiagnosticsStatus() throws -> UsageDiagnosticsStatusFfi {
+            usageStatus
+        }
+
+        func setUsageDiagnosticsConsent(enabled: Bool) throws -> UsageDiagnosticsSettingsFfi {
+            usageSettings.decision = enabled ? .granted : .declined
+            usageSettings.previouslyEnabled = usageSettings.previouslyEnabled || enabled
+            usageStatus.consent = usageSettings.decision
+            return usageSettings
+        }
+
+        func recordHostTiming(
+            name: String,
+            durationMs: UInt64,
+            outcome: HostPerformanceOutcomeFfi
+        ) throws -> ProductRecordResultFfi {
+            recordedHostTimings.append((name, durationMs, outcome))
+            return productRecordResult
+        }
+
+        func recordProductEvent(event: ProductEventFfi) throws -> ProductRecordResultFfi {
+            recordedProductEvents.append(event)
+            return productRecordResult
+        }
+
+        func setProductAnalyticsRuntimeConfig(config: ProductAnalyticsRuntimeConfigFfi) throws {
+            recordSyncCall("setProductAnalyticsRuntimeConfig")
+            productAnalyticsRuntimeConfigGate.passIfArmed()
+            if let productAnalyticsRuntimeConfigError {
+                throw productAnalyticsRuntimeConfigError
+            }
+            productAnalyticsRuntimeConfig = config
+            productAnalyticsRuntimeConfigSetCallCount += 1
+        }
+
+        func setProductAnalyticsActivity(activity: ProductAnalyticsActivityFfi) async throws {
+            productAnalyticsActivity = activity
+            productAnalyticsActivities.append(activity)
+        }
+
+        func flushProductAnalytics() async throws {
+            productAnalyticsFlushCount += 1
+        }
+
+        func accountSetupReadiness(accountRef: String) throws -> AccountSetupReadinessFfi {
+            setupReadiness
+        }
+
+        func attachmentDownloadPolicy(accountRef: String) async throws -> AttachmentDownloadPolicyFfi {
+            attachmentPolicy
+        }
+
+        func setAttachmentDownloadPolicy(accountRef: String, policy: AttachmentDownloadPolicyFfi) async throws {
+            attachmentPolicy = policy
+        }
+
+        func beginAttachmentPermissionUpdate(accountRef: String) async throws -> String {
+            attachmentPermissionGeneration
+        }
+
+        func setAttachmentAutomaticPermission(
+            accountRef: String, generation: String, permission: AttachmentAutomaticPermissionFfi
+        ) async throws -> Bool {
+            guard generation == attachmentPermissionGeneration else { return false }
+            attachmentPermissionUpdates.append(permission)
+            return true
+        }
+
+        func attachmentHistoryPage(
+            accountRef: String, groupIdHex: String, limit: UInt32, cursor: AttachmentHistoryCursor?
+        ) async throws -> AttachmentPageReadFfi {
+            attachmentHistoryPageReadCount += 1
+            if !attachmentHistoryPageQueue.isEmpty { return attachmentHistoryPageQueue.removeFirst() }
+            return attachmentHistoryPageResult
+        }
+
+        func attachmentLocalAssets(
+            accountRef: String, groupIdHex: String, targets: [AttachmentLocalTargetFfi]
+        ) async throws -> [AttachmentLocalAssetFfi] {
+            if attachmentLocalAssetResults.isEmpty {
+                return targets.map { _ in AttachmentLocalAssetFfi(reference: nil, byteCount: 0) }
+            }
+            return attachmentLocalAssetResults
+        }
+
+        func attachmentTransferSnapshot(
+            accountRef: String, groupIdHex: String, targets: [AttachmentLocalTargetFfi]
+        ) async throws -> AttachmentTransferSnapshotFfi {
+            attachmentTransferSnapshots.first ?? AttachmentTransferSnapshotFfi(items: [])
+        }
+
+        func subscribeAttachmentTransfers(
+            accountRef: String, groupIdHex: String, targets: [AttachmentLocalTargetFfi]
+        ) async throws -> AttachmentTransferSubscription {
+            FakeAttachmentTransferSubscription(
+                snapshots: attachmentTransferSnapshots,
+                updateDelayNanoseconds: attachmentTransferDelayNanoseconds
+            )
+        }
+
+        func nextAttachmentTransferSnapshot(subscription: AttachmentTransferSubscription) async throws
+            -> AttachmentTransferSnapshotFfi?
+        {
+            try await subscription.next()
+        }
+
+        func cancelAttachmentTransfers(subscription: AttachmentTransferSubscription) {
+            subscription.cancel()
+        }
+
+        func requestAutomaticAttachment(
+            accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
+        ) async throws -> AutomaticAttachmentRequestFfi {
+            automaticAttachmentResult
+        }
+
+        func requestExplicitAttachment(
+            accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
+        ) async throws -> String? {
+            explicitAttachmentRequestTargets.append(target)
+            return explicitAttachmentRequestResult
+        }
+
+        func downloadAttachmentAgain(
+            accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
+        ) async throws -> String? {
+            explicitAttachmentDownloadTargets.append(target)
+            return downloadAttachmentAgainResult
+        }
+
+        func controlAttachment(accountRef: String, reference: String, control: AttachmentControlFfi) async throws
+            -> Bool
+        {
+            controlledAttachments.append((reference, control))
+            return attachmentControlResult
+        }
+
+        func readAttachmentAsset(accountRef: String, reference: String, offset: UInt64, limit: UInt32) async throws
+            -> AttachmentLocalBytesFfi
+        {
+            guard let bytes = attachmentBytesByReference[reference], offset <= UInt64(bytes.count) else {
+                return AttachmentLocalBytesFfi(available: false, bytes: Data())
+            }
+            let start = Int(offset)
+            let end = min(bytes.count, start + Int(limit))
+            return AttachmentLocalBytesFfi(available: true, bytes: bytes.subdata(in: start..<end))
+        }
+
+        /// Mirrors the core's hard limits (mdk `MAX_AVATAR_BATCH_ITEMS` / `MAX_AVATAR_BATCH_BYTES`):
+        /// an over-limit call is rejected whole. Accepting it here is how a 32 MiB budget passed every
+        /// test while no real read ever succeeded.
+        func requestAvatarAssets(accountRef: String, targets: [String]) async throws -> [AvatarAssetFfi] {
+            guard targets.count <= 16 else {
+                throw MarmotKitError.InvalidMediaReference(details: "avatar batch exceeds 16 items")
+            }
+            requestedAvatarTargetBatches.append(targets)
+            return avatarAssets.filter { targets.contains($0.target) }
+        }
+
+        func readAvatarAssets(accountRef: String, references: [String], maxBytes: UInt64) async throws
+            -> [AvatarBytesFfi]
+        {
+            guard references.count <= 16 else {
+                throw MarmotKitError.InvalidMediaReference(details: "avatar batch exceeds 16 items")
+            }
+            guard maxBytes > 0, maxBytes <= 16 * 1_024 * 1_024 else {
+                throw MarmotKitError.InvalidMediaReference(details: "invalid avatar byte budget")
+            }
+            readAvatarReferenceBatches.append(references)
+            return avatarBytes.filter { references.contains($0.reference) }
+        }
+
+        func clearAvatarCache(accountRef: String) async throws {
+            didClearAvatarCache = true
+            avatarAssets.removeAll()
+            avatarBytes.removeAll()
+        }
+
+        func attachmentStorageUsage(accountRef: String) async throws -> AttachmentStorageUsageFfi {
+            attachmentStorageUsageReadCount += 1
+            if let attachmentStorageUsageError { throw attachmentStorageUsageError }
+            return attachmentStorageUsageResult
+        }
+
+        func attachmentStorageByChat(accountRef: String, limit: UInt32, cursor: ChatStorageCursor?) async throws
+            -> ChatStoragePageFfi
+        {
+            chatStoragePageReadCount += 1
+            return ChatStoragePageFfi(chats: Array(chatStorageUsage.prefix(Int(limit))), nextCursor: nil)
+        }
+
+        func largestRetainedAttachments(
+            accountRef: String, groupIdHex: String?, limit: UInt32, cursor: RetainedAttachmentsCursor?
+        ) async throws -> RetainedAttachmentsPageFfi {
+            largestRetainedAttachmentReads.append(groupIdHex)
+            let matching = retainedAttachmentSummaries.filter { groupIdHex == nil || $0.groupIdHex == groupIdHex }
+            return RetainedAttachmentsPageFfi(attachments: Array(matching.prefix(Int(limit))), nextCursor: nil)
+        }
+
+        func removeChatAttachments(accountRef: String, groupIdHex: String) async throws -> UInt64 {
+            removedChatAttachmentGroups.append(groupIdHex)
+            if let bulkAttachmentRemovalError { throw bulkAttachmentRemovalError }
+            let removed = retainedAttachmentSummaries.filter { $0.groupIdHex == groupIdHex }
+            retainedAttachmentSummaries.removeAll { $0.groupIdHex == groupIdHex }
+            chatStorageUsage.removeAll { $0.groupIdHex == groupIdHex }
+            return UInt64(removed.count)
+        }
+
+        func removeAttachmentsOlderThan(accountRef: String, receivedBefore: UInt64, groupIdHex: String?) async throws
+            -> UInt64
+        {
+            removedAttachmentsOlderThan.append((receivedBefore, groupIdHex))
+            if let bulkAttachmentRemovalError { throw bulkAttachmentRemovalError }
+            let isRemoved = { (item: RetainedAttachmentSummaryFfi) in
+                item.receivedAt < receivedBefore && (groupIdHex == nil || item.groupIdHex == groupIdHex)
+            }
+            let removed = retainedAttachmentSummaries.filter(isRemoved).count
+            retainedAttachmentSummaries.removeAll(where: isRemoved)
+            return UInt64(removed)
+        }
+
+        func openAttachmentHandoff(
+            accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi,
+            control: MediaFileTransferControlFfi
+        ) async throws -> AttachmentHandoffFfi? {
+            openedAttachmentHandoffTargets.append(target)
+            guard !attachmentHandoffResults.isEmpty else { return nil }
+            return try attachmentHandoffResults.removeFirst().get()
+        }
+
+        func releaseAttachmentHandoff(lease: String) async throws {
+            releasedAttachmentHandoffLeases.append(lease)
+        }
+
+        func getBlockedUsers(accountRef: String) throws -> [BlockedUserFfi] {
+            blockedUsers
+        }
+
+        func subscribeBlockedUsers(accountRef: String) throws -> BlockListSubscription {
+            let initial = blockedUserSnapshots.first ?? BlockListSnapshotFfi(revision: 0, users: blockedUsers)
+            return FakeBlockListSubscription(initial: initial, updates: Array(blockedUserSnapshots.dropFirst()))
+        }
+
+        func blockedUsersSnapshot(subscription: BlockListSubscription) -> BlockListSnapshotFfi? {
+            subscription.snapshot()
+        }
+
+        func nextBlockedUsersSnapshot(subscription: BlockListSubscription) async throws -> BlockListSnapshotFfi? {
+            await subscription.next()
+        }
+
+        func blockUser(accountRef: String, userAccountIdHex: String) async throws {
+            if let blockUserError { throw blockUserError }
+            guard
+                !blockedUsers.contains(where: { $0.publicKey.caseInsensitiveCompare(userAccountIdHex) == .orderedSame })
+            else { return }
+            blockedUsers.append(BlockedUserFfi(publicKey: userAccountIdHex, isPrivate: true, createdAtMs: 0))
+        }
+
+        func unblockUser(accountRef: String, userAccountIdHex: String) async throws {
+            if let unblockUserError { throw unblockUserError }
+            blockedUsers.removeAll { $0.publicKey.caseInsensitiveCompare(userAccountIdHex) == .orderedSame }
+        }
+
+        func quarantinedGroups(accountRef: String) async throws -> [AppQuarantinedGroupFfi] {
+            quarantinedGroupRecords
+        }
+
+        func retryHydrateQuarantinedGroup(accountRef: String, groupIdHex: String) async throws -> Bool {
+            let wasPresent = quarantinedGroupRecords.contains { $0.groupIdHex == groupIdHex }
+            quarantinedGroupRecords.removeAll { $0.groupIdHex == groupIdHex }
+            return wasPresent
+        }
+
+        func groupRecoveryStatus(accountRef: String, groupIdHex: String) async throws -> GroupRecoveryStatusFfi {
+            groupRecoveryStatuses[groupIdHex]
+                ?? GroupRecoveryStatusFfi(
+                    groupIdHex: groupIdHex,
+                    automaticRecoveryFailed: false,
+                    pendingReinvites: 0,
+                    failedReinvites: 0,
+                    rejoinInvitations: []
+                )
+        }
+
+        func historyNotices(accountRef: String) async throws -> [HistoryNoticeFfi] {
+            historyNoticesCallCount += 1
+            if let historyNoticesError { throw historyNoticesError }
+            return historyNoticeRecords
+        }
+
+        func dismissHistoryNotice(accountRef: String, noticeId: String) async throws -> Bool {
+            dismissedHistoryNoticeIds.append(noticeId)
+            guard let index = historyNoticeRecords.firstIndex(where: { $0.noticeId == noticeId }) else { return false }
+            historyNoticeRecords.remove(at: index)
+            return true
+        }
+
+        func accountRecoveryStatus(accountRef: String) async throws -> AccountRecoveryStatusFfi {
+            accountRecoveryStatusCallCount += 1
+            if let accountRecoveryStatusError { throw accountRecoveryStatusError }
+            return AccountRecoveryStatusFfi(
+                catchingUpGroupIdsHex: catchingUpGroupIds, inboxCatchingUp: inboxCatchingUp,
+                notices: historyNoticeRecords)
+        }
+
+        func cancelLeave(accountRef: String, groupIdHex: String) async throws {
+            cancelLeaveGroupIds.append(groupIdHex)
+            if let cancelLeaveError { throw cancelLeaveError }
+        }
+
+        func reactionAttachment(
+            accountRef: String, groupIdHex: String, reactionMessageIdHex: String
+        ) async throws -> AttachmentEntryFfi? {
+            reactionAttachmentRequests.append(reactionMessageIdHex)
+            return reactionAttachments[reactionMessageIdHex]
+        }
+
+        func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws
+            -> [StickerPackFfi]
+        {
+            if let stickerPacksError { throw stickerPacksError }
+            let needle = search?.lowercased()
+            let packs = stickerPackStore.filter { pack in
+                (!installedOnly || pack.installed)
+                    && (needle.map { pack.title.lowercased().contains($0) } ?? true)
+            }
+            return limit.map { Array(packs.prefix(Int($0))) } ?? packs
+        }
+
+        func syncStickerPacks(accountRef: String) async throws -> StickerSyncResultFfi {
+            syncStickerPacksCallCount += 1
+            if let syncStickerPacksError { throw syncStickerPacksError }
+            return StickerSyncResultFfi(
+                discovered: UInt32(stickerPackStore.count), updated: 0,
+                installed: UInt32(stickerPackStore.filter(\.installed).count), pendingOperations: 0)
+        }
+
+        func fetchStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+            if let stickerPackActionError { throw stickerPackActionError }
+            guard let pack = fetchableStickerPacks[input] ?? stickerPackStore.first(where: { $0.coordinate == input })
+            else { throw MarmotKitError.StickerNotFound }
+            if !stickerPackStore.contains(where: { $0.coordinate == pack.coordinate }) {
+                stickerPackStore.append(pack)
+            }
+            return pack
+        }
+
+        func installStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+            if let stickerPackActionError { throw stickerPackActionError }
+            guard let index = stickerPackStore.firstIndex(where: { $0.coordinate == input }) else {
+                throw MarmotKitError.StickerNotFound
+            }
+            stickerPackStore[index].installed = true
+            return stickerPackStore[index]
+        }
+
+        func uninstallStickerPack(accountRef: String, input: String) async throws {
+            if let stickerPackActionError { throw stickerPackActionError }
+            guard let index = stickerPackStore.firstIndex(where: { $0.coordinate == input }) else {
+                throw MarmotKitError.StickerNotFound
+            }
+            stickerPackStore[index].installed = false
+        }
+
+        func fetchStickerAsset(accountRef: String, stickerRef: StickerRefFfi) async throws -> StickerAssetFfi {
+            fetchStickerAssetRequests.append(stickerRef)
+            if let fetchStickerAssetError { throw fetchStickerAssetError }
+            guard let bytes = stickerAssets[stickerRef.plaintextSha256],
+                let sticker = stickerPackStore.lazy.flatMap(\.stickers).first(where: {
+                    $0.packCoordinate == stickerRef.packCoordinate && $0.shortcode == stickerRef.shortcode
+                })
+            else { throw MarmotKitError.StickerNotFound }
+            return StickerAssetFfi(sticker: sticker, bytes: bytes)
+        }
+
+        func sendSticker(accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi) async throws
+            -> SendSummaryFfi
+        {
+            if let sendStickerError { throw sendStickerError }
+            sentStickers.append((groupIdHex, stickerRef))
+            return SendSummaryFfi(published: 1, messageIds: ["sticker-\(sentStickers.count)"])
+        }
+
+        func emojiSet(accountRef: String, coordinate: String) async throws -> EmojiSetFfi? {
+            emojiSetStore.first { $0.coordinate == coordinate }
+        }
+
+        func emojiSets(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) async throws
+            -> [EmojiSetFfi]
+        {
+            let needle = search?.lowercased()
+            let sets = emojiSetStore.filter { set in
+                (!installedOnly || set.installed != nil)
+                    && (needle.map { (set.title ?? set.identifier).lowercased().contains($0) } ?? true)
+            }
+            return limit.map { Array(sets.prefix(Int($0))) } ?? sets
+        }
+
+        func syncEmojiSets(accountRef: String, search: String?) async throws -> EmojiSetSyncResultFfi {
+            syncEmojiSetsCallCount += 1
+            await syncEmojiSetsGate.passIfArmed()
+            if let emojiSetActionError { throw emojiSetActionError }
+            return EmojiSetSyncResultFfi(discovered: UInt32(emojiSetStore.count), updated: 0, complete: true)
+        }
+
+        func fetchEmojiSet(accountRef: String, input: String) async throws -> EmojiSetFfi {
+            if let emojiSetActionError { throw emojiSetActionError }
+            guard let set = fetchableEmojiSets[input] ?? emojiSetStore.first(where: { $0.coordinate == input }) else {
+                throw MarmotKitError.EmojiSetNotFound
+            }
+            if !emojiSetStore.contains(where: { $0.coordinate == set.coordinate }) { emojiSetStore.append(set) }
+            return set
+        }
+
+        func fetchEmojiSetAsset(
+            accountRef: String, coordinate: String, expectedEventIdHex: String, shortcode: String
+        ) async throws -> EmojiSetAssetFfi {
+            guard let set = emojiSetStore.first(where: { $0.coordinate == coordinate }) else {
+                throw MarmotKitError.EmojiSetNotFound
+            }
+            guard set.eventIdHex == expectedEventIdHex else {
+                throw MarmotKitError.EmojiSetChanged(currentEventIdHex: set.eventIdHex)
+            }
+            guard let bytes = emojiSetAssetBytes[shortcode] else { throw MarmotKitError.EmojiSetNetwork(details: "x") }
+            return EmojiSetAssetFfi(
+                setCoordinate: coordinate, shortcode: shortcode, mime: "image/png", width: 8, height: 8, frames: 1,
+                sha256: hexSHA256Fake(bytes), bytes: bytes)
+        }
+
+        func fetchEmojiSetCover(accountRef: String, coordinate: String, expectedEventIdHex: String) async throws
+            -> EmojiSetCoverFfi
+        {
+            throw MarmotKitError.EmojiSetNotFound
+        }
+
+        func installEmojiSet(
+            accountRef: String, coordinate: String, expectedEventIdHex: String, control: EmojiSetInstallControlFfi
+        ) async throws -> EmojiSetInstallResultFfi {
+            installEmojiSetControls.append(control)
+            await installEmojiSetGate.passIfArmed()
+            if control.isCancelled() { throw MarmotKitError.EmojiSetInstallCancelled }
+            if let emojiSetActionError { throw emojiSetActionError }
+            guard let index = emojiSetStore.firstIndex(where: { $0.coordinate == coordinate }) else {
+                throw MarmotKitError.EmojiSetNotFound
+            }
+            guard emojiSetStore[index].eventIdHex == expectedEventIdHex else {
+                throw MarmotKitError.EmojiSetChanged(currentEventIdHex: emojiSetStore[index].eventIdHex)
+            }
+            let set = emojiSetStore[index]
+            emojiSetStore[index].installed = InstalledEmojiSetStateFfi(
+                eventIdHex: set.eventIdHex, createdAt: set.createdAt, installedAt: 1,
+                emojiCount: UInt32(set.emoji.count), byteLen: 0, updateAvailable: false)
+            return EmojiSetInstallResultFfi(
+                set: emojiSetStore[index], installedCount: UInt32(set.emoji.count), skipped: [])
+        }
+
+        func uninstallEmojiSet(accountRef: String, coordinate: String) async throws -> Bool {
+            if let emojiSetActionError { throw emojiSetActionError }
+            guard let index = emojiSetStore.firstIndex(where: { $0.coordinate == coordinate }) else { return false }
+            let wasInstalled = emojiSetStore[index].installed != nil
+            emojiSetStore[index].installed = nil
+            return wasInstalled
+        }
+
+        var userEmojiListSets: [EmojiSetFfi] = []
+
+        func userEmojiList(accountRef: String) async throws -> UserEmojiListFfi {
+            UserEmojiListFfi(
+                eventIdHex: nil, createdAt: nil, ownEmoji: nil, sets: userEmojiListSets, missingSetCoordinates: [],
+                complete: true)
+        }
+
+        func installedCustomEmoji(accountRef: String) async throws -> [InstalledCustomEmojiFfi] {
+            emojiSetStore.filter { $0.installed != nil }.flatMap { set in
+                set.emoji.map { emoji in
+                    let bytes = emojiSetAssetBytes[emoji.shortcode] ?? Data()
+                    return InstalledCustomEmojiFfi(
+                        setCoordinate: set.coordinate, setTitle: set.title, authorPubkeyHex: set.authorPubkeyHex,
+                        shortcode: emoji.shortcode, mime: "image/png", width: 8, height: 8, frames: 1,
+                        sha256: hexSHA256Fake(bytes), byteLen: UInt64(bytes.count), shortcodeCollision: false)
+                }
+            }
+        }
+
+        func readInstalledCustomEmoji(accountRef: String, coordinate: String, shortcode: String) async throws
+            -> InstalledCustomEmojiAssetFfi
+        {
+            guard
+                let emoji = try await installedCustomEmoji(accountRef: accountRef).first(where: {
+                    $0.setCoordinate == coordinate && $0.shortcode == shortcode
+                }), let bytes = emojiSetAssetBytes[shortcode]
+            else { throw MarmotKitError.EmojiSetNotFound }
+            return InstalledCustomEmojiAssetFfi(emoji: emoji, bytes: bytes)
+        }
+
+        func sendTaggedMedia(
+            accountRef: String, groupIdHex: String, attachments: [MediaAttachmentReferenceFfi], caption: String?,
+            tags: [[String]]
+        ) async throws -> SendSummaryFfi {
+            if !sendTaggedMediaErrors.isEmpty { throw sendTaggedMediaErrors.removeFirst() }
+            taggedMediaSends.append((groupIdHex, caption, attachments, tags))
+            return SendSummaryFfi(published: 1, messageIds: ["tagged-\(taggedMediaSends.count)"])
+        }
+
+        func reactWithMedia(
+            accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String, tags: [[String]],
+            attachments: [MediaAttachmentReferenceFfi]
+        ) async throws -> SendSummaryFfi {
+            if let reactWithMediaError { throw reactWithMediaError }
+            mediaReactions.append((groupIdHex, targetMessageId, emoji, attachments, tags))
+            return SendSummaryFfi(published: 1, messageIds: ["media-reaction-\(mediaReactions.count)"])
+        }
+
+        private func hexSHA256Fake(_ data: Data) -> String {
+            SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
+
+        func subscribeEvents() -> EventsSubscription {
+            eventHub.subscribe()
+        }
+
+        func nextEvent(subscription: EventsSubscription) async throws -> MarmotEventFfi? {
+            await subscription.next()
+        }
+
+        func confirmGroupRejoin(
+            accountRef: String, welcomeIdHex: String, localStateToken: String
+        ) async throws -> GroupRecoveryStatusFfi {
+            guard
+                let match = groupRecoveryStatuses.values.first(where: {
+                    $0.rejoinInvitations.contains {
+                        $0.welcomeIdHex == welcomeIdHex && $0.localStateToken == localStateToken
+                    }
+                })
+            else { throw FakeMarmotRuntimeError.unused }
+            var updated = match
+            updated.rejoinInvitations.removeAll { $0.welcomeIdHex == welcomeIdHex }
+            groupRecoveryStatuses[updated.groupIdHex] = updated
+            return updated
+        }
+
+        func declineGroupRejoin(accountRef: String, welcomeIdHex: String) async throws {
+            for (groupID, var status) in groupRecoveryStatuses {
+                status.rejoinInvitations.removeAll { $0.welcomeIdHex == welcomeIdHex }
+                groupRecoveryStatuses[groupID] = status
+            }
+        }
+
+        func reportMessage(
+            accountRef: String,
+            groupIdHex: String,
+            messageId: String,
+            reason: ReportReasonFfi,
+            explanation: String
+        ) async throws -> SendSummaryFfi {
+            reportRequests.append((groupIdHex, messageId, reason, explanation))
+            return SendSummaryFfi(published: 1, messageIds: ["report"])
+        }
+
+        func moderationReportingAvailable() -> Bool {
+            isModerationReportingAvailable
+        }
+
+        func submitModerationReport(
+            accountRef: String,
+            reportedPubkey: String,
+            reason: ReportReasonFfi,
+            explanation: String,
+            origin: ModerationReportOriginFfi
+        ) async throws -> ModerationReportOutcomeFfi {
+            if let moderationReportError { throw moderationReportError }
+            moderationReportRequests.append((reportedPubkey, reason, explanation, origin))
+            return ModerationReportOutcomeFfi(
+                reportId: "moderation-report-\(moderationReportRequests.count)",
+                acceptDisposition: moderationReportDisposition
+            )
+        }
+
+        func contentReports(
+            accountRef: String, groupIdHex: String, messageId: String?, after: String?, limit: UInt32
+        ) throws -> ContentReportPageFfi {
+            contentReportRequests.append((groupIdHex, messageId))
+            return contentReportPage
+        }
+
+        func dismissReports(
+            accountRef: String, groupIdHex: String, reportIds: [String], explanation: String
+        ) async throws -> SendSummaryFfi {
+            dismissedReportIDs.append(reportIds)
+            contentReportPage.reports.removeAll { reportIds.contains($0.reportIdHex) }
+            return SendSummaryFfi(published: 1, messageIds: ["dismiss-report"])
+        }
+
+        func reportedMessage(accountRef: String, groupIdHex: String, messageId: String) throws
+            -> TimelineMessageRecordFfi?
+        {
+            nil
+        }
+
+        func forgetGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool {
+            forgottenGroupIDs.append(groupIdHex)
+            let existed = groups.contains { $0.groupIdHex == groupIdHex }
+            groups.removeAll { $0.groupIdHex == groupIdHex }
+            return existed
+        }
+
+        func openAgentPublisher(
+            accountRef: String, groupIdHex: String, options: PublisherOptionsFfi
+        ) async throws -> AgentTextPublisher {
+            agentPublisherRequests.append((accountRef, groupIdHex, options))
+            guard let agentPublisher else { throw FakeMarmotRuntimeError.unused }
+            return agentPublisher
+        }
+
+        func onboardingRecoveryRequired(accountRef: String) throws -> Bool {
+            onboardingState?.recoveryEpoch != nil
+        }
+
+        func onboardingSnapshot(accountRef: String) throws -> OnboardingSnapshotFfi? {
+            onboardingState
+        }
+
+        func subscribeOnboarding(accountRef: String) throws -> OnboardingSubscription {
+            guard let onboardingState else { throw FakeMarmotRuntimeError.unused }
+            let subscription = FakeOnboardingSubscription(initial: onboardingState, updates: onboardingUpdates)
+            onboardingSubscription = subscription
+            return subscription
+        }
+
+        func onboardingSubscriptionSnapshot(subscription: OnboardingSubscription) -> OnboardingSnapshotFfi {
+            subscription.snapshot()
+        }
+
+        func nextOnboardingSnapshot(subscription: OnboardingSubscription) async throws -> OnboardingSnapshotFfi? {
+            await subscription.next()
+        }
+
+        func runOnboarding(accountRef: String) async throws -> OnboardingSnapshotFfi {
+            runOnboardingCallCount += 1
+            await onboardingRunGate.passIfArmed()
+            if let runOnboardingError { throw runOnboardingError }
+            return try advanceOnboarding()
+        }
+
+        func retryOnboardingStep(accountRef: String, step: OnboardingStepFfi) async throws -> OnboardingSnapshotFfi {
+            try advanceOnboarding()
+        }
+
+        func continueOnboardingWithout(accountRef: String, step: OnboardingStepFfi) async throws
+            -> OnboardingSnapshotFfi
+        {
+            try advanceOnboarding()
+        }
+
+        func approveOnboardingRepair(accountRef: String, revision: UInt64) async throws -> OnboardingSnapshotFfi {
+            try advanceOnboarding(expectedRevision: revision)
+        }
+
+        func acknowledgeOnboardingSingleDevice(accountRef: String, revision: UInt64) async throws
+            -> OnboardingSnapshotFfi
+        {
+            try advanceOnboarding(expectedRevision: revision)
+        }
+
+        func cancelOnboardingRepair(accountRef: String) async throws -> OnboardingSnapshotFfi {
+            try advanceOnboarding()
+        }
+
+        func cancelOnboarding(accountRef: String) async throws {
+            cancelOnboardingCallCount += 1
+            onboardingState = nil
+        }
+
+        func recoverOnboarding(accountRef: String, acknowledgeLatestOnlyEvidence: Bool) async throws -> String {
+            guard let epoch = onboardingState?.recoveryEpoch else { throw FakeMarmotRuntimeError.unused }
+            return epoch
+        }
+
+        func proposeOnboardingProfile(accountRef: String, profile: UserProfileMetadataFfi) async throws
+            -> OnboardingSnapshotFfi
+        {
+            proposedOnboardingProfiles.append(profile)
+            return try advanceOnboarding()
+        }
+
+        func proposeOnboardingFollows(accountRef: String, follows: [String]) async throws -> OnboardingSnapshotFfi {
+            try advanceOnboarding()
+        }
+
+        func proposeOnboardingRelays(
+            accountRef: String,
+            step: OnboardingStepFfi,
+            readRelays: [String],
+            writeRelays: [String]
+        ) async throws -> OnboardingSnapshotFfi {
+            try advanceOnboarding()
+        }
+
+        func proposeOnboardingRecommendedRelays(accountRef: String, step: OnboardingStepFfi) async throws
+            -> OnboardingSnapshotFfi
+        {
+            try advanceOnboarding()
+        }
+
+        func setOnboardingDiscoveryRelays(accountRef: String, discoveryRelays: [String]) async throws
+            -> OnboardingSnapshotFfi
+        {
+            onboardingDiscoveryRelayUpdates.append(discoveryRelays)
+            return try advanceOnboarding()
+        }
+
+        private func advanceOnboarding(expectedRevision: UInt64? = nil) throws -> OnboardingSnapshotFfi {
+            guard var snapshot = onboardingState else { throw FakeMarmotRuntimeError.unused }
+            if let expectedRevision, snapshot.revision != expectedRevision { throw FakeMarmotRuntimeError.unused }
+            snapshot.revision += 1
+            onboardingState = snapshot
+            return snapshot
+        }
+
+        func releaseProductAnalyticsRuntimeConfigGate() {
+            productAnalyticsRuntimeConfigGate.release()
+        }
+
+        func deleteAllLocalData() async throws {
+            didDeleteAllLocalData = true
+            await onDeleteAllLocalDataMidFlight?()
+            if let deleteAllLocalDataError {
+                throw deleteAllLocalDataError
+            }
+            storedAccounts = []
+            groups = []
+            messagesByGroupId = [:]
+            timelinePagesByGroupId = [:]
+            timelineUpdatesByGroupId = [:]
+            mediaRecordsByGroupId = [:]
+            mediaDownloadsByPlaintextSha256 = [:]
+            chatListUpdates = []
+            storedAuditLogFiles = []
+        }
+
+        func removeAccount(accountRef: String) async throws {
+            removedAccountRefs.append(accountRef)
+            if let removeAccountError { throw removeAccountError }
+            if let onRemoveAccountMidFlight {
+                await onRemoveAccountMidFlight(accountRef)
+            }
+            storedAccounts.removeAll { $0.label == accountRef }
+        }
+
+        /// Mirrors MDK: one call that creates an unnamed group with the peer as a founding admin.
+        /// Reuses `createGroup`'s failure knobs and gate, so every create-refusal test applies to it.
+        func startDirectConversation(accountRef: String, peerAccountId: String) async throws -> String {
+            startDirectConversationPeers.append(peerAccountId)
+            // MDK reuses the account's canonical direct chat with this peer, archived or not.
+            if let startDirectConversationReusedGroupId { return startDirectConversationReusedGroupId }
+            return try await createGroup(
+                accountRef: accountRef, name: "", memberRefs: [peerAccountId], description: nil)
+        }
+
+        func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
+            -> String
+        {
+            createGroupAttempts.append(memberRefs)
+            await onMemberResolutionAttempt?()
+            if let forgetsMissingKeyPackagesAfterAttempts,
+                createGroupAttempts.count > forgetsMissingKeyPackagesAfterAttempts
+            {
+                missingKeyPackageAccountIdHexByMemberRef = [:]
+            }
+            // Member resolution runs in list order and stops at the first member it can't resolve,
+            // whichever way that member fails.
+            let refusedMemberRef = memberRefs.first {
+                missingKeyPackageAccountIdHexByMemberRef[$0] != nil || invalidKeyPackageMemberRefs.contains($0)
+                    || unresolvableMemberRefs.contains($0)
+            }
+            let pendingFailure =
+                createGroupAttempts.count > createGroupFailureAfterAttempts ? createGroupFailure : nil
+            if pendingFailure != nil || refusedMemberRef != nil {
+                // Pass the gate before throwing so a test can hold a *failing* create in flight and
+                // switch accounts under it. Deliberately ahead of every mutation below, so a refused
+                // create still records nothing — the success path keeps its own gate at the end.
+                await createGroupGate.passIfArmed()
+                if let pendingFailure {
+                    throw pendingFailure
+                }
+                if let refusedMemberRef {
+                    if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[refusedMemberRef] {
+                        throw MarmotKitError.MissingKeyPackage(
+                            account: accountIdHex,
+                            reason: obsoleteKeyPackageMemberRefs.contains(refusedMemberRef) ? .obsoleteOnly : .notFound)
+                    }
+                    if unresolvableMemberRefs.contains(refusedMemberRef) {
+                        throw MarmotKitError.Publish(details: "no relay list for member")
+                    }
+                    throw MarmotKitError.InvalidKeyPackageEvent(details: "unusable key package event")
+                }
+            }
+            createdGroupMemberRefs = memberRefs
+            createdGroupName = name
+            createdGroupDescription = description
+            groups = [
+                AppGroupRecordFfi(
+                    groupIdHex: "created-group",
+                    endpoint: "",
+                    name: name,
+                    description: description ?? "",
+                    admins: [],
+                    relays: MarmotClient.seedRelays,
+                    nostrGroupIdHex: "",
+                    avatarUrl: nil,
+                    avatarDim: nil,
+                    avatarThumbhash: nil,
+                    imageHashHex: nil,
+                    encryptedMedia: encryptedMediaComponent(),
+                    disappearingMessageSecs: 0,
+                    archived: false,
+                    pendingConfirmation: false,
+                    selfMembership: .member,
+                    welcomerAccountIdHex: nil,
+                    viaWelcomeMessageIdHex: nil
+                )
+            ]
+            if let group = groups.first {
+                let details = GroupDetailsFfi(group: group, members: [])
+                groupDetailsById[group.groupIdHex] = details
+                groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
+            }
+            await createGroupGate.passIfArmed()
+            return "created-group"
+        }
+
+        func releaseCreateGroupGate() {
+            createGroupGate.release()
+        }
+
+        func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi {
+            acceptGroupInviteCallCount += 1
+            await groupInviteGate.passIfArmed()
+            acceptedInviteGroupIds.append(groupIdHex)
+            guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            groups[index].pendingConfirmation = false
+            if var details = groupDetailsById[groupIdHex] {
+                details.group.pendingConfirmation = false
+                groupDetailsById[groupIdHex] = details
+                groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+            }
+            return groups[index]
+        }
+
+        func declineGroupInvite(accountRef: String, groupIdHex: String) async throws -> GroupInviteDeclineResultFfi {
+            declineGroupInviteCallCount += 1
+            await groupInviteGate.passIfArmed()
+            declinedInviteGroupIds.append(groupIdHex)
+            guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            var group = groups.remove(at: index)
+            group.pendingConfirmation = false
+            groupDetailsById[groupIdHex] = nil
+            groupManagementStateById[groupIdHex] = nil
+            return GroupInviteDeclineResultFfi(
+                group: group,
+                summary: SendSummaryFfi(published: 1, messageIds: ["group-decline"])
+            )
+        }
+
+        func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi {
+            recordedStateLock.withLock { _groupDetailsCallCounts[groupIdHex, default: 0] += 1 }
+            if groupDetailsFailureGroupIds.contains(groupIdHex) {
+                throw FakeMarmotRuntimeError.unused
+            }
+            // Snapshot the value *before* the gate so a held older load captures the older details and a
+            // later mutation cannot retroactively change what it returns (issue #135 last-request-wins).
+            let result: GroupDetailsFfi
+            if let details = groupDetailsById[groupIdHex] {
+                result = details
+            } else if let group = groups.first(where: { $0.groupIdHex == groupIdHex }) {
+                result = GroupDetailsFfi(group: group, members: [])
+            } else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            await groupDetailsGate.passIfArmed()
+            return result
+        }
+
+        func releaseGroupDetailsGate() {
+            groupDetailsGate.release()
+        }
+
+        func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi {
+            await groupManagementStateGate.passIfArmed()
+            if let state = groupManagementStateById[groupIdHex] {
+                return state
+            }
+            let details = try await groupDetails(accountRef: accountRef, groupIdHex: groupIdHex)
+            let state = defaultGroupManagementState(for: details)
+            groupManagementStateById[groupIdHex] = state
+            return state
+        }
+
+        func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
+            -> GroupMutationResultFfi
+        {
+            inviteMembersDetailedCallCount += 1
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            inviteMemberRefAttempts.append(memberRefs)
+            await onMemberResolutionAttempt?()
+            // Invites resolve every member's KeyPackage before committing anything and stop at the
+            // first one they can't, exactly as `createGroup` does.
+            if let refusedMemberRef = memberRefs.first(where: {
+                missingKeyPackageAccountIdHexByMemberRef[$0] != nil || invalidKeyPackageMemberRefs.contains($0)
+            }) {
+                if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[refusedMemberRef] {
+                    throw MarmotKitError.MissingKeyPackage(
+                        account: accountIdHex,
+                        reason: obsoleteKeyPackageMemberRefs.contains(refusedMemberRef) ? .obsoleteOnly : .notFound)
+                }
+                throw MarmotKitError.InvalidKeyPackageEvent(details: "unusable key package event")
+            }
+            invitedMemberRefs = memberRefs
+            guard var details = groupDetailsById[groupIdHex] else {
+                throw FakeMarmotRuntimeError.unused
+            }
+
+            for memberRef in memberRefs {
+                let normalized = normalizedMembersByRef.values.first { member in
+                    member.memberRef == memberRef || member.npub == memberRef || member.accountIdHex == memberRef
+                }
+                let memberIdHex = normalized?.accountIdHex ?? memberRef
+                guard !details.members.contains(where: { $0.memberIdHex == memberIdHex }) else { continue }
+                details.members.append(
+                    GroupMemberDetailsFfi(
+                        memberIdHex: memberIdHex,
+                        account: nil,
+                        local: false,
+                        isAdmin: false,
+                        isSelf: false,
+                        npub: normalized?.npub ?? memberRef,
+                        displayName: nil
+                    )
+                )
+            }
+            groupDetailsById[groupIdHex] = details
+            groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-invite")
+        }
+
+        func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+            leaveGroupCallCount += 1
+            groupMutationOrder.append("leave")
+            await groupMutationGate.passIfArmed()
+            if let leaveGroupError { throw leaveGroupError }
+            leftGroupIdHex = groupIdHex
+            // The core records a *departure*; it does not drop the conversation. `selfMembership`
+            // becomes `Left` as soon as the SelfRemove publishes, and `leaveRequestPending` stays true
+            // until a remaining member commits it — which for a group whose others never come back is
+            // never. Deleting the row here modelled a state the core does not produce, and hid the fact
+            // that a departed chat has to stay actionable so its local copy can be deleted.
+            pendingLeaveGroupIds.insert(groupIdHex)
+            if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+                groups[index].selfMembership = .left
+            }
+            if var details = groupDetailsById[groupIdHex] {
+                details.group.selfMembership = .left
+                groupDetailsById[groupIdHex] = details
+            }
+            if var managementState = groupManagementStateById[groupIdHex] {
+                managementState.canLeave = false
+                managementState.leaveRequestPending = true
+                managementState.leaveRequestedAtMs = 1_700_000_000_000
+                groupManagementStateById[groupIdHex] = managementState
+            }
+            return SendSummaryFfi(published: 1, messageIds: ["group-leave"])
+        }
+
+        func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
+            -> GroupMutationResultFfi
+        {
+            promoteAdminDetailedCallCount += 1
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            if let promoteAdminError { throw promoteAdminError }
+            groupMutationOrder.append("promote")
+            promotedAdminRef = memberRef
+            let managementStateBeforePromote = groupManagementStateById[groupIdHex]
+            updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
+                member.isAdmin = true
+            }
+            // `updateMember` recomputes the management state from the new admin set, so a second admin
+            // clears both `isLastAdmin` and the leave block — which is exactly what the
+            // hand-admin-over-then-leave flow depends on. This knob poses as a core that reports no
+            // change at all, so the leave that follows still sees the sole-admin block.
+            if keepsManagementStateAfterPromote, let managementStateBeforePromote {
+                groupManagementStateById[groupIdHex] = managementStateBeforePromote
+            }
+            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-promote")
+        }
+
+        func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
+            -> GroupMutationResultFfi
+        {
+            demoteAdminDetailedCallCount += 1
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            demotedAdminRef = memberRef
+            updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
+                member.isAdmin = false
+            }
+            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-demote")
+        }
+
+        func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
+            -> GroupMutationResultFfi
+        {
+            removeMembersDetailedCallCount += 1
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            if let removeMembersError { throw removeMembersError }
+            removedMemberRefs = memberRefs
+            guard var details = groupDetailsById[groupIdHex] else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            details.members.removeAll { member in
+                memberRefs.contains { memberMatches(member, ref: $0) }
+            }
+            groupDetailsById[groupIdHex] = details
+            groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-remove")
+        }
+
+        func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+            selfDemoteAdminDetailedCallCount += 1
+            groupMutationOrder.append("selfDemote")
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            selfDemotedGroupIdHex = groupIdHex
+            guard var details = groupDetailsById[groupIdHex] else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            if let index = details.members.firstIndex(where: \.isSelf) {
+                details.members[index].isAdmin = false
+            }
+            groupDetailsById[groupIdHex] = details
+            groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-self-demote")
+        }
+
+        func enableGroupDisbanding(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+            enableGroupDisbandingCallCount += 1
+            groupMutationOrder.append("enableDisbanding")
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            if let enableGroupDisbandingError { throw enableGroupDisbandingError }
+            guard let details = groupDetailsById[groupIdHex] else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            var state = groupManagementStateById[groupIdHex] ?? defaultGroupManagementState(for: details)
+            state.disbandingEnabled = true
+            state.canEnableDisbanding = false
+            state.canDisband = state.isSelfAdmin && canDisbandAfterEnabling
+            groupManagementStateById[groupIdHex] = state
+            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-enable-disbanding")
+        }
+
+        /// Mirrors the core's durable acceptance: the request is recorded and every ordinary group
+        /// action shuts off at once, while the group itself only reaches `.disbanded` later.
+        func disbandGroup(accountRef: String, groupIdHex: String) async throws -> DisbandRequestFfi {
+            disbandGroupCallCount += 1
+            groupMutationOrder.append("disband")
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            if let disbandGroupError { throw disbandGroupError }
+            guard var details = groupDetailsById[groupIdHex] else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            let request = DisbandRequestFfi.pending(requestedAtMs: 1_700_000_000_000)
+            guard disbandGroupUpdatesState else { return request }
+            details.group.disbanding = true
+            details.group.disbandRequest = request
+            groupDetailsById[groupIdHex] = details
+            if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+                groups[index].disbanding = true
+                groups[index].disbandRequest = request
+            }
+            var state = groupManagementStateById[groupIdHex] ?? defaultGroupManagementState(for: details)
+            state.disbanding = true
+            state.disbandRequest = request
+            state.canDisband = false
+            state.canEnableDisbanding = false
+            state.canInvite = false
+            state.canLeave = false
+            state.requiresSelfDemoteBeforeLeave = false
+            // The core derives every member action from `can_edit_group`, which disbanding turns off.
+            state.memberActions = state.memberActions.map { action in
+                var action = action
+                action.canRemove = false
+                action.canPromote = false
+                action.canDemote = false
+                return action
+            }
+            groupManagementStateById[groupIdHex] = state
+            return request
+        }
+
+        func acknowledgeDisbandFailure(accountRef: String, groupIdHex: String) async throws -> Bool {
+            acknowledgeDisbandFailureCallCount += 1
+            if let acknowledgeDisbandFailureError { throw acknowledgeDisbandFailureError }
+            // `GroupDisbandState` reads a failure off either record, so either one holding it counts,
+            // and clearing it touches every record `disbandGroup` writes.
+            let stateFailed = groupManagementStateById[groupIdHex]?.disbandRequest?.isFailure == true
+            let detailsFailed = groupDetailsById[groupIdHex]?.group.disbandRequest?.isFailure == true
+            guard stateFailed || detailsFailed else { return false }
+            if var state = groupManagementStateById[groupIdHex] {
+                state.disbandRequest = nil
+                state.disbanding = false
+                groupManagementStateById[groupIdHex] = state
+            }
+            if var details = groupDetailsById[groupIdHex] {
+                details.group.disbandRequest = nil
+                details.group.disbanding = false
+                groupDetailsById[groupIdHex] = details
+            }
+            if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+                groups[index].disbandRequest = nil
+                groups[index].disbanding = false
+            }
+            return true
+        }
+
+        func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi
+        {
+            setGroupArchivedCallCount += 1
+            await groupMutationGate.passIfArmed()
+            if let setGroupArchivedError { throw setGroupArchivedError }
+            archivedGroup = ArchivedGroup(groupIdHex: groupIdHex, archived: archived)
+            guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            groups[index].archived = archived
+            if archived {
+                // Mirrors mdk's `unpin_chat_when_archived` trigger: archiving drops the pin, and
+                // unarchiving does not bring it back.
+                for accountRef in pinnedGroupIdsByAccountRef.keys {
+                    pinnedGroupIdsByAccountRef[accountRef]?.removeAll { $0 == groupIdHex }
+                }
+            }
+            if var details = groupDetailsById[groupIdHex] {
+                details.group.archived = archived
+                groupDetailsById[groupIdHex] = details
+            }
+            return groups[index]
+        }
+
+        func updateGroupAvatarUrl(
+            accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?
+        )
+            async throws -> SendSummaryFfi
+        {
+            updateGroupAvatarUrlCallCount += 1
+            await groupAvatarUpdateGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+
+            updatedGroupAvatar = UpdatedGroupAvatar(groupIdHex: groupIdHex, url: url, dim: dim, thumbhash: thumbhash)
+
+            if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+                groups[index].avatarUrl = url
+                groups[index].avatarDim = dim
+                groups[index].avatarThumbhash = thumbhash
+            }
+
+            if var details = groupDetailsById[groupIdHex] {
+                details.group.avatarUrl = url
+                details.group.avatarDim = dim
+                details.group.avatarThumbhash = thumbhash
+                groupDetailsById[groupIdHex] = details
+            }
+
+            return SendSummaryFfi(published: 1, messageIds: ["group-avatar"])
+        }
+
+        func updateGroupImage(accountRef: String, groupIdHex: String, plaintext: Data, mediaType: String) async throws
+            -> SendSummaryFfi
+        {
+            updateGroupImageCallCount += 1
+            await groupAvatarUpdateGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            updatedEncryptedGroupImage = plaintext
+            updatedEncryptedGroupImageMediaType = mediaType
+            if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+                groups[index].imageHashHex = "encrypted-image-hash"
+            }
+            let reference = "avatar:\(groupIdHex):encrypted-image-hash"
+            avatarAssets.removeAll { $0.target == groupIdHex }
+            avatarAssets.append(
+                AvatarAssetFfi(
+                    target: groupIdHex,
+                    reference: reference,
+                    availability: .ready,
+                    acquisition: nil,
+                    contentRevision: 1,
+                    byteCount: UInt64(downloadedGroupImage.count)
+                ))
+            avatarBytes.removeAll { $0.reference == reference }
+            avatarBytes.append(
+                AvatarBytesFfi(
+                    reference: reference,
+                    availability: .ready,
+                    contentRevision: 1,
+                    byteCount: UInt64(downloadedGroupImage.count),
+                    deferred: false,
+                    bytes: downloadedGroupImage,
+                    mediaType: "image/png",
+                    width: 1,
+                    height: 1
+                ))
+            return SendSummaryFfi(published: 1, messageIds: ["group-image"])
+        }
+
+        func clearGroupImage(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+            clearGroupImageCallCount += 1
+            try admitGroupChange(groupIdHex: groupIdHex)
+            if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+                groups[index].imageHashHex = nil
+            }
+            let references = Set(avatarAssets.filter { $0.target == groupIdHex }.compactMap(\.reference))
+            avatarAssets.removeAll { $0.target == groupIdHex }
+            avatarBytes.removeAll { references.contains($0.reference) }
+            return SendSummaryFfi(published: 1, messageIds: ["group-image-clear"])
+        }
+
+        func downloadGroupBlossomImage(accountRef: String, groupIdHex: String) async throws -> Data {
+            downloadGroupImageCallCount += 1
+            return downloadedGroupImage
+        }
+
+        func releaseGroupAvatarUpdateGate() {
+            groupAvatarUpdateGate.release()
+        }
+
+        func releaseGroupMutationGate() {
+            groupMutationGate.release()
+        }
+
+        func releaseGroupManagementStateGate() {
+            groupManagementStateGate.release()
+        }
+
+        func releaseGroupInviteGate() {
+            groupInviteGate.release()
+        }
+
+        func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?)
+            async throws
+            -> SendSummaryFfi
+        {
+            updateGroupProfileCallCount += 1
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            updatedGroupProfile = UpdatedGroupProfile(groupIdHex: groupIdHex, name: name, description: description)
+
+            if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+                if let name {
+                    groups[index].name = name
+                }
+                if let description {
+                    groups[index].description = description
+                }
+            }
+
+            if var details = groupDetailsById[groupIdHex] {
+                if let name {
+                    details.group.name = name
+                }
+                if let description {
+                    details.group.description = description
+                }
+                groupDetailsById[groupIdHex] = details
+            }
+
+            return SendSummaryFfi(published: 1, messageIds: ["group-profile"])
+        }
+
+        func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
+            -> AccountRelayListsFfi
+        {
+            lastSetInboxBootstrapRelays = bootstrapRelays
+            relayLists.inbox = RelayListFfi(kind: relayLists.inbox.kind, relays: relays)
+            // Snapshot before the gate so a held older save returns its account's lists.
+            let result = relayLists
+            await setAccountRelaysGate.passIfArmed()
+            return result
+        }
+
+        func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
+            -> AccountRelayListsFfi
+        {
+            lastSetNip65BootstrapRelays = bootstrapRelays
+            relayLists.nip65 = RelayListFfi(kind: relayLists.nip65.kind, relays: relays)
+            let result = relayLists
+            await setAccountRelaysGate.passIfArmed()
+            return result
+        }
+
+        func releaseSetAccountRelaysGate() {
+            setAccountRelaysGate.release()
+        }
+
+        func openChatListWindow(accountRef: String, view: ChatListViewFfi, initialRows: UInt32?) async throws
+            -> ChatListWindowSubscription
+        {
+            chatListWindowSubscriptionCount += 1
+            lastChatListWindowInitialRows = initialRows
+            let snapshot =
+                chatListWindowInitialSnapshot
+                ?? ChatListWindowSnapshotFfi(
+                    subscriptionGeneration: "window",
+                    sequence: 1,
+                    view: view,
+                    rows: makePresentedChatListSnapshot(includeArchived: false).rows,
+                    hasMoreBefore: false,
+                    hasMoreAfter: false,
+                    anchor: .top
+                )
+            var rawRows = snapshot.rows.map(\.row)
+            let mirroredLegacyUpdates = chatListUpdates.enumerated().map { index, update in
+                switch update {
+                case .row(_, let row):
+                    if let existing = rawRows.firstIndex(where: { $0.groupIdHex == row.groupIdHex }) {
+                        rawRows[existing] = row
+                    } else {
+                        rawRows.append(row)
+                    }
+                case .removeRow(_, let groupIdHex):
+                    rawRows.removeAll { $0.groupIdHex == groupIdHex }
+                case .snapshot(_, let rows):
+                    rawRows = rows
+                }
+                return ChatListWindowSnapshotFfi(
+                    subscriptionGeneration: snapshot.subscriptionGeneration,
+                    sequence: snapshot.sequence + UInt64(index + 1),
+                    view: view,
+                    rows: makePresentedChatListSnapshot(rows: rawRows, includeArchived: false).rows,
+                    hasMoreBefore: false,
+                    hasMoreAfter: false,
+                    anchor: snapshot.anchor
+                )
+            }
+            return FakeChatListWindowSubscription(
+                initial: snapshot,
+                updates: chatListWindowUpdates.isEmpty ? mirroredLegacyUpdates : chatListWindowUpdates,
+                pages: chatListWindowPageSnapshots
+            )
+        }
+
+        /// Overrides the ids `chatListIds` reports for a view; a view with no entry answers from `groups`.
+        var chatListIdsByView: [ChatListViewFfi: [String]] = [:]
+        /// Thrown, one per call and in order, by `chatListIds` and `revalidateChatListIds` before they answer.
+        var chatListIdsErrors: [Error] = []
+        private(set) var chatListIdsCallCount = 0
+        private(set) var revalidateChatListIdsCalls: [(view: ChatListViewFfi, groupIds: [String])] = []
+
+        func chatListIds(accountRef: String, view: ChatListViewFfi) async throws -> [String] {
+            chatListIdsCallCount += 1
+            if !chatListIdsErrors.isEmpty { throw chatListIdsErrors.removeFirst() }
+            return fakeChatListIds(view: view)
+        }
+
+        func revalidateChatListIds(accountRef: String, view: ChatListViewFfi, groupIds: [String]) async throws
+            -> [String]
+        {
+            revalidateChatListIdsCalls.append((view, groupIds))
+            if !chatListIdsErrors.isEmpty { throw chatListIdsErrors.removeFirst() }
+            let inView = Set(fakeChatListIds(view: view))
+            var seen = Set<String>()
+            return groupIds.filter { inView.contains($0) && seen.insert($0).inserted }
+        }
+
+        /// The ids `chatListQueryIds` reports per query. An unscripted query with no filter answers as
+        /// `chatListIds` does for its view; any other unscripted query matches nothing.
+        var chatListQueryIdsByQuery: [ChatListViewQueryFfi: [String]] = [:]
+        /// Thrown, one per call and in order, by the three query calls before they answer.
+        var chatListQueryErrors: [Error] = []
+        private(set) var chatListQueryIdsCalls: [ChatListViewQueryFfi] = []
+        private(set) var revalidateChatListQueryIdsCalls: [(query: ChatListViewQueryFfi, groupIds: [String])] = []
+        private(set) var openChatListQueryWindowCalls: [(query: ChatListViewQueryFfi, initialRows: UInt32?)] = []
+        /// Every query window opened, oldest first.
+        private(set) var chatListQueryWindows: [FakeChatListWindowSubscription] = []
+        /// Shows this many rows in a query window instead of `initialRows`, so a test can page with
+        /// a handful of chats.
+        var chatListQueryWindowRowLimit: Int?
+        /// Scripted for the next query window opened, then cleared: the snapshots its `page` serves,
+        /// and the errors its `page` and `next` throw first.
+        var chatListQueryWindowPages: [ChatListWindowSnapshotFfi] = []
+        var chatListQueryWindowPageErrors: [Error] = []
+        var chatListQueryWindowNextErrors: [Error] = []
+        /// Query windows answer anchors and pages with the next sequence, as MDK does.
+        var chatListQueryWindowAdvancesSequence = false
+        /// Query windows end their `next()` stream instead of waiting, so a test can await the
+        /// observing task.
+        var chatListQueryWindowEndsWhenExhausted = false
+        /// Thrown, one per call and in order, by `openChatListQueryWindow` alone, before the shared
+        /// `chatListQueryErrors`.
+        var openChatListQueryWindowErrors: [Error] = []
+
+        func chatListQueryIds(accountRef: String, query: ChatListViewQueryFfi) async throws -> [String] {
+            chatListQueryIdsCalls.append(query)
+            if !chatListQueryErrors.isEmpty { throw chatListQueryErrors.removeFirst() }
+            return fakeChatListQueryIds(query)
+        }
+
+        func revalidateChatListQueryIds(accountRef: String, query: ChatListViewQueryFfi, groupIds: [String])
+            async throws -> [String]
+        {
+            revalidateChatListQueryIdsCalls.append((query, groupIds))
+            if !chatListQueryErrors.isEmpty { throw chatListQueryErrors.removeFirst() }
+            let matching = Set(fakeChatListQueryIds(query))
+            var seen = Set<String>()
+            return groupIds.filter { matching.contains($0) && seen.insert($0).inserted }
+        }
+
+        /// Mirrors MDK's refusals: a `MessageText` node, or more than 500 group ids, never opens.
+        /// Rows are the installed groups in the view whose ids a `GroupIds` node lists.
+        func openChatListQueryWindow(accountRef: String, query: ChatListViewQueryFfi, initialRows: UInt32?) async throws
+            -> ChatListWindowSubscription
+        {
+            openChatListQueryWindowCalls.append((query, initialRows))
+            if !openChatListQueryWindowErrors.isEmpty { throw openChatListQueryWindowErrors.removeFirst() }
+            if !chatListQueryErrors.isEmpty { throw chatListQueryErrors.removeFirst() }
+            var listed: [String]?
+            for node in query.filter {
+                switch node {
+                case .messageText:
+                    throw MarmotKitError.InvalidChatListQuery(reason: .messageTextInWindow)
+                case .groupIds(let ids):
+                    listed = (listed ?? []) + ids
+                default:
+                    continue
+                }
+            }
+            if let listed, listed.count > 500 {
+                throw MarmotKitError.InvalidChatListQuery(reason: .tooManyGroupIds)
+            }
+            let inView = Set(fakeChatListIds(view: query.view))
+            let wanted = listed.map(Set.init)
+            let rows = chatListRows(includeArchived: true).filter { row in
+                inView.contains(row.groupIdHex) && wanted?.contains(row.groupIdHex) != false
+            }
+            let presented = makePresentedChatListSnapshot(rows: rows, includeArchived: true).rows
+            let limit = chatListQueryWindowRowLimit ?? Int(initialRows ?? 50)
+            let window = FakeChatListWindowSubscription(
+                initial: ChatListWindowSnapshotFfi(
+                    subscriptionGeneration: "query-window-\(chatListQueryWindows.count + 1)",
+                    sequence: 1,
+                    view: query.view,
+                    rows: Array(presented.prefix(limit)),
+                    hasMoreBefore: false,
+                    hasMoreAfter: presented.count > limit,
+                    anchor: .top
+                ),
+                pages: chatListQueryWindowPages,
+                pageErrors: chatListQueryWindowPageErrors,
+                nextErrors: chatListQueryWindowNextErrors,
+                advancesSequence: chatListQueryWindowAdvancesSequence,
+                endsWhenExhausted: chatListQueryWindowEndsWhenExhausted
+            )
+            chatListQueryWindowPages = []
+            chatListQueryWindowPageErrors = []
+            chatListQueryWindowNextErrors = []
+            chatListQueryWindows.append(window)
+            return window
+        }
+
+        /// The installed groups' presented rows, in the order of `groupIds`, for scripting window
+        /// snapshots.
+        func presentedChatRows(groupIds: [String]) -> [PresentedChatRowFfi] {
+            let presented = makePresentedChatListSnapshot(
+                rows: chatListRows(includeArchived: true), includeArchived: true
+            )
+            .rows
+            return groupIds.compactMap { id in presented.first { $0.row.groupIdHex == id } }
+        }
+
+        private func fakeChatListQueryIds(_ query: ChatListViewQueryFfi) -> [String] {
+            if let scripted = chatListQueryIdsByQuery[query] { return scripted }
+            return query.filter.isEmpty ? fakeChatListIds(view: query.view) : []
+        }
+
+        private func fakeChatListIds(view: ChatListViewFfi) -> [String] {
+            if let installed = chatListIdsByView[view] { return installed }
+            return chatListRows(includeArchived: true)
+                .filter { row in
+                    let isMember = row.selfMembership == .member
+                    switch view {
+                    case .chats: return !row.archived && isMember
+                    case .unread:
+                        return !row.archived && isMember && !row.pendingConfirmation
+                            && (row.hasUnread || row.manuallyMarkedUnread)
+                    case .archived: return row.archived && isMember
+                    case .left: return !isMember
+                    }
+                }
+                .map(\.groupIdHex)
+        }
+
+        func chatListWindowSnapshot(subscription: ChatListWindowSubscription) -> ChatListWindowSnapshotFfi? {
+            subscription.snapshot()
+        }
+
+        func nextChatListWindowSnapshot(subscription: ChatListWindowSubscription) async throws
+            -> ChatListWindowSnapshotFfi?
+        {
+            try await subscription.next()
+        }
+
+        func openPresentedChatList(accountRef: String, includeArchived: Bool) async throws
+            -> PresentedChatListSubscription
+        {
+            recordedStateLock.withLock { _chatListSubscriptionCount += 1 }
+            if chatListSubscriptionDelayNanoseconds > 0 {
+                try await Task.sleep(nanoseconds: chatListSubscriptionDelayNanoseconds)
+            }
+            let snapshot = makePresentedChatListSnapshot(includeArchived: includeArchived)
+            var rawRows = snapshot.rows.map(\.row)
+            let legacyUpdates = chatListUpdates.enumerated().map { index, update in
+                switch update {
+                case .row(_, let row):
+                    if let existing = rawRows.firstIndex(where: { $0.groupIdHex == row.groupIdHex }) {
+                        rawRows[existing] = row
+                    } else {
+                        rawRows.append(row)
+                    }
+                case .removeRow(_, let groupIdHex):
+                    rawRows.removeAll { $0.groupIdHex == groupIdHex }
+                case .snapshot(_, let rows):
+                    rawRows = rows
+                }
+                return PresentedChatListUpdateFfi(
+                    subscriptionGeneration: "fake-presented",
+                    sequence: UInt64(index + 1),
+                    snapshot: makePresentedChatListSnapshot(rows: rawRows, includeArchived: includeArchived)
+                )
+            }
+            return FakePresentedChatListSubscription(
+                initial: PresentedChatListUpdateFfi(
+                    subscriptionGeneration: "fake-presented",
+                    sequence: 0,
+                    snapshot: snapshot
+                ),
+                updates: presentedChatListUpdates.isEmpty ? legacyUpdates : presentedChatListUpdates,
+                endsWhenExhausted: chatListStreamEndsAfterUpdates,
+                recordSnapshot: { [weak self] in
+                    self?.recordSyncCall("chatListSubscription.snapshot")
+                }
+            )
+        }
+
+        func presentedChatListSubscriptionSnapshot(subscription: PresentedChatListSubscription)
+            -> PresentedChatListUpdateFfi?
+        {
+            subscription.snapshot()
+        }
+
+        func nextPresentedChatListUpdate(subscription: PresentedChatListSubscription) async throws
+            -> PresentedChatListUpdateFfi?
+        {
+            try await subscription.next()
+        }
+
+        func presentedChatList(accountRef: String, includeArchived: Bool) async throws -> PresentedChatListSnapshotFfi {
+            recordedStateLock.withLock { _chatListSubscriptionCount += 1 }
+            if chatListSubscriptionDelayNanoseconds > 0 {
+                try await Task.sleep(nanoseconds: chatListSubscriptionDelayNanoseconds)
+            }
+            return makePresentedChatListSnapshot(includeArchived: includeArchived)
+        }
+
+        func presentedChatListRow(accountRef: String, groupIdHex: String) async throws -> PresentedChatRowFfi? {
+            makePresentedChatListSnapshot(includeArchived: true).rows.first { $0.row.groupIdHex == groupIdHex }
+        }
+
+        private func makePresentedChatListSnapshot(includeArchived: Bool) -> PresentedChatListSnapshotFfi {
+            if let presentedChatListSnapshot {
+                if includeArchived { return presentedChatListSnapshot }
+                return PresentedChatListSnapshotFfi(
+                    rows: presentedChatListSnapshot.rows.filter { !$0.row.archived },
+                    presentationVersion: presentedChatListSnapshot.presentationVersion
+                )
+            }
+            return makePresentedChatListSnapshot(
+                rows: chatListRows(includeArchived: includeArchived),
+                includeArchived: includeArchived
+            )
+        }
+
+        private func makePresentedChatListSnapshot(
+            rows sourceRows: [ChatListRowFfi],
+            includeArchived: Bool
+        ) -> PresentedChatListSnapshotFfi {
+            let rows = sourceRows.filter { includeArchived || !$0.archived }.map { row in
+                let preview: SelectedChatPreviewFfi
+                if row.pendingConfirmation {
+                    preview = .invitation
+                } else if row.lastMessage != nil {
+                    preview = .message
+                } else {
+                    preview = .empty
+                }
+                let peer = groupDetailsById[row.groupIdHex]?.members.first { !$0.isSelf }
+                let profile = peer.flatMap { profilesByAccountId[$0.memberIdHex] }
+                let isDirect: Bool
+                switch row.conversationKind {
+                case .direct:
+                    isDirect = true
+                case .group:
+                    isDirect = false
+                case .unknown:
+                    let groupHasExplicitName =
+                        groups.first { $0.groupIdHex == row.groupIdHex }?
+                        .name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    isDirect =
+                        groupHasExplicitName != true
+                        && peer != nil
+                        && groupDetailsById[row.groupIdHex]?.members.count == 2
+                }
+                let source: PresentationSourceFfi =
+                    isDirect
+                    ? (profile == nil ? .peerFallback : .peerProfile)
+                    : .group
+                let title: String
+                let avatarURL: String?
+                if isDirect {
+                    title =
+                        profile.flatMap { profile in
+                            let display = profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            let name = profile.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            return display.isEmpty ? (name.isEmpty ? nil : name) : display
+                        } ?? peer?.displayName ?? row.title
+                    avatarURL = profile?.picture ?? row.avatarUrl
+                } else {
+                    title = row.title
+                    avatarURL = row.avatarUrl
+                }
+                let avatar: SelectedAvatarFfi =
+                    avatarURL.map {
+                        .remoteImage(url: $0, cacheKey: "avatar-cache-\(row.groupIdHex)")
+                    } ?? .placeholder(stableSeed: row.groupIdHex, source: source)
+                return PresentedChatRowFfi(
+                    draftVersion: nil,
+                    preview: preview,
+                    actions: ChatListRowActionsFfi(
+                        canMarkRead: row.hasUnread,
+                        canMarkUnread: !row.hasUnread,
+                        canPin: !row.pinned,
+                        canUnpin: row.pinned,
+                        canMute: !row.muted,
+                        canUnmute: row.muted,
+                        canArchive: !row.archived,
+                        canRestore: row.archived,
+                        canStartLeave: row.selfMembership == .member,
+                        canDeleteLocal: row.selfMembership != .member
+                    ),
+                    row: row,
+                    presentation: ConversationPresentationFfi(
+                        title: .literal(text: title),
+                        avatar: avatar,
+                        titleSource: source,
+                        avatarSource: source,
+                        peerId: isDirect ? peer?.memberIdHex : nil,
+                        resolution: profile == nil ? .fallback : .cached
+                    ),
+                    avatarAsset: avatarAssets.first { $0.target == row.groupIdHex }
+                )
+            }
+            return PresentedChatListSnapshotFfi(
+                rows: rows,
+                presentationVersion: PresentationVersionFfi(
+                    accountStoreEpoch: Data(repeating: 1, count: 16), revision: 1)
+            )
+        }
+
+        /// Pinned rows first in pinned-section order, the way mdk's `list_pin_ordinal` orders the
+        /// projection; everything else keeps `groups` order.
+        private func chatListRows(includeArchived: Bool) -> [ChatListRowFfi] {
+            let rows =
+                groups
+                .filter { includeArchived || !$0.archived }
+                .map { chatListRow(for: $0) }
+            let pinned =
+                rows
+                .compactMap { row in row.pinnedPosition.map { (position: $0, row: row) } }
+                .sorted { $0.position < $1.position }
+                .map(\.row)
+            return pinned + rows.filter { $0.pinnedPosition == nil }
+        }
+
+        /// Per-account one-shot chat lists, for the accounts the app never subscribes to. An account
+        /// with no entry answers from the shared `groups`, the way `subscribeChatList` does.
+        var chatListRowsByAccountRef: [String: [ChatListRowFfi]] = [:]
+        var chatListCallCount = 0
+        var chatListAccountRefs: [String] = []
+        var chatListError: Error?
+
+        func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi] {
+            chatListCallCount += 1
+            chatListAccountRefs.append(accountRef)
+            if let chatListError { throw chatListError }
+            guard let installed = chatListRowsByAccountRef[accountRef] else {
+                return chatListRows(includeArchived: includeArchived)
+            }
+            return installed.filter { includeArchived || !$0.archived }
+        }
+
+        func acknowledgeGroupCatchingUp(accountRef: String, groupIdHex: String) async throws -> Bool {
+            acknowledgeGroupChangeAdvisory(kind: "catchingUp", groupIdHex: groupIdHex) {
+                if case .GroupCatchingUp = $0 { true } else { false }
+            }
+        }
+
+        func acknowledgeGroupCommitUndelivered(accountRef: String, groupIdHex: String) async throws -> Bool {
+            acknowledgeGroupChangeAdvisory(kind: "commitUndelivered", groupIdHex: groupIdHex) {
+                if case .GroupCommitUndelivered = $0 { true } else { false }
+            }
+        }
+
+        private func acknowledgeGroupChangeAdvisory(
+            kind: String, groupIdHex: String, matches: (MarmotKitError) -> Bool
+        ) -> Bool {
+            groupChangeAdvisoryAcknowledgements.append("\(kind):\(groupIdHex)")
+            guard let refusal = groupChangeAdvisoryRefusals[groupIdHex], matches(refusal) else { return false }
+            admittedGroupChangeAttempts[groupIdHex, default: 0] += 1
+            return true
+        }
+
+        /// Throws the group's standing advisory refusal unless an acknowledgement admitted this
+        /// attempt. Like MDK's, the admission is consumed by the attempt whether or not it succeeds.
+        private func admitGroupChange(groupIdHex: String) throws {
+            guard let refusal = groupChangeAdvisoryRefusals[groupIdHex] else { return }
+            if let admitted = admittedGroupChangeAttempts[groupIdHex], admitted > 0 {
+                admittedGroupChangeAttempts[groupIdHex] = admitted - 1
+                return
+            }
+            throw refusal
+        }
+
+        private func groupMutationResult(groupIdHex: String, messageId: String) throws -> GroupMutationResultFfi {
+            guard let details = groupDetailsById[groupIdHex] else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            let managementState = groupManagementStateById[groupIdHex] ?? defaultGroupManagementState(for: details)
+            return GroupMutationResultFfi(
+                summary: SendSummaryFfi(published: 1, messageIds: [messageId]),
+                details: details,
+                managementState: managementState
+            )
+        }
+
+        private func updateMember(
+            groupIdHex: String,
+            matching memberRef: String,
+            update: (inout GroupMemberDetailsFfi) -> Void
+        ) {
+            guard var details = groupDetailsById[groupIdHex],
+                let index = details.members.firstIndex(where: { memberMatches($0, ref: memberRef) })
+            else { return }
+
+            update(&details.members[index])
+            groupDetailsById[groupIdHex] = details
+            groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+        }
+
+        private func memberMatches(_ member: GroupMemberDetailsFfi, ref: String) -> Bool {
+            member.memberIdHex == ref || member.npub == ref || member.account == ref
+        }
+
+        private func defaultGroupManagementState(for details: GroupDetailsFfi) -> GroupManagementStateFfi {
+            let selfMember = details.members.first(where: \.isSelf)
+            let adminCount = details.members.filter(\.isAdmin).count
+            let selfIsAdmin = selfMember?.isAdmin ?? true
+            let memberActions = details.members.map { member in
+                GroupMemberActionStateFfi(
+                    memberIdHex: member.memberIdHex,
+                    isSelf: member.isSelf,
+                    isAdmin: member.isAdmin,
+                    canRemove: selfIsAdmin && !member.isSelf,
+                    canPromote: selfIsAdmin && !member.isAdmin,
+                    canDemote: selfIsAdmin && member.isAdmin && (!member.isSelf || adminCount > 1)
+                )
+            }
+
+            return GroupManagementStateFfi(
+                myAccountIdHex: selfMember?.memberIdHex ?? storedAccounts.first?.accountIdHex ?? "",
+                isSelfAdmin: selfIsAdmin,
+                isLastAdmin: selfIsAdmin && adminCount <= 1,
+                canInvite: selfIsAdmin,
+                canLeave: !selfIsAdmin || adminCount > 1,
+                requiresSelfDemoteBeforeLeave: selfIsAdmin,
+                memberActions: memberActions
+            )
+        }
+
+        func subscribeNotifications() async throws -> NotificationsSubscription {
+            recordedStateLock.withLock { _notificationSubscriptionCount += 1 }
+            if let subscribeNotificationsError {
+                throw subscribeNotificationsError
+            }
+            return FakeNotificationsSubscription(endsImmediately: notificationStreamEndsImmediately)
+        }
+
+        func searchUsers(accountIdHex: String, query: String, radiusStart: UInt8, radiusEnd: UInt8) async throws
+            -> UserSearchSubscription
+        {
+            recordedStateLock.withLock {
+                _userSearchCalls.append(
+                    UserSearchCall(
+                        accountIdHex: accountIdHex,
+                        query: query,
+                        radiusStart: radiusStart,
+                        radiusEnd: radiusEnd
+                    )
+                )
+            }
+            if let searchUsersError {
+                throw searchUsersError
+            }
+            return FakeUserSearchSubscription(
+                updates: userSearchUpdates,
+                updateDelayNanoseconds: userSearchUpdateDelayNanoseconds,
+                recordNextUpdate: { [weak self] in
+                    guard let self else { return }
+                    self.recordedStateLock.withLock { self._userSearchNextUpdateCount += 1 }
+                }
+            )
+        }
+
+        func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
+            recordSyncCall("timelineMessages")
+            timelineMessageQueries.append(query)
+            if let timelineMessagesHandler {
+                return try timelineMessagesHandler(query)
+            }
+            if let groupIdHex = query.groupIdHex {
+                return pagedTimeline(from: timelinePagesByGroupId[groupIdHex]?.messages ?? [], query: query)
+            }
+
+            let messages = timelinePagesByGroupId.values.flatMap(\.messages).sorted { lhs, rhs in
+                if lhs.timelineAt != rhs.timelineAt { return lhs.timelineAt < rhs.timelineAt }
+                return lhs.messageIdHex < rhs.messageIdHex
+            }
+            return pagedTimeline(from: messages, query: query)
+        }
+
+        func messageEditHistory(
+            accountRef: String,
+            groupIdHex: String,
+            targetMessageIdHex: String,
+            beforeEditedAt: UInt64?,
+            beforeMessageIdHex: String?,
+            limit: UInt32
+        ) throws -> TimelineEditHistoryPageFfi {
+            messageEditHistoryRequests.append(
+                (
+                    messageIdHex: targetMessageIdHex,
+                    beforeEditedAt: beforeEditedAt,
+                    beforeMessageIdHex: beforeMessageIdHex,
+                    limit: limit
+                )
+            )
+            var pages = messageEditHistoryPages[targetMessageIdHex] ?? []
+            guard !pages.isEmpty else {
+                return TimelineEditHistoryPageFfi(versions: [], hasMoreBefore: false)
+            }
+            let page = pages.removeFirst()
+            messageEditHistoryPages[targetMessageIdHex] = pages
+            return page
+        }
+
+        func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws
+            -> TimelineMessagesSubscription
+        {
+            recordedStateLock.withLock {
+                _timelineSubscriptionCount += 1
+                _timelineSubscriptionAccountRefs.append(accountRef)
+            }
+            if timelineSubscriptionDelayNanoseconds > 0 {
+                try await Task.sleep(nanoseconds: timelineSubscriptionDelayNanoseconds)
+            }
+            let ordered: [TimelineMessageRecordFfi]
+            if let groupIdHex {
+                ordered = timelinePagesByGroupId[groupIdHex]?.messages ?? []
+            } else {
+                ordered = timelinePagesByGroupId.values.flatMap(\.messages)
+            }
+            let subscription = FakeTimelineMessagesSubscription(
+                messages: ordered,
+                limit: Int(limit ?? 100),
+                windowCap: 200,
+                updates: groupIdHex.flatMap { timelineUpdatesByGroupId[$0] } ?? [],
+                updateDelayNanoseconds: timelineUpdateDelayNanoseconds,
+                endsWhenExhausted: timelineStreamEndsAfterUpdates,
+                recordSnapshot: { [weak self] in
+                    self?.recordSyncCall("timelineMessagesSubscription.snapshot")
+                }
+            )
+            recordedStateLock.withLock { _lastTimelineSubscription = subscription }
+            return subscription
+        }
+
+        func openConversationWindow(
+            accountRef: String,
+            groupIdHex: String,
+            mode: ConversationOpenModeFfi,
+            messageIdHex: String?,
+            initialRows: UInt32?,
+            timeoutMs: UInt32
+        ) async throws -> ConversationWindowSubscription {
+            openedConversationWindowModes[groupIdHex, default: []].append(mode)
+            guard let initial = conversationWindowInitialSnapshots[groupIdHex] else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            let subscription = FakeConversationWindowSubscription(
+                initial: initial,
+                updates: conversationWindowUpdates[groupIdHex] ?? [],
+                updateDelayNanoseconds: conversationWindowUpdateDelayNanoseconds
+            )
+            openedConversationWindows[groupIdHex] = subscription
+            return subscription
+        }
+
+        func conversationWindowSnapshot(subscription: ConversationWindowSubscription) -> ConversationWindowSnapshotFfi?
+        {
+            subscription.snapshot()
+        }
+
+        func nextConversationWindowSnapshot(subscription: ConversationWindowSubscription) async throws
+            -> ConversationWindowSnapshotFfi?
+        {
+            try await subscription.next()
+        }
+
+        func cancelConversationWindow(subscription: ConversationWindowSubscription) async {
+            await subscription.cancel()
+        }
+
+        func initializeChatReadState(accountRef: String, groupIdHex: String) throws -> ChatListRowFfi? {
+            recordSyncCall("initializeChatReadState")
+            guard initializeChatReadStateReturnsRow else { return nil }
+            return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
+        }
+
+        func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws
+            -> ChatListRowFfi?
+        {
+            recordSyncCall("markTimelineMessageRead")
+            markedReadMessageIds.append(messageIdHex)
+            markTimelineMessageReadGate.passIfArmed()
+            if let markTimelineMessageReadError {
+                throw markTimelineMessageReadError
+            }
+            return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
+        }
+
+        func releaseMarkTimelineMessageReadGate() {
+            markTimelineMessageReadGate.release()
+        }
+
+        func messageDrafts(accountRef: String) throws -> [MessageDraftSummaryFfi] {
+            recordSyncCall("messageDrafts")
+            return recordedStateLock.withLock {
+                (storedMessageDraftsByAccountRef[accountRef] ?? [:]).values
+                    .sorted {
+                        if $0.updatedAtMs != $1.updatedAtMs { return $0.updatedAtMs > $1.updatedAtMs }
+                        return $0.groupIdHex < $1.groupIdHex
+                    }
+                    .map { draft in
+                        MessageDraftSummaryFfi(
+                            groupIdHex: draft.groupIdHex,
+                            content: draft.content,
+                            replyToMessageIdHex: draft.replyToMessageIdHex,
+                            mediaAttachments: draft.mediaAttachments.map { attachment in
+                                MessageDraftAttachmentSummaryFfi(
+                                    id: attachment.id,
+                                    fileName: attachment.fileName,
+                                    mediaType: attachment.mediaType,
+                                    plaintextSize: UInt64(attachment.plaintext.count)
+                                )
+                            },
+                            createdAtMs: draft.createdAtMs,
+                            updatedAtMs: draft.updatedAtMs
+                        )
+                    }
+            }
+        }
+
+        func messageDraft(accountRef: String, groupIdHex: String) throws -> MessageDraftFfi? {
+            recordSyncCall("messageDraft")
+            let draft = recordedStateLock.withLock {
+                storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+            }
+            messageDraftReadGate.passIfArmed()
+            return draft
+        }
+
+        func selectedMessageDraft(accountRef: String, groupIdHex: String) throws -> SelectedMessageDraftFfi {
+            recordSyncCall("selectedMessageDraft")
+            if let selected = selectedDrafts[groupIdHex] {
+                messageDraftReadGate.passIfArmed()
+                return selected
+            }
+            let stored = recordedStateLock.withLock {
+                storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+            }
+            let selected = SelectedMessageDraftFfi(
+                revision: MessageDraftRevisionFfi(noPointer: .init()),
+                draft: stored.map { Self.selectedDraftContent(from: $0) }
+            )
+            selectedDrafts[groupIdHex] = selected
+            messageDraftReadGate.passIfArmed()
+            return selected
+        }
+
+        func messageDraftAttachmentIfRevision(
+            accountRef: String,
+            revision: MessageDraftRevisionFfi,
+            attachmentId: String
+        ) throws -> Data? {
+            recordSyncCall("messageDraftAttachmentIfRevision")
+            guard
+                let groupIdHex = selectedDrafts.first(where: { $0.value.revision === revision })?.key
+            else { throw FakeMarmotRuntimeError.unused }
+            return recordedStateLock.withLock {
+                storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]?.mediaAttachments
+                    .first(where: { $0.id == attachmentId })?.plaintext
+            }
+        }
+
+        func saveMessageDraftIfRevision(
+            accountRef: String,
+            revision: MessageDraftRevisionFfi,
+            content: String,
+            replyToMessageIdHex: String?,
+            mediaAttachments: [MessageDraftAttachmentFfi]
+        ) throws -> SelectedMessageDraftFfi {
+            recordSyncCall("saveMessageDraftIfRevision")
+            guard let groupIdHex = selectedDrafts.first(where: { $0.value.revision === revision })?.key else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            let draft = recordedStateLock.withLock {
+                messageDraftTimestamp += 1
+                let stored = storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+                let draft = MessageDraftFfi(
+                    groupIdHex: groupIdHex,
+                    content: content,
+                    replyToMessageIdHex: replyToMessageIdHex,
+                    mediaAttachments: mediaAttachments,
+                    createdAtMs: stored?.createdAtMs ?? messageDraftTimestamp,
+                    updatedAtMs: messageDraftTimestamp
+                )
+                storedMessageDraftsByAccountRef[accountRef, default: [:]][groupIdHex] = draft
+                return draft
+            }
+            let replacement = SelectedMessageDraftFfi(
+                revision: MessageDraftRevisionFfi(noPointer: .init()),
+                draft: Self.selectedDraftContent(from: draft)
+            )
+            selectedDrafts[groupIdHex] = replacement
+            return replacement
+        }
+
+        func clearMessageDraftIfRevision(accountRef: String, revision: MessageDraftRevisionFfi) throws
+            -> SelectedMessageDraftFfi
+        {
+            recordSyncCall("clearMessageDraftIfRevision")
+            guard let groupIdHex = selectedDrafts.first(where: { $0.value.revision === revision })?.key else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            recordedStateLock.withLock {
+                storedMessageDraftsByAccountRef[accountRef]?[groupIdHex] = nil
+            }
+            let replacement = SelectedMessageDraftFfi(
+                revision: MessageDraftRevisionFfi(noPointer: .init()),
+                draft: nil
+            )
+            selectedDrafts[groupIdHex] = replacement
+            return replacement
+        }
+
+        private nonisolated static func selectedDraftContent(from draft: MessageDraftFfi)
+            -> SelectedMessageDraftContentFfi
+        {
+            SelectedMessageDraftContentFfi(
+                groupIdHex: draft.groupIdHex,
+                content: draft.content,
+                replyToMessageIdHex: draft.replyToMessageIdHex,
+                mediaAttachments: draft.mediaAttachments.map { attachment in
+                    SelectedMessageDraftAttachmentFfi(
+                        id: attachment.id,
+                        fileName: attachment.fileName,
+                        mediaType: attachment.mediaType,
+                        plaintextSize: UInt64(attachment.plaintext.count),
+                        dim: attachment.dim,
+                        thumbhash: attachment.thumbhash,
+                        durationSeconds: attachment.durationSeconds,
+                        waveformSamples: attachment.waveformSamples
+                    )
+                },
+                createdAtMs: draft.createdAtMs,
+                updatedAtMs: draft.updatedAtMs
+            )
+        }
+
+        func releaseMessageDraftReadGate() {
+            messageDraftReadGate.release()
+        }
+
+        func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi] {
+            recordedStateLock.withLock { _listMediaCallCount += 1 }
+            listMediaGate.passIfArmed()
+            let records = mediaRecordsByGroupId[groupIdHex] ?? []
+            guard let limit else { return records }
+            return Array(records.prefix(Int(limit)))
+        }
+
+        func releaseListMediaGate() {
+            listMediaGate.release()
+        }
+
+        func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws
+            -> MediaDownloadResultFfi
+        {
+            recordedStateLock.withLock {
+                _downloadMediaCallCount += 1
+                _downloadedMediaReferences.append(reference)
+            }
+            guard let download = mediaDownloadsByPlaintextSha256[reference.plaintextSha256] else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            await mediaDownloadGate.passIfArmed()
+            return download
+        }
+
+        func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws
+            -> MediaUploadResultFfi
+        {
+            recordedStateLock.withLock {
+                _uploadMediaCallCount += 1
+                _uploadedMedia = UploadedMedia(groupIdHex: groupIdHex, request: request)
+                _uploadedMediaRequests.append(UploadedMedia(groupIdHex: groupIdHex, request: request))
+            }
+            for attachment in request.attachments {
+                await uploadReleaseGate.waitIfHeld(attachment.fileName)
+            }
+            // Claiming the failure inside the lock keeps two concurrent uploads of the same file name
+            // from both consuming the one-shot entry and both throwing.
+            let shouldFail = recordedStateLock.withLock { () -> Bool in
+                guard
+                    let failing = request.attachments.first(where: {
+                        _uploadMediaFailingFileNames.contains($0.fileName)
+                    })
+                else { return false }
+                _uploadMediaFailingFileNames.remove(failing.fileName)
+                return true
+            }
+            if shouldFail {
+                throw FakeMarmotRuntimeError.mediaUploadFailed
+            }
+            let returnsEmptyResult = recordedStateLock.withLock {
+                request.attachments.contains { _uploadMediaEmptyResultFileNames.contains($0.fileName) }
+            }
+            if returnsEmptyResult {
+                return MediaUploadResultFfi(attachments: [], sent: nil)
+            }
+            let attachments = request.attachments.map { attachment in
+                let sequence = recordedStateLock.withLock { () -> Int in
+                    _uploadedAttachmentSequence += 1
+                    return _uploadedAttachmentSequence
+                }
+                return MediaUploadAttachmentResultFfi(
+                    // Real digests, like the core produces: the media disk cache verifies
+                    // `plaintextSha256` against the bytes it reads back, so a placeholder here would
+                    // make every cached outgoing attachment silently unreadable.
+                    reference: MediaAttachmentReferenceFfi(
+                        locators: [MediaLocatorFfi(kind: "blossom", value: "https://example.com/media-\(sequence)")],
+                        ciphertextSha256: hexSHA256(Data("ciphertext-\(sequence)".utf8)),
+                        plaintextSha256: hexSHA256(attachment.plaintext),
+                        nonceHex: String(format: "%024x", sequence),
+                        fileName: attachment.fileName,
+                        mediaType: attachment.mediaType,
+                        version: .v1,
+                        sourceEpoch: 1,
+                        dim: attachment.dim,
+                        thumbhash: attachment.thumbhash
+                    ),
+                    encryptedSizeBytes: UInt64(attachment.plaintext.count + 16)
+                )
+            }
+            return MediaUploadResultFfi(
+                attachments: attachments,
+                sent: request.send ? SendSummaryFfi(published: 1, messageIds: ["media"]) : nil
+            )
+        }
+
+        func uploadMediaWithClientToken(
+            accountRef: String,
+            groupIdHex: String,
+            request: MediaUploadRequestFfi,
+            clientToken: String
+        ) async throws -> MediaUploadSubmissionFfi {
+            recordedStateLock.withLock {
+                _tokenizedMediaSubmissions.append(
+                    TokenizedMediaSubmission(
+                        groupIdHex: groupIdHex,
+                        request: request,
+                        clientToken: clientToken
+                    )
+                )
+                _sendMediaAttachmentsCallCount += request.send ? 1 : 0
+            }
+            let upload = try await uploadMedia(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                request: request
+            )
+            let references = upload.attachments.compactMap(\.reference)
+            guard request.send else {
+                return MediaUploadSubmissionFfi(upload: upload, acceptance: nil)
+            }
+
+            recordedStateLock.withLock {
+                _sentMediaAttachments.append(
+                    SentMediaAttachments(
+                        groupIdHex: groupIdHex,
+                        attachments: references,
+                        caption: request.caption
+                    )
+                )
+            }
+            await messageActionGate.passIfArmed()
+            if let sendMediaAttachmentsError {
+                throw sendMediaAttachmentsError
+            }
+            let acceptance =
+                localSendAcceptance
+                ?? LocalSendAcceptanceFfi(clientToken: clientToken, messageIdHex: "media-\(clientToken)")
+            let projected = timelineMessage(
+                id: acceptance.messageIdHex,
+                clientToken: acceptance.clientToken,
+                direction: "outbound",
+                groupIdHex: groupIdHex,
+                sender: createdAccount?.accountIdHex ?? storedAccounts.first?.accountIdHex
+                    ?? desktopAccount().accountIdHex,
+                plaintext: request.caption ?? "",
+                recordedAt: UInt64(max(0, messageDraftTimestamp)),
+                media: references
+            )
+            recordedStateLock.withLock {
+                var page =
+                    timelinePagesByGroupId[groupIdHex]
+                    ?? TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+                page.messages.removeAll { $0.clientToken == acceptance.clientToken }
+                page.messages.append(projected)
+                timelinePagesByGroupId[groupIdHex] = page
+            }
+            return MediaUploadSubmissionFfi(upload: upload, acceptance: acceptance)
+        }
+
+        func sendTextWithClientToken(accountRef: String, groupIdHex: String, text: String, clientToken: String)
+            async throws
+            -> LocalSendAcceptanceFfi
+        {
+            sendTextCallCount += 1
+            sentTextClientTokens.append(clientToken)
+            sentText = SentText(groupIdHex: groupIdHex, text: text)
+            await messageActionGate.passIfArmed()
+            publishedTexts.append(SentText(groupIdHex: groupIdHex, text: text))
+            if let sendTextError {
+                throw sendTextError
+            }
+            return localSendAcceptance ?? LocalSendAcceptanceFfi(clientToken: clientToken, messageIdHex: "text")
+        }
+
+        func replyToMessageWithClientToken(
+            accountRef: String,
+            groupIdHex: String,
+            targetMessageId: String,
+            text: String,
+            clientToken: String
+        ) async throws -> LocalSendAcceptanceFfi {
+            replyToMessageCallCount += 1
+            repliedMessage = SentReply(groupIdHex: groupIdHex, targetMessageId: targetMessageId, text: text)
+            await messageActionGate.passIfArmed()
+            if let replyToMessageError {
+                throw replyToMessageError
+            }
+            return localSendAcceptance ?? LocalSendAcceptanceFfi(clientToken: clientToken, messageIdHex: "reply")
+        }
+
+        func sendMessageDraftWithClientToken(
+            accountRef: String,
+            revision: MessageDraftRevisionFfi,
+            attachments: [MediaAttachmentReferenceFfi],
+            clientToken: String
+        ) async throws -> LocalSendAcceptanceFfi {
+            guard let groupIdHex = selectedDrafts.first(where: { $0.value.revision === revision })?.key else {
+                throw FakeMarmotRuntimeError.unused
+            }
+            let draft = recordedStateLock.withLock {
+                storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+            }
+            recordedStateLock.withLock {
+                _sendMediaAttachmentsCallCount += 1
+                _sentMediaAttachments.append(
+                    SentMediaAttachments(
+                        groupIdHex: groupIdHex,
+                        attachments: attachments,
+                        caption: draft?.content.isEmpty == false ? draft?.content : nil
+                    )
+                )
+            }
+            await messageActionGate.passIfArmed()
+            if let sendMediaAttachmentsError {
+                throw sendMediaAttachmentsError
+            }
+            let acceptance =
+                localSendAcceptance
+                ?? LocalSendAcceptanceFfi(
+                    clientToken: clientToken,
+                    messageIdHex: "draft"
+                )
+            let projected = timelineMessage(
+                id: acceptance.messageIdHex,
+                clientToken: acceptance.clientToken,
+                direction: "outbound",
+                groupIdHex: groupIdHex,
+                sender: createdAccount?.accountIdHex ?? desktopAccount().accountIdHex,
+                plaintext: draft?.content ?? "",
+                recordedAt: UInt64(max(0, messageDraftTimestamp)),
+                media: attachments
+            )
+            recordedStateLock.withLock {
+                var page =
+                    timelinePagesByGroupId[groupIdHex]
+                    ?? TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+                page.messages.removeAll { $0.clientToken == acceptance.clientToken }
+                page.messages.append(projected)
+                timelinePagesByGroupId[groupIdHex] = page
+                storedMessageDraftsByAccountRef[accountRef]?[groupIdHex] = nil
+            }
+            selectedDrafts[groupIdHex] = SelectedMessageDraftFfi(
+                revision: MessageDraftRevisionFfi(noPointer: .init()),
+                draft: nil
+            )
+            return acceptance
+        }
+
+        func localSendStatus(accountRef: String, groupIdHex: String, clientToken: String) throws -> LocalSendStatusFfi?
+        {
+            localSendStatuses[clientToken] ?? localSendStatusFallback
+        }
+
+        func retryGroupConvergence(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+            retryGroupConvergenceCallCount += 1
+            retriedGroupIdHex = groupIdHex
+            await messageActionGate.passIfArmed()
+            if let retryGroupConvergenceError {
+                throw retryGroupConvergenceError
+            }
+            return SendSummaryFfi(published: 1, messageIds: ["retry"])
+        }
+
+        func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
+            -> SendSummaryFfi
+        {
+            reactToMessageCallCount += 1
+            reactedMessage = SentReaction(groupIdHex: groupIdHex, targetMessageId: targetMessageId, emoji: emoji)
+            await messageActionGate.passIfArmed()
+            return SendSummaryFfi(published: 1, messageIds: ["reaction"])
+        }
+
+        func unreactFromMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws
+            -> SendSummaryFfi
+        {
+            unreactFromMessageCallCount += 1
+            unreactedMessage = UnreactedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
+            await messageActionGate.passIfArmed()
+            return SendSummaryFfi(published: 1, messageIds: ["unreact"])
+        }
+
+        func createPoll(
+            accountRef: String,
+            groupIdHex: String,
+            question: String,
+            options: [String],
+            pollType: PollTypeFfi,
+            endsAt: UInt64?
+        ) async throws -> SendSummaryFfi {
+            let error = recordedStateLock.withLock { () -> Error? in
+                _createdPolls.append(
+                    CreatedPoll(
+                        groupIdHex: groupIdHex,
+                        question: question,
+                        options: options,
+                        pollType: pollType,
+                        endsAt: endsAt
+                    ))
+                return _pollActionError
+            }
+            if let error {
+                throw error
+            }
+            return SendSummaryFfi(published: 1, messageIds: ["poll"])
+        }
+
+        func castPollVote(accountRef: String, groupIdHex: String, pollEventId: String, optionIds: [String]) async throws
+            -> SendSummaryFfi
+        {
+            let gate = recordedStateLock.withLock { () -> AsyncFfiGate? in
+                let index = _castPollVotes.count
+                _castPollVotes.append(
+                    CastPollVote(groupIdHex: groupIdHex, pollEventId: pollEventId, optionIds: optionIds))
+                return _pollVoteGates.indices.contains(index) ? _pollVoteGates[index] : nil
+            }
+            await gate?.passIfArmed()
+            if let error = recordedStateLock.withLock({ _pollActionError }) {
+                throw error
+            }
+            return SendSummaryFfi(published: 1, messageIds: ["poll-vote"])
+        }
+
+        func pollVotes(
+            accountRef: String,
+            groupIdHex: String,
+            pollEventId: String,
+            afterVotedAt: UInt64?,
+            afterVoterAccountIdHex: String?,
+            limit: UInt32
+        ) throws -> PollVotePageFfi {
+            let gate = recordedStateLock.withLock { () -> BlockingFfiGate? in
+                let index = _pollVotesRequests.count
+                _pollVotesRequests.append(
+                    PollVotesRequest(
+                        groupIdHex: groupIdHex,
+                        pollEventId: pollEventId,
+                        afterVotedAt: afterVotedAt,
+                        afterVoterAccountIdHex: afterVoterAccountIdHex,
+                        limit: limit
+                    ))
+                return _pollVotesGates.indices.contains(index) ? _pollVotesGates[index] : nil
+            }
+            gate?.passIfArmed()
+            return try recordedStateLock.withLock {
+                if let error = _pollVotesError {
+                    throw error
+                }
+                guard !_pollVotePages.isEmpty else { return PollVotePageFfi(votes: [], hasMoreAfter: false) }
+                return _pollVotePages.removeFirst()
+            }
+        }
+
+        func messageReactions(accountRef: String, groupIdHex: String, messageIdHex: String) throws
+            -> [TimelineUserReactionFfi]
+        {
+            let gate = recordedStateLock.withLock { () -> BlockingFfiGate? in
+                let index = _messageReactionsRequests.count
+                _messageReactionsRequests.append(
+                    MessageReactionsRequest(accountRef: accountRef, groupIdHex: groupIdHex, messageIdHex: messageIdHex))
+                return _messageReactionsGates.indices.contains(index) ? _messageReactionsGates[index] : nil
+            }
+            gate?.passIfArmed()
+            return try recordedStateLock.withLock {
+                if let error = _messageReactionsError {
+                    throw error
+                }
+                guard !_messageReactionsResults.isEmpty else { return _messageReactionsFallback }
+                return _messageReactionsResults.removeFirst()
+            }
+        }
+
+        func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws
+            -> SendSummaryFfi
+        {
+            deleteMessageCallCount += 1
+            deletedMessage = DeletedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
+            await messageActionGate.passIfArmed()
+            return SendSummaryFfi(published: 1, messageIds: ["delete"])
+        }
+
+        func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws
+            -> SendSummaryFfi
+        {
+            editMessageCallCount += 1
+            editedMessage = EditedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId, content: content)
+            await messageActionGate.passIfArmed()
+            return SendSummaryFfi(published: 1, messageIds: ["edit"])
+        }
+        func releaseMessageActionGate() {
+            messageActionGate.release()
+        }
+
+        func releaseMediaDownloadGate() {
+            mediaDownloadGate.release()
+        }
+
+        // MARK: - darkmatter 745959e FFI additions
+
+        var parseMarkdownCallCount = 0
+        var signOutCallCount = 0
+        var signedOutAccountRefs: [String] = []
+        var signInAccountCallCount = 0
+        var revealNsecCallCount = 0
+        var revealNsecError: (any Error)?
+        var exportEncryptedSecretKeyCallCount = 0
+        var deleteGroupLocalCallCount = 0
+        var locallyDeletedGroupIds: [String] = []
+        var updateMessageRetentionCallCount = 0
+        var lastRetentionSecs: UInt64?
+        var secureDeleteExpiredCallCount = 0
+        var sweepExpiredRetentionCallCount = 0
+        var setChatManuallyUnreadCallCount = 0
+        var lastManuallyUnreadValue: Bool?
+        var setChatMutedCallCount = 0
+        var clearChatMutedCallCount = 0
+        var lastMutedUntilMs: Int64?
+        var recordedHostPerformance: [(HostPerformanceOperationFfi, UInt64, HostPerformanceOutcomeFfi)] = []
+        private let secureDeleteExpiredGate = AsyncFfiGate()
+        var secureDeleteExpiredGateEnabled: Bool {
+            get { secureDeleteExpiredGate.isEnabled }
+            set { secureDeleteExpiredGate.isEnabled = newValue }
+        }
+        var didReachSecureDeleteExpiredGate: Bool {
+            secureDeleteExpiredGate.didReach
+        }
+        var accountAttentionFallbackRows: [AccountUnreadFfi] = []
+        /// Withholds the selected chat's read-state row, so a test can keep the timeline's off-main
+        /// `applyChatRow` out of a window where it counts chat-list work.
+        var initializeChatReadStateReturnsRow = true
+        func parseMarkdown(text: String) -> MarkdownDocumentFfi {
+            parseMarkdownCallCount += 1
+            return MarkdownDocumentFfi(blocks: [], truncated: false)
+        }
+
+        func subscribeAccountAttention() async throws -> AccountAttentionSubscription {
+            let initial =
+                accountAttentionInitialSnapshot
+                ?? AccountAttentionSnapshotFfi(
+                    subscriptionGeneration: "fake-attention",
+                    sequence: 0,
+                    accounts: accountAttentionFallbackRows.map { row in
+                        AccountAttentionEntryFfi(
+                            accountIdHex: row.accountIdHex,
+                            state: .ready(
+                                total: AccountAttentionTotalFfi(
+                                    unreadCount: row.unreadCount,
+                                    unreadMentionCount: 0,
+                                    unreadConversations: row.unreadConversations,
+                                    attentionOnlyConversations: row.attentionOnlyConversations
+                                )
+                            )
+                        )
+                    }
+                )
+            return FakeAccountAttentionSubscription(
+                initial: initial,
+                updates: accountAttentionUpdates
+            )
+        }
+
+        func accountAttentionSnapshot(subscription: AccountAttentionSubscription) -> AccountAttentionSnapshotFfi? {
+            subscription.snapshot()
+        }
+
+        func nextAccountAttentionSnapshot(subscription: AccountAttentionSubscription) async throws
+            -> AccountAttentionSnapshotFfi?
+        {
+            try await subscription.next()
+        }
+
+        func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi {
+            signOutCallCount += 1
+            signedOutAccountRefs.append(accountRef)
+            if let signOutError { throw signOutError }
+            if let index = storedAccounts.firstIndex(where: { $0.label == accountRef }) {
+                storedAccounts[index].signedOut = true
+                storedAccounts[index].running = false
+            }
+            if let onSignOutAccountMidFlight {
+                await onSignOutAccountMidFlight(accountRef)
+            }
+            return SignOutOutcomeFfi(
+                keyPackagesDeleted: 0,
+                keyPackageFailures: [],
+                localCleanup: LocalCleanupReportFfi(completed: true, reason: nil)
+            )
+        }
+
+        func signInAccount(accountRef: String) async throws -> AccountSummaryFfi {
+            signInAccountCallCount += 1
+            if let index = storedAccounts.firstIndex(where: { $0.label == accountRef }) {
+                storedAccounts[index].signedOut = false
+                storedAccounts[index].running = true
+            }
+            if let onSignInAccountMidFlight {
+                await onSignInAccountMidFlight(accountRef)
+            }
+            let summary = storedAccounts.first(where: { $0.label == accountRef })
+            return summary
+                ?? AccountSummaryFfi(
+                    label: accountRef,
+                    accountIdHex: accountRef,
+                    localSigning: true,
+                    externalSigning: false,
+                    signedOut: false,
+                    running: true,
+                    unlinked: false
+                )
+        }
+
+        func revealNsec(accountRef: String) throws -> String {
+            revealNsecCallCount += 1
+            if let revealNsecError { throw revealNsecError }
+            return "nsec1fake"
+        }
+
+        func exportEncryptedSecretKey(accountRef: String, passphrase: String) throws -> String {
+            exportEncryptedSecretKeyCallCount += 1
+            return "ncryptsec1fake"
+        }
+
+        func deleteGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool {
+            deleteGroupLocalCallCount += 1
+            locallyDeletedGroupIds.append(groupIdHex)
+            guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else { return false }
+            groups.remove(at: index)
+            groupDetailsById[groupIdHex] = nil
+            groupManagementStateById[groupIdHex] = nil
+            return true
+        }
+
+        func updateMessageRetention(accountRef: String, groupIdHex: String, disappearingMessageSecs: UInt64)
+            async throws
+            -> SendSummaryFfi
+        {
+            updateMessageRetentionCallCount += 1
+            await groupMutationGate.passIfArmed()
+            try admitGroupChange(groupIdHex: groupIdHex)
+            lastRetentionSecs = disappearingMessageSecs
+            return SendSummaryFfi(published: 1, messageIds: ["retention"])
+        }
+
+        func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
+            secureDeleteExpiredCallCount += 1
+            await secureDeleteExpiredGate.passIfArmed()
+            return SecureDeleteExpiredResultFfi(
+                prunedMessages: 0,
+                secretsDeleted: 0,
+                mediaCiphertextSha256: [],
+                erasurePending: false
+            )
+        }
+
+        func sweepExpiredRetention(accountRef: String, nowMs: UInt64) async throws -> RetentionSweepReportFfi {
+            sweepExpiredRetentionCallCount += 1
+            return RetentionSweepReportFfi(groups: [])
+        }
+
+        func setChatManuallyUnread(accountRef: String, groupIdHex: String, manuallyUnread: Bool) throws
+            -> ChatListRowFfi?
+        {
+            setChatManuallyUnreadCallCount += 1
+            lastManuallyUnreadValue = manuallyUnread
+            return nil
+        }
+
+        func chatNotificationSettings(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi {
+            ChatNotificationSettingsFfi(
+                accountRef: accountRef,
+                accountIdHex: accountRef,
+                groupIdHex: groupIdHex,
+                muted: false,
+                mutedUntilMs: nil,
+                updatedAtMs: 0
+            )
+        }
+
+        func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int64?) throws
+            -> ChatNotificationSettingsFfi
+        {
+            setChatMutedCallCount += 1
+            lastMutedUntilMs = mutedUntilMs
+            return ChatNotificationSettingsFfi(
+                accountRef: accountRef,
+                accountIdHex: accountRef,
+                groupIdHex: groupIdHex,
+                muted: true,
+                mutedUntilMs: mutedUntilMs,
+                updatedAtMs: 0
+            )
+        }
+
+        func clearChatMuted(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi {
+            clearChatMutedCallCount += 1
+            return ChatNotificationSettingsFfi(
+                accountRef: accountRef,
+                accountIdHex: accountRef,
+                groupIdHex: groupIdHex,
+                muted: false,
+                mutedUntilMs: nil,
+                updatedAtMs: 0
+            )
+        }
+
+        /// Every `setChatPinned` call in order, and the pinned section it leaves behind per account.
+        var setChatPinnedCalls: [(accountRef: String, groupIdHex: String, pinned: Bool)] = []
+        /// Not account-scoped where it is read: `chatListRow(for:)` reports a group as pinned when
+        /// *any* account pinned it, so don't use the fake for cross-account pin tests.
+        var pinnedGroupIdsByAccountRef: [String: [String]] = [:]
+        var setChatPinnedError: Error?
+
+        func setChatPinned(accountRef: String, groupIdHex: String, pinned: Bool) throws -> ChatPinStateFfi {
+            setChatPinnedCalls.append((accountRef, groupIdHex, pinned))
+            if let setChatPinnedError { throw setChatPinnedError }
+            // Mirrors mdk's `ChatPinError::UnknownGroup` and `ChatPinError::ArchivedChat`.
+            guard let group = groups.first(where: { $0.groupIdHex == groupIdHex }) else {
+                throw MarmotKitError.UnknownGroup(groupIdHex: groupIdHex)
+            }
+            if pinned, group.archived {
+                throw MarmotKitError.InvalidChatPin(details: "archived chats cannot be pinned")
+            }
+            // Mirrors mdk: a newly pinned chat enters at the top of the pinned section, and pinning a
+            // chat that is already pinned leaves it where it is.
+            var order = pinnedGroupIdsByAccountRef[accountRef] ?? []
+            if pinned {
+                if !order.contains(groupIdHex) { order.insert(groupIdHex, at: 0) }
+            } else {
+                order.removeAll { $0 == groupIdHex }
+            }
+            pinnedGroupIdsByAccountRef[accountRef] = order
+            return ChatPinStateFfi(orderedGroupIds: order)
+        }
+
+        func recordHostPerformance(
+            operation: HostPerformanceOperationFfi,
+            durationMs: UInt64,
+            outcome: HostPerformanceOutcomeFfi
+        ) {
+            recordedHostPerformance.append((operation, durationMs, outcome))
+        }
+
+        func releaseSecureDeleteExpiredGate() {
+            secureDeleteExpiredGate.release()
+        }
+
+        private func chatListRow(for group: AppGroupRecordFfi) -> ChatListRowFfi {
+            let latest = timelinePagesByGroupId[group.groupIdHex]?.messages.last(where: { $0.kind == 9 })
+            let pinnedPosition = pinnedGroupIdsByAccountRef.values.lazy
+                .compactMap { $0.firstIndex(of: group.groupIdHex) }
+                .first
+                .map { UInt32($0) }
+            return ChatListRowFfi(
+                groupIdHex: group.groupIdHex,
+                archived: group.archived,
+                pendingConfirmation: group.pendingConfirmation,
+                title: group.name.isEmpty ? DisplayText.short(group.groupIdHex) : group.name,
+                groupName: group.name,
+                avatarUrl: group.avatarUrl,
+                avatar: group.imageHashHex.map {
+                    ChatListAvatarFfi(
+                        imageHashHex: $0,
+                        imageKeyHex: "key",
+                        imageNonceHex: "nonce",
+                        imageUploadKeyHex: "upload-key",
+                        mediaType: "image/jpeg"
+                    )
+                },
+                lastMessage: latest.map { message in
+                    ChatListMessagePreviewFfi(
+                        messageIdHex: message.messageIdHex,
+                        sender: message.sender,
+                        senderDisplayName: displayName(accountIdHex: message.sender),
+                        plaintext: message.plaintext,
+                        contentTokens: message.contentTokens,
+                        kind: message.kind,
+                        timelineAt: message.timelineAt,
+                        deleted: message.deleted
+                    )
+                },
+                unreadCount: 0,
+                hasUnread: false,
+                unreadMentionCount: 0,
+                unreadMention: false,
+                firstUnreadMessageIdHex: nil,
+                lastReadMessageIdHex: nil,
+                lastReadTimelineAt: latest?.timelineAt,
+                updatedAt: latest?.timelineAt ?? 0,
+                selfMembership: group.selfMembership,
+                leaveRequestPending: pendingLeaveGroupIds.contains(group.groupIdHex),
+                // The shared `groups` are not per account, so any account's pin applies; a row
+                // that always said "unpinned" would erase the pin on the next snapshot.
+                pinned: pinnedPosition != nil,
+                pinnedPosition: pinnedPosition,
+                lifecycleState: group.disbanded ? .disbanded : .stable,
+                disbanding: group.disbanding,
+                disbandRequest: group.disbandRequest
+            )
+        }
+    }
+
+    enum FakeMarmotRuntimeError: Error, LocalizedError {
+        case missingCreatedAccount
+        case auditLogDeleteFailed
+        case auditOtlpConfigRejected
+        case observabilityConfigurationFailed
+        case mediaUploadFailed
+        case followListReadFailed
+        case profilePublishFailed
+        case nativePushWriteFailed
+        case unused
+
+        var errorDescription: String? {
+            switch self {
+            case .profilePublishFailed:
+                return "Profile publish failed."
+            case .missingCreatedAccount:
+                return "Missing created account."
+            case .auditLogDeleteFailed:
+                return "Audit log delete failed."
+            case .auditOtlpConfigRejected:
+                return "Audit destination rejected."
+            case .observabilityConfigurationFailed:
+                return "Observability configuration failed."
+            case .mediaUploadFailed:
+                return "Media upload failed."
+            case .followListReadFailed:
+                return "Follow list read failed."
+            case .nativePushWriteFailed:
+                return "Native push write failed."
+            case .unused:
+                return "Unused fake runtime error."
+            }
+        }
+    }
+
+    struct SentReply: Equatable {
+        let groupIdHex: String
+        let targetMessageId: String
+        let text: String
+    }
+
+    struct FollowMutationCall: Equatable {
+        let accountRef: String
+        let userRef: String
+        let isFollow: Bool
+    }
+
+    struct SentText: Equatable {
+        let groupIdHex: String
+        let text: String
+    }
+
+    struct UploadedMedia: Equatable {
+        let groupIdHex: String
+        let request: MediaUploadRequestFfi
+    }
+
+    struct TokenizedMediaSubmission: Equatable {
+        let groupIdHex: String
+        let request: MediaUploadRequestFfi
+        let clientToken: String
+    }
+
+    struct SentMediaAttachments: Equatable {
+        let groupIdHex: String
+        let attachments: [MediaAttachmentReferenceFfi]
+        let caption: String?
+
+        var fileNames: [String] { attachments.map(\.fileName) }
+    }
+
+    /// Non-blocking release gate keyed by attachment file name, so a test can let uploads finish in a
+    /// chosen order (the composer must still publish them in composer order). Unlike `BlockingFfiGate`
+    /// this suspends rather than parking a cooperative thread, which matters when several stage-time
+    /// uploads are in flight at once.
+    actor UploadReleaseGate {
+        private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+        private var held: Set<String> = []
+
+        func hold(_ fileNames: String...) {
+            held.formUnion(fileNames)
+        }
+
+        func waitIfHeld(_ fileName: String) async {
+            guard held.contains(fileName) else { return }
+            await withCheckedContinuation { waiters[fileName, default: []].append($0) }
+        }
+
+        func release(_ fileName: String) {
+            held.remove(fileName)
+            for waiter in waiters.removeValue(forKey: fileName) ?? [] {
+                waiter.resume()
+            }
+        }
+    }
+
+    struct CreatedPoll: Equatable {
+        let groupIdHex: String
+        let question: String
+        let options: [String]
+        let pollType: PollTypeFfi
+        let endsAt: UInt64?
+    }
+
+    struct MessageReactionsRequest: Equatable {
+        let accountRef: String
+        let groupIdHex: String
+        let messageIdHex: String
+    }
+
+    struct PollVotesRequest: Equatable {
+        let groupIdHex: String
+        let pollEventId: String
+        let afterVotedAt: UInt64?
+        let afterVoterAccountIdHex: String?
+        let limit: UInt32
+    }
+
+    struct CastPollVote: Equatable {
+        let groupIdHex: String
+        let pollEventId: String
+        let optionIds: [String]
+    }
+
+    struct SentReaction: Equatable {
+        let groupIdHex: String
+        let targetMessageId: String
+        let emoji: String
+    }
+
+    struct UnreactedMessage: Equatable {
+        let groupIdHex: String
+        let targetMessageId: String
+    }
+
+    struct DeletedMessage: Equatable {
+        let groupIdHex: String
+        let targetMessageId: String
+    }
+
+    struct EditedMessage: Equatable {
+        let groupIdHex: String
+        let targetMessageId: String
+        let content: String
+    }
+
+    struct UpdatedGroupAvatar: Equatable {
+        let groupIdHex: String
+        let url: String?
+        let dim: String?
+        let thumbhash: String?
+    }
+
+    struct UpdatedGroupProfile: Equatable {
+        let groupIdHex: String
+        let name: String?
+        let description: String?
+    }
+
+    struct ArchivedGroup: Equatable {
+        let groupIdHex: String
+        let archived: Bool
+    }
+#endif

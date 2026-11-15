@@ -1,4 +1,5 @@
 import Foundation
+import MarmotKit
 import Testing
 
 @testable import whitenoise_mac
@@ -8,8 +9,23 @@ import Testing
 /// the fixture shows each of them, and nothing else that would bury them.
 @MainActor
 struct UIFixtureDeliveryTests {
-    @Test func heavyChatFixtureShowsEachDeliveryStateOnce() throws {
-        let state = WorkspaceState.uiFixture(named: "heavy-chat")
+    @Test func heavyChatFixtureShowsEachDeliveryStateOnce() async throws {
+        let (state, account, model) = try await UIFixtureWorkspaceTests.openHeavyChat()
+        let client = try #require(state.client)
+        let snapshot = try #require(model.snapshot)
+        // The rows the transcript shows, mapped from the window as the shell maps them.
+        await state.applyTimelineWindow(
+            TimelinePageFfi(
+                messages: snapshot.messages.map(\.timeline),
+                hasMoreBefore: snapshot.hasMoreBefore,
+                hasMoreAfter: snapshot.hasMoreAfter
+            ),
+            groupIdHex: model.groupIdHex,
+            account: account,
+            client: client,
+            owner: nil,
+            marksLatestRowRead: false
+        )
         let messages = state.messagesByChat["ui-fixture-heavy-chat"] ?? []
         let now = Date.now
 
