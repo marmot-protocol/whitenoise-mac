@@ -57,6 +57,7 @@
                 )
             )
             runtime.installGroups(makeGroups())
+            runtime.answersTextFiltersFromTitles = true
 
             let messages = Array(makeMessages().suffix(WorkspaceState.timelineWindowLimit))
             runtime.conversationWindowInitialSnapshots[heavyChatId] = conversationSnapshot(messages: messages)
@@ -302,12 +303,15 @@
             guard index % 23 == 0 else {
                 return ConversationReactionsFfi(totalCount: 0, totalKinds: 0, items: [], omittedKinds: 0)
             }
+            // The second +1 is the viewer's own on even rows; the chip's selection and the
+            // reactor list have to agree on that.
+            let viewerReacted = index % 2 == 0
             let items = [
                 ConversationReactionFfi(
                     emoji: "+1",
                     count: 2,
-                    reactors: [incomingSenderId(0), account.accountIdHex],
-                    viewerReacted: index % 2 == 0,
+                    reactors: [incomingSenderId(0), viewerReacted ? account.accountIdHex : incomingSenderId(2)],
+                    viewerReacted: viewerReacted,
                     reactionMessageIdHex: "ui-fixture-reaction-\(index)-0"
                 ),
                 ConversationReactionFfi(

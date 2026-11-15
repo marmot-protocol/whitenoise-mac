@@ -36,6 +36,21 @@ struct UIFixtureWorkspaceTests: WorkspaceTestSupport {
         #expect(messages.contains { $0.references.reactions.totalCount > 0 })
     }
 
+    /// The search performance test types chat names; the fixture has to find them, or it measures
+    /// five empty result lists.
+    @Test func heavyChatFixtureSearchFindsChatsByName() async throws {
+        let (state, account, _) = try await Self.openHeavyChat()
+        let client = try #require(state.client)
+        let query = try #require(ChatListSearchQuery.matches(text: "Launch", view: .chats))
+
+        let ids = try await client.chatListQueryIds(accountRef: account.accountRef, query: query)
+
+        let titles = state.activeChats.filter { ids.contains($0.id) }.map(\.title)
+        #expect(titles.count == ids.count)
+        #expect(titles.count == 44)
+        #expect(titles.allSatisfy { $0.hasPrefix("Launch Review") })
+    }
+
     /// A fixture launch is the same app as a normal one, so it shares its preferences. Its bootstrap
     /// must not replace the account the next normal launch reopens.
     @Test func heavyChatFixtureLeavesTheSavedAccountAlone() async throws {

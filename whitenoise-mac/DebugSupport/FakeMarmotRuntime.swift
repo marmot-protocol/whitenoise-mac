@@ -3047,6 +3047,11 @@
         /// The ids `chatListQueryIds` reports per query. An unscripted query with no filter answers as
         /// `chatListIds` does for its view; any other unscripted query matches nothing.
         var chatListQueryIdsByQuery: [ChatListViewQueryFfi: [String]] = [:]
+        /// When set, an unscripted query carrying a `Text` node answers with the view's chats whose
+        /// title contains that text, ignoring case, instead of nothing. Off by default, so a test
+        /// still scripts every filtered answer it depends on; the UI fixture turns it on so its
+        /// sidebar search finds chats.
+        var answersTextFiltersFromTitles = false
         /// Thrown, one per call and in order, by the three query calls before they answer.
         var chatListQueryErrors: [Error] = []
         private(set) var chatListQueryIdsCalls: [ChatListViewQueryFfi] = []
@@ -3151,7 +3156,20 @@
 
         private func fakeChatListQueryIds(_ query: ChatListViewQueryFfi) -> [String] {
             if let scripted = chatListQueryIdsByQuery[query] { return scripted }
-            return query.filter.isEmpty ? fakeChatListIds(view: query.view) : []
+            if query.filter.isEmpty { return fakeChatListIds(view: query.view) }
+            guard answersTextFiltersFromTitles else { return [] }
+            let needles = query.filter.compactMap { node -> String? in
+                if case .text(let text) = node { return text }
+                return nil
+            }
+            guard !needles.isEmpty else { return [] }
+            let inView = Set(fakeChatListIds(view: query.view))
+            return chatListRows(includeArchived: true)
+                .filter { row in
+                    inView.contains(row.groupIdHex)
+                        && needles.contains { row.title.localizedCaseInsensitiveContains($0) }
+                }
+                .map(\.groupIdHex)
         }
 
         private func fakeChatListIds(view: ChatListViewFfi) -> [String] {
