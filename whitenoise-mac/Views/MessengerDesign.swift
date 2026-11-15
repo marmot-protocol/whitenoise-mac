@@ -645,15 +645,6 @@ struct GlassSeparator: View {
     }
 }
 
-struct GlassPaneBackground: View {
-    let opacity: Double
-
-    var body: some View {
-        GlassFill(darkOpacity: opacity * 0.42, lightOpacity: opacity * 0.32)
-            .ignoresSafeArea()
-    }
-}
-
 struct GlassToolbarBackground: View {
     var body: some View {
         GlassFill(material: .ultraThinMaterial, darkOpacity: 0.24, lightOpacity: 0.34)

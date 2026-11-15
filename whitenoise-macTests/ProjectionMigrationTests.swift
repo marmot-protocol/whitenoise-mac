@@ -581,6 +581,66 @@ struct ProjectionMigrationTests {
         #expect(model.recovery?.rejoinInvitations.isEmpty == true)
     }
 
+    @Test func decliningRemovesOnlyThatInvitationAndRefusesAStaleOne() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let declined = GroupRejoinInvitationFfi(
+            welcomeIdHex: "welcome-a", welcomerAccountIdHex: "alice", epoch: 7, localStateToken: "token-a")
+        let kept = GroupRejoinInvitationFfi(
+            welcomeIdHex: "welcome-b", welcomerAccountIdHex: "bob", epoch: 7, localStateToken: "token-b")
+        runtime.groupRecoveryStatuses["group"] = GroupRecoveryStatusFfi(
+            groupIdHex: "group",
+            automaticRecoveryFailed: false,
+            pendingReinvites: 0,
+            failedReinvites: 0,
+            rejoinInvitations: [declined, kept]
+        )
+        let model = GroupSafetyViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
+        await model.load(canModerate: false)
+
+        var stale = kept
+        stale.localStateToken = "stale-token"
+        await #expect(throws: GroupSafetyError.staleInvitation) {
+            try await model.decline(stale)
+        }
+        #expect(runtime.groupRecoveryStatuses["group"]?.rejoinInvitations == [declined, kept])
+
+        try await model.decline(declined)
+        #expect(model.recovery?.rejoinInvitations == [kept])
+        #expect(runtime.groupRecoveryStatuses["group"]?.rejoinInvitations == [kept])
+    }
+
+    /// Reports can arrive between two page reads, so the next page may repeat one already shown.
+    @Test func loadingMoreReportsFollowsTheCursorAndShowsEachReportOnce() async throws {
+        func report(_ id: String) -> ContentReportFfi {
+            ContentReportFfi(
+                reportIdHex: id,
+                messageIdHex: "message-\(id)",
+                messageAuthor: "author",
+                reporter: "reporter",
+                reason: .spam,
+                explanation: "",
+                reportedAt: 10,
+                dismissed: false
+            )
+        }
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.contentReportPage = ContentReportPageFfi(reports: [report("first")], nextCursor: "page-2")
+        let model = GroupSafetyViewModel(accountRef: "account", groupIdHex: "group", runtime: runtime)
+        await model.load(canModerate: true)
+
+        runtime.contentReportPage = ContentReportPageFfi(
+            reports: [report("first"), report("second")], nextCursor: nil)
+        await model.loadMoreReports()
+
+        #expect(runtime.contentReportRequests.map(\.after) == [nil, "page-2"])
+        #expect(model.reports.map(\.reportIdHex) == ["first", "second"])
+        #expect(model.nextReportCursor == nil)
+
+        // The last page leaves nothing to ask for.
+        await model.loadMoreReports()
+        #expect(runtime.contentReportRequests.count == 2)
+    }
+
     @Test func reportingIsCapabilityGatedAndUsesTheFeatureService() async throws {
         let incoming = MessageItem(
             id: "message",

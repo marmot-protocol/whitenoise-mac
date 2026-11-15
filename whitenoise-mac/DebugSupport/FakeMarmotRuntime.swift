@@ -200,7 +200,7 @@
         var reactWithMediaError: Error?
         let eventHub = FakeEventHub()
         var contentReportPage = ContentReportPageFfi(reports: [], nextCursor: nil)
-        private(set) var contentReportRequests: [(groupIdHex: String, messageId: String?)] = []
+        private(set) var contentReportRequests: [(groupIdHex: String, messageId: String?, after: String?)] = []
         var agentPublisher: AgentTextPublisher?
         private(set) var agentPublisherRequests:
             [(accountRef: String, groupIdHex: String, options: PublisherOptionsFfi)] =
@@ -2245,7 +2245,7 @@
         func contentReports(
             accountRef: String, groupIdHex: String, messageId: String?, after: String?, limit: UInt32
         ) throws -> ContentReportPageFfi {
-            contentReportRequests.append((groupIdHex, messageId))
+            contentReportRequests.append((groupIdHex, messageId, after))
             return contentReportPage
         }
 

@@ -781,24 +781,4 @@ extension WorkspaceState {
             lastError = UserFacingError.message(for: error)
         }
     }
-
-    func normalizedRelays(_ relays: [String]) -> [String] {
-        var seen = Set<String>()
-        return
-            relays
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .filter { seen.insert($0).inserted }
-    }
-
-    func isRelayURL(_ value: String) -> Bool {
-        RelayURLValidator.isAcceptable(value)
-    }
-
-    /// Whether a saved relay uses cleartext `ws://` transport (loopback dev
-    /// relay, or a pre-existing public `ws://` relay that loaded from a saved
-    /// relay list) and should be surfaced as insecure in the UI.
-    func isInsecureRelay(_ value: String) -> Bool {
-        RelayURLValidator.isCleartext(value)
-    }
 }

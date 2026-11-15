@@ -308,30 +308,6 @@ extension WorkspaceState {
         cancelVoiceRecording()
     }
 
-    func applyChatListSubscriptionUpdate(
-        _ update: ChatListSubscriptionUpdateFfi,
-        account: AccountItem
-    ) async {
-        switch update {
-        case .row(let trigger, let row):
-            invalidateGroupMemberDetailsCacheIfNeeded(trigger: trigger, groupIdHex: row.groupIdHex)
-            // Metadata-invariant deltas (last-message/read-state/pending-confirmation) do not
-            // change the metadata enrichment resolves (direct-chat title/avatar/isDirect), so
-            // skip the per-row FFI fan-out and preserve the already-resolved metadata. This is
-            // the same fast path the Timeline read-state call sites use (issue #170); re-sorting
-            // still happens via `upsertChat` inside `applyChatRow` (issue #251).
-            await applyChatRow(row, account: account, shouldEnrich: chatListTriggerRequiresEnrichment(trigger))
-        case .removeRow(trigger: _, let groupIdHex):
-            removeChat(groupIdHex: groupIdHex, account: account)
-            removeArchivedChatFromList(chatId: groupIdHex, forAccountId: account.id)
-        case .snapshot(let trigger, let rows):
-            for row in rows {
-                invalidateGroupMemberDetailsCacheIfNeeded(trigger: trigger, groupIdHex: row.groupIdHex)
-            }
-            await applyChatRows(rows, account: account)
-        }
-    }
-
     /// Temporary view-layer bridge from the complete prepared-list contract into the legacy chat
     /// selection store. The subscription and presentation remain owned by `ChatListViewModel`;
     /// this method applies one complete replacement atomically so removed selections, sheets, and
@@ -351,22 +327,6 @@ extension WorkspaceState {
             preparedRows: prepared,
             preparedAvatarBytes: avatarBytesByReference
         )
-    }
-
-    /// Whether a live chat-list delta can change the metadata enrichment resolves
-    /// (direct-chat title/avatar/`isDirect`). Metadata-invariant triggers only carry
-    /// unread/preview/timestamp/pending-confirmation changes, so they take the
-    /// `shouldEnrich: false` fast path and never trigger the per-row FFI fan-out.
-    func chatListTriggerRequiresEnrichment(_ trigger: ChatListUpdateTriggerFfi) -> Bool {
-        switch trigger {
-        case .newLastMessage, .lastMessageDeleted, .lastMessageContentChanged, .latestMessageDeliveryChanged,
-            .pendingConfirmationChanged, .unreadChanged, .manualUnreadChanged, .muteChanged,
-            .pinOrderChanged:
-            return false
-        case .newGroup, .archiveChanged, .membershipChanged, .conversationKindChanged,
-            .snapshotRefresh, .removed:
-            return true
-        }
     }
 
     func applyChatRow(
