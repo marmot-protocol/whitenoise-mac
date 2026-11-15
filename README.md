@@ -180,9 +180,10 @@ xcodebuild test \
 
 - `whitenoise-macTests/` — the unit-test target run by the shared scheme above.
 
-When validating the running app, keep exactly one `White Noise` instance alive
-(see `AGENTS.md`): do not use `open -n`; quit/terminate the existing process
-before relaunching.
+When validating the running app, keep exactly one `White Noise Dev` instance
+alive (see `AGENTS.md`): do not use `open -n`; quit/terminate the existing
+process before relaunching. Never quit an installed `White Noise`: it is the
+real app.
 
 ## Security & privacy
 

@@ -16,6 +16,9 @@ struct AppFlavorTests {
         #expect(AppFlavor.current == .development)
         #expect(Bundle.main.infoDictionary?[AppFlavor.infoPlistKey] as? String == "development")
         #expect(Bundle.main.bundleIdentifier == "dev.ipf.whitenoise.mac.dev")
+        // And the host must recognise itself, or it bootstraps the flavor's real Marmot root and
+        // connects to relays for the whole run.
+        #expect(AppLaunchConfiguration.current.isUnitTestHost)
     }
 
     @Test func missingOrUnknownFlavorReadsAsProduction() {

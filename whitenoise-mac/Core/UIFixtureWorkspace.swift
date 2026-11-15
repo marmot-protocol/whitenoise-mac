@@ -18,8 +18,8 @@
     /// The DEBUG-only `-uiFixture heavy-chat` workspace: one signed-in account on an in-memory
     /// `FakeMarmotRuntime`, so a UI test drives the app's real session, chat list and conversation
     /// code against deterministic data, with no network. Its account data, file stores and media
-    /// cache live in a fresh temporary directory, but a Debug build is otherwise the same app as a
-    /// real install on the Mac: preferences a UI test changes are that install's (whitenoise-mac#1025).
+    /// cache live in a fresh temporary directory, but it is otherwise the same app as a normal
+    /// Debug launch: preferences a UI test changes are the development app's.
     ///
     /// It has to be a runtime underneath rather than rows handed to the views: the conversation
     /// pane is built from the account scope, which exists only once the runtime has brought the
@@ -65,8 +65,8 @@
             runtime.conversationWindowInitialSnapshots[heavyChatId] = conversationSnapshot(messages: messages)
             installMedia(for: messages, in: runtime)
 
-            // Its own media cache too: the shared one is the real install's Application Support
-            // directory and keychain item, and evicts that install's entries when it fills up.
+            // Its own media cache too: the shared one is the development app's Application Support
+            // directory and keychain item, and evicts that app's entries when it fills up.
             let mediaCacheRoot = storageRoot.appendingPathComponent("media-cache", isDirectory: true)
             let mediaCacheKey = SymmetricKey(size: .bits256)
             let mediaDiskCache = MessageMediaDiskCache(
