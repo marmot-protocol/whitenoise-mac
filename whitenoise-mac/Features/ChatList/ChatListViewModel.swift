@@ -68,27 +68,6 @@ final class ChatListViewModel {
         }
     }
 
-    func refreshRow(groupIdHex: String) async {
-        do {
-            guard
-                let row = try await runtime.presentedChatListRow(
-                    accountRef: account.accountRef,
-                    groupIdHex: groupIdHex
-                ), !Task.isCancelled
-            else { return }
-            if let index = presentedRows.firstIndex(where: { $0.row.groupIdHex == groupIdHex }) {
-                presentedRows[index] = row
-            } else {
-                presentedRows.append(row)
-            }
-            error = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            self.error = .unavailable(UserFacingError.message(for: error))
-        }
-    }
-
     /// `mentionNames` maps a group id to the names its preview's `@npub1…` mentions resolve to.
     /// It is asked only for rows that mention someone, so a list with no mentions reads no roster.
     func chats(

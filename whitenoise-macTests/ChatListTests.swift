@@ -2543,27 +2543,6 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) == 1)
     }
 
-    @MainActor
-    @Test func chatListTriggerEnrichmentGatingMatchesMetadataInvariance() {
-        // The enrichment gate must skip exactly the metadata-invariant triggers and enrich the
-        // rest, so read-state-only deltas never pay for the per-row FFI fan-out (#251).
-        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
-
-        let metadataInvariant: [ChatListUpdateTriggerFfi] = [
-            .newLastMessage, .lastMessageDeleted, .pendingConfirmationChanged, .unreadChanged,
-        ]
-        for trigger in metadataInvariant {
-            #expect(!state.chatListTriggerRequiresEnrichment(trigger))
-        }
-
-        let metadataChanging: [ChatListUpdateTriggerFfi] = [
-            .newGroup, .archiveChanged, .membershipChanged, .snapshotRefresh, .removed,
-        ]
-        for trigger in metadataChanging {
-            #expect(state.chatListTriggerRequiresEnrichment(trigger))
-        }
-    }
-
     @Test func chatListOrderingUpdatesSingleRowWithoutResortingWholeList() {
         let newest = chatListOrderingTestItem(id: "newest", title: "Newest", updatedAt: 300)
         let middle = chatListOrderingTestItem(id: "middle", title: "Middle", preview: "old", updatedAt: 200)

@@ -5,7 +5,6 @@ import Observation
 enum ConversationFeatureError: Equatable {
     case unavailable(String)
     case staleWindow
-    case draftConflict
 }
 
 private struct PollVoteAttempt {
@@ -29,13 +28,6 @@ enum ConversationJumpOutcome: Equatable {
     case notFound
     /// Stale twice, cancelled, closed, busy: the message may well still exist.
     case failed
-}
-
-struct PendingDurableSend: Identifiable, Equatable {
-    let id: String
-    let text: String
-    let replyToMessageIdHex: String?
-    var acceptedMessageIdHex: String?
 }
 
 nonisolated enum BlockedConversationPresentation {
@@ -78,7 +70,6 @@ final class ConversationViewModel {
     /// Search within this conversation's history; ends when the conversation goes away.
     let search: ConversationSearchViewModel
     private(set) var snapshot: ConversationWindowSnapshotFfi?
-    private(set) var pendingSends: [String: PendingDurableSend] = [:]
     private(set) var isLoading = false
     /// True while a page, a jump, or a return to the latest is in flight. Each quotes the window's
     /// current revision, so the transcript starts no page while one is outstanding.
@@ -385,59 +376,13 @@ final class ConversationViewModel {
         }
     }
 
-    func setVisibleAnchor(messageIdHex: String) async {
-        guard let subscription, let revision = snapshot?.revision else { return }
-        do {
-            await install(
-                try await subscription.setVisibleAnchor(
-                    revision: revision,
-                    messageIdHex: messageIdHex,
-                    timeoutMs: 0
-                ))
-        } catch is CancellationError {
-            return
-        } catch MarmotKitError.ConversationWindowStale {
-            error = .staleWindow
-        } catch {
-            self.error = .unavailable(UserFacingError.message(for: error))
-        }
-    }
-
-    @discardableResult
-    func sendText(_ text: String, replyingTo replyToMessageIdHex: String? = nil) async throws
-        -> LocalSendAcceptanceFfi
-    {
-        let clientToken = UUID().uuidString.lowercased()
-        pendingSends[clientToken] = PendingDurableSend(
-            id: clientToken,
+    func sendText(_ text: String) async throws {
+        _ = try await runtime.sendTextWithClientToken(
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex,
             text: text,
-            replyToMessageIdHex: replyToMessageIdHex,
-            acceptedMessageIdHex: nil
+            clientToken: UUID().uuidString.lowercased()
         )
-        do {
-            let accepted: LocalSendAcceptanceFfi
-            if let replyToMessageIdHex {
-                accepted = try await runtime.replyToMessageWithClientToken(
-                    accountRef: account.accountRef,
-                    groupIdHex: groupIdHex,
-                    targetMessageId: replyToMessageIdHex,
-                    text: text,
-                    clientToken: clientToken
-                )
-            } else {
-                accepted = try await runtime.sendTextWithClientToken(
-                    accountRef: account.accountRef,
-                    groupIdHex: groupIdHex,
-                    text: text,
-                    clientToken: clientToken
-                )
-            }
-            pendingSends[clientToken]?.acceptedMessageIdHex = accepted.messageIdHex
-            return accepted
-        } catch {
-            pendingSends[clientToken] = nil
-            throw error
-        }
     }
 
     /// Sends a new poll. MDK 0.13 accepts polls in direct conversations as well as groups.
@@ -565,42 +510,6 @@ final class ConversationViewModel {
         }
     }
 
-    func saveDraft(
-        content: String,
-        replyToMessageIdHex: String?,
-        attachments: [MessageDraftAttachmentFfi]
-    ) async throws {
-        guard let revision = snapshot?.draft.revision else { return }
-        do {
-            let selected = try await FFIExecutor.run { [runtime, account] in
-                try runtime.saveMessageDraftIfRevision(
-                    accountRef: account.accountRef,
-                    revision: revision,
-                    content: content,
-                    replyToMessageIdHex: replyToMessageIdHex,
-                    mediaAttachments: attachments
-                )
-            }
-            snapshot?.draft = selected
-        } catch MarmotKitError.MessageDraftRevisionConflict {
-            error = .draftConflict
-            throw MarmotKitError.MessageDraftRevisionConflict
-        }
-    }
-
-    func clearDraft() async throws {
-        guard let revision = snapshot?.draft.revision else { return }
-        do {
-            let selected = try await FFIExecutor.run { [runtime, account] in
-                try runtime.clearMessageDraftIfRevision(accountRef: account.accountRef, revision: revision)
-            }
-            snapshot?.draft = selected
-        } catch MarmotKitError.MessageDraftRevisionConflict {
-            error = .draftConflict
-            throw MarmotKitError.MessageDraftRevisionConflict
-        }
-    }
-
     private func runSubscription(
         mode: ConversationOpenModeFfi,
         messageIdHex: String?,
@@ -653,10 +562,6 @@ final class ConversationViewModel {
             unreadDivider = Self.unreadDivider(in: replacement)
         }
         scheduleRetentionExpiry(for: replacement)
-        let projectedTokens = Set(replacement.messages.compactMap(\.timeline.clientToken))
-        for token in projectedTokens {
-            pendingSends[token] = nil
-        }
         clearProjectedPollSelections(in: replacement)
         reprojectPollVotes(in: replacement)
         reactionDetails?.refresh()

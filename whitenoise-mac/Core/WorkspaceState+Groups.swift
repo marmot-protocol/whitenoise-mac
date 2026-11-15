@@ -1854,27 +1854,6 @@ extension WorkspaceState {
         groupProfileDraftDescription = snapshot.description
     }
 
-    func invalidateGroupMemberDetailsCacheIfNeeded(
-        trigger: ChatListUpdateTriggerFfi,
-        groupIdHex: String
-    ) {
-        switch trigger {
-        case .newGroup, .membershipChanged, .conversationKindChanged, .snapshotRefresh, .removed:
-            invalidateGroupMembers(for: groupIdHex)
-        case .newLastMessage,
-            .lastMessageDeleted,
-            .lastMessageContentChanged,
-            .latestMessageDeliveryChanged,
-            .archiveChanged,
-            .pendingConfirmationChanged,
-            .unreadChanged,
-            .manualUnreadChanged,
-            .muteChanged,
-            .pinOrderChanged:
-            break
-        }
-    }
-
     func beginGroupDetailsLoad() -> UInt64 {
         groupDetailsLoadGeneration &+= 1
         return groupDetailsLoadGeneration
