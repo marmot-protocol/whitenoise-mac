@@ -201,10 +201,6 @@
         let eventHub = FakeEventHub()
         var contentReportPage = ContentReportPageFfi(reports: [], nextCursor: nil)
         private(set) var contentReportRequests: [(groupIdHex: String, messageId: String?, after: String?)] = []
-        var agentPublisher: AgentTextPublisher?
-        private(set) var agentPublisherRequests:
-            [(accountRef: String, groupIdHex: String, options: PublisherOptionsFfi)] =
-                []
         private(set) var reportRequests:
             [(
                 groupIdHex: String, messageId: String, reason: ReportReasonFfi, explanation: String
@@ -2268,14 +2264,6 @@
             let existed = groups.contains { $0.groupIdHex == groupIdHex }
             groups.removeAll { $0.groupIdHex == groupIdHex }
             return existed
-        }
-
-        func openAgentPublisher(
-            accountRef: String, groupIdHex: String, options: PublisherOptionsFfi
-        ) async throws -> AgentTextPublisher {
-            agentPublisherRequests.append((accountRef, groupIdHex, options))
-            guard let agentPublisher else { throw FakeMarmotRuntimeError.unused }
-            return agentPublisher
         }
 
         func onboardingRecoveryRequired(accountRef: String) throws -> Bool {

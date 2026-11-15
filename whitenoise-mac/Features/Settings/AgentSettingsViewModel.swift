@@ -1,128 +1,13 @@
 import Foundation
-import MarmotKit
 import Observation
-
-struct AgentPublicationRecord: Equatable, Sendable {
-    let kind: PublisherRecordFfi
-    let text: String
-}
-
-struct AgentPublicationReceipt: Equatable, Sendable {
-    let info: PublisherInfoFfi
-    let acceptedChunkCount: UInt64
-    let previewWarning: String?
-    let send: SendSummaryFfi
-}
 
 @MainActor
 @Observable
 final class AgentSettingsViewModel {
     let publicNpub: String?
-    private(set) var isPublishing = false
-    private(set) var pendingPublisherInfo: PublisherInfoFfi?
-    private(set) var acceptedChunkCount: UInt64 = 0
-    private(set) var previewWarning: String?
-    private(set) var error: String?
 
-    @ObservationIgnored private let accountRef: String
-    @ObservationIgnored private let runtime: (any MarmotRuntime)?
-    @ObservationIgnored private var pendingPublisher: AgentTextPublisher?
-
-    init(account: AccountItem, runtime: (any MarmotRuntime)? = nil) {
+    init(account: AccountItem) {
         publicNpub = account.npub
-        accountRef = account.accountRef
-        self.runtime = runtime
-    }
-
-    /// Publishes a host-produced agent transcript without handing exporter keys, account
-    /// secrets, or framing state to Swift. A failed final send retains the opaque publisher so
-    /// the exact sealed request can be retried through `retryFinish()`.
-    func publish(
-        groupIdHex: String,
-        brokerCandidate: String,
-        records: [AgentPublicationRecord]
-    ) async throws -> AgentPublicationReceipt {
-        guard let runtime, pendingPublisher == nil, !isPublishing else {
-            throw MarmotKitError.RuntimeBusy
-        }
-        isPublishing = true
-        error = nil
-        acceptedChunkCount = 0
-        previewWarning = nil
-        defer { isPublishing = false }
-
-        let publisher = try await runtime.openAgentPublisher(
-            accountRef: accountRef,
-            groupIdHex: groupIdHex,
-            options: PublisherOptionsFfi(
-                candidate: brokerCandidate,
-                serverCertDer: nil,
-                trust: .publicOnly
-            )
-        )
-        pendingPublisher = publisher
-        let info = publisher.info()
-        pendingPublisherInfo = info
-
-        do {
-            for record in records {
-                let acknowledgement = try await publisher.append(kind: record.kind, text: record.text)
-                acceptedChunkCount = acknowledgement.chunkCount
-                if let warning = acknowledgement.liveError {
-                    previewWarning = warning
-                }
-            }
-        } catch {
-            await publisher.cancel()
-            pendingPublisher = nil
-            pendingPublisherInfo = nil
-            self.error = UserFacingError.message(for: error)
-            throw error
-        }
-
-        return try await finishPendingPublisher(info: info)
-    }
-
-    func retryFinish() async throws -> AgentPublicationReceipt {
-        guard let info = pendingPublisherInfo, !isPublishing else {
-            throw MarmotKitError.RuntimeBusy
-        }
-        isPublishing = true
-        error = nil
-        defer { isPublishing = false }
-        return try await finishPendingPublisher(info: info)
-    }
-
-    func cancelPublisher() async {
-        guard let publisher = pendingPublisher else { return }
-        await publisher.cancel()
-        pendingPublisher = nil
-        pendingPublisherInfo = nil
-        acceptedChunkCount = 0
-        previewWarning = nil
-        error = nil
-    }
-
-    private func finishPendingPublisher(info: PublisherInfoFfi) async throws -> AgentPublicationReceipt {
-        guard let publisher = pendingPublisher else { throw MarmotKitError.RuntimeBusy }
-        do {
-            let send = try await publisher.finish()
-            let receipt = AgentPublicationReceipt(
-                info: info,
-                acceptedChunkCount: acceptedChunkCount,
-                previewWarning: previewWarning,
-                send: send
-            )
-            pendingPublisher = nil
-            pendingPublisherInfo = nil
-            error = nil
-            return receipt
-        } catch {
-            // MDK seals and retains the exact final request on this handle. Keep it alive so a
-            // retry cannot create a second stream or change the final message bytes.
-            self.error = UserFacingError.message(for: error)
-            throw error
-        }
     }
 
     static func preview() -> AgentSettingsViewModel {
