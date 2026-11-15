@@ -1,5 +1,6 @@
 #if DEBUG
     import AppKit
+    import CryptoKit
     import Foundation
     import MarmotKit
 
@@ -16,8 +17,9 @@
 
     /// The DEBUG-only `-uiFixture heavy-chat` workspace: one signed-in account on an in-memory
     /// `FakeMarmotRuntime`, so a UI test drives the app's real session, chat list and conversation
-    /// code against deterministic data, with no network and nothing read from or written to the
-    /// user's real account directory.
+    /// code against deterministic data, with no network. Its account data, file stores and media
+    /// cache live in a fresh temporary directory, but a Debug build is otherwise the same app as a
+    /// real install on the Mac: preferences a UI test changes are that install's (whitenoise-mac#1025).
     ///
     /// It has to be a runtime underneath rather than rows handed to the views: the conversation
     /// pane is built from the account scope, which exists only once the runtime has brought the
@@ -63,9 +65,19 @@
             runtime.conversationWindowInitialSnapshots[heavyChatId] = conversationSnapshot(messages: messages)
             installMedia(for: messages, in: runtime)
 
+            // Its own media cache too: the shared one is the real install's Application Support
+            // directory and keychain item, and evicts that install's entries when it fills up.
+            let mediaCacheRoot = storageRoot.appendingPathComponent("media-cache", isDirectory: true)
+            let mediaCacheKey = SymmetricKey(size: .bits256)
+            let mediaDiskCache = MessageMediaDiskCache(
+                directoryResolver: { mediaCacheRoot },
+                keyProvider: { mediaCacheKey },
+                keyDeleter: {}
+            )
             let state = WorkspaceState(
                 appActivityProvider: { true },
                 conversationWindowVisibilityProvider: { true },
+                mediaDiskCache: mediaDiskCache,
                 clientFactory: { runtime }
             )
             // Named before bootstrap, so bootstrap keeps it rather than picking one and saving that

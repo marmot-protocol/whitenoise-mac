@@ -62,6 +62,16 @@ struct UIFixtureWorkspaceTests: WorkspaceTestSupport {
         }
     }
 
+    /// A fixture launch is the same app as a normal one, so the shared media cache would be the real
+    /// install's Application Support directory and keychain item. Its images go in its own.
+    @Test func heavyChatFixtureCachesMediaInItsOwnDirectory() async throws {
+        try await Self.withHeavyChat { state, _, _ in
+            let cacheDirectory = try #require(state.mediaDiskCache.testingResolvedDirectoryURL)
+            let fixtureRoot = URL(fileURLWithPath: state.storageRootPath, isDirectory: true)
+            #expect(cacheDirectory.standardizedFileURL.path.hasPrefix(fixtureRoot.standardizedFileURL.path + "/"))
+        }
+    }
+
     /// A fixture launch is the same app as a normal one, so it shares its preferences. Its bootstrap
     /// must not replace the account the next normal launch reopens.
     @Test func heavyChatFixtureLeavesTheSavedAccountAlone() async throws {
