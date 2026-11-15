@@ -108,12 +108,13 @@ analyze:
 coverage *ARGS:
     scripts/ci/coverage.sh {{ARGS}}
 
-# Replaces any running White Noise so exactly one instance is up (AGENTS.md).
-# Built unsigned, so no entitlements apply and the app runs unsandboxed: its
-# data lives in ~/Library/Application Support/White Noise, not the sandbox
-# container a team-signed Xcode ⌘R build uses. The two hold different accounts.
+# Debug is the development flavor (`White Noise Dev`, bundle id dev.ipf.whitenoise.mac.dev), so it
+# never touches an installed White Noise's data. Replaces any running White Noise Dev so exactly one
+# instance is up (AGENTS.md). Built unsigned, so no entitlements apply and the app runs unsandboxed:
+# its data lives in ~/Library/Application Support/White Noise Dev, not the sandbox container a
+# team-signed Xcode ⌘R build uses. The two hold different accounts. `just reset-dev` wipes both.
 # Extra args go to xcodebuild. Not part of precommit.
-# Build Debug and launch the app
+# Build Debug and launch the development app
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -125,11 +126,33 @@ run *ARGS:
         -derivedDataPath build \
         CODE_SIGNING_ALLOWED=NO \
         {{ARGS}}
-    if pgrep -x "White Noise" >/dev/null; then
-        osascript -e 'tell application "White Noise" to quit'
-        while pgrep -x "White Noise" >/dev/null; do sleep 0.2; done
+    if pgrep -x "White Noise Dev" >/dev/null; then
+        osascript -e 'tell application id "dev.ipf.whitenoise.mac.dev" to quit'
+        while pgrep -x "White Noise Dev" >/dev/null; do sleep 0.2; done
     fi
-    open "build/Build/Products/Debug/White Noise.app"
+    open "build/Build/Products/Debug/White Noise Dev.app"
+
+# Same as `reset-staging`, for the development app `just run` and Xcode's Debug build make.
+# Production's and staging's data use different names and are never touched.
+# Wipe all development app data
+reset-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if pgrep -x "White Noise Dev" >/dev/null; then
+        osascript -e 'tell application id "dev.ipf.whitenoise.mac.dev" to quit'
+        while pgrep -x "White Noise Dev" >/dev/null; do sleep 0.2; done
+    fi
+    container="$HOME/Library/Containers/dev.ipf.whitenoise.mac.dev"
+    if [ -e "$container" ] && ! rm -rf "$container" 2>/dev/null; then
+        echo "warning: macOS refused to delete $container; grant your terminal App Management /" >&2
+        echo "Full Disk Access, or delete it in Finder." >&2
+    fi
+    rm -rf "$HOME/Library/Application Support/White Noise Dev"
+    defaults delete dev.ipf.whitenoise.mac.dev >/dev/null 2>&1 || true
+    for service in com.marmot.whitenoise.dev dev.ipf.whitenoise.media-cache.dev; do
+        while security delete-generic-password -s "$service" >/dev/null 2>&1; do :; done
+    done
+    echo "Development data removed. Production (dev.ipf.whitenoise.mac) was not touched."
 
 # Same as `run`, for the side-by-side staging app (`White Noise Staging`, bundle id
 # dev.ipf.whitenoise.mac.staging). It has its own data directory and keychain services, so

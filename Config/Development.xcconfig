@@ -1,0 +1,16 @@
+// Development flavor (the main scheme's Debug configuration, and so the unit-test host).
+// Installs side by side with production as dev.ipf.whitenoise.mac.dev, with its own preferences
+// domain, sandbox container, Application Support directory, keychain services and URL scheme, so
+// running Debug on a Mac with a real White Noise install never reads or writes that install's data.
+// Release stays production. See AppFlavor.swift.
+#include "AppBuild.xcconfig"
+
+WN_FLAVOR = development
+WN_DISPLAY_NAME = WN Dev
+WN_URL_SCHEME = marmot-dev
+
+PRODUCT_BUNDLE_IDENTIFIER = dev.ipf.whitenoise.mac.dev
+PRODUCT_NAME = White Noise Dev
+// Shares staging's icon: either one marks a build that is not the installed app.
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Staging
+EXCLUDED_SOURCE_FILE_NAMES = AppIcon.icon

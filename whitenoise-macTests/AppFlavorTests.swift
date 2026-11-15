@@ -10,11 +10,12 @@ import Testing
 @testable import whitenoise_mac
 
 struct AppFlavorTests {
-    @Test func testHostIsTheProductionFlavor() {
-        // The PR test plan runs against the production Debug app; a staging host would move
-        // every storage root and keychain service the other tests rely on.
-        #expect(AppFlavor.current == .production)
-        #expect(Bundle.main.infoDictionary?[AppFlavor.infoPlistKey] as? String == "production")
+    @Test func testHostIsTheDevelopmentFlavor() {
+        // The test host is the main scheme's Debug app. As production it would share a real
+        // install's preferences, Application Support directory and keychain items.
+        #expect(AppFlavor.current == .development)
+        #expect(Bundle.main.infoDictionary?[AppFlavor.infoPlistKey] as? String == "development")
+        #expect(Bundle.main.bundleIdentifier == "dev.ipf.whitenoise.mac.dev")
     }
 
     @Test func missingOrUnknownFlavorReadsAsProduction() {
@@ -37,19 +38,19 @@ struct AppFlavorTests {
         #expect(flavor.marmotKeychainService == marmotDeploymentWhiteNoise().keychainService)
     }
 
-    @Test func stagingSharesNoStorageRootOrKeychainServiceWithProduction() {
-        let production = AppFlavor.production
-        let staging = AppFlavor.staging
-        #expect(staging.applicationSupportDirectoryName != production.applicationSupportDirectoryName)
-        #expect(staging.marmotKeychainService != production.marmotKeychainService)
-        #expect(staging.mediaCacheKeychainService != production.mediaCacheKeychainService)
-        #expect(staging.urlScheme != production.urlScheme)
+    @Test func noTwoFlavorsShareAStorageRootKeychainServiceOrScheme() {
+        let flavors = AppFlavor.allCases
+        #expect(Set(flavors.map(\.applicationSupportDirectoryName)).count == flavors.count)
+        #expect(Set(flavors.map(\.marmotKeychainService)).count == flavors.count)
+        #expect(Set(flavors.map(\.mediaCacheKeychainService)).count == flavors.count)
+        #expect(Set(flavors.map(\.urlScheme)).count == flavors.count)
     }
 
-    @Test func stagingDeploymentOnlyMovesTheKeychainService() {
+    @Test(arguments: [AppFlavor.staging, .development])
+    func nonProductionDeploymentOnlyMovesTheKeychainService(flavor: AppFlavor) {
         var expected = marmotDeploymentWhiteNoise()
-        expected.keychainService = "com.marmot.whitenoise.staging"
-        #expect(AppFlavor.staging.marmotDeployment() == expected)
+        expected.keychainService = flavor.marmotKeychainService
+        #expect(flavor.marmotDeployment() == expected)
     }
 
     @Test func stagingAcceptsProfileLinksUnderItsOwnScheme() throws {

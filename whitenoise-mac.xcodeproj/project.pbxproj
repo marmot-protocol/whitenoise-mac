@@ -32,6 +32,7 @@
 		1F5D022F2FC5862F0016665B /* whitenoise-macTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/AppBuild.xcconfig; sourceTree = "<group>"; };
 		5E0000000000000000000001 /* Config/Staging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Staging.xcconfig; sourceTree = "<group>"; };
+		6E0000000000000000000001 /* Config/Development.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Development.xcconfig; sourceTree = "<group>"; };
 		2B616D052FCF100000010001 /* PR.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = PR.xctestplan; sourceTree = "<group>"; };
 		2B616D102FD2000000010001 /* whitenoise-macUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B616D1B2FD2000000010001 /* UIPerformance.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = UIPerformance.xctestplan; sourceTree = "<group>"; };
@@ -86,6 +87,7 @@
 			children = (
 				2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */,
 				5E0000000000000000000001 /* Config/Staging.xcconfig */,
+				6E0000000000000000000001 /* Config/Development.xcconfig */,
 				2B616D072FCF100000010001 /* TestPlans */,
 				1F5D02222FC5862E0016665B /* whitenoise-mac */,
 				1F5D02322FC5862F0016665B /* whitenoise-macTests */,
@@ -561,9 +563,8 @@
 		};
 		1F5D02442FC5862F0016665B /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */;
+			baseConfigurationReference = 6E0000000000000000000001 /* Config/Development.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "whitenoise-mac/whitenoise-mac.entitlements";
@@ -581,7 +582,6 @@
 				EXTRACT_APP_INTENTS_METADATA = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "White Noise";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -595,9 +595,7 @@
 					"-framework",
 					AVKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.ipf.whitenoise.mac;
 				PRODUCT_MODULE_NAME = whitenoise_mac;
-				PRODUCT_NAME = "White Noise";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -795,7 +793,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/White Noise.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/White Noise";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/White Noise Dev.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/White Noise Dev";
 			};
 			name = Debug;
 		};

@@ -15,6 +15,7 @@ struct whitenoise_macApp: App {
     @State private var session: SessionState
     @State private var dockBadge = DockBadgeController()
     private let isUIFixture: Bool
+    private let isUnitTestHost: Bool
 
     static let mainWindowID = "main"
 
@@ -23,6 +24,7 @@ struct whitenoise_macApp: App {
         _workspace = State(initialValue: configuration.makeWorkspace())
         _session = State(initialValue: SessionState())
         isUIFixture = configuration.isUIFixture
+        isUnitTestHost = configuration.isUnitTestHost
     }
 
     var body: some Scene {
@@ -38,6 +40,7 @@ struct whitenoise_macApp: App {
                 .environment(workspace)
                 .environment(session)
                 .task {
+                    guard !isUnitTestHost else { return }
                     // Started before the bootstrap it runs alongside, not after: a cold start with
                     // no network is exactly when the offline notice has something to say, and
                     // bootstrap is the part that will be sitting there waiting on relays. A UI
@@ -129,7 +132,7 @@ struct whitenoise_macApp: App {
     @MainActor
     private func requestNotificationPermissionIfUndetermined() async {
         guard !isUIFixture,
-            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+            !isUnitTestHost,
             workspace.showsMessengerChrome,
             await NotificationPermissionPrompt.requestIfUndetermined(using: workspace.localNotificationCenter) != nil
         else { return }

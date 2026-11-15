@@ -39,7 +39,7 @@ struct MediaTests: WorkspaceTestSupport {
         let directory = MediaPlaybackTempStore.directoryURL(baseURL: base)
 
         #expect(
-            directory.path == "/Container/White Noise/WhiteNoiseMediaPlayback"
+            directory.path == "/Container/\(AppFlavor.current.applicationSupportDirectoryName)/WhiteNoiseMediaPlayback"
         )
         #expect(!directory.path.contains(FileManager.default.temporaryDirectory.path))
     }
@@ -140,7 +140,8 @@ struct MediaTests: WorkspaceTestSupport {
         let directory = MediaPlaybackTempStore.voiceRecordingsDirectoryURL(baseURL: base)
 
         #expect(
-            directory.path == "/Container/White Noise/WhiteNoiseVoiceRecordings"
+            directory.path
+                == "/Container/\(AppFlavor.current.applicationSupportDirectoryName)/WhiteNoiseVoiceRecordings"
         )
         #expect(!directory.path.contains(FileManager.default.temporaryDirectory.path))
     }
@@ -524,7 +525,7 @@ struct MediaTests: WorkspaceTestSupport {
         let directory = OutgoingMediaMetadataTempStore.directoryURL(baseURL: base)
 
         #expect(
-            directory.path == "/Container/White Noise/WhiteNoiseMediaWork"
+            directory.path == "/Container/\(AppFlavor.current.applicationSupportDirectoryName)/WhiteNoiseMediaWork"
         )
         #expect(!directory.path.contains(FileManager.default.temporaryDirectory.path))
     }
