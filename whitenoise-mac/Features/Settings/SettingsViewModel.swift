@@ -25,7 +25,7 @@ final class SettingsViewModel {
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
         removeAccount: DeleteProfileViewModel.RemoveAccount? = nil
     ) {
-        agentSettings = AgentSettingsViewModel(account: account, runtime: runtime)
+        agentSettings = AgentSettingsViewModel(account: account)
         self.blockedUsersModel = blockedUsersModel
         keyPackageSettings = KeyPackageSettingsViewModel(accountRef: account.accountRef, runtime: runtime)
         profileKeys = ProfileKeysViewModel(accountRef: account.accountRef, runtime: runtime)

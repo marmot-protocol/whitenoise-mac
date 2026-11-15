@@ -227,9 +227,6 @@ nonisolated protocol MarmotRuntime: Sendable {
     func reportedMessage(accountRef: String, groupIdHex: String, messageId: String) throws
         -> TimelineMessageRecordFfi?
     func forgetGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool
-    func openAgentPublisher(
-        accountRef: String, groupIdHex: String, options: PublisherOptionsFfi
-    ) async throws -> AgentTextPublisher
     func onboardingRecoveryRequired(accountRef: String) throws -> Bool
     func onboardingSnapshot(accountRef: String) throws -> OnboardingSnapshotFfi?
     func subscribeOnboarding(accountRef: String) throws -> OnboardingSubscription
@@ -1127,12 +1124,6 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func forgetGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool {
         try await marmot.forgetGroupLocal(accountRef: accountRef, groupIdHex: groupIdHex)
-    }
-
-    func openAgentPublisher(
-        accountRef: String, groupIdHex: String, options: PublisherOptionsFfi
-    ) async throws -> AgentTextPublisher {
-        try await marmot.openAgentPublisher(accountRef: accountRef, groupIdHex: groupIdHex, options: options)
     }
 
     func onboardingRecoveryRequired(accountRef: String) throws -> Bool {
