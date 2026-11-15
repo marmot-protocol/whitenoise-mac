@@ -116,8 +116,10 @@ final class ChatPerformanceUITests: XCTestCase {
         return candidate
     }
 
+    /// The transcript is an `NSTableView`, so it is exposed as a table; its scroll bars belong to
+    /// the scroll view around it (see `verticalScrollPosition`).
     private func transcriptElement(in app: XCUIApplication) -> XCUIElement {
-        app.scrollViews["conversation.transcript"]
+        app.tables["conversation.transcript"]
     }
 
     private func interactionMetrics(for app: XCUIApplication) -> [any XCTMetric] {
@@ -159,7 +161,9 @@ final class ChatPerformanceUITests: XCTestCase {
     }
 
     private func verticalScrollPosition(in element: XCUIElement) -> Double? {
-        let value = element.scrollBars.firstMatch.value
+        let scrollView = XCUIApplication().scrollViews
+            .containing(.table, identifier: element.identifier).firstMatch
+        let value = (scrollView.exists ? scrollView : element).scrollBars.firstMatch.value
 
         if let number = value as? NSNumber {
             return number.doubleValue

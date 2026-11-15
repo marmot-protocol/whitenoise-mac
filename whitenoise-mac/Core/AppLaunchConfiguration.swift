@@ -3,11 +3,13 @@ import Foundation
 struct AppLaunchConfiguration {
     let uiFixtureName: String?
 
-    var shouldBootstrapWorkspace: Bool {
+    /// A DEBUG launch on an in-memory fixture runtime (`-uiFixture`), which the shell keeps off
+    /// the network and away from system prompts.
+    var isUIFixture: Bool {
         #if DEBUG
-            uiFixtureName == nil
+            uiFixtureName != nil
         #else
-            true
+            false
         #endif
     }
 
