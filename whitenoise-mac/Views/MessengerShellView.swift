@@ -896,7 +896,10 @@ private struct ConversationView: View {
         .sheet(isPresented: $isPollComposerPresented) {
             PollComposerSheet(
                 onSend: { submission in
-                    try await model.createPoll(submission)
+                    // An open reply goes out on the poll, and is spent by it as a text send would be.
+                    let reply = workspace.replyDraftContext?.targetMessageId
+                    try await model.createPoll(submission, replyingTo: reply)
+                    if let reply, workspace.replyDraftContext?.targetMessageId == reply { workspace.cancelReply() }
                     isPollComposerPresented = false
                     // Not a `sendDraft()`, so the send signal never moves; scroll to it here.
                     Task { await jumpToNewest() }
@@ -1083,7 +1086,11 @@ private struct ConversationView: View {
                         stickers: canUseComposer && !isBlockedDirectPeer && workspace.editingMessageContext == nil
                             ? model.stickers : nil,
                         sendSticker: { sticker in
-                            try await model.stickers?.send(sticker, groupIdHex: model.groupIdHex)
+                            let reply = workspace.replyDraftContext?.targetMessageId
+                            try await model.stickers?.send(sticker, groupIdHex: model.groupIdHex, replyingTo: reply)
+                            if let reply, workspace.replyDraftContext?.targetMessageId == reply {
+                                workspace.cancelReply()
+                            }
                             Task { await jumpToNewest() }
                         },
                         onCreatePoll: ComposerAttachmentOption.pollsAvailable(

@@ -450,7 +450,8 @@ struct MessageBubble: View {
                 MessageContextMenuItems(
                     message: message,
                     onReactionPick: pickReaction,
-                    moderation: moderationActions
+                    moderation: moderationActions,
+                    discardFailedSend: discardFailedSend
                 )
             }
         }
@@ -506,6 +507,20 @@ struct MessageBubble: View {
 
     private var showsInlineActions: Bool {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+    }
+
+    /// Remove for a failed own send: discarded on this device and never published, because a
+    /// delete would tell the group about a message nobody received. `nil` for every other row.
+    private var discardFailedSend: (() -> Void)? {
+        guard message.isLocalPublishFailure else { return nil }
+        return { [conversationModel, workspace, message] in
+            Task {
+                let failure = await conversationModel.discardFailedSend(messageIdHex: message.id) {
+                    await workspace.clearMediaCache()
+                }
+                if let failure { workspace.reportUserActionError(failure) }
+            }
+        }
     }
 
     /// Report and Block for the context menu and the hover strip's overflow. Resolved against the
@@ -708,6 +723,7 @@ struct MessageBubble: View {
                 message: message,
                 onReactionPick: pickReaction,
                 moderation: moderationActions,
+                discardFailedSend: discardFailedSend,
                 customEmoji: .conversation(conversationModel)
             )
             // The strip is an overlay on the bubble's edge, pushed clear of it by the width
@@ -2644,6 +2660,7 @@ struct MessageInlineActions: View {
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
     let moderation: MessageModerationActions
+    var discardFailedSend: (() -> Void)?
     var customEmoji: CustomEmojiPickerContent?
 
     var body: some View {
@@ -2701,6 +2718,7 @@ struct MessageInlineActions: View {
                     MessageOverflowPopover(
                         message: message,
                         moderation: moderation,
+                        discardFailedSend: discardFailedSend,
                         dismiss: { isOverflowPresented = false }
                     )
                 }
@@ -2921,6 +2939,7 @@ struct MessageRowAction: Identifiable {
         workspace: WorkspaceState,
         now: Date = .now,
         moderation: MessageModerationActions? = nil,
+        discardFailedSend: (() -> Void)? = nil,
         focusComposer: @escaping () -> Void = {},
         dismiss: @escaping () -> Void = {}
     ) -> [MessageRowAction] {
@@ -2999,7 +3018,16 @@ struct MessageRowAction: Identifiable {
                     moderation.block()
                 })
         }
-        if workspace.canDeleteMessage(message) {
+        if message.isLocalPublishFailure, let discardFailedSend {
+            // "Remove", as for a staged send that never got out: nobody received this message, so
+            // it is discarded here without a delete for everyone and without that confirmation.
+            actions.append(
+                MessageRowAction(kind: .delete, title: L10n.string("Remove"), systemImage: "trash", role: .destructive)
+                {
+                    dismiss()
+                    discardFailedSend()
+                })
+        } else if workspace.canDeleteMessage(message) {
             actions.append(
                 MessageRowAction(kind: .delete, title: L10n.string("Delete"), systemImage: "trash", role: .destructive)
                 {
@@ -3067,6 +3095,7 @@ struct MessageOverflowPopover: View {
     @Environment(\.composerFocusRequester) private var composerFocusRequester
     let message: MessageItem
     let moderation: MessageModerationActions
+    var discardFailedSend: (() -> Void)?
     let dismiss: () -> Void
 
     var body: some View {
@@ -3075,6 +3104,7 @@ struct MessageOverflowPopover: View {
                 for: message,
                 workspace: workspace,
                 moderation: moderation,
+                discardFailedSend: discardFailedSend,
                 focusComposer: composerFocusRequester.request,
                 dismiss: dismiss
             )
@@ -3138,6 +3168,7 @@ struct MessageContextMenuItems: View {
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
     let moderation: MessageModerationActions
+    var discardFailedSend: (() -> Void)?
 
     var body: some View {
         Group {
@@ -3176,6 +3207,7 @@ struct MessageContextMenuItems: View {
                     for: message,
                     workspace: workspace,
                     moderation: moderation,
+                    discardFailedSend: discardFailedSend,
                     focusComposer: composerFocusRequester.request
                 )
             ) { action in

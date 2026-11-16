@@ -2833,10 +2833,9 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func invitingMembersNamesEveryoneWithoutAKeyPackageInOneAttempt() async throws {
-        // The add-members sheet had the compose draft's old bug: `invite_members` names one refused
-        // member per attempt, so staging three people with no KeyPackage named the first and left
-        // the user to deselect and press again to meet the next.
+    @Test func anInviteAddsTheReachableMembersAndNamesTheRest() async throws {
+        // Since MarmotKit 0.17 an invite goes ahead with everyone MDK can reach and reports the rest
+        // per member, so one press answers for the whole staged list and nothing is retried.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
@@ -2847,39 +2846,27 @@ struct GroupsTests: WorkspaceTestSupport {
 
         let invited = await state.inviteMembers(staged)
 
-        #expect(!invited)
-        #expect(
-            state.unreachableInviteRecipients(staged).map(\.accountIdHex)
-                == [Self.bobAccountIdHex, Self.carolAccountIdHex])
-        #expect(state.reachableInviteRecipients(staged).map(\.accountIdHex) == [Self.aliceAccountIdHex])
-        #expect(state.lastError == nil)
-        #expect(!state.hasUnnamedInviteRefusal)
-        // Bob rode along at the end of the follow-up, which keeps it failing in resolution — so
-        // Carol was found without anything being committed.
-        #expect(
-            runtime.inviteMemberRefAttempts == [
-                ["npub1alyce", "npub1p0p", "npub1carol"],
-                ["npub1alyce", "npub1carol", "npub1p0p"],
-            ])
-        #expect(runtime.invitedMemberRefs.isEmpty)
-
-        // The next press carries the roster the sheet has been showing all along.
-        let retried = await state.inviteMembers(staged)
-        #expect(retried)
+        #expect(invited)
+        #expect(runtime.inviteMemberRefAttempts == [["npub1alyce", "npub1p0p", "npub1carol"]])
         #expect(runtime.invitedMemberRefs == ["npub1alyce"])
+        #expect(state.lastError == nil)
+        // The sheet closes on success, so the people left out are named on the banner.
+        #expect(
+            state.backgroundStatus
+                == String(
+                    format: L10n.string("Couldn’t add %@ to the group."),
+                    ListFormatter.localizedString(byJoining: ["Bob", "Carol"])))
     }
-
     @MainActor
-    @Test func invitingMembersNamesAMemberWhoseRefusalNamesNobody() async throws {
-        // A KeyPackage that exists but can't be used names no account, and the invite still stops
-        // over it. Asking about each staged person with the refused one alongside settles who.
+    @Test func anInviteWithNobodyReachableMarksThemAndCommitsNothing() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
         runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.invalidKeyPackageMemberRefs = ["npub1carol"]
+        runtime.memberResolutionOutcomeByMemberRef["npub1carol"] = MemberResolutionOutcomeFfi(
+            accountIdHex: Self.carolAccountIdHex, status: .invalidKeyPackage, selectedDeviceCount: 0)
         let state = try await openInstalledGroupDetails(runtime: runtime)
-        let staged = [Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient()]
+        let staged = [Self.bobDraftRecipient(), Self.carolDraftRecipient()]
 
         let invited = await state.inviteMembers(staged)
 
@@ -2890,18 +2877,43 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.lastError == nil)
         #expect(!state.hasUnnamedInviteRefusal)
         #expect(runtime.invitedMemberRefs.isEmpty)
+
+        // Everyone staged is marked, so another press has nobody to send.
+        #expect(!(await state.inviteMembers(staged)))
+        #expect(runtime.inviteMembersDetailedCallCount == 1)
     }
 
     @MainActor
-    @Test func invitingMembersSaysSomeoneWhenTheFirstRefusalNamesNobody() async throws {
-        // Nothing refused yet, so there is no known-unreachable member to ask alongside — and
-        // asking about one person alone would invite them. The sheet says what it knows.
+    @Test func anInviteeWhoseRelaysDidNotAnswerIsNotMarkedUnreachable() async throws {
+        // `incomplete` is MDK saying its relay reads did not finish, not a verdict on the person, so
+        // the sheet leaves them staged for another try and says why on the error line.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
-        runtime.invalidKeyPackageMemberRefs = ["npub1carol"]
+        runtime.memberResolutionOutcomeByMemberRef["npub1carol"] = MemberResolutionOutcomeFfi(
+            accountIdHex: Self.carolAccountIdHex, status: .incomplete, selectedDeviceCount: 0)
         let state = try await openInstalledGroupDetails(runtime: runtime)
-        let staged = [Self.carolDraftRecipient(), Self.aliceDraftRecipient()]
+        let staged = [Self.carolDraftRecipient()]
+
+        let invited = await state.inviteMembers(staged)
+
+        #expect(!invited)
+        #expect(state.unreachableInviteRecipients(staged).isEmpty)
+        #expect(
+            state.lastError
+                == String(format: L10n.string("Couldn’t add %@. Try again in a moment."), "Carol"))
+    }
+    @MainActor
+    @Test func anUnreachableOutcomeNoStagedRecipientMatchesSaysSomeone() async throws {
+        // MDK names outcomes by account id. One that matches no staged chip cannot be marked, so the
+        // sheet says there is someone rather than dropping the answer.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.memberResolutionOutcomeByMemberRef["npub1carol"] = MemberResolutionOutcomeFfi(
+            accountIdHex: String(repeating: "f", count: 64), status: .invalidKeyPackage, selectedDeviceCount: 0)
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let staged = [Self.carolDraftRecipient()]
 
         let invited = await state.inviteMembers(staged)
 
@@ -2911,7 +2923,6 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.lastError == nil)
         #expect(runtime.invitedMemberRefs.isEmpty)
     }
-
     @MainActor
     @Test func invitingAContactWithNoNpubSendsTheirAccountIdHex() async throws {
         // The sheet stages contacts and discovered people, who can carry `npub: ""`. Sending refs
@@ -2933,8 +2944,8 @@ struct GroupsTests: WorkspaceTestSupport {
 
     @MainActor
     @Test func aRefusalReportedAgainstAHexRefNamesTheNpubLessContact() async throws {
-        // The core names a refused member by account id hex, so a contact staged without an npub
-        // still maps back to its chip instead of falling through to an unnamed refusal.
+        // MDK names each outcome by account id hex, so a contact staged without an npub still maps
+        // back to its chip instead of falling through to an unnamed refusal.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
@@ -2944,7 +2955,7 @@ struct GroupsTests: WorkspaceTestSupport {
             accountIdHex: Self.daveAccountIdHex, npub: "", displayName: "Dave", pictureURL: nil,
             lastActivity: nil
         ).recipient
-        let staged = [Self.aliceDraftRecipient(), dave]
+        let staged = [dave]
 
         let invited = await state.inviteMembers(staged)
 
@@ -2952,7 +2963,7 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.unreachableInviteRecipients(staged).map(\.accountIdHex) == [Self.daveAccountIdHex])
         #expect(!state.hasUnnamedInviteRefusal)
         #expect(state.lastError == nil)
-        #expect(runtime.inviteMemberRefAttempts == [["npub1alyce", Self.daveAccountIdHex]])
+        #expect(runtime.inviteMemberRefAttempts == [[Self.daveAccountIdHex]])
     }
 
     @MainActor
@@ -4677,10 +4688,9 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func groupDraftNamesTheMemberWithoutAKeyPackageInsteadOfShowingTheCoreError() async throws {
-        // The core stops at the first member it can't resolve and throws `MissingKeyPackage`,
-        // whose `errorDescription` is `String(reflecting:)`. Letting that reach `lastError`
-        // printed a Swift enum dump at the user and never said who was at fault.
+    @Test func groupDraftCreatesTheGroupWithTheReachableMembersAndNamesTheRest() async throws {
+        // Since MarmotKit 0.17 a create goes ahead with whoever MDK can reach. There is no way to ask
+        // first, so the group opens and the banner names the people it left out.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
@@ -4692,64 +4702,24 @@ struct GroupsTests: WorkspaceTestSupport {
         state.newChatName = "Project Room"
         await state.createGroupFromDraft()
 
-        #expect(state.lastError == nil)
-        #expect(state.unreachableDraftMembers.map(\.accountIdHex) == [Self.bobAccountIdHex])
-        #expect(state.reachableDraftMembers.map(\.accountIdHex) == [Self.aliceAccountIdHex])
-        // Nothing was created, and the draft is still on screen for a second, informed attempt.
-        #expect(runtime.createdGroupMemberRefs.isEmpty)
-        #expect(state.isNewChatComposerVisible)
-        // The refusal named the last member of the roster, so everyone else had already resolved
-        // and there was nothing left to check: one refusal still costs exactly one attempt.
         #expect(runtime.createGroupAttempts == [["npub1alyce", "npub1p0p"]])
-    }
-
-    @MainActor
-    @Test func groupDraftNamesEveryMemberWithoutAKeyPackageInOneAttempt() async throws {
-        // The core reports only the *first* member it can't resolve, so a draft with two of them
-        // used to reveal one per press — the panel claimed a complete answer while naming half of
-        // it. One press now chases every refusal down before anything is created.
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1carol"] = Self.carolAccountIdHex
-        let state = WorkspaceState(clientFactory: { runtime })
-
-        await state.bootstrap()
-        state.showNewChat()
-        state.newChatRecipients = [
-            Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient(),
-        ]
-        state.newChatName = "Project Room"
-        await state.createGroupFromDraft()
-
+        #expect(runtime.createdGroupMemberRefs == ["npub1alyce"])
+        #expect(state.selection == .chat("created-group"))
+        #expect(!state.isNewChatComposerVisible)
         #expect(state.lastError == nil)
-        #expect(
-            state.unreachableDraftMembers.map(\.accountIdHex)
-                == [Self.bobAccountIdHex, Self.carolAccountIdHex])
-        #expect(state.reachableDraftMembers.map(\.accountIdHex) == [Self.aliceAccountIdHex])
-        // Bob was refused first; the follow-up carries him at the end, which keeps it failing —
-        // so Carol's refusal is learned without any attempt being able to create the group.
-        #expect(
-            runtime.createGroupAttempts == [
-                ["npub1alyce", "npub1p0p", "npub1carol"],
-                ["npub1alyce", "npub1carol", "npub1p0p"],
-            ])
-        #expect(runtime.createdGroupMemberRefs.isEmpty)
-        #expect(state.selection == nil)
-        #expect(state.isNewChatComposerVisible)
+        #expect(state.backgroundStatus == String(format: L10n.string("Couldn’t add %@ to the group."), "Bob"))
     }
-
     @MainActor
-    @Test func groupDraftNamesAMemberWhoseRefusalNamesNobody() async throws {
-        // Four picked, three unreachable, and the middle one refused over a KeyPackage that exists
-        // but can't be used — a refusal that names no account. That one used to land on the red
-        // error line while the notice above it counted the two the core *had* named, so the panel
-        // stated two different things about one draft. It is now asked about member by member.
+    @Test func groupDraftNamesEveryoneLeftOutInOneMessage() async throws {
+        // Whatever kept them out, the banner reports it as one problem naming everyone; the create
+        // itself still goes ahead with whoever MDK could add.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.invalidKeyPackageMemberRefs = ["npub1carol"]
+        runtime.memberResolutionOutcomeByMemberRef["npub1carol"] = MemberResolutionOutcomeFfi(
+            accountIdHex: Self.carolAccountIdHex, status: .missingInboxRoute, selectedDeviceCount: 0)
         runtime.missingKeyPackageAccountIdHexByMemberRef["npub1dave"] = Self.daveAccountIdHex
+        runtime.obsoleteKeyPackageMemberRefs = ["npub1dave"]
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -4761,41 +4731,32 @@ struct GroupsTests: WorkspaceTestSupport {
         state.newChatName = "Project Room"
         await state.createGroupFromDraft()
 
-        #expect(
-            state.unreachableDraftMembers.map(\.accountIdHex)
-                == [Self.bobAccountIdHex, Self.carolAccountIdHex, Self.daveAccountIdHex])
-        #expect(state.reachableDraftMembers.map(\.accountIdHex) == [Self.aliceAccountIdHex])
-        // One notice, one account of the draft: no red line, and nothing left unexplained.
-        #expect(state.lastError == nil)
-        #expect(!state.hasUnnamedGroupDraftRefusal)
-        #expect(runtime.createdGroupMemberRefs.isEmpty)
-        #expect(state.isNewChatComposerVisible)
-
-        await state.createGroupFromDraft()
         #expect(runtime.createdGroupMemberRefs == ["npub1alyce"])
-        #expect(state.selection == .chat("created-group"))
+        #expect(
+            state.backgroundStatus
+                == String(
+                    format: L10n.string("Couldn’t add %@ to the group."),
+                    ListFormatter.localizedString(byJoining: ["Bob", "Carol", "Dave"])))
     }
-
     @MainActor
-    @Test func groupDraftSaysSomeoneRatherThanNothingWhenTheFirstRefusalNamesNobody() async throws {
-        // Nothing has been refused yet, so there is no known-unreachable member to ask alongside —
-        // and asking about one member alone would create a chat with them. The panel says what it
-        // knows in the notice it always uses, and never on a second, contradictory line.
+    @Test func groupDraftSaysSomeoneWhenAnUnreachableOutcomeMatchesNoMember() async throws {
+        // An outcome whose account id matches no draft chip cannot carry a mark. The panel says what
+        // it knows in the notice it always uses, and never on a second, contradictory line.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.invalidKeyPackageMemberRefs = ["npub1carol"]
+        runtime.memberResolutionOutcomeByMemberRef["npub1carol"] = MemberResolutionOutcomeFfi(
+            accountIdHex: String(repeating: "f", count: 64), status: .invalidKeyPackage, selectedDeviceCount: 0)
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatRecipients = [Self.carolDraftRecipient(), Self.aliceDraftRecipient()]
+        state.newChatRecipients = [Self.carolDraftRecipient()]
         state.newChatName = "Project Room"
         await state.createGroupFromDraft()
 
         #expect(state.hasUnnamedGroupDraftRefusal)
         #expect(state.unreachableDraftMembers.isEmpty)
         #expect(state.lastError == nil)
-        #expect(runtime.createGroupAttempts.count == 1)
         #expect(runtime.createdGroupMemberRefs.isEmpty)
 
         // Editing the roster is what the notice asks for, so the claim doesn't outlive the draft
@@ -4803,169 +4764,48 @@ struct GroupsTests: WorkspaceTestSupport {
         state.removeNewChatRecipient(Self.carolDraftRecipient())
         #expect(!state.hasUnnamedGroupDraftRefusal)
     }
-
     @MainActor
-    @Test func groupDraftNamesAMemberWhoFailsForSomeOtherReason() async throws {
-        // Not every unreachable member fails as a missing KeyPackage: one with no relay list to
-        // fetch one from fails in a way that reads as a group-wide error. That stopped the search
-        // at the first member, so the panel named one and went quiet about the rest.
+    @Test func groupDraftWhoseMembersAreUnansweredMarksNobodyAndSaysToRetry() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.unresolvableMemberRefs = ["npub1carol"]
+        runtime.memberResolutionOutcomeByMemberRef["npub1carol"] = MemberResolutionOutcomeFfi(
+            accountIdHex: Self.carolAccountIdHex, status: .incomplete, selectedDeviceCount: 0)
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatRecipients = [
-            Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient(),
-        ]
+        state.newChatRecipients = [Self.carolDraftRecipient()]
         state.newChatName = "Project Room"
         await state.createGroupFromDraft()
 
+        #expect(state.unreachableDraftMembers.isEmpty)
+        #expect(state.reachableDraftMembers.map(\.accountIdHex) == [Self.carolAccountIdHex])
         #expect(
-            state.unreachableDraftMembers.map(\.accountIdHex)
-                == [Self.bobAccountIdHex, Self.carolAccountIdHex])
-        #expect(state.reachableDraftMembers.map(\.accountIdHex) == [Self.aliceAccountIdHex])
-        #expect(state.lastError == nil)
-        #expect(!state.hasUnnamedGroupDraftRefusal)
+            state.lastError
+                == String(format: L10n.string("Couldn’t add %@. Try again in a moment."), "Carol"))
         #expect(runtime.createdGroupMemberRefs.isEmpty)
+        #expect(state.isNewChatComposerVisible)
     }
-
     @MainActor
-    @Test func groupDraftKeepsARealErrorOnTheErrorLineWhenNoMemberOwnsIt() async throws {
-        // The same kind of failure, but this one is about the send rather than a member: asking
-        // about each member reproduces it every time and names no one, so it stays what it is —
-        // an error on the error line, with nobody marked for it.
+    @Test func groupDraftKeepsARealErrorOnTheErrorLine() async throws {
+        // A failure that is an error rather than an outcome — the publish, storage, a directory
+        // fetch — is about the create, not any member, so nobody is marked for it.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
         runtime.createGroupFailure = MarmotKitError.Publish(details: "relay refused")
-        runtime.createGroupFailureAfterAttempts = 1
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatRecipients = [
-            Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient(),
-        ]
+        state.newChatRecipients = [Self.aliceDraftRecipient(), Self.bobDraftRecipient()]
         state.newChatName = "Project Room"
         await state.createGroupFromDraft()
 
-        #expect(state.unreachableDraftMembers.map(\.accountIdHex) == [Self.bobAccountIdHex])
-        #expect(
-            state.reachableDraftMembers.map(\.accountIdHex)
-                == [Self.aliceAccountIdHex, Self.carolAccountIdHex])
+        #expect(state.unreachableDraftMembers.isEmpty)
         #expect(state.lastError == UserFacingError.message(for: MarmotKitError.Publish(details: "relay refused")))
         #expect(!state.hasUnnamedGroupDraftRefusal)
-    }
-
-    @MainActor
-    @Test func groupDraftBlamesNobodyWhenAFailureIsNotAboutAnyMember() async throws {
-        // A refusal that starts *after* the roster resolves — this account, not these people. Every
-        // member-by-member question then comes back unnamed, and marking each one would empty the
-        // group of people who are perfectly reachable.
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.createGroupFailure = MarmotKitError.InvalidIdentity(details: "identity rejected")
-        runtime.createGroupFailureAfterAttempts = 1
-        let state = WorkspaceState(clientFactory: { runtime })
-
-        await state.bootstrap()
-        state.showNewChat()
-        state.newChatRecipients = [
-            Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient(),
-        ]
-        state.newChatName = "Project Room"
-        await state.createGroupFromDraft()
-
-        // Bob was named before the account-level failure began; Alice and Carol keep their place,
-        // and the notice reports someone it cannot name rather than convicting them both.
-        #expect(state.hasUnnamedGroupDraftRefusal)
-        #expect(state.unreachableDraftMembers.map(\.accountIdHex) == [Self.bobAccountIdHex])
-        #expect(
-            state.reachableDraftMembers.map(\.accountIdHex)
-                == [Self.aliceAccountIdHex, Self.carolAccountIdHex])
-        #expect(state.lastError == nil)
         #expect(runtime.createdGroupMemberRefs.isEmpty)
     }
-
-    @MainActor
-    @Test func groupDraftShowsWhoCantBeAddedOnceRatherThanCountingUpToIt() async throws {
-        // Discovery spends an attempt per refusal, so publishing each one as it lands rendered the
-        // answer growing on screen — one name, then two — which reads as the panel correcting
-        // itself. The press has a single answer and says it when it has all of it.
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1carol"] = Self.carolAccountIdHex
-        let state = WorkspaceState(clientFactory: { runtime })
-
-        await state.bootstrap()
-        state.showNewChat()
-        state.newChatRecipients = [
-            Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient(),
-        ]
-        state.newChatName = "Project Room"
-
-        // What the panel would have been rendering at the start of each attempt.
-        let visible = MidPressMarkCounts()
-        runtime.onMemberResolutionAttempt = { @Sendable in
-            await MainActor.run { visible.counts.append(state.unreachableDraftMembers.count) }
-        }
-        await state.createGroupFromDraft()
-
-        #expect(visible.counts == [0, 0])
-        #expect(
-            state.unreachableDraftMembers.map(\.accountIdHex)
-                == [Self.bobAccountIdHex, Self.carolAccountIdHex])
-    }
-
-    @MainActor
-    @Test func addMembersSheetShowsWhoCantBeAddedOnceRatherThanCountingUpToIt() async throws {
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1carol"] = Self.carolAccountIdHex
-        let state = try await openInstalledGroupDetails(runtime: runtime)
-        let staged = [Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient()]
-
-        let visible = MidPressMarkCounts()
-        runtime.onMemberResolutionAttempt = { @Sendable in
-            await MainActor.run { visible.counts.append(state.unreachableInviteRecipients(staged).count) }
-        }
-        await state.inviteMembers(staged)
-
-        #expect(visible.counts == [0, 0])
-        #expect(
-            state.unreachableInviteRecipients(staged).map(\.accountIdHex)
-                == [Self.bobAccountIdHex, Self.carolAccountIdHex])
-    }
-
-    @MainActor
-    @Test func groupDraftCreatesTheGroupOnTheNextPressAfterEveryRefusalIsShown() async throws {
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1carol"] = Self.carolAccountIdHex
-        let state = WorkspaceState(clientFactory: { runtime })
-
-        await state.bootstrap()
-        state.showNewChat()
-        state.newChatRecipients = [
-            Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient(),
-        ]
-        state.newChatName = "Project Room"
-        await state.createGroupFromDraft()
-        await state.createGroupFromDraft()
-
-        #expect(runtime.createdGroupMemberRefs == ["npub1alyce"])
-        #expect(state.selection == .chat("created-group"))
-        #expect(state.lastError == nil)
-    }
-
     @MainActor
     @Test func groupDraftWhereNobodyIsReachableMarksThemAllAndCreatesNothing() async throws {
         let account = desktopAccount()
@@ -4987,39 +4827,13 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(runtime.createdGroupMemberRefs.isEmpty)
         #expect(state.lastError == nil)
         #expect(state.isNewChatComposerVisible)
+        #expect(runtime.createGroupAttempts.count == 1)
     }
 
     @MainActor
-    @Test func groupDraftKeepsAMemberWhoBecomesReachableWhileTheRestAreBeingChecked() async throws {
-        // The pinned member is what keeps a follow-up attempt failing, so the one way a follow-up
-        // can succeed is that they published a KeyPackage between two attempts. They are then in
-        // the group the core just created, and the mark taken moments earlier is stale.
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1carol"] = Self.carolAccountIdHex
-        runtime.forgetsMissingKeyPackagesAfterAttempts = 1
-        let state = WorkspaceState(clientFactory: { runtime })
-
-        await state.bootstrap()
-        state.showNewChat()
-        state.newChatRecipients = [
-            Self.aliceDraftRecipient(), Self.bobDraftRecipient(), Self.carolDraftRecipient(),
-        ]
-        state.newChatName = "Project Room"
-        await state.createGroupFromDraft()
-
-        // Everyone the user picked is in the group, Bob included — a follow-up that goes through
-        // carries the pinned member, so it creates the roster the draft asked for rather than one
-        // missing whoever was refused a moment earlier.
-        #expect(runtime.createdGroupMemberRefs == ["npub1alyce", "npub1carol", "npub1p0p"])
-        #expect(state.selection == .chat("created-group"))
-        #expect(state.unreachableDraftMembers.isEmpty)
-        #expect(state.lastError == nil)
-    }
-
-    @MainActor
-    @Test func groupDraftRetryExcludesTheNamedMemberAndCreatesTheGroup() async throws {
+    @Test func groupDraftRetryLeavesMarkedMembersOut() async throws {
+        // A draft that added nobody marks them; the user adds someone reachable and presses again,
+        // and the create carries only the roster the panel is showing as reachable.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
@@ -5027,53 +4841,19 @@ struct GroupsTests: WorkspaceTestSupport {
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatRecipients = [Self.aliceDraftRecipient(), Self.bobDraftRecipient()]
+        state.newChatRecipients = [Self.bobDraftRecipient()]
         state.newChatName = "Project Room"
-        await state.createGroupFromDraft()
-        await state.createGroupFromDraft()
-
-        #expect(runtime.createdGroupMemberRefs == ["npub1alyce"])
-        #expect(state.selection == .chat("created-group"))
-        #expect(state.lastError == nil)
-    }
-
-    @MainActor
-    @Test func aMemberAddedAfterARefusalIsCheckedOnTheNextAttempt() async throws {
-        // The core names one refused member per attempt, so the split has to keep up with a draft
-        // that is still being edited. Someone added *after* an earlier refusal carries no mark, so
-        // the next attempt must include them — and refuse them in turn — rather than treating the
-        // roster as settled once the first refusal landed.
-        let account = desktopAccount()
-        let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
-        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1carol"] = Self.carolAccountIdHex
-        let state = WorkspaceState(clientFactory: { runtime })
-
-        await state.bootstrap()
-        state.showNewChat()
-        state.newChatRecipients = [Self.aliceDraftRecipient(), Self.bobDraftRecipient()]
-        state.newChatName = "Project Room"
-
         await state.createGroupFromDraft()
         #expect(state.unreachableDraftMembers.map(\.accountIdHex) == [Self.bobAccountIdHex])
 
-        // Add Carol, who is also unreachable, after Bob was already marked.
-        state.appendNewChatRecipient(Self.carolDraftRecipient())
-        #expect(state.reachableDraftMembers.map(\.accountIdHex) == [Self.aliceAccountIdHex, Self.carolAccountIdHex])
-
+        state.appendNewChatRecipient(Self.aliceDraftRecipient())
         await state.createGroupFromDraft()
-        #expect(
-            Set(state.unreachableDraftMembers.map(\.accountIdHex))
-                == [Self.bobAccountIdHex, Self.carolAccountIdHex])
-        #expect(runtime.createdGroupMemberRefs.isEmpty)
 
-        // Only once every refusal is known does the attempt go through, with the roster the panel
-        // has been showing all along.
-        await state.createGroupFromDraft()
+        #expect(runtime.createGroupAttempts.last == ["npub1alyce"])
         #expect(runtime.createdGroupMemberRefs == ["npub1alyce"])
         #expect(state.selection == .chat("created-group"))
+        #expect(state.lastError == nil)
     }
-
     @MainActor
     @Test func removingARefusedMemberDropsItsMarkWithIt() async throws {
         // The split is derived from the live roster, so a mark can never outlive the recipient
@@ -5081,20 +4861,21 @@ struct GroupsTests: WorkspaceTestSupport {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
+        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1carol"] = Self.carolAccountIdHex
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         state.showNewChat()
         let bob = Self.bobDraftRecipient()
-        state.newChatRecipients = [Self.aliceDraftRecipient(), bob]
+        state.newChatRecipients = [Self.carolDraftRecipient(), bob]
         state.newChatName = "Project Room"
         await state.createGroupFromDraft()
-        #expect(state.unreachableDraftMembers.count == 1)
+        #expect(state.unreachableDraftMembers.count == 2)
 
         state.removeNewChatRecipient(bob)
 
-        #expect(state.unreachableDraftMembers.isEmpty)
-        #expect(state.reachableDraftMembers.map(\.accountIdHex) == [Self.aliceAccountIdHex])
+        #expect(state.unreachableDraftMembers.map(\.accountIdHex) == [Self.carolAccountIdHex])
+        #expect(state.reachableDraftMembers.isEmpty)
     }
 
     @MainActor
@@ -5106,7 +4887,7 @@ struct GroupsTests: WorkspaceTestSupport {
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatRecipients = [Self.aliceDraftRecipient(), Self.bobDraftRecipient()]
+        state.newChatRecipients = [Self.bobDraftRecipient()]
         state.newChatName = "Project Room"
         await state.createGroupFromDraft()
         #expect(!state.unreachableDraftMemberIdHexes.isEmpty)

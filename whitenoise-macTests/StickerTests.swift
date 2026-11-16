@@ -162,6 +162,31 @@ struct StickerTests {
         #expect(runtime.sentStickers.count == 1)
         #expect(runtime.sentStickers.first?.groupIdHex == "group")
         #expect(runtime.sentStickers.first?.ref == StickerKey(sticker).ref)
+        #expect(runtime.sentStickers.first?.tags == [])
+    }
+
+    @MainActor
+    @Test func aStickerSentWhileReplyingCarriesTheReplyTags() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let library = StickerLibrary(accountRef: "account", runtime: runtime)
+
+        try await library.send(Self.sticker(), groupIdHex: "group", replyingTo: "target")
+
+        #expect(runtime.sentStickers.first?.tags == [["e", "target"], ["q", "target"]])
+    }
+
+    @MainActor
+    @Test func aPackShareLinkComesFromMDKForThatPack() throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let library = StickerLibrary(accountRef: "account", runtime: runtime)
+        let pack = StickerPackFfi(
+            coordinate: "30031:author:party", authorPubkeyHex: String(repeating: "a", count: 64), identifier: "party",
+            eventIdHex: String(repeating: "b", count: 64), createdAt: 0, title: "Party", description: nil, cover: nil,
+            stickers: [], license: nil, installed: true)
+
+        #expect(try library.shareLink(for: pack) == "https://sonar.example/pack/30031:author:party")
+        runtime.stickerPackShareLinkError = MarmotKitError.StickerNetwork(details: "no hints")
+        #expect(throws: MarmotKitError.self) { try library.shareLink(for: pack) }
     }
 
     // MARK: - Images

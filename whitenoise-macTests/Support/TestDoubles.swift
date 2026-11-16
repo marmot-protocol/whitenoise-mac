@@ -176,14 +176,6 @@ func waitForSemaphore(
 /// Async twin of `BlockingFfiGate`: suspends the first armed call on a continuation, with all
 /// gate state lock-guarded so arming, polling, and releasing from other threads cannot race the
 /// suspension — a release that wins the race resumes the parked call immediately.
-/// Snapshots of how many people the panel or sheet was showing as unreachable, taken while a press
-/// was still working through the roster. A press that publishes its findings as it goes leaves a
-/// rising sequence here; one that publishes them together leaves zeros.
-@MainActor
-final class MidPressMarkCounts {
-    var counts: [Int] = []
-}
-
 final class OneShotKeyProviderGate: @unchecked Sendable {
     private let lock = NSLock()
     private let reached = DispatchSemaphore(value: 0)

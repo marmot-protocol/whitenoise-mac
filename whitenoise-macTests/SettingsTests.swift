@@ -1444,11 +1444,10 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(runtimeConfig.resource?.osVersion == "Version 26.0")
         #expect(runtimeConfig.resource?.deviceModelIdentifier == nil)
 
-        let auditConfig = config.auditTrackerConfig()
-        #expect(auditConfig.authorizationBearerToken == "audit-token")
-        #expect(auditConfig.source.hardwareModel == "Mac15,3")
-        #expect(auditConfig.source.platform == "macos")
-        #expect(auditConfig.source.appVersion == "2026.6+12.production")
+        let auditSource = config.auditLogSource()
+        #expect(auditSource.hardwareModel == "Mac15,3")
+        #expect(auditSource.platform == "macos")
+        #expect(auditSource.appVersion == "2026.6+12.production")
 
         let auditOtlpConfig = config.auditOtlpConfig()
         #expect(auditOtlpConfig.enabled)
@@ -1638,12 +1637,12 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(runtime.relayTelemetryRuntimeConfig?.resource?.serviceInstanceId == "")
         #expect(state.backgroundStatus == nil)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
-        #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
+        #expect(runtime.auditLogSourceSetCallCount == 1)
         #expect(runtime.auditOtlpConfigV5SetCallCount == 1)
         #expect(runtime.productAnalyticsRuntimeConfigSetCallCount == 1)
 
         // Account identity now lives in the core's JSONL source_context (Goggles
-        // contract), so the host-supplied audit tracker config is account-
+        // contract), so the host-supplied audit source is account-
         // independent. Switching accounts therefore produces an unchanged request
         // that is skipped — the set-call count stays at 1.
         let secondaryItem = try #require(state.accounts.first { $0.accountRef == secondary.label })
@@ -1654,7 +1653,7 @@ struct SettingsTests: WorkspaceTestSupport {
 
         #expect(didSwitch)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
-        #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
+        #expect(runtime.auditLogSourceSetCallCount == 1)
         #expect(runtime.auditOtlpConfigV5SetCallCount == 1)
         #expect(runtime.productAnalyticsRuntimeConfigSetCallCount == 1)
     }
@@ -1690,7 +1689,7 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(state.backgroundStatus == nil)
         // Everything after the audit destination is still configured.
         #expect(runtime.productAnalyticsRuntimeConfigSetCallCount == 1)
-        #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
+        #expect(runtime.auditLogSourceSetCallCount == 1)
     }
 
     @MainActor

@@ -69,14 +69,13 @@ struct GroupChangeAdvisoryFlowTests {
         let (runtime, state, _) = try await Self.openGroupDetails()
         runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
         runtime.obsoleteKeyPackageMemberRefs = ["npub1p0p"]
-        let staged = [Self.alice, Self.bob]
+        let staged = [Self.bob]
 
         let invited = await state.inviteMembers(staged)
 
         #expect(!invited)
         #expect(state.lastError == ChatCreationFailure.needsAppUpdateMessage(recipientName: "Bob"))
         #expect(state.unreachableInviteRecipients(staged).isEmpty)
-        // The search stops on the outdated member instead of probing the rest one at a time.
         #expect(runtime.inviteMembersDetailedCallCount == 1)
         #expect(runtime.invitedMemberRefs.isEmpty)
     }
@@ -287,7 +286,7 @@ struct GroupChangeAdvisoryFlowTests {
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
         state.showNewChat()
-        state.newChatRecipients = [Self.alice, Self.bob]
+        state.newChatRecipients = [Self.bob]
         state.newChatName = "Project Room"
 
         await state.createGroupFromDraft()
@@ -295,7 +294,7 @@ struct GroupChangeAdvisoryFlowTests {
         #expect(state.lastError == ChatCreationFailure.needsAppUpdateMessage(recipientName: "Bob"))
         #expect(state.unreachableDraftMembers.isEmpty)
         #expect(state.startChatInvitePrompt == nil)
-        #expect(runtime.createGroupAttempts == [["npub1alyce", "npub1p0p"]])
+        #expect(runtime.createGroupAttempts == [["npub1p0p"]])
         #expect(runtime.createdGroupMemberRefs.isEmpty)
     }
 

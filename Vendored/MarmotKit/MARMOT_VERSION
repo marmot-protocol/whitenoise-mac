@@ -1,16 +1,16 @@
-mdk-sha: a2e0558a634bbd20607cdd5afb93abc6220ee58d
+mdk-sha: 4df811aea99269b437a6023be9446a5141e93cbe
 mdk-branch: master
-mdk-tag: marmotkit-v0.16.0
-published-at: 2026-11-12T10:42:32Z
+mdk-tag: marmotkit-v0.17.0
+published-at: 2026-11-15T11:36:12Z
 uniffi-version: 0.29.4
 features: otlp-export,product-analytics-export
 macos-targets: aarch64-apple-darwin
 macos-deployment-target: 15.0
 rust-release-opt-level: 3
 rust-release-codegen-units: 1
-swiftpm-checksum: 4d278b0bb690529b5a4afd20d2cb0834f85496f02ac86bd4885e2859a6f3f071
-swift-published-sha256: f8b5809141e24052591ae0754cd4329b20c9ec1f18427f52b75c94536cd1c8d5
-swift-vendored-sha256: fb30c5c35d23ac8f973b30a8d906699e1b9886fd504289d8cb8d691332fc5de4
+swiftpm-checksum: c749c03f2e1da467099bce8707042d665ba19173b6ee99f48b8cdd3b4b1a7e9d
+swift-published-sha256: 8ebcd9f6a0afbc9a964a5ed1c02147225218ccb988ddfc606f09e757b168c709
+swift-vendored-sha256: 288a1906d4adcf422c720879224839b86b80fb922e2ca0f81001fc7e2588193d
 distribution: static-library-and-privacy-v1
 privacy-sha256: 3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7
 

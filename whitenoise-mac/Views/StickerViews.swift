@@ -623,11 +623,17 @@ struct StickerPackDetailPage: View {
 
     @State private var isWorking = false
     @State private var errorMessage: String?
+    @State private var didCopyLink = false
 
     var body: some View {
         let isInstalled = library.isInstalled(pack.coordinate)
         VStack(spacing: 0) {
             StickerPageHeader(title: StickerPackPresentation.title(pack), onBack: onBack) {
+                Button(didCopyLink ? L10n.string("Copied") : L10n.string("Copy Link"), action: copyShareLink)
+                    .buttonStyle(.wnSecondary)
+                    .controlSize(.small)
+                    .help(L10n.string("Copy a link others can use to add this sticker pack."))
+                    .accessibilityIdentifier("stickers.pack.copyLink")
                 if isWorking {
                     ProgressView().controlSize(.small)
                 } else {
@@ -664,6 +670,22 @@ struct StickerPackDetailPage: View {
                 }
                 .padding(14)
             }
+        }
+    }
+
+    /// MDK builds the link locally, with the relay hints it kept for the pack, so this contacts no
+    /// server. The label confirms the copy for a moment rather than raising a separate notice.
+    private func copyShareLink() {
+        errorMessage = nil
+        do {
+            WorkspaceState.copyToGeneralPasteboard(try library.shareLink(for: pack), concealed: false)
+            didCopyLink = true
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                didCopyLink = false
+            }
+        } catch {
+            errorMessage = UserFacingError.message(for: error)
         }
     }
 

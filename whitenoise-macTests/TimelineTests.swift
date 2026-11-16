@@ -7750,6 +7750,39 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func aFailedSendOffersRemoveInsteadOfDelete() async throws {
+        // Nobody received a failed send, so the menu discards it here rather than publishing a
+        // delete for everyone about a message the group never had.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let failed = MessageItem(
+            id: "unpublished", groupIdHex: "group", sourceMessageIdHex: nil,
+            senderAccountIdHex: account.accountIdHex, senderName: "Desktop Account", body: "Meet at seven",
+            sentAt: .now, invalidationStatus: "local_publish_failed", isOutgoing: true)
+        var discarded = false
+
+        let actions = MessageRowAction.all(for: failed, workspace: state, discardFailedSend: { discarded = true })
+        let remove = try #require(actions.first { $0.kind == .delete })
+        #expect(remove.title == L10n.string("Remove"))
+        remove.run()
+
+        #expect(discarded)
+        #expect(state.messagePendingDeletion == nil)
+        // A delivered row keeps Delete and its confirmation, closure or not.
+        let delivered = MessageItem(
+            id: "delivered", groupIdHex: "group", sourceMessageIdHex: "source",
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account", body: "Meet at seven", sentAt: .now, invalidationStatus: nil,
+            isOutgoing: true)
+        let deliveredDelete = try #require(
+            MessageRowAction.all(for: delivered, workspace: state, discardFailedSend: {}).first { $0.kind == .delete })
+        #expect(deliveredDelete.title == L10n.string("Delete"))
+    }
+
+    @MainActor
     @Test func retryPutsTheRowBackToSendingInsteadOfHangingAProgressLineUnderIt() async throws {
         // A retry is a send going out again, so the row wears what a first attempt wears: the clock
         // in the bubble's own footer. It used to keep the failure marker and grow a "Retrying…"

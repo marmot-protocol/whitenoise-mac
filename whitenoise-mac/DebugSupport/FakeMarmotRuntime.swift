@@ -175,7 +175,14 @@
         var fetchStickerAssetError: Error?
         private(set) var fetchStickerAssetRequests: [StickerRefFfi] = []
         var sendStickerError: Error?
-        private(set) var sentStickers: [(groupIdHex: String, ref: StickerRefFfi)] = []
+        private(set) var sentStickers: [(groupIdHex: String, ref: StickerRefFfi, tags: [[String]])] = []
+        /// Thrown by `stickerPackShareLink`; otherwise it answers a fixed Sonar-shaped link.
+        var stickerPackShareLinkError: Error?
+        /// What `discardFailedSend` answers, and every call it received.
+        var discardFailedSendResult = DiscardFailedSendResultFfi(
+            outcome: .discarded, mediaCiphertextSha256: [], erasurePending: false)
+        var discardFailedSendError: Error?
+        private(set) var discardedFailedSends: [(groupIdHex: String, messageIdHex: String)] = []
         /// Every stored emoji set; `installed` marks installed ones.
         var emojiSetStore: [EmojiSetFfi] = []
         var fetchableEmojiSets: [String: EmojiSetFfi] = [:]
@@ -307,38 +314,21 @@
         private(set) var startDirectConversationPeers: [String] = []
         /// When set, `startDirectConversation` answers with this existing group instead of creating one.
         var startDirectConversationReusedGroupId: String?
-        /// Run at the top of every member-resolving call, before it refuses or commits. A test can read
-        /// the workspace from here to see what the UI would have been rendering *while* a press is still
-        /// working through the roster.
-        var onMemberResolutionAttempt: (@Sendable () async -> Void)?
         private(set) var createdGroupName: String?
         private(set) var createdGroupDescription: String?
-        /// Member refs the core would refuse for want of a published KeyPackage. `createGroup` mirrors
-        /// the real member-resolution order: it stops at the *first* one it finds in `memberRefs` and
-        /// throws `MissingKeyPackage` naming that account, so a roster with several surfaces them one
-        /// attempt at a time. Keyed by member ref, valued by the account id hex the core reports.
+        /// Member refs MDK finds no published KeyPackage for, valued by the account id hex it reports.
+        /// Since 0.17 `createGroup` and `inviteMembersDetailed` report each as a `missingKeyPackage`
+        /// outcome (or `obsoleteKeyPackage`, below) and go ahead with everyone else;
+        /// `startDirectConversation`, which stays all-or-nothing, throws `MissingKeyPackage` instead.
         var missingKeyPackageAccountIdHexByMemberRef: [String: String] = [:]
         /// Of the refs in `missingKeyPackageAccountIdHexByMemberRef`, those whose only KeyPackages are
-        /// from an outdated app: the refusal carries `.obsoleteOnly` instead of `.notFound`.
+        /// from an outdated app: `obsoleteKeyPackage`, or `.obsoleteOnly` on the thrown error.
         var obsoleteKeyPackageMemberRefs: Set<String> = []
-        /// Member refs the core would refuse over a KeyPackage that exists but cannot be used. Unlike
-        /// `missingKeyPackageAccountIdHexByMemberRef`, `InvalidKeyPackageEvent` names no account, so a
-        /// roster containing one of these is refused without saying who is at fault. Resolution order
-        /// is shared with the missing-KeyPackage set: whichever comes first in `memberRefs` wins.
-        var invalidKeyPackageMemberRefs: Set<String> = []
-        /// Member refs whose resolution fails in a way that has nothing to do with KeyPackages — a
-        /// person with no relay list to fetch one from, say. Shares the same resolution order: an error
-        /// like this still stops the whole create at the member it belongs to.
-        var unresolvableMemberRefs: Set<String> = []
-        /// Thrown by `createGroup` regardless of the roster, for failures that name nobody.
+        /// Any other per-member outcome MDK can report, keyed by member ref.
+        var memberResolutionOutcomeByMemberRef: [String: MemberResolutionOutcomeFfi] = [:]
+        /// Thrown by `createGroup` regardless of the roster, for failures that are errors rather than
+        /// outcomes (storage, authorization, a directory fetch failure).
         var createGroupFailure: Error?
-        /// Holds `createGroupFailure` back until this many attempts have been made, posing as a failure
-        /// that is about the account rather than any member and only starts once resolution gets past
-        /// the roster.
-        var createGroupFailureAfterAttempts = 0
-        /// Forgets every missing KeyPackage once this many `createGroup` attempts have been made, posing
-        /// as a member who publishes one *between* two attempts of the same press.
-        var forgetsMissingKeyPackagesAfterAttempts: Int?
         private(set) var repliedMessage: SentReply?
         private(set) var reactedMessage: SentReaction?
         private(set) var unreactedMessage: UnreactedMessage?
@@ -916,15 +906,13 @@
         var auditLogDeleteFailurePaths: Set<String> = []
         var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultV5Ffi(
             enabled: true,
-            v4Uploaded: [],
-            v4SkippedReason: nil,
             v5: nil
         )
         /// Thrown by `setAuditOtlpConfigV5`, standing in for the core rejecting a destination.
         var setAuditOtlpConfigV5Error: Error?
         private(set) var localNotificationsEnabledSet: Bool?
-        private(set) var auditLogTrackerConfig: AuditLogTrackerConfigV4Ffi?
-        private(set) var auditLogTrackerConfigSetCallCount = 0
+        private(set) var auditLogSource: AuditLogSourceFfi?
+        private(set) var auditLogSourceSetCallCount = 0
         private(set) var auditOtlpConfigV5: AuditOtlpConfigV5Ffi?
         private(set) var auditOtlpConfigV5SetCallCount = 0
         private(set) var deletedAuditLogFilePaths: [String] = []
@@ -1591,11 +1579,11 @@
             return storedAuditLogSettings
         }
 
-        func setAuditLogTrackerConfig(config: AuditLogTrackerConfigV4Ffi) throws -> AuditLogTrackerConfigV4Ffi {
-            auditLogTrackerConfigSetCallCount += 1
-            recordSyncCall("setAuditLogTrackerConfig")
-            auditLogTrackerConfig = config
-            return config
+        func setAuditLogSource(source: AuditLogSourceFfi) throws -> AuditLogSourceFfi {
+            auditLogSourceSetCallCount += 1
+            recordSyncCall("setAuditLogSource")
+            auditLogSource = source
+            return source
         }
 
         func setAuditOtlpConfigV5(config: AuditOtlpConfigV5Ffi) throws -> AuditOtlpConfigV5Ffi {
@@ -2035,12 +2023,25 @@
             return StickerAssetFfi(sticker: sticker, bytes: bytes)
         }
 
-        func sendSticker(accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi) async throws
-            -> SendSummaryFfi
-        {
+        func sendTaggedSticker(
+            accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi, messageTags: [[String]]
+        ) async throws -> SendSummaryFfi {
             if let sendStickerError { throw sendStickerError }
-            sentStickers.append((groupIdHex, stickerRef))
+            sentStickers.append((groupIdHex, stickerRef, messageTags))
             return SendSummaryFfi(published: 1, messageIds: ["sticker-\(sentStickers.count)"])
+        }
+
+        func stickerPackShareLink(accountRef: String, coordinate: String) throws -> String {
+            if let stickerPackShareLinkError { throw stickerPackShareLinkError }
+            return "https://sonar.example/pack/\(coordinate)"
+        }
+
+        func discardFailedSend(accountRef: String, groupIdHex: String, messageIdHex: String) async throws
+            -> DiscardFailedSendResultFfi
+        {
+            discardedFailedSends.append((groupIdHex, messageIdHex))
+            if let discardFailedSendError { throw discardFailedSendError }
+            return discardFailedSendResult
         }
 
         func emojiSet(accountRef: String, coordinate: String) async throws -> EmojiSetFfi? {
@@ -2401,55 +2402,58 @@
             storedAccounts.removeAll { $0.label == accountRef }
         }
 
-        /// Mirrors MDK: one call that creates an unnamed group with the peer as a founding admin.
-        /// Reuses `createGroup`'s failure knobs and gate, so every create-refusal test applies to it.
+        /// What MDK's directory resolution reports for one requested member.
+        func memberResolutionOutcome(for memberRef: String) -> MemberResolutionOutcomeFfi {
+            if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[memberRef] {
+                return MemberResolutionOutcomeFfi(
+                    accountIdHex: accountIdHex,
+                    status: obsoleteKeyPackageMemberRefs.contains(memberRef) ? .obsoleteKeyPackage : .missingKeyPackage,
+                    selectedDeviceCount: 0
+                )
+            }
+            if let outcome = memberResolutionOutcomeByMemberRef[memberRef] { return outcome }
+            let accountIdHex =
+                normalizedMembersByRef.values.first { $0.memberRef == memberRef || $0.npub == memberRef }?
+                .accountIdHex ?? memberRef
+            return MemberResolutionOutcomeFfi(accountIdHex: accountIdHex, status: .selected, selectedDeviceCount: 1)
+        }
+
+        /// Mirrors MDK: one call that creates an unnamed group with the peer as a founding admin. Unlike
+        /// `createGroup` it stays all-or-nothing in 0.17, so an unavailable peer is thrown, not reported.
         func startDirectConversation(accountRef: String, peerAccountId: String) async throws -> String {
             startDirectConversationPeers.append(peerAccountId)
             // MDK reuses the account's canonical direct chat with this peer, archived or not.
             if let startDirectConversationReusedGroupId { return startDirectConversationReusedGroupId }
-            return try await createGroup(
+            if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[peerAccountId] {
+                await createGroupGate.passIfArmed()
+                throw MarmotKitError.MissingKeyPackage(
+                    account: accountIdHex,
+                    reason: obsoleteKeyPackageMemberRefs.contains(peerAccountId) ? .obsoleteOnly : .notFound)
+            }
+            let result = try await createGroup(
                 accountRef: accountRef, name: "", memberRefs: [peerAccountId], description: nil)
+            guard let groupIdHex = result.groupIdHex else { throw FakeMarmotRuntimeError.unused }
+            return groupIdHex
         }
 
+        /// Mirrors MarmotKit 0.17: the group is created with every member MDK selects, and each
+        /// requested member's outcome is reported in request order. A nonempty roster with nobody
+        /// selected creates nothing and returns no group id.
         func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
-            -> String
+            -> GroupCreationResultFfi
         {
             createGroupAttempts.append(memberRefs)
-            await onMemberResolutionAttempt?()
-            if let forgetsMissingKeyPackagesAfterAttempts,
-                createGroupAttempts.count > forgetsMissingKeyPackagesAfterAttempts
-            {
-                missingKeyPackageAccountIdHexByMemberRef = [:]
-            }
-            // Member resolution runs in list order and stops at the first member it can't resolve,
-            // whichever way that member fails.
-            let refusedMemberRef = memberRefs.first {
-                missingKeyPackageAccountIdHexByMemberRef[$0] != nil || invalidKeyPackageMemberRefs.contains($0)
-                    || unresolvableMemberRefs.contains($0)
-            }
-            let pendingFailure =
-                createGroupAttempts.count > createGroupFailureAfterAttempts ? createGroupFailure : nil
-            if pendingFailure != nil || refusedMemberRef != nil {
-                // Pass the gate before throwing so a test can hold a *failing* create in flight and
-                // switch accounts under it. Deliberately ahead of every mutation below, so a refused
-                // create still records nothing — the success path keeps its own gate at the end.
+            let outcomes = memberRefs.map(memberResolutionOutcome(for:))
+            let selected = zip(memberRefs, outcomes).filter { $0.1.status == .selected }.map(\.0)
+            if createGroupFailure != nil || (!memberRefs.isEmpty && selected.isEmpty) {
+                // Pass the gate before answering so a test can hold a create that adds nobody in
+                // flight and switch accounts under it. Deliberately ahead of every mutation below, so
+                // such a create records nothing — the success path keeps its own gate at the end.
                 await createGroupGate.passIfArmed()
-                if let pendingFailure {
-                    throw pendingFailure
-                }
-                if let refusedMemberRef {
-                    if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[refusedMemberRef] {
-                        throw MarmotKitError.MissingKeyPackage(
-                            account: accountIdHex,
-                            reason: obsoleteKeyPackageMemberRefs.contains(refusedMemberRef) ? .obsoleteOnly : .notFound)
-                    }
-                    if unresolvableMemberRefs.contains(refusedMemberRef) {
-                        throw MarmotKitError.Publish(details: "no relay list for member")
-                    }
-                    throw MarmotKitError.InvalidKeyPackageEvent(details: "unusable key package event")
-                }
+                if let createGroupFailure { throw createGroupFailure }
+                return GroupCreationResultFfi(groupIdHex: nil, memberOutcomes: outcomes)
             }
-            createdGroupMemberRefs = memberRefs
+            createdGroupMemberRefs = selected
             createdGroupName = name
             createdGroupDescription = description
             groups = [
@@ -2480,7 +2484,7 @@
                 groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
             }
             await createGroupGate.passIfArmed()
-            return "created-group"
+            return GroupCreationResultFfi(groupIdHex: "created-group", memberOutcomes: outcomes)
         }
 
         func releaseCreateGroupGate() {
@@ -2554,32 +2558,30 @@
             return state
         }
 
+        /// Mirrors MarmotKit 0.17: the invite commits every member MDK selects and reports each
+        /// requested member's outcome. With nobody selected there is no commit and no summary.
         func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
-            -> GroupMutationResultFfi
+            -> GroupInviteResultFfi
         {
             inviteMembersDetailedCallCount += 1
             await groupMutationGate.passIfArmed()
             try admitGroupChange(groupIdHex: groupIdHex)
             inviteMemberRefAttempts.append(memberRefs)
-            await onMemberResolutionAttempt?()
-            // Invites resolve every member's KeyPackage before committing anything and stop at the
-            // first one they can't, exactly as `createGroup` does.
-            if let refusedMemberRef = memberRefs.first(where: {
-                missingKeyPackageAccountIdHexByMemberRef[$0] != nil || invalidKeyPackageMemberRefs.contains($0)
-            }) {
-                if let accountIdHex = missingKeyPackageAccountIdHexByMemberRef[refusedMemberRef] {
-                    throw MarmotKitError.MissingKeyPackage(
-                        account: accountIdHex,
-                        reason: obsoleteKeyPackageMemberRefs.contains(refusedMemberRef) ? .obsoleteOnly : .notFound)
-                }
-                throw MarmotKitError.InvalidKeyPackageEvent(details: "unusable key package event")
-            }
-            invitedMemberRefs = memberRefs
+            let outcomes = memberRefs.map(memberResolutionOutcome(for:))
+            let selected = zip(memberRefs, outcomes).filter { $0.1.status == .selected }.map(\.0)
             guard var details = groupDetailsById[groupIdHex] else {
                 throw FakeMarmotRuntimeError.unused
             }
+            guard !selected.isEmpty else {
+                return GroupInviteResultFfi(
+                    invite: InviteMembersResultFfi(summary: nil, memberOutcomes: outcomes),
+                    details: details,
+                    managementState: groupManagementStateById[groupIdHex] ?? defaultGroupManagementState(for: details)
+                )
+            }
+            invitedMemberRefs = selected
 
-            for memberRef in memberRefs {
+            for memberRef in selected {
                 let normalized = normalizedMembersByRef.values.first { member in
                     member.memberRef == memberRef || member.npub == memberRef || member.accountIdHex == memberRef
                 }
@@ -2599,7 +2601,12 @@
             }
             groupDetailsById[groupIdHex] = details
             groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
-            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-invite")
+            let mutation = try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-invite")
+            return GroupInviteResultFfi(
+                invite: InviteMembersResultFfi(summary: mutation.summary, memberOutcomes: outcomes),
+                details: mutation.details,
+                managementState: mutation.managementState
+            )
         }
 
         func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
@@ -4060,13 +4067,14 @@
             return SendSummaryFfi(published: 1, messageIds: ["unreact"])
         }
 
-        func createPoll(
+        func createTaggedPoll(
             accountRef: String,
             groupIdHex: String,
             question: String,
             options: [String],
             pollType: PollTypeFfi,
-            endsAt: UInt64?
+            endsAt: UInt64?,
+            messageTags: [[String]]
         ) async throws -> SendSummaryFfi {
             let error = recordedStateLock.withLock { () -> Error? in
                 _createdPolls.append(
@@ -4075,7 +4083,8 @@
                         question: question,
                         options: options,
                         pollType: pollType,
-                        endsAt: endsAt
+                        endsAt: endsAt,
+                        messageTags: messageTags
                     ))
                 return _pollActionError
             }
@@ -4581,6 +4590,7 @@
         let options: [String]
         let pollType: PollTypeFfi
         let endsAt: UInt64?
+        var messageTags: [[String]] = []
     }
 
     struct MessageReactionsRequest: Equatable {

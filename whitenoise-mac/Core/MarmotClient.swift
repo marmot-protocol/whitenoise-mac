@@ -55,7 +55,7 @@ nonisolated protocol MarmotRuntime: Sendable {
     /// returns what it stored.
     func setAuditLogRetention(retention: AuditLogRetentionFfi) throws -> AuditLogRetentionFfi
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi
-    func setAuditLogTrackerConfig(config: AuditLogTrackerConfigV4Ffi) throws -> AuditLogTrackerConfigV4Ffi
+    func setAuditLogSource(source: AuditLogSourceFfi) throws -> AuditLogSourceFfi
     func setAuditOtlpConfigV5(config: AuditOtlpConfigV5Ffi) throws -> AuditOtlpConfigV5Ffi
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi
     func setNativePushEnabled(accountRef: String, enabled: Bool) async throws -> NotificationSettingsFfi
@@ -160,8 +160,14 @@ nonisolated protocol MarmotRuntime: Sendable {
     /// Downloads and validates one sticker image from the public URL its pack names, which reveals
     /// this device's IP address to that server. MDK keeps no copy.
     func fetchStickerAsset(accountRef: String, stickerRef: StickerRefFfi) async throws -> StickerAssetFfi
-    func sendSticker(accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi) async throws
-        -> SendSummaryFfi
+    /// Sends a sticker; `messageTags` carries a reply's `e`/`q` rows (empty for none). A second
+    /// `sticker` or an `imeta` row is refused (MarmotKit 0.17.0).
+    func sendTaggedSticker(
+        accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi, messageTags: [[String]]
+    ) async throws -> SendSummaryFfi
+    /// The canonical Sonar viewer link for a pack, built locally with up to eight relay hints.
+    /// No network work (MarmotKit 0.17.0).
+    func stickerPackShareLink(accountRef: String, coordinate: String) throws -> String
     /// NIP-51 emoji sets (kind 30030). Stored-set reads are local; `syncEmojiSets` and
     /// `fetchEmojiSet` contact relays (text only); asset and install calls download from the hosts
     /// a set's author chose, revealing this device's IP address to them.
@@ -259,8 +265,11 @@ nonisolated protocol MarmotRuntime: Sendable {
         -> AccountRelayListsFfi
     func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
         -> AccountRelayListsFfi
+    /// Creates the group with the members MDK can reach (MarmotKit 0.17.0). `groupIdHex` is nil when
+    /// a nonempty roster had nobody available, and nothing was created; `memberOutcomes` names every
+    /// requested account either way. Read it through `MemberResolutionReport`.
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
-        -> String
+        -> GroupCreationResultFfi
     /// Reuse this account's direct chat with the peer, or create one with both accounts as
     /// founding admins (MarmotKit 0.16.0). Retry-safe: a retry after a cancellation, lost
     /// response or error reuses the same group.
@@ -269,8 +278,10 @@ nonisolated protocol MarmotRuntime: Sendable {
     func declineGroupInvite(accountRef: String, groupIdHex: String) async throws -> GroupInviteDeclineResultFfi
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi
     func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi
+    /// Invites the members MDK can reach (MarmotKit 0.17.0). `invite.summary` is nil when nobody was
+    /// available and no commit was made; `invite.memberOutcomes` names every requested account.
     func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
-        -> GroupMutationResultFfi
+        -> GroupInviteResultFfi
     func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi
     func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
         -> GroupMutationResultFfi
@@ -412,14 +423,20 @@ nonisolated protocol MarmotRuntime: Sendable {
         -> SendSummaryFfi
     func unreactFromMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws
         -> SendSummaryFfi
-    func createPoll(
+    /// Creates a poll; `messageTags` carries a reply's `e`/`q` rows (empty for none). Context may
+    /// not hold `imeta`, `option`, `polltype`, `endsAt` or `response` rows (MarmotKit 0.17.0).
+    func createTaggedPoll(
         accountRef: String,
         groupIdHex: String,
         question: String,
         options: [String],
         pollType: PollTypeFfi,
-        endsAt: UInt64?
+        endsAt: UInt64?,
+        messageTags: [[String]]
     ) async throws -> SendSummaryFfi
+    /// Removes a failed own send from this device and publishes nothing (MarmotKit 0.17.0).
+    func discardFailedSend(accountRef: String, groupIdHex: String, messageIdHex: String) async throws
+        -> DiscardFailedSendResultFfi
     func castPollVote(accountRef: String, groupIdHex: String, pollEventId: String, optionIds: [String]) async throws
         -> SendSummaryFfi
     /// One page of a poll's voters and their effective selections, ordered by
@@ -682,8 +699,8 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try await marmot.setAuditLogSettings(settings: settings)
     }
 
-    func setAuditLogTrackerConfig(config: AuditLogTrackerConfigV4Ffi) throws -> AuditLogTrackerConfigV4Ffi {
-        try marmot.setAuditLogTrackerConfig(config: config)
+    func setAuditLogSource(source: AuditLogSourceFfi) throws -> AuditLogSourceFfi {
+        try marmot.setAuditLogSource(source: source)
     }
 
     func setAuditOtlpConfigV5(config: AuditOtlpConfigV5Ffi) throws -> AuditOtlpConfigV5Ffi {
@@ -963,10 +980,15 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try await marmot.fetchStickerAsset(accountRef: accountRef, stickerRef: stickerRef)
     }
 
-    func sendSticker(accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi) async throws
-        -> SendSummaryFfi
-    {
-        try await marmot.sendSticker(accountRef: accountRef, groupIdHex: groupIdHex, stickerRef: stickerRef)
+    func sendTaggedSticker(
+        accountRef: String, groupIdHex: String, stickerRef: StickerRefFfi, messageTags: [[String]]
+    ) async throws -> SendSummaryFfi {
+        try await marmot.sendTaggedSticker(
+            accountRef: accountRef, groupIdHex: groupIdHex, stickerRef: stickerRef, messageTags: messageTags)
+    }
+
+    func stickerPackShareLink(accountRef: String, coordinate: String) throws -> String {
+        try marmot.stickerPackShareLink(accountRef: accountRef, coordinate: coordinate)
     }
 
     func emojiSet(accountRef: String, coordinate: String) async throws -> EmojiSetFfi? {
@@ -1271,7 +1293,7 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
     }
 
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
-        -> String
+        -> GroupCreationResultFfi
     {
         try await marmot.createGroup(
             accountRef: accountRef,
@@ -1302,7 +1324,7 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
     }
 
     func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
-        -> GroupMutationResultFfi
+        -> GroupInviteResultFfi
     {
         try await marmot.inviteMembersDetailed(
             accountRef: accountRef,
@@ -1725,22 +1747,30 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func createPoll(
+    func createTaggedPoll(
         accountRef: String,
         groupIdHex: String,
         question: String,
         options: [String],
         pollType: PollTypeFfi,
-        endsAt: UInt64?
+        endsAt: UInt64?,
+        messageTags: [[String]]
     ) async throws -> SendSummaryFfi {
-        try await marmot.createPoll(
+        try await marmot.createTaggedPoll(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
             question: question,
             options: options,
             pollType: pollType,
-            endsAt: endsAt
+            endsAt: endsAt,
+            messageTags: messageTags
         )
+    }
+
+    func discardFailedSend(accountRef: String, groupIdHex: String, messageIdHex: String) async throws
+        -> DiscardFailedSendResultFfi
+    {
+        try await marmot.discardFailedSend(accountRef: accountRef, groupIdHex: groupIdHex, messageIdHex: messageIdHex)
     }
 
     func castPollVote(accountRef: String, groupIdHex: String, pollEventId: String, optionIds: [String]) async throws

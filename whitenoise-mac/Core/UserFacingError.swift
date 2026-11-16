@@ -137,6 +137,10 @@ nonisolated enum UserFacingError {
             L10n.string("This invitation is no longer pending.")
         case .CreatedGroupProjectionUnavailable:
             L10n.string("The chat was created but isn’t showing yet. It will appear shortly, so don’t create it again.")
+        // Only a prepared-image create that reuses an upload consumed before 0.17.0 answers this;
+        // the group exists, so the copy sends the user to it rather than to a second create.
+        case .CreatedGroupMemberReportUnavailable:
+            L10n.string("The group was created. Open it from your chats rather than creating it again.")
         case .GroupHydrationPending:
             L10n.string("This chat is still loading. Try again in a moment.")
         case .DirectConversationIndexNotReady, .ChatPresentationNotReady, .ConversationWindowNotReady:
