@@ -155,7 +155,6 @@ final class WorkspaceState {
     /// The remembered download folder, as shown in Storage settings. Loaded on demand by
     /// `refreshMediaDownloadDestinationPath()`; `nil` until the user has chosen one.
     var mediaDownloadDestinationPath: String?
-    @ObservationIgnored var mediaDownloadFeedbackDismissTask: Task<Void, Never>?
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.

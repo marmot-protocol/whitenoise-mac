@@ -11,9 +11,6 @@ private let mediaDownloadLogger = Logger(subsystem: "com.whitenoise.media", cate
 
 @MainActor
 extension WorkspaceState {
-    /// How long a download toast stays up before it dismisses itself.
-    static let mediaDownloadFeedbackDuration: Duration = .seconds(4)
-
     /// Bounded retry for the two gaps in which a load has published `.loading` but has registered
     /// neither task `resolvedMediaDownload(_:for:)` could await: before reference resolution
     /// starts, and between it finishing and the download being registered. The first covers a
@@ -65,7 +62,7 @@ extension WorkspaceState {
 
         // No destination means the user closed the panel without choosing. That is a cancelled
         // gesture, not a failure — no toast, nothing written.
-        guard let destination = resolveMediaDownloadDestination(for: attachments) else { return }
+        guard let destination = resolveMediaDownloadDestination(for: attachments, of: message) else { return }
         defer { if case .folder(let access) = destination { access.release() } }
 
         var savedFileURLs: [URL] = []
@@ -111,16 +108,23 @@ extension WorkspaceState {
 
     /// Where one download gesture writes. `nil` means the user cancelled.
     ///
-    /// Asking happens before anything is fetched, so a cancelled panel costs no download; the Save
-    /// As panel therefore offers the timeline's name for the file rather than the core's.
+    /// Asking happens before anything is fetched, so a cancelled panel costs no download. Save As
+    /// offers the core's name for the file when the tile has already loaded it — the name the row
+    /// shows and the folder path writes — and the timeline's otherwise.
     private func resolveMediaDownloadDestination(
-        for attachments: [MessageMediaAttachment]
+        for attachments: [MessageMediaAttachment],
+        of message: MessageItem
     ) -> MediaDownloadTarget? {
         if mediaDownloadDestinationStore.alwaysAsksWhereToSave {
             if attachments.count == 1 {
-                let reference = attachments[0].reference
+                let attachment = attachments[0]
+                var loaded: MessageMediaDownload?
+                if case .loaded(let download) = mediaDownloadStateStore(for: message, attachment: attachment).state {
+                    loaded = download
+                }
                 let suggestedName = MediaFileDownloader.suggestedFileName(
-                    reference.fileName, mediaType: reference.mediaType)
+                    loaded?.fileName.nilIfBlank ?? attachment.reference.fileName,
+                    mediaType: loaded?.mediaType ?? attachment.reference.mediaType)
                 return mediaDownloadPanels.chooseFile(suggestedName).map(MediaDownloadTarget.file)
             }
             // A folder picked for one gesture is not remembered: the user asked to be asked. The
@@ -173,28 +177,18 @@ extension WorkspaceState {
     ///
     /// Downloads on different messages run concurrently, so a second gesture can finish while the
     /// first one's toast is still on screen. Replacing what is there would report one file when
-    /// two were saved, and Show in Finder would reveal only one, so the files and failures add and
-    /// the dismissal timer restarts — the toast describes everything it has had time to tell the
-    /// user about.
+    /// two were saved, and Show in Finder would reveal only one, so the files and failures add —
+    /// the toast describes everything it has had time to tell the user about. The toast owns its
+    /// own dismissal timer, which restarts because the value changed.
     func presentMediaDownloadFeedback(savedFileURLs: [URL], failedCount: Int) {
         let showing = mediaDownloadFeedback
         mediaDownloadFeedback = MediaDownloadFeedback(
             savedFileURLs: (showing?.savedFileURLs ?? []) + savedFileURLs,
             failedCount: failedCount + (showing?.failedCount ?? 0)
         )
-        // Cancelling is the whole of the handover: the previous timer is flagged before it can
-        // resume, so it cannot close a toast it no longer describes.
-        mediaDownloadFeedbackDismissTask?.cancel()
-        mediaDownloadFeedbackDismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.mediaDownloadFeedbackDuration)
-            guard !Task.isCancelled else { return }
-            self?.mediaDownloadFeedback = nil
-        }
     }
 
     func dismissMediaDownloadFeedback() {
-        mediaDownloadFeedbackDismissTask?.cancel()
-        mediaDownloadFeedbackDismissTask = nil
         mediaDownloadFeedback = nil
     }
 

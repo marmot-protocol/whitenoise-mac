@@ -9,19 +9,38 @@ import SwiftUI
 /// over the transcript and the image gallery, so only the card itself takes clicks; the padding
 /// around it never does.
 struct MediaDownloadFeedbackToast: View {
+    static let displayDuration: Duration = .seconds(4)
+
     @Environment(WorkspaceState.self) private var workspace
+    /// The timer holds while the pointer is on the card, so Show in Finder is still there when the
+    /// pointer arrives.
+    @State private var isHovering = false
 
     var body: some View {
         Group {
             if let feedback = workspace.mediaDownloadFeedback {
                 MediaDownloadFeedbackToastContent(feedback: feedback)
+                    .onHover { isHovering = $0 }
+                    .onDisappear { isHovering = false }
                     .padding(.leading, 16)
                     .padding(.bottom, 16)
                     .transition(.move(edge: .leading).combined(with: .opacity))
+                    // A new value (another gesture folded in) or the pointer leaving restarts it.
+                    .task(id: DismissalTimer(feedback: feedback, isHovering: isHovering)) {
+                        guard !isHovering else { return }
+                        try? await Task.sleep(for: Self.displayDuration)
+                        guard !Task.isCancelled else { return }
+                        workspace.dismissMediaDownloadFeedback()
+                    }
             }
         }
         .animation(.smooth(duration: 0.2), value: workspace.mediaDownloadFeedback)
     }
+}
+
+private struct DismissalTimer: Equatable {
+    let feedback: MediaDownloadFeedback
+    let isHovering: Bool
 }
 
 struct MediaDownloadFeedbackToastContent: View {

@@ -3611,6 +3611,31 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func savePanelOffersTheNameTheLoadedAttachmentShows() async throws {
+        // The timeline name is blank, but the tile has already loaded the file and shows the
+        // core's name for it. Save As offers that name — the one the folder path would write —
+        // rather than a generic one.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(alwaysAsks: true)
+        destination.pickedFileURL = folder.appending(path: "notes.pdf")
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "", mediaType: "application/pdf", data: Data([0x01]), isAvailable: true)],
+            destination: destination
+        )
+        let attachment = try #require(fixture.message.mediaAttachments.first)
+        fixture.state.mediaDownloadStateStore(for: fixture.message, attachment: attachment).update(
+            .loaded(
+                MessageMediaDownload(
+                    data: Data([0x02]), fileName: "notes.pdf", mediaType: "application/pdf", sizeBytes: 1)))
+
+        await fixture.state.downloadMediaAttachments([attachment], for: fixture.message)
+
+        #expect(destination.suggestedFileNames == ["notes.pdf"])
+        fixture.state.dismissMediaDownloadFeedback()
+    }
+
+    @MainActor
     @Test func savePanelReplacesAFileTheUserChoseToReplace() async throws {
         // The panel has already asked whether to replace an existing file, so a yes there must not
         // turn into a "photo 2.jpg" beside it.
