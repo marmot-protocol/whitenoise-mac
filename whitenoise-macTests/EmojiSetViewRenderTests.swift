@@ -301,11 +301,11 @@ import Testing
     @Test func theSendNoticeWrapsItsMessageAndDismisses() async throws {
         var dismissed = false
         let short = HostedViewWindow(
-            CustomEmojiSendNotice(message: "Not sent.", onDismiss: {}).frame(width: Self.noticeSize.width),
+            ComposerNotice(message: "Not sent.", onDismiss: {}).frame(width: Self.noticeSize.width),
             size: Self.noticeSize)
         defer { short.close() }
         let long = HostedViewWindow(
-            CustomEmojiSendNotice(message: CustomEmojiSendError.mixedWithAttachments.message) { dismissed = true }
+            ComposerNotice(message: CustomEmojiSendError.mixedWithAttachments.message) { dismissed = true }
                 .frame(width: Self.noticeSize.width),
             size: Self.noticeSize)
         defer { long.close() }

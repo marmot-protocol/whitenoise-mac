@@ -68,6 +68,6 @@
 	<key>NSAccentColorName</key>
 	<string>AccentColor</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>White Noise needs microphone access to record voice messages.</string>
+	<string>White Noise needs microphone access to record voice messages and to dictate messages on this Mac.</string>
 </dict>
 </plist>
