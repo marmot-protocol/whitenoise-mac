@@ -699,3 +699,78 @@ struct ThisDeviceNameTests {
         #expect(runtime.deviceLinking.renames.isEmpty)
     }
 }
+
+/// A link request for a profile that isn't active is raised from the shell, never left invisible
+/// until the user happens to switch to that profile.
+@MainActor
+struct ProfileLinkRequestsMonitorTests: WorkspaceTestSupport {
+    private static let active = AccountItem.samples[0]
+    private static let other = AccountItem.samples[1]
+
+    private func makeRuntime() -> FakeMarmotRuntime {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        runtime.deviceLinking.snapshot = DeviceLinkSnapshotFfi(
+            newDevice: nil,
+            prompts: [DeviceLinkPromptFfi(promptId: "p1", slotIdHex: nil, requestedAt: 0, state: .preparing)],
+            moves: [], deviceGroupStalled: false)
+        return runtime
+    }
+
+    @Test func anotherProfilesRequestRaisesTheAlertButTheActiveOnesDoesNot() async {
+        let runtime = makeRuntime()
+        let monitor = ProfileLinkRequestsMonitor()
+        let accounts = [Self.active, Self.other]
+        let observing = Task { await monitor.observe(runtime, accounts: { accounts }) }
+        defer { observing.cancel() }
+        await Self.waitUntil { monitor.pending.count == 2 }
+
+        monitor.presentIfNeeded(activeAccountIdHex: Self.active.accountIdHex, accounts: accounts)
+
+        #expect(monitor.alert?.accountIdHex == Self.other.accountIdHex.lowercased())
+        #expect(
+            monitor.requests(excluding: Self.active.accountIdHex, accounts: accounts).map(\.accountIdHex)
+                == [Self.other.accountIdHex.lowercased()])
+        #expect(monitor.takeAlert()?.profileName == Self.other.displayName)
+    }
+
+    @Test func notNowIsNotRaisedAgainButStaysListed() async {
+        let runtime = makeRuntime()
+        let monitor = ProfileLinkRequestsMonitor()
+        let accounts = [Self.active, Self.other]
+        let observing = Task { await monitor.observe(runtime, accounts: { accounts }) }
+        defer { observing.cancel() }
+        await Self.waitUntil { monitor.pending.count == 2 }
+        monitor.presentIfNeeded(activeAccountIdHex: Self.active.accountIdHex, accounts: accounts)
+
+        monitor.putOffAlert()
+        monitor.presentIfNeeded(activeAccountIdHex: Self.active.accountIdHex, accounts: accounts)
+
+        #expect(monitor.alert == nil)
+        #expect(monitor.requests(excluding: Self.active.accountIdHex, accounts: accounts).count == 1)
+    }
+
+    @Test func anAnsweredRequestLeavesOnItsProfilesEvent() async {
+        let runtime = makeRuntime()
+        let monitor = ProfileLinkRequestsMonitor()
+        let accounts = [Self.other]
+        let observing = Task { await monitor.observe(runtime, accounts: { accounts }) }
+        defer { observing.cancel() }
+        await Self.waitUntil { !monitor.pending.isEmpty }
+
+        runtime.deviceLinking.snapshot.prompts = []
+        runtime.eventHub.emit(.deviceLinkChanged(accountIdHex: Self.other.accountIdHex.uppercased(), accountLabel: "x"))
+        await Self.waitUntil { monitor.pending.isEmpty }
+
+        #expect(monitor.pending.isEmpty)
+    }
+
+    @Test func withoutDeviceGroupsItReadsNothing() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let monitor = ProfileLinkRequestsMonitor()
+
+        await monitor.observe(runtime, accounts: { [Self.other] })
+
+        #expect(runtime.deviceLinking.snapshotReadCount == 0)
+    }
+}

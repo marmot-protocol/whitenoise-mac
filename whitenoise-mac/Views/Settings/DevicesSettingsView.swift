@@ -8,6 +8,9 @@ import SwiftUI
 /// request answered there shows here and the other way round.
 struct DevicesSettingsView: View {
     let model: DeviceLinkingViewModel
+    /// Link requests waiting on the user's other signed-in profiles; Review switches to one.
+    var otherProfileRequests: [ProfileLinkRequestsMonitor.Request] = []
+    var onReviewOtherProfile: (ProfileLinkRequestsMonitor.Request) -> Void = { _ in }
 
     @State private var selectedDevice: LinkedDeviceSelection?
 
@@ -17,6 +20,9 @@ struct DevicesSettingsView: View {
                 DeviceWarningsSection(model: model)
                 LinkedDevicesSection(model: model, onSelect: { selectedDevice = LinkedDeviceSelection(id: $0) })
                 DeviceLinkSection(model: model)
+                if !otherProfileRequests.isEmpty {
+                    OtherProfileLinkRequestsSection(requests: otherProfileRequests, onReview: onReviewOtherProfile)
+                }
                 if !model.snapshot.moves.isEmpty {
                     DeviceMovesSection(model: model)
                 }
@@ -259,6 +265,26 @@ private struct DeviceLinkSection: View {
                 )
                 .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
+            }
+        }
+    }
+}
+
+private struct OtherProfileLinkRequestsSection: View {
+    let requests: [ProfileLinkRequestsMonitor.Request]
+    let onReview: (ProfileLinkRequestsMonitor.Request) -> Void
+
+    var body: some View {
+        SettingsSection(
+            title: L10n.string("Other Profiles"),
+            footer: L10n.string("Review switches to that profile to compare the emoji.")
+        ) {
+            ForEach(requests) { request in
+                DeviceLinkStatusRow(
+                    title: ProfileLinkRequestsPresentation.message(profileName: request.profileName),
+                    actionTitle: L10n.string("Review"),
+                    action: { onReview(request) }
+                )
             }
         }
     }

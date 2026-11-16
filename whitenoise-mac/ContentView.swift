@@ -65,6 +65,17 @@ struct ContentView: View {
                 }
             )
             .accountWipeReportAlert(session)
+            .profileLinkRequestAlert(session.linkRequests) { request in
+                reviewLinkRequest(request)
+            }
+            .task(id: workspace.client?.storageRootPath) {
+                guard let client = workspace.client else { return }
+                await session.linkRequests.observe(client, accounts: { workspace.signedInAccounts })
+            }
+            .task(id: LinkRequestAlertKey(pending: session.linkRequests.pending, active: workspace.activeAccountId)) {
+                session.linkRequests.presentIfNeeded(
+                    activeAccountIdHex: workspace.activeAccount?.accountIdHex, accounts: workspace.signedInAccounts)
+            }
             .task(id: workspace.client?.storageRootPath) {
                 guard let client = workspace.client else { return }
                 await unlinkMonitor.observe(client)
@@ -203,6 +214,17 @@ struct ContentView: View {
         session.accountScope?.selectedConversationModel?.readableMessageIds
     }
 
+    /// Review on another profile's link request: switch to it. Its own `DeviceLinkingViewModel`
+    /// reads the request and presents it, so comparing and linking run as that profile.
+    private func reviewLinkRequest(_ request: ProfileLinkRequestsMonitor.Request) {
+        guard
+            let account = workspace.signedInAccounts.first(where: {
+                $0.accountIdHex.lowercased() == request.accountIdHex
+            })
+        else { return }
+        workspace.selectAccount(account)
+    }
+
     private func account(forUnlinked notice: DeviceUnlinkMonitor.Notice) -> AccountItem? {
         workspace.accounts.first { $0.accountIdHex.lowercased() == notice.accountIdHex }
     }
@@ -225,4 +247,11 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environment(WorkspaceState.preview())
+}
+
+/// Re-checks whether another profile's link request should raise the alert: when requests change
+/// or the active profile does (its own requests are its model's).
+private struct LinkRequestAlertKey: Equatable {
+    let pending: [String: [String]]
+    let active: String?
 }

@@ -11,6 +11,7 @@ import SwiftUI
 
 struct SettingsPanelView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     let model: SettingsViewModel
     let deviceLinking: DeviceLinkingViewModel
 
@@ -35,7 +36,18 @@ struct SettingsPanelView: View {
             case .identityKeys:
                 ProfileKeysSettingsView(model: model.profileKeys)
             case .devices:
-                DevicesSettingsView(model: deviceLinking)
+                DevicesSettingsView(
+                    model: deviceLinking,
+                    otherProfileRequests: session.linkRequests.requests(
+                        excluding: workspace.activeAccount?.accountIdHex, accounts: workspace.signedInAccounts),
+                    onReviewOtherProfile: { request in
+                        if let account = workspace.signedInAccounts.first(where: {
+                            $0.accountIdHex.lowercased() == request.accountIdHex
+                        }) {
+                            workspace.selectAccount(account)
+                        }
+                    }
+                )
             case .relays:
                 RelaySettingsView(model: model.relays)
             case .keyPackages:
@@ -112,5 +124,6 @@ private extension SettingsPage {
 #Preview {
     SettingsPanelView(model: .preview(), deviceLinking: .preview())
         .environment(WorkspaceState.preview())
+        .environment(SessionState())
         .frame(width: 760, height: 640)
 }

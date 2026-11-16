@@ -12,6 +12,8 @@ final class SessionState {
     /// What the last sign-out-and-wipe left undone, for the shell's alert. Held here, not on the
     /// account's scope: the account it reports on is gone by the time it shows.
     var wipeReport: AccountWipeReport?
+    /// Link requests for signed-in profiles other than the active one.
+    let linkRequests = ProfileLinkRequestsMonitor()
     /// The app shell has two independent task owners (bootstrap and account-id observation), so
     /// cancelling either task cannot supersede an activation already suspended in old-scope
     /// revocation. This ticket lets only the most recent caller install a replacement scope.
