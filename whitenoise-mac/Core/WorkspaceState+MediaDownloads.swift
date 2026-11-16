@@ -1,4 +1,5 @@
 import Foundation
+import MarmotKit
 import OSLog
 
 /// The toast counts failures but cannot say *why* one failed, and the two causes need different
@@ -117,7 +118,9 @@ extension WorkspaceState {
     ) -> MediaDownloadTarget? {
         if mediaDownloadDestinationStore.alwaysAsksWhereToSave {
             if attachments.count == 1 {
-                let suggestedName = MediaFileDownloader.sanitizedFileName(attachments[0].fileName)
+                let reference = attachments[0].reference
+                let suggestedName = MediaFileDownloader.suggestedFileName(
+                    reference.fileName, mediaType: reference.mediaType)
                 return mediaDownloadPanels.chooseFile(suggestedName).map(MediaDownloadTarget.file)
             }
             // A folder picked for one gesture is not remembered: the user asked to be asked. The

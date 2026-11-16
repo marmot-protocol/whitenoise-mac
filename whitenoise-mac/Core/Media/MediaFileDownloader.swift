@@ -1,13 +1,12 @@
 import Foundation
+import UniformTypeIdentifiers
 
-/// Names for decrypted attachment bytes on their way into the folder the user chose.
+/// Names for decrypted attachment bytes on their way to the disk.
 ///
-/// Downloading is deliberately non-interactive: one click puts the file in that folder, the way a
-/// browser download does. A save panel per file is fine for the single-file "Save file" row in
-/// shared media, but the message action downloads every attachment on a message at once, and a
-/// modal per attachment would be a marathon.
+/// A single attachment may go through Save As, but the message action downloads every attachment
+/// on a message at once into one folder — a modal per attachment would be a marathon.
 ///
-/// Nothing is ever overwritten — a taken name gets Finder's " 2" suffix — and file names arrive
+/// In a folder, nothing is ever overwritten — a taken name gets Finder's " 2" suffix — and file names arrive
 /// over the wire, so they are sanitized down to a single path component before they are used.
 /// These are pure: the write itself is `MediaDownloadWriter.write(_:fileName:into:)`, which is the
 /// only thing that touches the filesystem and is serialized for exactly that reason.
@@ -49,6 +48,19 @@ nonisolated enum MediaFileDownloader {
         sanitized = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sanitized.isEmpty else { return nil }
         return truncated(sanitized)
+    }
+
+    /// The name Save As offers for an attachment whose name came over the wire. A blank name gets
+    /// the fallback plus the media type's extension, so accepting the suggestion still writes a
+    /// file Finder knows how to open.
+    static func suggestedFileName(_ fileName: String, mediaType: String) -> String {
+        if let usable = sanitizedFileNameIfUsable(fileName) {
+            return usable
+        }
+        guard let fileExtension = UTType(mimeType: mediaType)?.preferredFilenameExtension else {
+            return fallbackFileName
+        }
+        return "\(fallbackFileName).\(fileExtension)"
     }
 
     /// Sanitize `fileName`, then step it past any name `isTaken` reports as already present.

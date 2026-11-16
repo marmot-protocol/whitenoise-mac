@@ -3423,6 +3423,14 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(MediaFileDownloader.sanitizedFileName("notes...") == "notes")
     }
 
+    @Test func saveAsSuggestionNamesABlankAttachmentByItsMediaType() {
+        // The timeline can carry a blank name. Save As must not offer the localized UI label
+        // ("Anhang") with no extension: accepting that writes a file Finder cannot open.
+        #expect(MediaFileDownloader.suggestedFileName("photo.jpg", mediaType: "image/jpeg") == "photo.jpg")
+        #expect(MediaFileDownloader.suggestedFileName("  ", mediaType: "image/jpeg") == "attachment.jpeg")
+        #expect(MediaFileDownloader.suggestedFileName("", mediaType: "application/x-unknown") == "attachment")
+    }
+
     @Test func mediaFileDownloaderCapsMultibyteNamesByBytesNotCharacters() {
         // APFS counts a path component in UTF-8 bytes, so a name of emoji or CJK hits the 255-byte
         // ceiling four and three times faster than its character count suggests. A cap measured in

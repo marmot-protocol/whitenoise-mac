@@ -34,6 +34,8 @@ struct MediaDownloadFeedbackToastContent: View {
                 .foregroundStyle(
                     feedback.hasFailures ? WNColor.intentionWarningContent : WNColor.intentionSuccessContent
                 )
+                // Decorative: the sentence beside it already says whether anything failed.
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 if feedback.savedCount > 0 {

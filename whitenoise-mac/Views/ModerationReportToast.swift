@@ -3,8 +3,8 @@ import SwiftUI
 /// Transient outcome of a report or a Block and Report, pinned beside the download toast.
 ///
 /// The sheet or dialog that started it has closed by the time MDK answers, so this is the only
-/// place the outcome can show. Non-interactive, like `MediaDownloadFeedbackToast`: it floats over
-/// the transcript and must never swallow a click meant for it.
+/// place the outcome can show. Non-interactive: it floats over the transcript and must never
+/// swallow a click meant for it.
 struct ModerationReportToast: View {
     static let displayDuration: Duration = .seconds(5)
 
