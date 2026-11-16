@@ -47,8 +47,6 @@ protocol MediaDownloadDestinationStoring: AnyObject {
     /// nothing stored rather than the folder it was chosen to replace.
     func store(_ url: URL)
 
-    func clear()
-
     /// The default folder for display and for panels to open in, resolved without opening access
     /// to it. `nil` while a picked folder does not resolve, and the grant itself survives that —
     /// see `resolveDestination()`.
@@ -87,17 +85,13 @@ final class UserDefaultsMediaDownloadDestinationStore: MediaDownloadDestinationS
         guard defaults.data(forKey: Key.bookmark) != nil else {
             return downloadsFolder.map { MediaDownloadDestinationAccess(url: $0, isSecurityScoped: false) }
         }
-        // Dropping the bookmark belongs here and nowhere else: this is the path where a grant
-        // that no longer holds would make every later download fail silently in the same way,
-        // so it is worth one more trip through the panel. A read for display must never cost
-        // the user their folder — a volume that is merely unmounted comes back.
-        guard let url = resolvedURL() else {
-            clear()
-            return nil
-        }
+        // A grant that does not open means "ask", never "forget": with no bookmark the next
+        // download would go to Downloads without asking, yet the folder — an ejected drive, a
+        // sleeping share — may simply come back. The grant is dropped only by `store(_:)`, once
+        // the user has picked a replacement.
+        guard let url = resolvedURL() else { return nil }
         guard url.startAccessingSecurityScopedResource() else {
             mediaDownloadDestinationLogger.error("Stored download folder grant could not be opened")
-            clear()
             return nil
         }
         return MediaDownloadDestinationAccess(url: url, isSecurityScoped: true)
@@ -107,13 +101,13 @@ final class UserDefaultsMediaDownloadDestinationStore: MediaDownloadDestinationS
         if !persistBookmark(for: url) {
             // Whatever is remembered now is a folder the user has just replaced, and the next
             // download would go there without asking — writing somewhere they chose against.
-            // Forgetting it costs one trip through the panel; keeping it costs the file. This
-            // download still proceeds: it has the panel's own grant.
+            // Forgetting it sends later downloads to Downloads instead, the default the user
+            // started from. This download still proceeds: it has the panel's own grant.
             clear()
         }
     }
 
-    func clear() {
+    private func clear() {
         defaults.removeObject(forKey: Key.bookmark)
     }
 

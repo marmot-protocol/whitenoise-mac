@@ -1202,7 +1202,6 @@ final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
     var alwaysAsksWhereToSave: Bool
     private(set) var storedURL: URL?
     private(set) var storeCallCount = 0
-    private(set) var clearCallCount = 0
     /// Simulates a grant that no longer resolves — folder deleted, volume ejected.
     var failsToResolve = false
 
@@ -1242,11 +1241,6 @@ final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
         storeCallCount += 1
         storedURL = url
         failsToResolve = false
-    }
-
-    func clear() {
-        clearCallCount += 1
-        storedURL = nil
     }
 
     var defaultFolderURL: URL? {

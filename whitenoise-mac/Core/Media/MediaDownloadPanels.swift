@@ -4,9 +4,9 @@ import Foundation
 /// The two questions a chat download can ask: which folder, and — for one file — what to call it
 /// and where.
 ///
-/// The app is sandboxed with only `files.user-selected.read-write`, so a place outside the
-/// container is writable precisely because the user picked it in one of these panels: they are the
-/// permission grant, not a formality. Injected so tests can answer them with a temporary directory
+/// Apart from Downloads, which the `files.downloads.read-write` entitlement grants, the sandbox
+/// lets the app write outside its container only where the user picked a place in one of these
+/// panels: they are the permission grant, not a formality. Injected so tests can answer them with a temporary directory
 /// instead of showing a modal.
 struct MediaDownloadPanels {
     /// A folder for one gesture's files, or the folder to remember, opened in `openIn` (the

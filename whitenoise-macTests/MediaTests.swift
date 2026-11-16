@@ -3372,15 +3372,19 @@ struct MediaTests: WorkspaceTestSupport {
         let key = "whitenoise.mac.mediaDownloadDestinationBookmark"
         // Not a bookmark at all — resolution throws, which is the failure both paths see.
         defaults.set(Data([0x00, 0x01, 0x02, 0x03]), forKey: key)
-        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults, downloadsFolder: nil)
+        let downloads = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: downloads) }
+        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults, downloadsFolder: downloads)
 
         #expect(store.defaultFolderURL == nil)
         #expect(defaults.data(forKey: key) != nil)
 
-        // The download path is the one place a dead grant actually blocks a write, so that is
-        // where it is discarded and the user is asked again.
-        #expect(store.resolveDestination()?.url == nil)
-        #expect(defaults.data(forKey: key) == nil)
+        // A download asks instead — but keeps the grant, every time. Dropping it would make the
+        // next download fall back to Downloads silently, though the user's folder (an ejected
+        // drive, say) may simply come back. Only picking a replacement drops it.
+        #expect(store.resolveDestination() == nil)
+        #expect(store.resolveDestination() == nil)
+        #expect(defaults.data(forKey: key) != nil)
     }
 
     @MainActor
