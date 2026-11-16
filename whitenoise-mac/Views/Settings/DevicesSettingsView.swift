@@ -501,6 +501,11 @@ struct LinkedDeviceSheet: View {
         .onAppear {
             label = model.device(slotIdHex: slotIdHex)?.label ?? ""
         }
+        // Removed meanwhile, here or from another device: go back to the list rather than leave
+        // the reader on a sheet about a device that's gone.
+        .onChange(of: model.device(slotIdHex: slotIdHex) == nil) { _, isGone in
+            if isGone { dismiss() }
+        }
     }
 }
 
