@@ -3086,13 +3086,13 @@ struct MessageRowAction: Identifiable {
 }
 
 /// Removes a failed own send for the row menu and the selection toolbar alike: discarded on this
-/// device through the conversation model, with the host media cache cleared when it carried media
+/// device through the conversation model, with its own decrypted media dropped from the host cache
 /// and any failure on the error line.
 @MainActor
 enum FailedSendDiscard {
     static func run(_ message: MessageItem, model: ConversationViewModel, workspace: WorkspaceState) async {
-        let failure = await model.discardFailedSend(messageIdHex: message.id) {
-            await workspace.clearMediaCache()
+        let failure = await model.discardFailedSend(messageIdHex: message.id) { [cache = workspace.mediaDiskCache] in
+            await cache.purgeEntries(accountId: model.account.id, ciphertextSha256s: $0)
         }
         if let failure { workspace.reportUserActionError(failure) }
     }

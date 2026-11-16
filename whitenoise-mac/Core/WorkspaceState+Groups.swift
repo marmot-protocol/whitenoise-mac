@@ -522,16 +522,20 @@ extension WorkspaceState {
                     groupIdHex: groupIdHex
                 )
             else { return }
-            applyGroupDetails(result.details, managementState: result.managementState)
-            // MDK reports an unavailable member as an outcome, not an error. With nobody added the
-            // identifier stays in the field, and the error line says why.
-            let report = MemberResolutionReport(outcomes: result.invite.memberOutcomes, recipients: [])
+            // MDK reports an unavailable member as an outcome, not an error. With nobody added there
+            // was no commit: the identifier stays in the field, the group details (and any unsaved
+            // profile draft) are left alone, and the error line names what was typed.
             guard result.invite.summary != nil else {
+                let typed = NewChatRecipient(
+                    sourceQuery: query, memberRef: normalized.npub, accountIdHex: normalized.accountIdHex,
+                    npub: normalized.npub, displayName: query, pictureURL: nil)
+                let report = MemberResolutionReport(outcomes: result.invite.memberOutcomes, recipients: [typed])
                 lastError =
-                    report.notAddedNotice
-                    ?? L10n.string("Someone you picked isn't on White Noise yet, so they can't be added.")
+                    report.nothingAddedMessage
+                    ?? String(format: L10n.string("%@ isn't on White Noise yet, so they can't be added."), typed.title)
                 return
             }
+            applyGroupDetails(result.details, managementState: result.managementState)
             groupInviteMemberQuery = ""
             await reloadChats(forceFreshSnapshot: true)
         } catch {
@@ -606,7 +610,6 @@ extension WorkspaceState {
             guard
                 isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
             else { return false }
-            applyGroupDetails(result.details, managementState: result.managementState)
             // Since MarmotKit 0.17 an invite goes ahead with the members MDK can reach and names the
             // rest in `memberOutcomes`, so one press answers for everyone staged.
             let report = MemberResolutionReport(outcomes: result.invite.memberOutcomes, recipients: candidates)
@@ -623,6 +626,7 @@ extension WorkspaceState {
             }
             // The invite went out to the members MDK selected. The sheet closes with it, so the
             // people left out are named on the banner instead.
+            applyGroupDetails(result.details, managementState: result.managementState)
             if let notice = report.notAddedNotice {
                 backgroundStatus = notice
             }

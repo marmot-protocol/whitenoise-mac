@@ -350,16 +350,16 @@ struct PollTests {
     @Test func discardingAFailedSendPurgesMediaOnlyWhenItCarriedSome() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         let model = Self.model(runtime: runtime)
-        var purges = 0
+        var purged: [[String]] = []
 
-        #expect(await model.discardFailedSend(messageIdHex: "text") { purges += 1 } == nil)
+        #expect(await model.discardFailedSend(messageIdHex: "text") { purged.append($0) } == nil)
         runtime.discardFailedSendResult = DiscardFailedSendResultFfi(
             outcome: .discarded, mediaCiphertextSha256: ["abc"], erasurePending: false)
-        #expect(await model.discardFailedSend(messageIdHex: "photo") { purges += 1 } == nil)
+        #expect(await model.discardFailedSend(messageIdHex: "photo") { purged.append($0) } == nil)
 
         #expect(runtime.discardedFailedSends.map(\.messageIdHex) == ["text", "photo"])
         #expect(runtime.discardedFailedSends.allSatisfy { $0.groupIdHex == "group" })
-        #expect(purges == 1)
+        #expect(purged == [["abc"]])
     }
 
     @Test func aSendThatMayStillGoOutIsNotDiscarded() async {
@@ -367,7 +367,7 @@ struct PollTests {
         runtime.discardFailedSendResult = DiscardFailedSendResultFfi(
             outcome: .stillSending, mediaCiphertextSha256: [], erasurePending: false)
 
-        let message = await Self.model(runtime: runtime).discardFailedSend(messageIdHex: "m") {}
+        let message = await Self.model(runtime: runtime).discardFailedSend(messageIdHex: "m") { _ in }
 
         #expect(message == L10n.string("This message may still be sending. Try again in a moment."))
     }
@@ -377,14 +377,14 @@ struct PollTests {
         runtime.discardFailedSendResult = DiscardFailedSendResultFfi(
             outcome: .notFailedSend, mediaCiphertextSha256: [], erasurePending: false)
 
-        #expect(await Self.model(runtime: runtime).discardFailedSend(messageIdHex: "m") {} == nil)
+        #expect(await Self.model(runtime: runtime).discardFailedSend(messageIdHex: "m") { _ in } == nil)
     }
 
     @Test func aDiscardErrorIsShownAsCopy() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.discardFailedSendError = MarmotKitError.StorageBusy(details: "busy")
 
-        let message = await Self.model(runtime: runtime).discardFailedSend(messageIdHex: "m") {}
+        let message = await Self.model(runtime: runtime).discardFailedSend(messageIdHex: "m") { _ in }
 
         #expect(message == UserFacingError.message(for: MarmotKitError.StorageBusy(details: "busy")))
     }

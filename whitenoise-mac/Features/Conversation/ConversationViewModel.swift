@@ -405,9 +405,10 @@ final class ConversationViewModel {
     /// group about a message nobody received. The row leaves the timeline through the window's
     /// next snapshot.
     ///
-    /// `purgeMedia` runs when the send carried encrypted media, so the host's decrypted copy goes
-    /// with it. Returns the message to show when the send could not be discarded, or `nil`.
-    func discardFailedSend(messageIdHex: String, purgeMedia: () async -> Void) async -> String? {
+    /// `purgeMedia` receives the ciphertext hashes of the send's encrypted media, so the host's
+    /// decrypted copies go with it. Returns the message to show when the send could not be
+    /// discarded, or `nil`.
+    func discardFailedSend(messageIdHex: String, purgeMedia: ([String]) async -> Void) async -> String? {
         guard !discardingMessageIds.contains(messageIdHex) else { return nil }
         discardingMessageIds.insert(messageIdHex)
         defer { discardingMessageIds.remove(messageIdHex) }
@@ -416,7 +417,7 @@ final class ConversationViewModel {
                 accountRef: account.accountRef, groupIdHex: groupIdHex, messageIdHex: messageIdHex)
             switch result.outcome {
             case .discarded:
-                if !result.mediaCiphertextSha256.isEmpty { await purgeMedia() }
+                if !result.mediaCiphertextSha256.isEmpty { await purgeMedia(result.mediaCiphertextSha256) }
                 return nil
             case .stillSending:
                 return L10n.string("This message may still be sending. Try again in a moment.")

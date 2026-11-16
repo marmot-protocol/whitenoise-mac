@@ -3304,6 +3304,30 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func aTypedInviteThatAddsNobodyKeepsTheDraftAndNamesWhatWasTyped() async throws {
+        // No commit was made, so the group details are not re-applied over an unsaved profile
+        // draft, the identifier stays in the field, and the error names it rather than a short id.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1newmemzer", accountIdHex: Self.daveAccountIdHex, npub: "npub1newmemzer")
+        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1newmemzer"] = Self.daveAccountIdHex
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        state.groupProfileDraftName = "Unsaved Name"
+        state.groupInviteMemberQuery = "npub1newmemzer"
+
+        await state.inviteMemberToSelectedGroup()
+
+        #expect(state.groupProfileDraftName == "Unsaved Name")
+        #expect(state.groupInviteMemberQuery == "npub1newmemzer")
+        #expect(
+            state.lastError
+                == String(
+                    format: L10n.string("%@ isn't on White Noise yet, so they can't be added."), "npub1newmemzer"))
+    }
+
+    @MainActor
     @Test func inviteMemberDropsOverlappingDuplicateInvocation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
