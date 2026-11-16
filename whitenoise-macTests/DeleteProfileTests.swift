@@ -222,6 +222,62 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         return (state, active)
     }
 
+    /// A signed-in account is removed through MDK's sign-out-and-wipe, so linked devices take it out
+    /// of their chats, and what that left undone reaches the shell's report.
+    @Test func aSignedInAccountIsWipedAndItsReportShown() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), Self.backup])
+        runtime.wipeOutcome.siblingsNotReached = true
+        let (state, active) = try await signedInWorkspace(runtime)
+        let session = SessionState()
+
+        let failure = await DeleteProfileRemoval.remover(for: state, session: session)(active)
+
+        #expect(failure == nil)
+        #expect(runtime.wipedAccountRefs == ["Desktop Account"])
+        #expect(session.wipeReport?.lines.count == 1)
+    }
+
+    /// An account already signed out (an unlinked one included) has nothing to tell the network: it
+    /// is removed locally, and there is no report.
+    @Test func aSignedOutAccountIsRemovedLocally() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        var signedOut = Self.backup
+        signedOut.signedOut = true
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), signedOut])
+        let (state, _) = try await signedInWorkspace(runtime)
+        let backup = try #require(state.accounts.first { $0.id == "Backup Account" })
+
+        let outcome = await state.removeAccount(backup)
+
+        #expect(outcome == nil)
+        #expect(runtime.wipedAccountRefs.isEmpty)
+        #expect(runtime.removedAccountRefs == ["Backup Account"])
+    }
+
+    @Test func aCleanWipeHasNothingToReportButUnreachableDevicesAlwaysDo() {
+        let clean = WipeOutcomeFfi(
+            groupsLeft: 3, groupLeaveFailures: [], keyPackagesDeleted: 1, keyPackageFailures: [],
+            localCleanup: LocalCleanupReportFfi(completed: true, reason: nil), groupsLeftToSiblings: 0,
+            siblingsNotReached: false)
+        #expect(AccountWipeReport(outcome: clean) == nil)
+
+        var unreachable = clean
+        unreachable.siblingsNotReached = true
+        #expect(AccountWipeReport(outcome: unreachable)?.lines.count == 1)
+
+        var handedOff = clean
+        handedOff.groupsLeftToSiblings = 4
+        handedOff.localCleanup = LocalCleanupReportFfi(completed: false, reason: "io")
+        let report = try? #require(AccountWipeReport(outcome: handedOff))
+        #expect(report?.lines.count == 2)
+        #expect(report?.lines.first?.contains("4") == true)
+    }
+
     /// The deletion went through, the app continued into the backup identity (the only one left),
     /// and its settings then failed to load. That failure is the backup's, not the deletion's: the page
     /// reported success, and the error stays where the backup's settings page will show it.

@@ -182,6 +182,12 @@ nonisolated protocol MarmotRuntime: Sendable {
     /// Turns account-devices on, for good, in one admin commit. A group change: run it through
     /// `GroupChangeAdvisoryRetry`.
     func enableAccountDevices(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi
+    /// Each held chat's history from another of the account's devices: receiving, or imported.
+    func chatHistoryImports(accountRef: String) async throws -> [ChatHistoryImportFfi]
+    /// Signs out, leaves what the account's other devices can't take this device out of, deletes
+    /// its KeyPackage slot and wipes it. With linked devices it first hands its removal to them
+    /// (about 30 seconds).
+    func signOutAndWipe(accountRef: String) async throws -> WipeOutcomeFfi
     /// One custom-emoji reaction's encrypted artwork as an attachment source slot, or nil.
     func reactionAttachment(
         accountRef: String, groupIdHex: String, reactionMessageIdHex: String
@@ -1109,6 +1115,14 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func enableAccountDevices(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
         try await marmot.enableAccountDevices(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func chatHistoryImports(accountRef: String) async throws -> [ChatHistoryImportFfi] {
+        try await marmot.chatHistoryImports(accountRef: accountRef)
+    }
+
+    func signOutAndWipe(accountRef: String) async throws -> WipeOutcomeFfi {
+        try await marmot.signOutAndWipe(accountRef: accountRef)
     }
 
     func cancelLeave(accountRef: String, groupIdHex: String) async throws {

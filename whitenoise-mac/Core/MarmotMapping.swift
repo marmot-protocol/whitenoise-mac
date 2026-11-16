@@ -561,6 +561,20 @@ nonisolated struct MessageEditOverlay: Equatable, Sendable {
 // (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`) so they can be called from the
 // `@Sendable` off-main closure in `WorkspaceState+Timeline`. See whitenoise-mac#285.
 nonisolated extension MessageItem {
+    /// `importedFrom` is device-only and carries the label; the typed provenance also covers
+    /// backups, so either one marks the row imported.
+    static func importSource(
+        provenance: HistoryImportProvenanceFfi?, importedFrom: HistoryImportSourceFfi?
+    ) -> MessageImportSource? {
+        switch provenance {
+        case .backup: return .backup
+        case .device(let slotIdHex):
+            return .device(slotIdHex: slotIdHex, label: importedFrom?.deviceLabel ?? "")
+        case nil:
+            return importedFrom.map { .device(slotIdHex: $0.deviceSlotIdHex, label: $0.deviceLabel) }
+        }
+    }
+
     private init(
         record: TimelineMessageRecordFfi,
         activeAccountIdHex: String?,
@@ -615,8 +629,8 @@ nonisolated extension MessageItem {
             groupIdHex: record.groupIdHex,
             sourceMessageIdHex: record.sourceMessageIdHex,
             recipientConfirmed: record.recipientConfirmed,
-            // `importedFrom` is device-only; the typed provenance also covers backups.
-            isImportedHistory: record.historyImportProvenance != nil || record.importedFrom != nil,
+            importSource: MessageItem.importSource(
+                provenance: record.historyImportProvenance, importedFrom: record.importedFrom),
             sourceEpoch: record.sourceEpoch,
             retentionSeconds: record.retentionSeconds,
             retentionExpiresAt: record.retentionExpiresAt,

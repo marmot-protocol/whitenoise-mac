@@ -34,6 +34,10 @@ struct DeviceLinkingTests: WorkspaceTestSupport {
         DeviceLinkSnapshotFfi(newDevice: nil, prompts: prompts, moves: [], deviceGroupStalled: false)
     }
 
+    static func makeDevice(_ slot: Character, thisDevice: Bool = false) -> LinkedDeviceFfi {
+        device(slot, thisDevice: thisDevice)
+    }
+
     private static func device(_ slot: Character, thisDevice: Bool = false) -> LinkedDeviceFfi {
         LinkedDeviceFfi(
             slotIdHex: String(repeating: slot, count: 64), isThisDevice: thisDevice, label: "", client: "",
@@ -569,5 +573,129 @@ struct DeviceUnlinkPresentationTests {
         let unnamed = DeviceUnlinkPresentation.message(accountName: nil)
         #expect(DeviceUnlinkPresentation.message(accountName: "  ") == unnamed)
         #expect(!unnamed.contains("%@"))
+    }
+}
+
+/// Chat history copied from another of the account's devices: where it ends in the transcript, what
+/// the marker calls its source, and the "bringing earlier messages" progress.
+@MainActor
+struct ImportedHistoryTests {
+    private static func item(_ id: String, _ source: MessageImportSource?) -> TimelineMessageDisplayItem {
+        TimelineMessageDisplayItem(
+            message: MessageItem(
+                id: id, importSource: source, senderName: "Jeff", body: id, sentAt: Date(), isOutgoing: false),
+            dayLabel: nil)
+    }
+
+    private static let context = TranscriptRowContext(
+        canVoteInPolls: true, showsDebugMetadata: false, isSelectionMode: false, localeIdentifier: "en",
+        referenceDay: 0)
+
+    @Test func theBoundaryMarksTheFirstLiveRowAfterImportedOnes() {
+        let phone = MessageImportSource.device(slotIdHex: "a", label: "iPhone")
+        let rows = TranscriptRow.rows(
+            displayItems: [
+                Self.item("old-1", phone), Self.item("old-2", phone), Self.item("live", nil),
+                Self.item("later", nil),
+            ],
+            paging: .empty,
+            pendingOutgoingRows: [],
+            unreadDividerMessageId: nil,
+            context: Self.context
+        )
+        let marked = rows.compactMap { row -> (String, MessageImportSource?)? in
+            guard case .message(let item, _, _, _, let importedAbove) = row else { return nil }
+            return (item.message.id, importedAbove)
+        }
+        #expect(marked.map(\.0) == ["old-1", "old-2", "live", "later"])
+        #expect(marked.map(\.1) == [nil, nil, phone, nil])
+    }
+
+    @Test func anImportedRowNamesItsSource() {
+        #expect(
+            MessageItem.importSource(
+                provenance: .backup(
+                    source: BackupHistorySourceFfi(
+                        recoveryPublicKeyHex: "", backupIdHex: "", headSha256Hex: "", writtenAt: 0)), importedFrom: nil)
+                == .backup)
+        #expect(
+            MessageItem.importSource(
+                provenance: .device(deviceSlotIdHex: "s"),
+                importedFrom: HistoryImportSourceFfi(deviceSlotIdHex: "s", deviceLabel: "iPhone"))
+                == .device(slotIdHex: "s", label: "iPhone"))
+        #expect(MessageItem.importSource(provenance: nil, importedFrom: nil) == nil)
+    }
+
+    /// The marker follows renames: the roster's current name wins over the one the rows carried.
+    @Test func theDeviceNameFollowsTheRoster() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        let slot = String(repeating: "b", count: 64)
+        var phone = DeviceLinkingTests.makeDevice("b")
+        phone.label = "Jeff's iPhone"
+        runtime.deviceLinking.devices = [phone]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        await model.refreshAll()
+
+        #expect(model.deviceName(for: .device(slotIdHex: slot, label: "iPhone")) == "Jeff's iPhone")
+        #expect(model.deviceName(for: .device(slotIdHex: "gone", label: "Old")) == "Old")
+        #expect(model.deviceName(for: .device(slotIdHex: "gone", label: "")) == nil)
+        #expect(model.deviceName(for: .backup) == nil)
+        #expect(
+            ImportedHistoryDivider.text(source: .backup, deviceName: nil)
+                != ImportedHistoryDivider.text(
+                    source: .device(slotIdHex: slot, label: ""), deviceName: nil))
+    }
+
+    @Test func historyImportsAreReadPerChatAndOnTheirEvent() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        let account = AccountItem.samples[0]
+        let model = DeviceLinkingViewModel(
+            accountRef: account.accountRef, accountIdHex: account.accountIdHex, runtime: runtime)
+        model.start()
+        defer { model.stop() }
+        await DeviceLinkingTests.waitUntil { runtime.eventHub.subscriberCount == 1 }
+
+        runtime.deviceLinking.historyImports = [
+            ChatHistoryImportFfi(groupIdHex: "ABC", state: .receiving(retrying: true))
+        ]
+        runtime.eventHub.emit(.chatHistoryImportsChanged(accountIdHex: account.accountIdHex, accountLabel: "jeff"))
+        await DeviceLinkingTests.waitUntil { model.historyImportState(groupIdHex: "abc") != nil }
+
+        #expect(model.historyImportState(groupIdHex: "abc") == .receiving(retrying: true))
+    }
+}
+
+/// Naming this device, so no device is ever listed unnamed.
+@MainActor
+struct ThisDeviceNameTests {
+    @Test func aNameGivenWhileUnnamedIsWrittenOnceTheRosterListsThisDevice() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        runtime.deviceLinking.devices = [DeviceLinkingTests.makeDevice("a", thisDevice: true)]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        #expect(model.thisDeviceNeedsName)
+
+        model.nameThisDevice("  Studio Mac ")
+        await DeviceLinkingTests.waitUntil { model.thisDevice?.label == "Studio Mac" }
+
+        #expect(runtime.deviceLinking.renames.map(\.label) == ["Studio Mac"])
+        #expect(!model.thisDeviceNeedsName)
+    }
+
+    @Test func aNameSomeoneElseGaveFirstStands() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        var me = DeviceLinkingTests.makeDevice("a", thisDevice: true)
+        me.label = "Named Elsewhere"
+        runtime.deviceLinking.devices = [me]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+
+        model.nameThisDevice("Mac")
+        await DeviceLinkingTests.waitUntil { model.thisDevice != nil }
+        await DeviceLinkingTests.waitUntil(timeout: .milliseconds(200)) { false }
+
+        #expect(runtime.deviceLinking.renames.isEmpty)
     }
 }

@@ -125,7 +125,7 @@ nonisolated enum DeviceLinkPresentation {
 
     static func name(of device: LinkedDeviceFfi) -> String {
         if !device.label.isEmpty { return device.label }
-        let detail = [device.client, device.platform].filter { !$0.isEmpty }.joined(separator: " · ")
+        let detail = [device.platform, device.client].filter { !$0.isEmpty }.joined(separator: " · ")
         return detail.isEmpty ? L10n.string("Unnamed device") : detail
     }
 

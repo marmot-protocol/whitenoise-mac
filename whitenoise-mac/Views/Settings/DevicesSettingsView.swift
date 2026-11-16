@@ -535,7 +535,7 @@ private struct LinkedDeviceSheetContent: View {
             if !device.client.isEmpty || !device.platform.isEmpty {
                 SettingsValueRow(
                     title: L10n.string("App"),
-                    value: [device.client, device.platform].filter { !$0.isEmpty }.joined(separator: " · "))
+                    value: [device.platform, device.client].filter { !$0.isEmpty }.joined(separator: " · "))
             }
             SettingsValueRow(
                 title: L10n.string("Linked"),

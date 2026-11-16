@@ -179,6 +179,7 @@ private struct DetailPaneView: View {
                                 safetyModel: scope.safetyModel(groupIdHex: chat.id),
                                 disbandModel: scope.disbandModel(groupIdHex: chat.id),
                                 accountDevicesModel: scope.accountDevicesModel(groupIdHex: chat.id),
+                                deviceLinking: scope.deviceLinking,
                                 blockedUsersModel: scope.blockedUsers,
                                 avatarAssets: scope.avatarAssets
                             )
@@ -301,7 +302,10 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         TimelineMessageDisplayItem,
         showsUnreadDivider: Bool,
         isSearchMatch: Bool,
-        context: TranscriptRowContext
+        context: TranscriptRowContext,
+        /// Where the history just above came from, on the first live row after imported ones: the
+        /// transcript marks where messages stop being copied from another device.
+        importedAbove: MessageImportSource? = nil
     )
     case loadingNewer(isLoading: Bool)
     case pending(PendingOutgoingMessageRow)
@@ -319,7 +323,7 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
     var id: String {
         switch self {
         case .loadingOlder: "transcript-loading-older"
-        case .message(let item, _, _, _): item.message.id
+        case .message(let item, _, _, _, _): item.message.id
         case .loadingNewer: "transcript-loading-newer"
         case .pending(let row): "transcript-pending-\(row.id.uuidString)"
         case .footer: "transcript-footer"
@@ -331,11 +335,11 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         case (.loadingOlder(let a), .loadingOlder(let b)), (.loadingNewer(let a), .loadingNewer(let b)):
             return a == b
         case (
-            .message(let a, let dividerA, let matchA, let contextA),
-            .message(let b, let dividerB, let matchB, let contextB)
+            .message(let a, let dividerA, let matchA, let contextA, let importedA),
+            .message(let b, let dividerB, let matchB, let contextB, let importedB)
         ):
             return a.message == b.message && a.dayLabel == b.dayLabel && dividerA == dividerB
-                && matchA == matchB && contextA == contextB
+                && matchA == matchB && contextA == contextB && importedA == importedB
         case (.pending(let a), .pending(let b)):
             return a == b
         case (.footer, .footer):
@@ -358,14 +362,18 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         var rows: [TranscriptRow] = []
         rows.reserveCapacity(displayItems.count + pendingOutgoingRows.count + 3)
         if paging.hasMoreBefore { rows.append(.loadingOlder(isLoading: paging.isLoadingBefore)) }
+        var previousImport: MessageImportSource?
         for item in displayItems {
+            let importSource = item.message.importSource
             rows.append(
                 .message(
                     item,
                     showsUnreadDivider: item.message.id == unreadDividerMessageId,
                     isSearchMatch: item.message.id == searchMatchMessageId,
-                    context: context
+                    context: context,
+                    importedAbove: importSource == nil ? previousImport : nil
                 ))
+            previousImport = importSource
         }
         if paging.hasMoreAfter { rows.append(.loadingNewer(isLoading: paging.isLoadingAfter)) }
         rows += pendingOutgoingRows.map(TranscriptRow.pending)
@@ -396,8 +404,14 @@ private struct TranscriptRowCell: View {
             switch row {
             case .loadingOlder(let isLoading), .loadingNewer(let isLoading):
                 TimelinePageLoadingRow(isLoading: isLoading)
-            case .message(let item, let showsUnreadDivider, let isSearchMatch, let context):
+            case .message(let item, let showsUnreadDivider, let isSearchMatch, let context, let importedAbove):
                 VStack(spacing: 12) {
+                    if let importedAbove {
+                        ImportedHistoryDivider(
+                            source: importedAbove,
+                            deviceName: session.accountScope?.deviceLinking.deviceName(for: importedAbove)
+                        )
+                    }
                     if showsUnreadDivider {
                         UnreadMessagesDivider()
                     }
@@ -561,6 +575,8 @@ private struct ConversationView: View {
     let safetyModel: GroupSafetyViewModel
     let disbandModel: GroupDisbandViewModel
     let accountDevicesModel: GroupAccountDevicesViewModel
+    /// For the "bringing earlier messages from another device" notice over the composer.
+    let deviceLinking: DeviceLinkingViewModel
     let blockedUsersModel: BlockedUsersViewModel
     /// Avatar bytes for the snapshot's identities, so the mention picker draws the same pictures
     /// the transcript does.
@@ -780,6 +796,7 @@ private struct ConversationView: View {
                 GlassSeparator(axis: .horizontal)
 
                 VStack(spacing: 8) {
+                    ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
                     // The core rejects sends to a group the local account left or was
                     // removed from (`invalid_transition`), so the whole composer —
                     // reply/media drafts included — gives way to an explanatory notice.

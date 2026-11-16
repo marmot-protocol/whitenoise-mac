@@ -2882,11 +2882,12 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// MDK proved delivery of an own send that failed with no relay acceptance on record: a peer
     /// reacted to it. Such a row keeps a nil `sourceMessageIdHex`, so it must read as delivered.
     let recipientConfirmed: Bool
-    /// The row came from chat history another of this account's devices (or a backup) sent, not
-    /// from this device's own send. MDK stores such rows with no source event id, so an own message
-    /// among them would otherwise read as a send that never left. It was delivered by the device
-    /// that sent it.
-    let isImportedHistory: Bool
+    /// Where the row came from when it arrived in chat history another of this account's devices
+    /// (or a backup) sent, rather than live. MDK stores such rows with no source event id, so an own
+    /// message among them would otherwise read as a send that never left: the device that sent it
+    /// delivered it.
+    let importSource: MessageImportSource?
+    nonisolated var isImportedHistory: Bool { importSource != nil }
     /// Authenticated MLS epoch and pinned retention decision for this exact message.
     let sourceEpoch: UInt64?
     let retentionSeconds: UInt64?
@@ -3138,7 +3139,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         groupIdHex: String = "",
         sourceMessageIdHex: String? = nil,
         recipientConfirmed: Bool = false,
-        isImportedHistory: Bool = false,
+        importSource: MessageImportSource? = nil,
         sourceEpoch: UInt64? = nil,
         retentionSeconds: UInt64? = nil,
         retentionExpiresAt: UInt64? = nil,
@@ -3184,7 +3185,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.groupIdHex = groupIdHex
         self.sourceMessageIdHex = Self.nonBlank(sourceMessageIdHex)
         self.recipientConfirmed = recipientConfirmed
-        self.isImportedHistory = isImportedHistory
+        self.importSource = importSource
         self.sourceEpoch = sourceEpoch
         self.retentionSeconds = retentionSeconds
         self.retentionExpiresAt = retentionExpiresAt
@@ -3258,7 +3259,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             } else if invalidationStatus != nil {
                 statusLabel = L10n.string("May not have reached everyone")
             } else if isOutgoing && Self.nonBlank(sourceMessageIdHex) == nil && !recipientConfirmed
-                && !isImportedHistory
+                && importSource == nil
             {
                 statusLabel = L10n.string("Not delivered")
             } else {
@@ -3297,7 +3298,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             groupIdHex: groupIdHex,
             sourceMessageIdHex: sourceMessageIdHex,
             recipientConfirmed: recipientConfirmed,
-            isImportedHistory: isImportedHistory,
+            importSource: importSource,
             sourceEpoch: sourceEpoch,
             retentionSeconds: retentionSeconds,
             retentionExpiresAt: retentionExpiresAt,
@@ -3618,7 +3619,7 @@ extension MessageItem {
             && lhs.groupIdHex == rhs.groupIdHex
             && lhs.sourceMessageIdHex == rhs.sourceMessageIdHex
             && lhs.recipientConfirmed == rhs.recipientConfirmed
-            && lhs.isImportedHistory == rhs.isImportedHistory
+            && lhs.importSource == rhs.importSource
             && lhs.sticker == rhs.sticker
             && lhs.replyTargetIdHex == rhs.replyTargetIdHex
             && lhs.senderAccountIdHex == rhs.senderAccountIdHex
@@ -3657,6 +3658,14 @@ extension MessageItem {
         hasher.combine(timelineAt)
         hasher.combine(isEdited)
     }
+}
+
+/// Where an imported chat-history row came from. The device is named by its roster slot so the
+/// name shown follows renames (`DeviceLinkingViewModel.deviceName(slotIdHex:fallback:)`); `label` is
+/// what MDK reported with the row, for when the slot is no longer listed.
+nonisolated enum MessageImportSource: Hashable, Sendable {
+    case device(slotIdHex: String, label: String)
+    case backup
 }
 
 enum WorkspaceSelection: Equatable {

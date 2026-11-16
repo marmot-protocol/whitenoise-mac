@@ -2480,6 +2480,20 @@
             storedAuditLogFiles = []
         }
 
+        /// What `signOutAndWipe` reports. It removes the account the way `removeAccount` does, so a
+        /// test of either path reads `removedAccountRefs`.
+        var wipeOutcome = WipeOutcomeFfi(
+            groupsLeft: 0, groupLeaveFailures: [], keyPackagesDeleted: 1, keyPackageFailures: [],
+            localCleanup: LocalCleanupReportFfi(completed: true, reason: nil), groupsLeftToSiblings: 0,
+            siblingsNotReached: false)
+        private(set) var wipedAccountRefs: [String] = []
+
+        func signOutAndWipe(accountRef: String) async throws -> WipeOutcomeFfi {
+            wipedAccountRefs.append(accountRef)
+            try await removeAccount(accountRef: accountRef)
+            return wipeOutcome
+        }
+
         func removeAccount(accountRef: String) async throws {
             removedAccountRefs.append(accountRef)
             if let removeAccountError { throw removeAccountError }

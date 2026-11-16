@@ -610,8 +610,14 @@ extension WorkspaceState {
     /// in-memory message/profile caches are cleared and the user is asked to choose one of the
     /// remaining signed-in accounts — or the app switches straight into the only one left, or
     /// returns to onboarding when none remain.
-    func removeAccount(_ account: AccountItem) async {
-        guard let client, !isAccountMutationInProgress else { return }
+    /// A signed-in account goes through MDK's sign-out-and-wipe, which with linked devices first
+    /// hands this device's removal to them (about 30 seconds) and otherwise leaves its chats and
+    /// deletes its KeyPackage slot; its report is returned for the shell to show. An account already
+    /// signed out (an unlinked one included) has nothing left to tell the network, so it is removed
+    /// locally and returns nil.
+    @discardableResult
+    func removeAccount(_ account: AccountItem) async -> WipeOutcomeFfi? {
+        guard let client, !isAccountMutationInProgress else { return nil }
 
         lastError = nil
         isRemovingAccount = true
@@ -630,7 +636,12 @@ extension WorkspaceState {
                 cancelChatListReload()
                 stopChatListListener()
             }
-            try await client.removeAccount(accountRef: account.accountRef)
+            var outcome: WipeOutcomeFfi?
+            if account.signedOut {
+                try await client.removeAccount(accountRef: account.accountRef)
+            } else {
+                outcome = try await client.signOutAndWipe(accountRef: account.accountRef)
+            }
             removeChatRestorationTarget(forOwnerAccountIdHex: removedAccountIdHex)
             clearComposerDrafts(forAccountId: removedAccountId)
             purgeHiddenMessages(accountId: removedAccountId)
@@ -675,7 +686,7 @@ extension WorkspaceState {
                 clearEnteredLoginIdentity()
                 phase = .onboarding
                 notificationSettings = .defaults
-                return
+                return outcome
             }
 
             // Reselecting and reloading is only required when the account currently
@@ -695,14 +706,14 @@ extension WorkspaceState {
                     switchActiveAccount(remaining, finalSelection: settingsSelectionAfterAccountMutation)
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
-                    return
+                    return outcome
                 }
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 notificationSettings = .defaults
                 selection = settingsSelectionAfterAccountMutation
-                return
+                return outcome
             }
 
             if needsActiveReset {
@@ -712,11 +723,13 @@ extension WorkspaceState {
                 await loadSettingsData()
                 await reloadChats()
             }
+            return outcome
         } catch {
             if wasActive, activeAccountId == removedAccountId {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
             lastError = UserFacingError.message(for: error)
+            return nil
         }
     }
 

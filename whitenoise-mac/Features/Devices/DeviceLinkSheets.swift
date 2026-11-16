@@ -70,7 +70,11 @@ struct NewDeviceLinkSheet: View {
                 DeviceLinkCodeView(code: code)
             case .waitingForAnswer, .waitingForOtherDevice, .joining, nil:
                 DeviceLinkProgressRow()
-            case .linked, .ended:
+            case .linked:
+                // The device that approved this one named it however it liked ("New Device" on
+                // iOS); this is where its own user names it.
+                NameThisMacField(model: model)
+            case .ended:
                 EmptyView()
             }
         } footer: {
@@ -217,6 +221,9 @@ struct DeviceLinkPromptSheet: View {
     @State private var label = ""
     @State private var addToAllChats = true
     @State private var bringHistory = true
+    /// This Mac's own name, asked for only while it has none: the first link makes its roster
+    /// entry, and an unnamed one would read as unnamed on every other device.
+    @State private var thisDeviceLabel = L10n.string("Mac")
 
     var body: some View {
         if let prompt = model.prompt(id: promptId) {
@@ -233,6 +240,9 @@ struct DeviceLinkPromptSheet: View {
                         addToAllChats: $addToAllChats,
                         bringHistory: $bringHistory
                     )
+                    if model.thisDeviceNeedsName {
+                        DeviceLabelField(title: L10n.string("This Mac’s Name"), label: $thisDeviceLabel)
+                    }
                 case .preparing, .linking:
                     DeviceLinkProgressRow()
                 default:
@@ -242,12 +252,14 @@ struct DeviceLinkPromptSheet: View {
                 DeviceLinkPromptFooter(
                     model: model,
                     prompt: prompt,
-                    canLink: DeviceLinkPresentation.isValidLabel(label),
+                    canLink: DeviceLinkPresentation.isValidLabel(label)
+                        && (!model.thisDeviceNeedsName || DeviceLinkPresentation.isValidLabel(thisDeviceLabel)),
                     onLink: {
+                        let ownName = model.thisDeviceNeedsName ? thisDeviceLabel : nil
                         Task {
                             await model.link(
                                 promptId: promptId, label: label, addToAllChats: addToAllChats,
-                                bringHistory: bringHistory)
+                                bringHistory: bringHistory, thisDeviceLabel: ownName)
                         }
                     }
                 )
@@ -264,6 +276,42 @@ struct DeviceLinkPromptSheet: View {
             } footer: {
                 WNPrimaryButton(L10n.string("Done"), systemImage: "checkmark") { model.closeSheet() }
             }
+        }
+    }
+}
+
+/// A device name field with MDK's limit: not blank, at most 64 bytes.
+private struct DeviceLabelField: View {
+    let title: String
+    @Binding var label: String
+
+    var body: some View {
+        WNInput(
+            label: title,
+            prompt: L10n.string("Mac"),
+            text: $label,
+            validationMessage: label.utf8.count > DeviceLinkPresentation.maxLabelBytes
+                ? L10n.string("That name is too long.") : nil
+        )
+    }
+}
+
+/// On the new device once linked: its own name, prefilled with what the roster says or "Mac".
+private struct NameThisMacField: View {
+    let model: DeviceLinkingViewModel
+    @State private var label = ""
+
+    var body: some View {
+        let current = model.thisDevice?.label ?? ""
+        HStack(alignment: .bottom, spacing: 8) {
+            DeviceLabelField(title: L10n.string("Name This Mac"), label: $label)
+            Button(L10n.string("Save")) { model.nameThisDevice(label) }
+                .buttonStyle(.wnSecondary)
+                .disabled(!DeviceLinkPresentation.isValidLabel(label) || label == current)
+        }
+        .onAppear {
+            // iOS names a device it approves "New Device"; that default is not a name to keep.
+            label = current.isEmpty || current == "New Device" ? L10n.string("Mac") : current
         }
     }
 }

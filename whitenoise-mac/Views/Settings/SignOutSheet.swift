@@ -35,6 +35,7 @@ struct SignOutSheet: View {
     }
 
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     @Environment(\.dismiss) private var dismiss
 
     let account: AccountItem
@@ -60,6 +61,13 @@ struct SignOutSheet: View {
 
     private var isConfirmed: Bool {
         AccountWipeConfirmation.matches(confirmationInput, challenge: challenge)
+    }
+
+    /// This account has other linked devices here, so a wipe first hands this device's removal to
+    /// them. Known only for the account whose scope is open, which is the one this sheet signs out.
+    private var handsOffToLinkedDevices: Bool {
+        guard let scope = session.accountScope, scope.account.id == account.id else { return false }
+        return !scope.deviceLinking.otherDevices.isEmpty
     }
 
     private var canSignOut: Bool {
@@ -111,6 +119,12 @@ struct SignOutSheet: View {
         }
     }
 
+    private static var handOffNote: String {
+        L10n.string(
+            "Your other devices keep your chats and will finish removing this one from them. This can take about 30 seconds."
+        )
+    }
+
     @ViewBuilder
     private var form: some View {
         // The account the button acts on, named on the sheet that acts on it. With several
@@ -158,6 +172,9 @@ struct SignOutSheet: View {
                     : L10n.string(
                         "The account and its local data will stay on this Mac so you can sign in again later.")
             )
+            if wipesLocalData, handsOffToLinkedDevices {
+                SettingsFooterText(Self.handOffNote)
+            }
         }
 
         if wipesLocalData {
@@ -216,7 +233,7 @@ struct SignOutSheet: View {
         let wipes = wipesLocalData
         if wipes {
             stage = .wiping
-            await workspace.removeAccount(account)
+            session.reportWipe(await workspace.removeAccount(account))
         } else {
             stage = .signingOut
             await workspace.signOutAccount(account)

@@ -48,6 +48,8 @@ final class DeviceLinkingViewModel {
     private(set) var chatsClosedToLinkedDevices: UInt32 = 0
     private(set) var removedDeviceLeftoverChats: UInt32 = 0
     private(set) var startedFresh = false
+    /// Each held chat's history from another of the account's devices, by group id.
+    private(set) var historyImports: [String: ChatHistoryImportStateFfi] = [:]
     private(set) var inFlight: Set<Action> = []
     /// The last failed action's message, shown by the surface that made it. Cleared by the next action.
     private(set) var actionError: String?
@@ -64,9 +66,13 @@ final class DeviceLinkingViewModel {
     /// persisted, and a new request is a new prompt id.
     @ObservationIgnored private var settledPromptIds: Set<String> = []
     @ObservationIgnored private var linkSuggestionShown = false
+    /// A name for this device the user gave while it had none, to write once the roster lists it:
+    /// after the first link this device founds the device group, and only then has a slot to rename.
+    @ObservationIgnored private var pendingThisDeviceLabel: String?
+    @ObservationIgnored private var thisDeviceLabelTask: Task<Void, Never>?
 
     private enum Part: CaseIterable {
-        case link, devices, signIns, compromise, keyPackage
+        case link, devices, signIns, compromise, keyPackage, historyImports
     }
 
     /// `isAvailable` overrides the runtime's answer, for previews only.
@@ -91,6 +97,27 @@ final class DeviceLinkingViewModel {
         snapshot.prompts.first { $0.promptId == id }
     }
 
+    var thisDevice: LinkedDeviceFfi? { devices.first(where: \.isThisDevice) }
+
+    /// This device has no name in the roster yet, or no roster at all (it has never been linked):
+    /// the moment to ask for one, so the account's other devices never list it as unnamed.
+    var thisDeviceNeedsName: Bool {
+        isAvailable && (thisDevice?.label.isEmpty ?? true)
+    }
+
+    /// The name to show for imported history's source: the roster's current name for its slot,
+    /// then the name MDK reported with the rows. Nil for a backup or a device with no name; the
+    /// caller says "another device".
+    func deviceName(for source: MessageImportSource) -> String? {
+        guard case .device(let slotIdHex, let label) = source else { return nil }
+        if let listed = device(slotIdHex: slotIdHex), !listed.label.isEmpty { return listed.label }
+        return label.isEmpty ? nil : label
+    }
+
+    func historyImportState(groupIdHex: String) -> ChatHistoryImportStateFfi? {
+        historyImports[groupIdHex.lowercased()]
+    }
+
     func device(slotIdHex: String?) -> LinkedDeviceFfi? {
         guard let slotIdHex else { return nil }
         return devices.first { $0.slotIdHex == slotIdHex }
@@ -113,6 +140,8 @@ final class DeviceLinkingViewModel {
     func stop() {
         eventsTask?.cancel()
         eventsTask = nil
+        thisDeviceLabelTask?.cancel()
+        thisDeviceLabelTask = nil
         for refresher in refreshers.values { refresher.cancel() }
         refreshers.removeAll()
         presentedSheet = nil
@@ -172,12 +201,65 @@ final class DeviceLinkingViewModel {
 
     // MARK: Another device asks this one
 
-    func link(promptId: String, label: String, addToAllChats: Bool, bringHistory: Bool) async {
+    /// `thisDeviceLabel` names this device too, when it had no name: written once the link has
+    /// made this device's roster entry (see `nameThisDevice`).
+    func link(
+        promptId: String, label: String, addToAllChats: Bool, bringHistory: Bool, thisDeviceLabel: String? = nil
+    ) async {
         let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        await perform(.link(promptId: promptId)) { runtime, accountRef in
+        let linked = await perform(.link(promptId: promptId)) { runtime, accountRef in
             try await runtime.linkDevice(
                 accountRef: accountRef, promptId: promptId, label: label, addToAllChats: addToAllChats,
                 bringHistory: bringHistory)
+        }
+        if linked, let thisDeviceLabel, DeviceLinkPresentation.isValidLabel(thisDeviceLabel) {
+            nameThisDevice(thisDeviceLabel)
+        }
+    }
+
+    /// Names this device in the roster. It may have no entry yet (the link that founds the device
+    /// group is still settling) or the group may be busy with an earlier change, so the name is
+    /// held and written once the roster lists this device, retrying `device_group_busy` a while.
+    /// A name someone else gives this device first stands.
+    func nameThisDevice(_ label: String) {
+        let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isAvailable, DeviceLinkPresentation.isValidLabel(label) else { return }
+        pendingThisDeviceLabel = label
+        writePendingThisDeviceLabel()
+    }
+
+    private func writePendingThisDeviceLabel() {
+        guard thisDeviceLabelTask == nil, pendingThisDeviceLabel != nil, let runtime else { return }
+        thisDeviceLabelTask = Task { [weak self] in
+            for attempt in 0..<20 {
+                guard let self, !Task.isCancelled, let label = self.pendingThisDeviceLabel else { break }
+                if attempt > 0 { try? await Task.sleep(for: .seconds(3)) }
+                await self.refresh(.devices)
+                guard let me = self.thisDevice else { continue }
+                // Named meanwhile, here or on another device: that name stands.
+                guard me.label.isEmpty || me.label == label else {
+                    self.pendingThisDeviceLabel = nil
+                    break
+                }
+                if me.label == label {
+                    self.pendingThisDeviceLabel = nil
+                    break
+                }
+                do {
+                    try await runtime.renameLinkedDevice(
+                        accountRef: self.accountRef, slotIdHex: me.slotIdHex, label: label)
+                    self.pendingThisDeviceLabel = nil
+                    await self.refresh(.devices)
+                    break
+                } catch MarmotKitError.Runtime(let details)
+                    where details == DeviceLinkPresentation.refusalPrefix + "device_group_busy"
+                {
+                    continue
+                } catch {
+                    break
+                }
+            }
+            self?.thisDeviceLabelTask = nil
         }
     }
 
@@ -410,6 +492,8 @@ final class DeviceLinkingViewModel {
                 chatsClosedToLinkedDevices = closed
                 removedDeviceLeftoverChats = leftover
                 startedFresh = fresh
+                // A name held for this device gets written once the roster lists it.
+                if pendingThisDeviceLabel != nil { writePendingThisDeviceLabel() }
             case .signIns:
                 let next = try await runtime.unrecognizedSignIns(accountRef: accountRef)
                 try Task.checkCancellation()
@@ -422,6 +506,11 @@ final class DeviceLinkingViewModel {
                 let next = try await runtime.keyPackageRefreshOverdue(accountRef: accountRef)
                 try Task.checkCancellation()
                 keyPackageRefreshOverdue = next
+            case .historyImports:
+                let next = try await runtime.chatHistoryImports(accountRef: accountRef)
+                try Task.checkCancellation()
+                historyImports = Dictionary(
+                    next.map { ($0.groupIdHex.lowercased(), $0.state) }, uniquingKeysWith: { _, latest in latest })
             }
         } catch {
             // Keep the last answer: an unreadable refresh is not evidence the state went away.
@@ -448,6 +537,7 @@ final class DeviceLinkingViewModel {
         switch event {
         case .deviceLinkChanged(let id, _): (part, eventAccount) = (.link, id)
         case .linkedDevicesChanged(let id, _): (part, eventAccount) = (.devices, id)
+        case .chatHistoryImportsChanged(let id, _): (part, eventAccount) = (.historyImports, id)
         case .unrecognizedSignInsChanged(let id, _): (part, eventAccount) = (.signIns, id)
         case .compromiseWarningChanged(let id, _): (part, eventAccount) = (.compromise, id)
         case .keyPackageRefreshOverdueChanged(let id, _): (part, eventAccount) = (.keyPackage, id)

@@ -49,7 +49,7 @@ struct ContentView: View {
                 accountName: { account(forUnlinked: $0)?.displayName },
                 onRemove: { notice in
                     guard let account = account(forUnlinked: notice) else { return }
-                    Task { await workspace.removeAccount(account) }
+                    Task { session.reportWipe(await workspace.removeAccount(account)) }
                 },
                 onLater: { notice in
                     // MDK already signed the account out. Switch away properly while another account
@@ -64,6 +64,7 @@ struct ContentView: View {
                     Task { await workspace.refreshAccountProfiles() }
                 }
             )
+            .accountWipeReportAlert(session)
             .task(id: workspace.client?.storageRootPath) {
                 guard let client = workspace.client else { return }
                 await unlinkMonitor.observe(client)

@@ -20,6 +20,7 @@
         var chatsClosedToLinkedDevices: UInt32 = 0
         var removedDeviceLeftoverChats: UInt32 = 0
         var startedFresh = false
+        var historyImports: [ChatHistoryImportFfi] = []
         /// Thrown by every call when set, the way MDK refuses each one without device groups.
         var error: Error?
         /// Thrown by the next mutating call only, then cleared.
@@ -229,6 +230,11 @@
             try deviceLinking.act()
             deviceLinking.recordCompromiseDismissal()
             deviceLinking.compromiseItems = []
+        }
+
+        func chatHistoryImports(accountRef: String) async throws -> [ChatHistoryImportFfi] {
+            try deviceLinking.read()
+            return deviceLinking.historyImports
         }
 
         func rotateKeyPackage(accountRef: String) async throws -> UInt64 {

@@ -13,10 +13,13 @@ enum DeleteProfileRemoval {
     /// Runs the removal through the workspace, which owns the teardown, and hands its failure to
     /// the page's model rather than leaving it on the shared `lastError`, where the page's scaffold
     /// would draw it a second time.
-    static func remover(for workspace: WorkspaceState) -> DeleteProfileViewModel.RemoveAccount {
-        { [weak workspace] account in
+    static func remover(for workspace: WorkspaceState, session: SessionState? = nil)
+        -> DeleteProfileViewModel.RemoveAccount
+    {
+        { [weak workspace, weak session] account in
             guard let workspace else { return "" }
-            await workspace.removeAccount(account)
+            let outcome = await workspace.removeAccount(account)
+            session?.reportWipe(outcome)
             // Once the account is gone the removal succeeded, and anything on `lastError` came
             // from what ran after it — the next account's settings load — so it stays for that
             // account's page instead of being reported here as a failed deletion.
