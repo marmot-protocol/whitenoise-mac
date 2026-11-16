@@ -12,23 +12,23 @@ struct MediaDownloadFeedbackToast: View {
     static let displayDuration: Duration = .seconds(4)
 
     @Environment(WorkspaceState.self) private var workspace
-    /// The timer holds while the pointer is on the card or Show in Finder has keyboard or VoiceOver
-    /// focus, so the button is still there when the user reaches it.
+    /// The timer holds while the pointer is on the card or the toast has keyboard or VoiceOver
+    /// focus, so Show in Finder is still there when the user reaches it.
     @State private var isHovering = false
-    @State private var isButtonFocused = false
+    @State private var isToastFocused = false
 
     private var isHeld: Bool {
-        isHovering || isButtonFocused
+        isHovering || isToastFocused
     }
 
     var body: some View {
         Group {
             if let feedback = workspace.mediaDownloadFeedback {
-                MediaDownloadFeedbackToastContent(feedback: feedback) { isButtonFocused = $0 }
+                MediaDownloadFeedbackToastContent(feedback: feedback) { isToastFocused = $0 }
                     .onHover { isHovering = $0 }
                     .onDisappear {
                         isHovering = false
-                        isButtonFocused = false
+                        isToastFocused = false
                     }
                     .padding(.leading, 16)
                     .padding(.bottom, 16)
@@ -58,9 +58,15 @@ struct MediaDownloadFeedbackToastContent: View {
     @Environment(\.locale) private var locale
     @FocusState private var isButtonKeyboardFocused: Bool
     @AccessibilityFocusState private var isButtonAccessibilityFocused: Bool
+    /// VoiceOver reads the status before it reaches the button, so focus there holds the toast too.
+    @AccessibilityFocusState private var isStatusAccessibilityFocused: Bool
     let feedback: MediaDownloadFeedback
-    /// Whether Show in Finder holds keyboard or VoiceOver focus.
-    var buttonFocusChanged: (Bool) -> Void = { _ in }
+    /// Whether the toast holds keyboard or VoiceOver focus.
+    var focusChanged: (Bool) -> Void = { _ in }
+
+    private var isFocused: Bool {
+        isButtonKeyboardFocused || isButtonAccessibilityFocused || isStatusAccessibilityFocused
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -93,6 +99,7 @@ struct MediaDownloadFeedbackToastContent: View {
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .combine)
+            .accessibilityFocused($isStatusAccessibilityFocused)
 
             if !feedback.savedFileURLs.isEmpty {
                 Button(L10n.string("Show in Finder")) {
@@ -102,11 +109,9 @@ struct MediaDownloadFeedbackToastContent: View {
                 .wnFont(.medium12)
                 .focused($isButtonKeyboardFocused)
                 .accessibilityFocused($isButtonAccessibilityFocused)
-                .onChange(of: isButtonKeyboardFocused || isButtonAccessibilityFocused) { _, focused in
-                    buttonFocusChanged(focused)
-                }
             }
         }
+        .onChange(of: isFocused) { _, focused in focusChanged(focused) }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         // Glass first, cap second. `frame(maxWidth:)` fills whatever it is proposed, so capping
