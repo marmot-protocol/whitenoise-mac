@@ -14,6 +14,16 @@ import Observation
 import SwiftUI
 import UserNotifications
 
+/// What the state of the conversation an incoming notification belongs to allows it to show.
+nonisolated enum NotificationChatVerdict: Equatable, Sendable {
+    /// Post it as the user's preview setting renders it.
+    case ring
+    /// Post it, but with the hidden-preview copy: no sender, no group name, no message text.
+    case ringWithoutContent
+    /// Post nothing: the chat is archived, or it is an unaccepted invite and this is not the invite.
+    case silence
+}
+
 @MainActor
 extension WorkspaceState {
     func handleNotificationUpdate(_ update: NotificationUpdateFfi) async {
@@ -62,8 +72,10 @@ extension WorkspaceState {
         //
         // An invite the user has not accepted yet rings once, as the invite. The core still raises
         // `.newMessage` for whatever the inviter writes into it, but until the user says yes that
-        // is a stranger's text and key on the lock screen; the iOS app never shows it either.
-        if await notificationChatSilences(update) { return }
+        // is a stranger's text and key on the lock screen. This is a deliberate macOS-side guard:
+        // the iOS app does not suppress these yet, so it is not a parity rule.
+        let chatVerdict = await notificationChatVerdict(for: update)
+        guard chatVerdict != .silence else { return }
 
         if !notificationAuthorizationStatus.canPostNotifications {
             await refreshNotificationAuthorizationStatus()
@@ -71,7 +83,10 @@ extension WorkspaceState {
         guard notificationAuthorizationStatus.canPostNotifications else { return }
 
         do {
-            let request = localNotificationRequest(for: update)
+            let request = localNotificationRequest(
+                for: update,
+                withholdingContent: chatVerdict == .ringWithoutContent
+            )
             try await localNotificationCenter.post(request)
             rememberDeliveredNotificationKey(update.notificationKey)
         } catch {
@@ -192,39 +207,52 @@ extension WorkspaceState {
         })
     }
 
-    /// Whether the conversation an incoming notification belongs to keeps it off the screen: it has
-    /// been archived, or it is an invite the user has not accepted and the update is anything but
-    /// the invite itself.
+    /// How the conversation an incoming notification belongs to shapes it: off the screen when it
+    /// has been archived, or when it is an invite the user has not accepted and the update is
+    /// anything but the invite itself. That covers `.newMessage` and also the group-state triggers
+    /// (`.removedFromGroup`, `.madeAdmin`, `.removedAsAdmin`): before the user says yes it is a
+    /// stranger's group, and its membership changes are no more theirs to announce than its text.
     ///
     /// The chat list is the app's only in-memory record of either state, and it is maintained for
     /// the active account alone — while the notification listener is client-wide. An update for a
-    /// background account, or for a chat the list has not caught up with yet (an invite's first
-    /// message lands right behind its welcome), therefore asks the core directly; otherwise
-    /// archiving would only silence chats on whichever account happens to be open.
+    /// background account, for a chat the list has not caught up with yet (an invite's first
+    /// message lands right behind its welcome), or for a row still marked pending (which lags an
+    /// Accept until the chat list reloads) therefore asks the core directly; otherwise archiving
+    /// would only silence chats on whichever account happens to be open.
     ///
-    /// An unreadable chat state answers `false`: a notification the user wanted is worth more than
-    /// one they had already filed away.
-    func notificationChatSilences(_ update: NotificationUpdateFfi) async -> Bool {
+    /// An unreadable chat state still rings — a notification the user wanted is worth more than one
+    /// they had already filed away — but a `.newMessage` rings without its sender or text, since it
+    /// may be an unaccepted invite's. Group-state notices carry neither, and `UnknownGroup` is
+    /// exactly when the core reports them for a group it cannot read back, so they ring as usual.
+    func notificationChatVerdict(for update: NotificationUpdateFfi) async -> NotificationChatVerdict {
         let silencesPendingInvite = update.trigger != .groupInvite
         if let activeAccount, activeAccount.accountIdHex == update.accountIdHex {
             if archivedChatItem(accountId: activeAccount.id, chatId: update.groupIdHex) != nil {
-                return true
+                return .silence
             }
             // `chatItem(accountId:chatId:)` spans both lists, so a hit once the archived lookup has
-            // missed is a live row — no FFI read needed to know it is not archived.
-            if let chat = chatItem(accountId: activeAccount.id, chatId: update.groupIdHex) {
-                return silencesPendingInvite && chat.pendingConfirmation
+            // missed is a live row — no FFI read needed to know it is not archived. A row still
+            // marked pending is the exception: right after Accept it stays pending until the
+            // chat-list reload lands, so it is confirmed against the core before anything is
+            // silenced. Only that path pays the round trip; an accepted row answers locally.
+            if let chat = chatItem(accountId: activeAccount.id, chatId: update.groupIdHex),
+                !(silencesPendingInvite && chat.pendingConfirmation)
+            {
+                return .ring
             }
         }
 
-        guard let client else { return false }
         guard
+            let client,
             let group = try? await client.groupDetails(
                 accountRef: update.accountRef,
                 groupIdHex: update.groupIdHex
             ).group
-        else { return false }
-        return group.archived || (silencesPendingInvite && group.pendingConfirmation)
+        else { return update.trigger == .newMessage ? .ringWithoutContent : .ring }
+        if group.archived || (silencesPendingInvite && group.pendingConfirmation) {
+            return .silence
+        }
+        return .ring
     }
 
     func handleNotificationPermissionError(
@@ -259,7 +287,13 @@ extension WorkspaceState {
             && message.contains("not allowed")
     }
 
-    func localNotificationRequest(for update: NotificationUpdateFfi) -> LocalNotificationRequest {
+    /// Builds the banner for `update` under the user's preview-privacy choice. `withholdingContent`
+    /// forces the hidden-preview copy regardless of that choice, for a conversation whose state
+    /// could not be read (see `notificationChatVerdict(for:)`).
+    func localNotificationRequest(
+        for update: NotificationUpdateFfi,
+        withholdingContent: Bool = false
+    ) -> LocalNotificationRequest {
         let nickname = contactNicknames(forOwnerAccountIdHex: update.accountIdHex)
             .nickname(forContactAccountIdHex: update.sender.accountIdHex)
         let senderName =
@@ -281,7 +315,7 @@ extension WorkspaceState {
         // it leaves the app's control. Honor the user's preview-privacy choice:
         // `.hidden` reveals nothing, `.senderOnly` keeps who-it's-from but never
         // the decrypted message text, `.full` is the legacy behavior. See #30.
-        let previewMode = notificationPreviewMode
+        let previewMode = withholdingContent ? .hidden : notificationPreviewMode
         let genericBody = L10n.string("New message")
 
         let title: String
