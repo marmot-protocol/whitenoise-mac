@@ -38,9 +38,11 @@ struct MediaDownloadFeedbackToast: View {
                     .task(id: DismissalTimer(feedback: feedback, isHeld: isHeld)) {
                         guard !isHeld else { return }
                         try? await Task.sleep(for: Self.displayDuration)
-                        // SwiftUI cancels this task on the next update, not when the value changes,
-                        // so a gesture folded in just as the timer wakes must not be dismissed with it.
-                        guard !Task.isCancelled, workspace.mediaDownloadFeedback == feedback else { return }
+                        // SwiftUI cancels this task on the next update, not when the state changes,
+                        // so a gesture folded in, or a hover or focus arriving, just as the timer
+                        // wakes must not be dismissed with it.
+                        guard !Task.isCancelled, !isHeld, workspace.mediaDownloadFeedback == feedback
+                        else { return }
                         workspace.dismissMediaDownloadFeedback()
                     }
             }
