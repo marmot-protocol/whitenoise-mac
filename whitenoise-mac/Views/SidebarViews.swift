@@ -911,6 +911,10 @@ struct SettingsListDrawerView: View {
 
                     SettingsSignOutRow()
                 }
+                // While `ProfileChooserView` asks which profile to continue with there is no
+                // account for these pages to describe, so the drawer waits behind it, as iOS's
+                // Settings does behind its chooser.
+                .disabled(workspace.activeAccount == nil)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 12)
             }

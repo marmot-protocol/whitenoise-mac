@@ -119,8 +119,8 @@ struct ApplicationBadgeTests {
         let controller = DockBadgeController { writes.append($0) }
         controller.apply(count: 5)
 
-        // `removeAccount` refreshes `accounts` before `restoreOrSelectFirstAccount()` moves
-        // `activeAccountId`, so the removed id is absent altogether. Removing the last account
+        // `removeAccount` refreshes `accounts` before it clears `activeAccountId` for the profile
+        // chooser, so the removed id is absent altogether. Removing the last account
         // leaves nobody signed in.
         controller.activeAccountDidChange(from: "removed", signedInAccountIds: ["remaining"])
         controller.apply(count: nil)
