@@ -1407,11 +1407,11 @@ struct PureValueTests {
     }
 
     @Test func audioPlaybackSpeedLabelsUseEachLanguagesDecimalSeparator() {
-        // `1.5x` is not language-neutral: seven of the nine languages the app ships write it `1,5x`.
+        // `1.5x` is not language-neutral: eight of the ten languages the app ships write it `1,5x`.
         // The separator is asserted from the locale's own data rather than spelled out here, so this
         // stays true if CLDR revises one — the point is that the label never hardcodes a `.`.
         // The whole rates must also stay whole: `1,0x` would be a worse regression than `1.5x`.
-        for identifier in ["en", "es", "de", "fr", "it", "pt", "ru", "tr", "zh-Hans", "zh-Hant"] {
+        for identifier in ["en", "es", "de", "fr", "it", "pt", "ru", "tr", "fi", "zh-Hans", "zh-Hant"] {
             let locale = Locale(identifier: identifier)
             let separator = locale.decimalSeparator ?? "."
 
@@ -1420,9 +1420,9 @@ struct PureValueTests {
             #expect(AudioPlaybackSpeed.double.label(locale: locale) == "2x")
         }
 
-        // The seven comma languages really are reached above, rather than every locale quietly
+        // The eight comma languages really are reached above, rather than every locale quietly
         // resolving to a dot and the loop passing for the wrong reason.
-        let commaLanguages = ["es", "de", "fr", "it", "pt", "ru", "tr"]
+        let commaLanguages = ["es", "de", "fr", "it", "pt", "ru", "tr", "fi"]
         for identifier in commaLanguages {
             #expect(AudioPlaybackSpeed.oneAndAHalf.label(locale: Locale(identifier: identifier)) == "1,5x")
         }
