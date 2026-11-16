@@ -12,22 +12,31 @@ struct MediaDownloadFeedbackToast: View {
     static let displayDuration: Duration = .seconds(4)
 
     @Environment(WorkspaceState.self) private var workspace
-    /// The timer holds while the pointer is on the card, so Show in Finder is still there when the
-    /// pointer arrives.
+    /// The timer holds while the pointer is on the card or Show in Finder has keyboard or VoiceOver
+    /// focus, so the button is still there when the user reaches it.
     @State private var isHovering = false
+    @State private var isButtonFocused = false
+
+    private var isHeld: Bool {
+        isHovering || isButtonFocused
+    }
 
     var body: some View {
         Group {
             if let feedback = workspace.mediaDownloadFeedback {
-                MediaDownloadFeedbackToastContent(feedback: feedback)
+                MediaDownloadFeedbackToastContent(feedback: feedback) { isButtonFocused = $0 }
                     .onHover { isHovering = $0 }
-                    .onDisappear { isHovering = false }
+                    .onDisappear {
+                        isHovering = false
+                        isButtonFocused = false
+                    }
                     .padding(.leading, 16)
                     .padding(.bottom, 16)
                     .transition(.move(edge: .leading).combined(with: .opacity))
-                    // A new value (another gesture folded in) or the pointer leaving restarts it.
-                    .task(id: DismissalTimer(feedback: feedback, isHovering: isHovering)) {
-                        guard !isHovering else { return }
+                    // A new value (another gesture folded in), or the pointer or focus leaving,
+                    // restarts it.
+                    .task(id: DismissalTimer(feedback: feedback, isHeld: isHeld)) {
+                        guard !isHeld else { return }
                         try? await Task.sleep(for: Self.displayDuration)
                         // SwiftUI cancels this task on the next update, not when the value changes,
                         // so a gesture folded in just as the timer wakes must not be dismissed with it.
@@ -42,12 +51,16 @@ struct MediaDownloadFeedbackToast: View {
 
 private struct DismissalTimer: Equatable {
     let feedback: MediaDownloadFeedback
-    let isHovering: Bool
+    let isHeld: Bool
 }
 
 struct MediaDownloadFeedbackToastContent: View {
     @Environment(\.locale) private var locale
+    @FocusState private var isButtonKeyboardFocused: Bool
+    @AccessibilityFocusState private var isButtonAccessibilityFocused: Bool
     let feedback: MediaDownloadFeedback
+    /// Whether Show in Finder holds keyboard or VoiceOver focus.
+    var buttonFocusChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -87,6 +100,11 @@ struct MediaDownloadFeedbackToastContent: View {
                 }
                 .buttonStyle(.link)
                 .wnFont(.medium12)
+                .focused($isButtonKeyboardFocused)
+                .accessibilityFocused($isButtonAccessibilityFocused)
+                .onChange(of: isButtonKeyboardFocused || isButtonAccessibilityFocused) { _, focused in
+                    buttonFocusChanged(focused)
+                }
             }
         }
         .padding(.horizontal, 14)
