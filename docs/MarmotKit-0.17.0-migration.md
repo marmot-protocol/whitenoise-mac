@@ -82,10 +82,11 @@ White Noise for macOS now pins `marmotkit-v0.17.0` at MDK commit
 
 - **`discardFailedSend`.** A failed own send's menu offers **Remove** in place of Delete: the row is
   discarded on this device and nothing is published, with no confirmation (as for a staged send
-  that never got out). `ConversationViewModel.discardFailedSend` owns the call; `stillSending` asks
+  that never got out). A failed send in a multi-select Delete is discarded the same way, never
+  deleted for everyone. `ConversationViewModel.discardFailedSend` owns the call; `stillSending` asks
   the user to try again, `notFailedSend` (retried or delivered since the menu opened) does nothing,
-  and a discarded send that carried media clears the host media cache, as Manage Storage does,
-  because the cache cannot be purged by ciphertext hash alone.
+  and a discarded send that carried media drops only that account's host-cache entries for the
+  ciphertext hashes MDK returns (`MessageMediaDiskCache.purgeEntries`); the rest of the cache stays.
 - **`createTaggedPoll` / `sendTaggedSticker`.** They replace `createPoll` / `sendSticker` on
   `MarmotRuntime`. A poll or sticker sent while a reply is open carries the reply's `e`/`q` tags
   (`MessageReplyTags`) and spends the reply, as a text send does.
