@@ -61,6 +61,8 @@
 	<string>$(WN_PRODUCT_ANALYTICS_OPERATOR)</string>
 	<key>WhiteNoiseProductAnalyticsRetention</key>
 	<string>$(WN_PRODUCT_ANALYTICS_RETENTION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.social-networking</string>
 	<key>LSMinimumSystemVersion</key>
