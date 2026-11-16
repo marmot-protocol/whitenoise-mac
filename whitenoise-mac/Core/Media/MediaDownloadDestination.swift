@@ -53,7 +53,7 @@ protocol MediaDownloadDestinationStoring: AnyObject {
     var storedDestinationURL: URL? { get }
 
     /// Whether every download asks where to go (Save As for one file, a folder for several) rather
-    /// than going straight into the stored folder.
+    /// than going straight into the stored folder. Off unless the user turns it on.
     var alwaysAsksWhereToSave: Bool { get set }
 }
 
@@ -126,10 +126,10 @@ final class UserDefaultsMediaDownloadDestinationStore: MediaDownloadDestinationS
         resolvedURL()
     }
 
-    /// Asking is the default: a download that lands somewhere the user did not just choose is the
-    /// surprise this setting exists to avoid. Remembering a folder is the opt-in.
+    /// Off by default: downloads go to the default folder, chosen in Storage settings or on the
+    /// first download. Asking every time is the opt-in.
     var alwaysAsksWhereToSave: Bool {
-        get { defaults.object(forKey: Key.alwaysAsks) as? Bool ?? true }
+        get { defaults.bool(forKey: Key.alwaysAsks) }
         set { defaults.set(newValue, forKey: Key.alwaysAsks) }
     }
 

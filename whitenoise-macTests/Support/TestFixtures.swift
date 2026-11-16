@@ -1204,8 +1204,7 @@ final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
     /// Simulates a grant that no longer resolves — folder deleted, volume ejected.
     var failsToResolve = false
 
-    /// `alwaysAsks` defaults to the remembered folder, which most download tests exercise; the
-    /// production store defaults to asking.
+    /// `alwaysAsks` defaults to off, as the production store does: downloads use the default folder.
     init(storedURL: URL? = nil, pickedURL: URL? = nil, alwaysAsks: Bool = false) {
         self.storedURL = storedURL
         self.pickedURL = pickedURL

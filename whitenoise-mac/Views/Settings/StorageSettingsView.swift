@@ -13,7 +13,7 @@ struct StorageSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showClearConfirmation = false
     /// Mirrors the stored preference, which is not observable; loaded when the pane opens.
-    @State private var alwaysAsksWhereToSave = true
+    @State private var alwaysAsksWhereToSave = false
     @State private var retainedMiB = 2_048
     @State private var reserveMiB = 256
     @State private var transferMiB = 64
@@ -25,6 +25,20 @@ struct StorageSettingsView: View {
             subtitle: L10n.string("Downloaded attachments stored on this Mac.")
         ) {
             SettingsSection(title: L10n.string("Downloads")) {
+                // The default folder is set here or by the panel on the first download, so without
+                // this row there would be no way to see where files went or to move them elsewhere.
+                SettingsValueRow(
+                    title: L10n.string("Save downloads to"),
+                    value: workspace.mediaDownloadDestinationPath
+                        ?? L10n.string("Chosen the first time you download"),
+                    truncatesMiddle: true
+                )
+
+                Button(L10n.string("Change Folder"), systemImage: "folder") {
+                    workspace.changeMediaDownloadDestination()
+                }
+                .buttonStyle(.wnSecondary)
+
                 WNToggle(
                     L10n.string("Always ask where to save"),
                     systemImage: "questionmark.folder",
@@ -36,22 +50,6 @@ struct StorageSettingsView: View {
                         }
                     )
                 )
-
-                // The folder is granted by the panel on the first download, so without this row
-                // there would be no way to see where files went or to move them somewhere else.
-                if !alwaysAsksWhereToSave {
-                    SettingsValueRow(
-                        title: L10n.string("Save downloads to"),
-                        value: workspace.mediaDownloadDestinationPath
-                            ?? L10n.string("Chosen the first time you download"),
-                        truncatesMiddle: true
-                    )
-
-                    Button(L10n.string("Change Folder"), systemImage: "folder") {
-                        workspace.changeMediaDownloadDestination()
-                    }
-                    .buttonStyle(.wnSecondary)
-                }
             }
 
             SettingsSection(

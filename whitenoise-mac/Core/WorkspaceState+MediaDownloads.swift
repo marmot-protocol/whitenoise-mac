@@ -48,8 +48,9 @@ extension WorkspaceState {
 
     /// Download `attachments` to where the user says and report the outcome as a toast.
     ///
-    /// Where is either asked now — Save As for one file, a folder for several — or, when the user
-    /// has turned off "Always ask where to save", the folder they chose once.
+    /// Where is the default folder — set in Storage settings, or by the panel on the first
+    /// download — unless the user has turned on "Always ask where to save", which asks every time:
+    /// Save As for one file, a folder for several.
     ///
     /// One gesture per message at a time: the gallery's single-attachment button and the bubble's
     /// download-everything button both target the same message, and a double click should not

@@ -3710,18 +3710,19 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func mediaDownloadDestinationAlwaysAsksUntilTheUserTurnsItOff() throws {
-        // A fresh install asks where every download goes; turning that off is remembered.
+    @Test func mediaDownloadDestinationUsesTheDefaultFolderUntilTheUserAsksToBeAsked() throws {
+        // A fresh install saves into the default download folder; asking every time is the opt-in,
+        // and turning it on is remembered.
         let suiteName = "whitenoise.mac.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults)
-        #expect(store.alwaysAsksWhereToSave)
+        #expect(!store.alwaysAsksWhereToSave)
 
-        store.alwaysAsksWhereToSave = false
+        store.alwaysAsksWhereToSave = true
 
-        #expect(!UserDefaultsMediaDownloadDestinationStore(defaults: defaults).alwaysAsksWhereToSave)
+        #expect(UserDefaultsMediaDownloadDestinationStore(defaults: defaults).alwaysAsksWhereToSave)
     }
 
     @MainActor
