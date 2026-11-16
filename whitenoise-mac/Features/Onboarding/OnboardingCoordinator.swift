@@ -45,6 +45,13 @@ final class OnboardingCoordinator {
     /// guards a write, it only refuses to repeat one automatic command on an unchanged snapshot.
     @ObservationIgnored private var lastAutomaticRevision: UInt64?
 
+    /// Whether finishing setup leads into device linking, so the single-device step can say so. Only
+    /// a runtime opened with experimental device groups links; the step itself never offers a Link
+    /// action, as MDK asks.
+    var offersLinkingAfterSetup: Bool {
+        runtime?.deviceGroupsEnabled == true
+    }
+
     init(accountRef: String, runtime: any MarmotRuntime) {
         self.accountRef = accountRef
         self.runtime = runtime
@@ -398,6 +405,12 @@ final class OnboardingCoordinator {
         // otherwise be retried at once, forever. Try Again (`start()`) clears it.
         if error == nil, currentStep?.status == .pending {
             operation = { await $0.run() }
+        } else if error == nil,
+            Self.acknowledgesSingleDeviceAutomatically(snapshot, deviceGroupsEnabled: offersLinkingAfterSetup),
+            lastAutomaticRevision != snapshot.revision
+        {
+            lastAutomaticRevision = snapshot.revision
+            operation = { await $0.acknowledgeSingleDevice() }
         } else if error == nil, let followsAction = Self.automaticFollowsAction(snapshot),
             lastAutomaticRevision != snapshot.revision
         {
@@ -421,6 +434,20 @@ final class OnboardingCoordinator {
     var automaticOperation: Task<Void, Never>? { operationTask }
 
     enum AutomaticFollowsAction: Equatable { case skip, cancelRepair }
+
+    /// With device groups, the "Chats on this device" notice is acknowledged without a screen. It
+    /// warns that signing in alone restores no chats; a device that can link is offered exactly that
+    /// once setup finishes (`DeviceLinkSuggestionSheet`). MDK still pauses there before publishing
+    /// this device's KeyPackage and still needs the acknowledgement, so this sends it. Without device
+    /// groups the notice is shown as before: there is nothing to link to.
+    static func acknowledgesSingleDeviceAutomatically(
+        _ snapshot: OnboardingSnapshotFfi, deviceGroupsEnabled: Bool
+    ) -> Bool {
+        guard deviceGroupsEnabled, !snapshot.cancellationPending, snapshot.proposal == nil,
+            let step = snapshot.steps.first(where: { !AccountSetupGuide.isComplete($0.status) })
+        else { return false }
+        return step.step == .singleDevice && step.actions.contains(.continueAnyway)
+    }
 
     /// Ported from `whitenoise-ios`'s `AccountSetupPolicy.automaticAction`.
     static func automaticFollowsAction(_ snapshot: OnboardingSnapshotFfi) -> AutomaticFollowsAction? {

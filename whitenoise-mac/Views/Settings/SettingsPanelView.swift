@@ -12,6 +12,7 @@ import SwiftUI
 struct SettingsPanelView: View {
     @Environment(WorkspaceState.self) private var workspace
     let model: SettingsViewModel
+    let deviceLinking: DeviceLinkingViewModel
 
     private var page: SettingsPage {
         if case .settings(let page) = workspace.selection { return page }
@@ -33,6 +34,8 @@ struct SettingsPanelView: View {
                 ProfileSettingsView()
             case .identityKeys:
                 ProfileKeysSettingsView(model: model.profileKeys)
+            case .devices:
+                DevicesSettingsView(model: deviceLinking)
             case .relays:
                 RelaySettingsView(model: model.relays)
             case .keyPackages:
@@ -99,7 +102,7 @@ private extension SettingsPage {
         switch self {
         case .overview, .profile, .identityKeys, .notifications:
             true
-        case .preferences, .relays, .keyPackages, .appearance, .privacySecurity, .blockedUsers, .storage,
+        case .preferences, .devices, .relays, .keyPackages, .appearance, .privacySecurity, .blockedUsers, .storage,
             .manageStorage, .agents, .support, .donate, .developerMode, .quarantinedGroups, .deleteProfile:
             false
         }
@@ -107,7 +110,7 @@ private extension SettingsPage {
 }
 
 #Preview {
-    SettingsPanelView(model: .preview())
+    SettingsPanelView(model: .preview(), deviceLinking: .preview())
         .environment(WorkspaceState.preview())
         .frame(width: 760, height: 640)
 }

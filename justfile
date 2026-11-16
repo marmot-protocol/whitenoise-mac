@@ -21,7 +21,9 @@
 # counterpart beyond `just precommit` itself.
 
 PROJECT := "whitenoise-mac.xcodeproj"
-SCHEME := "whitenoise-mac"
+# Production's scheme also runs and tests the development app: its Debug is `White Noise Dev`.
+SCHEME := "whitenoise-mac (Production)"
+STAGING_SCHEME := "whitenoise-mac (Staging)"
 DESTINATION := "platform=macOS"
 
 # Source roots checked by swift-format (matches the "Swift format lint" CI step).
@@ -163,7 +165,7 @@ run-staging *ARGS:
     set -euo pipefail
     xcodebuild build \
         -project "{{PROJECT}}" \
-        -scheme "{{SCHEME}} (Staging)" \
+        -scheme "{{STAGING_SCHEME}}" \
         -configuration Debug-Staging \
         -destination "{{DESTINATION}}" \
         -derivedDataPath build \
@@ -204,6 +206,15 @@ reset-staging:
 # Not part of precommit — run it deliberately when moving the core.
 sync-bindings REF:
     scripts/sync-bindings.sh {{REF}}
+
+# Device linking needs MDK's experimental device groups, which published releases are built without.
+# `build` compiles the pinned mdk commit with `dev-device-groups` (slow, needs an mdk clone at ../mdk
+# or MDK_DIR); `use` points the local package at it, after which Debug and staging builds open with
+# device groups on; `restore` returns to the published release. `just sanity` fails while switched.
+# Not part of precommit.
+# Build or switch to an experimental device-group MarmotKit
+dev-device-groups CMD="status":
+    scripts/dev-device-groups.sh {{CMD}}
 
 # CI step: Show Xcode environment (informational; not part of precommit)
 env:

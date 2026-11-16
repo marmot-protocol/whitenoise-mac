@@ -394,6 +394,28 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(failed.statusLabel == "Not delivered")
     }
 
+    /// Chat history another of the account's devices sent arrives with no source event id, even for
+    /// the account's own messages. Those were delivered by the device that sent them, so they must not
+    /// read as "Not delivered" with a Retry on the device that imported them.
+    @MainActor
+    @Test func importedOwnHistoryReadsAsDeliveredDespiteMissingSourceEvent() async throws {
+        let recordedAt: UInt64 = 1_800_000_000
+        var imported = timelineMessage(
+            id: "imported", direction: "received", groupIdHex: "group", sender: "self",
+            plaintext: "hello", recordedAt: recordedAt
+        )
+        imported.historyImportProvenance = .device(deviceSlotIdHex: String(repeating: "a", count: 64))
+        let page = TimelinePageFfi(messages: [imported], hasMoreBefore: false, hasMoreAfter: false)
+        let message = try #require(MessageItem.timeline(from: page, activeAccountIdHex: "self").first)
+        let afterGrace = Date(timeIntervalSince1970: TimeInterval(recordedAt) + MessageItem.pendingDeliveryGrace + 60)
+
+        #expect(message.isOutgoing)
+        #expect(!message.isPendingDelivery)
+        #expect(message.deliveryIndicator(at: afterGrace) == .delivered)
+        #expect(!message.canRetryDelivery(at: afterGrace))
+        #expect(message.statusLabel == "Sent")
+    }
+
     @MainActor
     @Test func deliveryIndicatorDistinguishesDeliveredIncomingAndInvalidatedRows() async throws {
         let sentAt = Date(timeIntervalSince1970: 1_800_000_000)

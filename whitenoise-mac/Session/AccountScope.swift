@@ -22,6 +22,9 @@ final class AccountScope {
     let blockedUsers: BlockedUsersViewModel
     let onboarding: OnboardingCoordinator
     let historyNotices: HistoryNoticesViewModel
+    /// Linking this account's devices, its device list, unrecognized sign-ins and the compromise
+    /// warning. Inert unless the runtime opened with experimental device groups.
+    let deviceLinking: DeviceLinkingViewModel
     /// Which groups, and whether the inbox, are still catching up after time offline.
     let recoveryStatus: AccountRecoveryStatusViewModel
     /// Toasts for queued sends MDK dropped once their group settled (`QueuedIntentRefused`).
@@ -47,6 +50,7 @@ final class AccountScope {
     @ObservationIgnored private var attachments: [String: (model: AttachmentViewModel, cancellation: UUID)] = [:]
     @ObservationIgnored private var groupSafety: [String: GroupSafetyViewModel] = [:]
     @ObservationIgnored private var groupDisband: [String: GroupDisbandViewModel] = [:]
+    @ObservationIgnored private var groupAccountDevices: [String: GroupAccountDevicesViewModel] = [:]
     @ObservationIgnored private let groupDisbandHooks: GroupDisbandHooks
 
     init(
@@ -100,6 +104,11 @@ final class AccountScope {
             accountIdHex: account.accountIdHex,
             runtime: runtime
         )
+        self.deviceLinking = DeviceLinkingViewModel(
+            accountRef: account.accountRef,
+            accountIdHex: account.accountIdHex,
+            runtime: runtime
+        )
         self.recoveryStatus = AccountRecoveryStatusViewModel(
             accountRef: account.accountRef,
             accountIdHex: account.accountIdHex,
@@ -131,6 +140,7 @@ final class AccountScope {
         historyNotices.start()
         recoveryStatus.start()
         refusedIntents.start()
+        deviceLinking.start()
         let diagnosticsTask = Task { [settingsModel] in
             await settingsModel.diagnostics.load()
         }
@@ -138,7 +148,7 @@ final class AccountScope {
             [
                 chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, recoveryStatus,
                 refusedIntents, productAnalytics, settingsModel, groupChangeAdvisory, moderationReporter, stickers,
-                emojiSets, chatListSelection, chatListSearch
+                emojiSets, chatListSelection, chatListSearch, deviceLinking
             ] in
             chatListModel.stop()
             chatListSelection.stop()
@@ -149,6 +159,7 @@ final class AccountScope {
             historyNotices.stop()
             recoveryStatus.stop()
             refusedIntents.stop()
+            deviceLinking.stop()
             // A pending prompt belongs to this account's change: Wait it out rather than strand it.
             groupChangeAdvisory.cancelPending()
             productAnalytics.deactivate()
@@ -243,6 +254,7 @@ final class AccountScope {
         releaseAttachments(groupIdHex: groupIdHex)
         groupSafety[groupIdHex] = nil
         groupDisband[groupIdHex] = nil
+        groupAccountDevices[groupIdHex] = nil
     }
 
     func attachmentModel(groupIdHex: String) -> AttachmentViewModel {
@@ -300,6 +312,20 @@ final class AccountScope {
         return model
     }
 
+    /// Whether this group lets members' linked devices join, and the admin switch for it. Pane changes
+    /// ask through the account's shared advisory prompter, hosted in `ContentView`.
+    func accountDevicesModel(groupIdHex: String) -> GroupAccountDevicesViewModel {
+        if let existing = groupAccountDevices[groupIdHex] { return existing }
+        let model = GroupAccountDevicesViewModel(
+            accountRef: account.accountRef,
+            groupIdHex: groupIdHex,
+            runtime: runtime,
+            advisory: groupChangeAdvisory
+        )
+        groupAccountDevices[groupIdHex] = model
+        return model
+    }
+
     /// Whether any group's End Group run is in flight. Joins the shell's `hasInFlightGroupCommit`
     /// on every surface that would start another group commit.
     var isEndingAnyGroup: Bool { !endingGroupIds.isEmpty }
@@ -314,6 +340,7 @@ final class AccountScope {
         attachments.removeAll()
         groupSafety.removeAll()
         groupDisband.removeAll()
+        groupAccountDevices.removeAll()
         for cancel in pending {
             cancel()
         }

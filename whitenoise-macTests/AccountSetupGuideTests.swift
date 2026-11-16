@@ -326,6 +326,43 @@ import Testing
         #expect(OnboardingCoordinator.automaticFollowsAction(otherStep) == nil)
     }
 
+    /// A device-group build acknowledges "Chats on this device" without a screen and offers a link
+    /// after setup instead; an ordinary build still shows it.
+    @Test func theSingleDeviceNoticeIsAcknowledgedAutomaticallyOnlyWithDeviceGroups() {
+        let notice = F.snapshot(steps: [
+            F.step(.profile, .passed), F.step(.singleDevice, .needsInput, actions: [.continueAnyway]),
+        ])
+        let retryOnly = F.snapshot(steps: [F.step(.singleDevice, .retryableFailure, actions: [.retry])])
+        let otherStep = F.snapshot(steps: [F.step(.profile, .needsInput, actions: [.continueWithout])])
+
+        #expect(OnboardingCoordinator.acknowledgesSingleDeviceAutomatically(notice, deviceGroupsEnabled: true))
+        #expect(!OnboardingCoordinator.acknowledgesSingleDeviceAutomatically(notice, deviceGroupsEnabled: false))
+        #expect(!OnboardingCoordinator.acknowledgesSingleDeviceAutomatically(retryOnly, deviceGroupsEnabled: true))
+        #expect(!OnboardingCoordinator.acknowledgesSingleDeviceAutomatically(otherStep, deviceGroupsEnabled: true))
+    }
+
+    /// A device-group build has no "Chats on this device" row: the step is acknowledged in the
+    /// background, and setup reads as working meanwhile. A failed check keeps its row for Try Again.
+    @Test func deviceGroupBuildsHideTheSingleDeviceStep() {
+        let waiting = F.snapshot(steps: [
+            F.step(.profile, .passed), F.step(.singleDevice, .needsInput, actions: [.continueAnyway]),
+            F.step(.keyPackage, .pending),
+        ])
+        let failed = F.snapshot(steps: [F.step(.singleDevice, .retryableFailure, actions: [.retry])])
+
+        let hidden = AccountSetupGuide(
+            snapshot: waiting, recoveryRequired: false, acknowledgesSingleDeviceAutomatically: true)
+        #expect(!hidden.steps.contains { $0.step == .singleDevice })
+        #expect(hidden.reviewStep == nil)
+        let shown = AccountSetupGuide(snapshot: waiting, recoveryRequired: false)
+        #expect(shown.reviewStep == .singleDevice)
+
+        let retry = AccountSetupGuide(
+            snapshot: failed, recoveryRequired: false, acknowledgesSingleDeviceAutomatically: true)
+        #expect(retry.steps.contains { $0.step == .singleDevice })
+        #expect(retry.reviewStep == .singleDevice)
+    }
+
     // MARK: - Catalog
 
     /// Every key the guide and the step plans hand the views is in the catalog, so no step shows

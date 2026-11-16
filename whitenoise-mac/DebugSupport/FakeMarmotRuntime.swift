@@ -145,6 +145,13 @@
         var blockUserError: Error?
         var unblockUserError: Error?
         var quarantinedGroupRecords: [AppQuarantinedGroupFfi] = []
+        /// Whether the fake reports an experimental device-group open (`deviceGroupsEnabled`).
+        var deviceGroupsEnabled = false
+        /// Device linking's state and calls; see `FakeMarmotRuntime+DeviceLinking.swift`.
+        let deviceLinking = FakeDeviceLinkingState()
+        /// `accountDevicesActivation` per group; unlisted groups answer `notAdmin`.
+        var accountDevicesActivations: [String: AccountDevicesActivationFfi] = [:]
+        private(set) var enabledAccountDevicesGroupIds: [String] = []
         var groupRecoveryStatuses: [String: GroupRecoveryStatusFfi] = [:]
         /// The account's "history may be incomplete" notices. `dismissHistoryNotice` removes by id and
         /// answers `false` for an id it no longer holds, as the core does for a re-armed occurrence.
@@ -2741,6 +2748,25 @@
                 groupManagementStateById[groupIdHex] = managementStateBeforePromote
             }
             return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-promote")
+        }
+
+        func accountDevicesActivation(accountRef: String, groupIdHex: String) async throws
+            -> AccountDevicesActivationFfi
+        {
+            accountDevicesActivations[groupIdHex] ?? .notAdmin
+        }
+
+        /// Refused like MDK when the activation is not `eligible`; otherwise a group change that passes
+        /// the advisory gate like every other.
+        func enableAccountDevices(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+            let activation = accountDevicesActivations[groupIdHex] ?? .notAdmin
+            guard activation == .eligible else {
+                throw MarmotKitError.AccountDevicesActivationRefused(groupIdHex: groupIdHex, reason: activation)
+            }
+            try admitGroupChange(groupIdHex: groupIdHex)
+            enabledAccountDevicesGroupIds.append(groupIdHex)
+            accountDevicesActivations[groupIdHex] = .alreadyEnabled
+            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-account-devices")
         }
 
         func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws

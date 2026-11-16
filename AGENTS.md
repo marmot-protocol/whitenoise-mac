@@ -13,8 +13,8 @@ build/test workflow or the MarmotKit boundary changes.
 
 ## Build flavors
 
-The app builds as **production** (scheme `whitenoise-mac`, configuration `Release`,
-`dev.ipf.whitenoise.mac`), **development** (scheme `whitenoise-mac`, configuration `Debug`,
+The app builds as **production** (scheme `whitenoise-mac (Production)`, configuration `Release`,
+`dev.ipf.whitenoise.mac`), **development** (scheme `whitenoise-mac (Production)`, configuration `Debug`,
 `dev.ipf.whitenoise.mac.dev`, product `White Noise Dev`) or **staging** (scheme
 `whitenoise-mac (Staging)`, configurations `Debug-Staging`/`Release-Staging`,
 `dev.ipf.whitenoise.mac.staging`, product `White Noise Staging`). Flavor values live in
@@ -36,25 +36,30 @@ through `Core/AppFlavor.swift`.
   own workspace on a fake runtime.
 - `just run` / `just reset-dev` build and wipe the development app, `just run-staging` /
   `just reset-staging` the staging app; `just sanity` asserts all three flavors' identities.
+- Build, run and test as the development flavor by default (`just run`, the main scheme's Debug,
+  `just test`): it is the one flavor whose data belongs to no tester or user, so it is safe on any
+  Mac whatever else is installed. Use staging only for a reason — a second instance beside
+  `White Noise Dev` (two devices of one account, for linking), or checking a staging build — and
+  never run production to develop or test.
 
 ## Building and testing
 
-The project builds and tests with `xcodebuild` against the `whitenoise-mac`
+The project builds and tests with `xcodebuild` against the `whitenoise-mac (Production)`
 scheme (Apple Silicon / `arch=arm64`, code signing disabled for CI/local checks):
 
 ```sh
 # Build the app
-xcodebuild -scheme whitenoise-mac -configuration Debug build CODE_SIGNING_ALLOWED=NO
+xcodebuild -scheme "whitenoise-mac (Production)" -configuration Debug build CODE_SIGNING_ALLOWED=NO
 
 # Build the unit-test target (catches test-only breakage without running)
-xcodebuild -scheme whitenoise-mac -configuration Debug build-for-testing CODE_SIGNING_ALLOWED=NO
+xcodebuild -scheme "whitenoise-mac (Production)" -configuration Debug build-for-testing CODE_SIGNING_ALLOWED=NO
 
 # Run the unit tests in the PR test plan
-xcodebuild test-without-building -scheme whitenoise-mac -configuration Debug \
+xcodebuild test-without-building -scheme "whitenoise-mac (Production)" -configuration Debug \
   -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO
 
 # Run UI performance tests (requires macOS UI automation permissions)
-xcodebuild test -scheme whitenoise-mac -configuration Debug -testPlan UIPerformance \
+xcodebuild test -scheme "whitenoise-mac (Production)" -configuration Debug -testPlan UIPerformance \
   -destination 'platform=macOS,arch=arm64'
 ```
 
@@ -65,7 +70,7 @@ smaller focused suites, with shared fakes and helpers in
 test function, which is how you iterate without paying for the full suite:
 
 ```sh
-xcodebuild test-without-building -scheme whitenoise-mac -configuration Debug \
+xcodebuild test-without-building -scheme "whitenoise-mac (Production)" -configuration Debug \
   -destination 'platform=macOS,arch=arm64' -testPlan PR CODE_SIGNING_ALLOWED=NO \
   -only-testing:'whitenoise-macTests/TimelineTests/someTestName()'
 ```
@@ -183,6 +188,18 @@ build.
   cross-checks every stamp, re-hashes the vendored `MarmotKit.swift` and
   `PrivacyInfo.xcprivacy`, and verifies the Swift package resource declaration
   — so never hand-edit generated release artifacts, re-run the sync instead.
+- Device linking (Settings → Devices and the link sheets, `Features/Devices/`) runs only on MDK's
+  experimental device groups: a native library built with `dev-device-groups`, opened through
+  `newWithExperimentalDeviceGroups`. Published releases are built without it, so `DeviceGroupsMode`
+  tries that constructor in Debug and staging only, falls back to the ordinary one on
+  `experimental_device_groups_unavailable` alone, and the Devices page stays hidden while
+  `MarmotRuntime.deviceGroupsEnabled` is false. Production never opens with it.
+  `just dev-device-groups build` then `use` compiles the pinned mdk commit with the feature and points
+  the package at it; `just sanity` fails while switched, so `restore` before committing. An account
+  that has joined a device group can't be opened by the published library again
+  (`experimental_device_groups_required`); `just reset-dev` / `reset-staging` after switching back.
+  `White Noise Dev` and `White Noise Staging` keep separate roots and keychain services, so the two
+  can sign in to one account on one Mac and link to each other.
 - A dated nightly installs the same way (`just sync-bindings 0.14.0-nightly.20261022`). Nightlies
   are for testing only and upstream deletes them after 30 days; pin a formal release before
   shipping.

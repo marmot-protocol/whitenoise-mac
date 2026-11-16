@@ -30,6 +30,7 @@ struct GroupDetailsSheet: View {
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
     let disbandModel: GroupDisbandViewModel
+    let accountDevicesModel: GroupAccountDevicesViewModel
     /// Whether the account blocked this account id hex, for the add-members sheet.
     let isBlocked: (String) -> Bool
 
@@ -192,6 +193,9 @@ struct GroupDetailsSheet: View {
                         )
                         .disabled(isGroupCommitInFlight)
 
+                        GroupLinkedDevicesSection(model: accountDevicesModel)
+                            .disabled(isGroupCommitInFlight)
+                            .task(id: snapshot.groupIdHex) { await accountDevicesModel.load() }
                         GroupDetailsAdvancedSection(relays: snapshot.relays, groupIdHex: snapshot.groupIdHex)
                         GroupDetailsLeaveSection(
                             chat: chat, snapshot: snapshot, conversationModel: conversationModel,

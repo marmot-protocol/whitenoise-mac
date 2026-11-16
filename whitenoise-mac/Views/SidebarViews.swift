@@ -901,6 +901,7 @@ private struct ChatSidebarRowMenuItems: View {
 
 struct SettingsListDrawerView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
     // Localizing through `\.locale` (not the stored preference) is what re-renders this
     // drawer when the language changes while settings are open — see `L10n.string(_:locale:)`.
     @Environment(\.locale) private var locale
@@ -925,7 +926,8 @@ struct SettingsListDrawerView: View {
                 LazyVStack(spacing: 12) {
                     SettingsAccountSwitcherCard()
 
-                    ForEach(Array(SettingsPage.sidebarGroups.enumerated()), id: \.offset) { _, group in
+                    ForEach(Array(SettingsPage.sidebarGroups.map(visiblePages).enumerated()), id: \.offset) {
+                        _, group in
                         SettingsSidebarGroupCard {
                             ForEach(Array(group.enumerated()), id: \.element) { index, page in
                                 Button {
@@ -963,6 +965,12 @@ struct SettingsListDrawerView: View {
         }
     }
 
+    /// Devices is listed only when linking can work: with the published MarmotKit every linking
+    /// call is refused, so the page would be nothing but errors.
+    private func visiblePages(_ group: [SettingsPage]) -> [SettingsPage] {
+        let devicesAvailable = session.accountScope?.deviceLinking.isAvailable == true
+        return group.filter { $0 != .devices || devicesAvailable }
+    }
 }
 
 struct SettingsSidebarRow: View {

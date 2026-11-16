@@ -23,6 +23,8 @@ struct ContentView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     @State private var timestampReferenceDate = Date()
+    /// "This Mac was unlinked", for any signed-in account. Lives as long as the runtime.
+    @State private var unlinkMonitor = DeviceUnlinkMonitor()
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -33,6 +35,39 @@ struct ContentView: View {
             .chatDestructiveActionsConfirmation()
             // Group changes made from the panes ask here. Sheets that make one host their own.
             .groupChangeAdvisoryAlert(session.accountScope?.groupChangeAdvisory)
+            // A device-link request can arrive whatever the user is looking at, and wants an answer
+            // while both screens show the code.
+            .deviceLinkSheet(
+                session.accountScope?.deviceLinking,
+                locale: workspace.preferredLocale,
+                suggestionAllowed: session.accountScope.map {
+                    $0.onboarding.canEnterChats && $0.onboarding.hasShownIncompleteSetup
+                } == true
+            )
+            .deviceUnlinkAlert(
+                unlinkMonitor,
+                accountName: { account(forUnlinked: $0)?.displayName },
+                onRemove: { notice in
+                    guard let account = account(forUnlinked: notice) else { return }
+                    Task { await workspace.removeAccount(account) }
+                },
+                onLater: { notice in
+                    // MDK already signed the account out. Switch away properly while another account
+                    // is signed in, then re-read the accounts so the rail shows it signed out.
+                    if workspace.activeAccount?.accountIdHex.lowercased() == notice.accountIdHex,
+                        let next = workspace.signedInAccounts.first(where: {
+                            $0.accountIdHex.lowercased() != notice.accountIdHex
+                        })
+                    {
+                        workspace.selectAccount(next)
+                    }
+                    Task { await workspace.refreshAccountProfiles() }
+                }
+            )
+            .task(id: workspace.client?.storageRootPath) {
+                guard let client = workspace.client else { return }
+                await unlinkMonitor.observe(client)
+            }
             // App-wide default: static text is selectable, so anything on screen — a startup
             // failure message, a relay URL, an npub, a profile field — can be selected and
             // copied without the view having to opt in. `.textSelection` propagates through the
@@ -165,6 +200,10 @@ struct ContentView: View {
     /// see. Nil without a projected conversation, which keeps the legacy path marking the latest.
     private var visibleConversationMessageIds: Set<String>? {
         session.accountScope?.selectedConversationModel?.readableMessageIds
+    }
+
+    private func account(forUnlinked notice: DeviceUnlinkMonitor.Notice) -> AccountItem? {
+        workspace.accounts.first { $0.accountIdHex.lowercased() == notice.accountIdHex }
     }
 
     private func applyAppearance(_ preference: AppearancePreference) {

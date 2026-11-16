@@ -615,6 +615,8 @@ nonisolated extension MessageItem {
             groupIdHex: record.groupIdHex,
             sourceMessageIdHex: record.sourceMessageIdHex,
             recipientConfirmed: record.recipientConfirmed,
+            // `importedFrom` is device-only; the typed provenance also covers backups.
+            isImportedHistory: record.historyImportProvenance != nil || record.importedFrom != nil,
             sourceEpoch: record.sourceEpoch,
             retentionSeconds: record.retentionSeconds,
             retentionExpiresAt: record.retentionExpiresAt,

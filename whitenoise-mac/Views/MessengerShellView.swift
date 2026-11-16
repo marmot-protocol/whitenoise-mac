@@ -178,6 +178,7 @@ private struct DetailPaneView: View {
                                 attachmentModel: scope.attachmentModel(groupIdHex: chat.id),
                                 safetyModel: scope.safetyModel(groupIdHex: chat.id),
                                 disbandModel: scope.disbandModel(groupIdHex: chat.id),
+                                accountDevicesModel: scope.accountDevicesModel(groupIdHex: chat.id),
                                 blockedUsersModel: scope.blockedUsers,
                                 avatarAssets: scope.avatarAssets
                             )
@@ -185,8 +186,8 @@ private struct DetailPaneView: View {
                             EmptyDetailView()
                         }
                     case .settings:
-                        if let model = session.accountScope?.settingsModel {
-                            SettingsPanelView(model: model)
+                        if let scope = session.accountScope {
+                            SettingsPanelView(model: scope.settingsModel, deviceLinking: scope.deviceLinking)
                         } else {
                             EmptyDetailView()
                         }
@@ -559,6 +560,7 @@ private struct ConversationView: View {
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
     let disbandModel: GroupDisbandViewModel
+    let accountDevicesModel: GroupAccountDevicesViewModel
     let blockedUsersModel: BlockedUsersViewModel
     /// Avatar bytes for the snapshot's identities, so the mention picker draws the same pictures
     /// the transcript does.
@@ -868,6 +870,7 @@ private struct ConversationView: View {
                     attachmentModel: attachmentModel,
                     safetyModel: safetyModel,
                     disbandModel: disbandModel,
+                    accountDevicesModel: accountDevicesModel,
                     blockedUsersModel: blockedUsersModel
                 )
                 .transition(.move(edge: .trailing))
@@ -1558,6 +1561,7 @@ private struct GroupDetailsPane: View {
     let attachmentModel: AttachmentViewModel
     let safetyModel: GroupSafetyViewModel
     let disbandModel: GroupDisbandViewModel
+    let accountDevicesModel: GroupAccountDevicesViewModel
     let blockedUsersModel: BlockedUsersViewModel
 
     var body: some View {
@@ -1567,6 +1571,7 @@ private struct GroupDetailsPane: View {
             attachmentModel: attachmentModel,
             safetyModel: safetyModel,
             disbandModel: disbandModel,
+            accountDevicesModel: accountDevicesModel,
             isBlocked: { blockedUsersModel.isBlocked(accountID: $0) }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
