@@ -34,12 +34,13 @@ enum MediaDownloadTarget {
     case folder(MediaDownloadDestinationAccess)
 }
 
-/// Remembers the one folder the user granted, so downloading is a single click after the first one,
-/// and whether the user would rather be asked every time.
+/// The default download folder — Downloads until the user picks another — and whether the user
+/// would rather be asked every time.
 @MainActor
 protocol MediaDownloadDestinationStoring: AnyObject {
-    /// The stored folder with access started, or `nil` when nothing is stored or the grant no
-    /// longer resolves (folder deleted, volume gone). A `nil` here means "ask the user again".
+    /// The default folder with access started — the one the user picked, or Downloads until they
+    /// pick one. `nil` when neither is usable (a picked folder's grant no longer resolves, or there
+    /// is no Downloads folder), which means "ask the user again".
     func resolveDestination() -> MediaDownloadDestinationAccess?
 
     /// Persist a folder the user picked in the panel. A folder that cannot be persisted leaves
@@ -48,9 +49,10 @@ protocol MediaDownloadDestinationStoring: AnyObject {
 
     func clear()
 
-    /// The stored folder for display, resolved without opening access to it. `nil` while it does
-    /// not resolve, and the grant itself survives that — see `resolveDestination()`.
-    var storedDestinationURL: URL? { get }
+    /// The default folder for display and for panels to open in, resolved without opening access
+    /// to it. `nil` while a picked folder does not resolve, and the grant itself survives that —
+    /// see `resolveDestination()`.
+    var defaultFolderURL: URL? { get }
 
     /// Whether every download asks where to go (Save As for one file, a folder for several) rather
     /// than going straight into the stored folder. Off unless the user turns it on.
@@ -65,13 +67,26 @@ final class UserDefaultsMediaDownloadDestinationStore: MediaDownloadDestinationS
     }
 
     private let defaults: UserDefaults
+    /// The default before the user picks a folder. The sandbox grants it by entitlement
+    /// (`files.downloads.read-write`), so there is no bookmark and nothing to release.
+    private let downloadsFolder: URL?
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, downloadsFolder: URL? = userDownloadsFolder) {
         self.defaults = defaults
+        self.downloadsFolder = downloadsFolder
+    }
+
+    /// `~/Downloads`. Inside the sandbox the system answers with the container's link to it, so
+    /// the link is resolved: the real folder is what Settings shows and what the grant covers.
+    nonisolated static var userDownloadsFolder: URL? {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?
+            .resolvingSymlinksInPath()
     }
 
     func resolveDestination() -> MediaDownloadDestinationAccess? {
-        guard defaults.data(forKey: Key.bookmark) != nil else { return nil }
+        guard defaults.data(forKey: Key.bookmark) != nil else {
+            return downloadsFolder.map { MediaDownloadDestinationAccess(url: $0, isSecurityScoped: false) }
+        }
         // Dropping the bookmark belongs here and nowhere else: this is the path where a grant
         // that no longer holds would make every later download fail silently in the same way,
         // so it is worth one more trip through the panel. A read for display must never cost
@@ -122,8 +137,9 @@ final class UserDefaultsMediaDownloadDestinationStore: MediaDownloadDestinationS
         }
     }
 
-    var storedDestinationURL: URL? {
-        resolvedURL()
+    var defaultFolderURL: URL? {
+        guard defaults.data(forKey: Key.bookmark) != nil else { return downloadsFolder }
+        return resolvedURL()
     }
 
     /// Off by default: downloads go to the default folder, chosen in Storage settings or on the

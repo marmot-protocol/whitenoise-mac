@@ -25,8 +25,8 @@ struct StorageSettingsView: View {
             subtitle: L10n.string("Downloaded attachments stored on this Mac.")
         ) {
             SettingsSection(title: L10n.string("Downloads")) {
-                // The default folder is set here or by the panel on the first download, so without
-                // this row there would be no way to see where files went or to move them elsewhere.
+                // Downloads until the user picks another folder here; without this row there would
+                // be no way to see where files went or to move them elsewhere.
                 SettingsValueRow(
                     title: L10n.string("Save downloads to"),
                     value: workspace.mediaDownloadDestinationPath

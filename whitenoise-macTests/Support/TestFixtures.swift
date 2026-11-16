@@ -1197,6 +1197,8 @@ final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
     /// What the Save As panel returns, and the names it was offered, in order.
     var pickedFileURL: URL?
     private(set) var suggestedFileNames: [String] = []
+    /// The folder each panel (folder or Save As) was opened in, in order.
+    private(set) var openedInFolders: [URL?] = []
     var alwaysAsksWhereToSave: Bool
     private(set) var storedURL: URL?
     private(set) var storeCallCount = 0
@@ -1214,8 +1216,12 @@ final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
     /// Passed to `WorkspaceState(mediaDownloadPanels:)`.
     var panels: MediaDownloadPanels {
         MediaDownloadPanels(
-            chooseFolder: { [unowned self] in pick() },
-            chooseFile: { [unowned self] name in
+            chooseFolder: { [unowned self] openIn in
+                openedInFolders.append(openIn)
+                return pick()
+            },
+            chooseFile: { [unowned self] name, openIn in
+                openedInFolders.append(openIn)
                 suggestedFileNames.append(name)
                 return pickedFileURL
             }
@@ -1243,7 +1249,7 @@ final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
         storedURL = nil
     }
 
-    var storedDestinationURL: URL? {
+    var defaultFolderURL: URL? {
         storedURL
     }
 }

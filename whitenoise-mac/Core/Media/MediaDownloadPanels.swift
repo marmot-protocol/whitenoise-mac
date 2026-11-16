@@ -9,14 +9,17 @@ import Foundation
 /// permission grant, not a formality. Injected so tests can answer them with a temporary directory
 /// instead of showing a modal.
 struct MediaDownloadPanels {
-    /// A folder for one gesture's files, or the folder to remember. `nil` means cancelled.
-    let chooseFolder: @MainActor () -> URL?
-    /// Save As for a single file, offered under its suggested name. `nil` means cancelled.
-    let chooseFile: @MainActor (_ suggestedName: String) -> URL?
+    /// A folder for one gesture's files, or the folder to remember, opened in `openIn` (the
+    /// default folder). `nil` means cancelled.
+    let chooseFolder: @MainActor (_ openIn: URL?) -> URL?
+    /// Save As for a single file, offered under its suggested name in `openIn` (the default
+    /// folder). `nil` means cancelled.
+    let chooseFile: @MainActor (_ suggestedName: String, _ openIn: URL?) -> URL?
 
     static let system = MediaDownloadPanels(
-        chooseFolder: {
+        chooseFolder: { openIn in
             let panel = NSOpenPanel()
+            panel.directoryURL = openIn
             panel.title = L10n.string("Choose where to save downloads")
             panel.prompt = L10n.string("Choose")
             panel.canChooseFiles = false
@@ -26,8 +29,9 @@ struct MediaDownloadPanels {
             guard panel.runModal() == .OK else { return nil }
             return panel.url
         },
-        chooseFile: { suggestedName in
+        chooseFile: { suggestedName, openIn in
             let panel = NSSavePanel()
+            panel.directoryURL = openIn
             panel.nameFieldStringValue = suggestedName
             panel.canCreateDirectories = true
             guard panel.runModal() == .OK else { return nil }

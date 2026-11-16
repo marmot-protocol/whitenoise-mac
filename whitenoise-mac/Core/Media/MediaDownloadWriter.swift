@@ -73,10 +73,27 @@ actor MediaDownloadWriter {
     ///
     /// For a Save As destination only: the panel has already asked whether to replace an existing
     /// file, so the unique-name stepping `write(_:fileName:into:)` does would undo the user's
-    /// answer. The panel's grant covers that file, not its folder, so there is no staging file of
-    /// this writer's own — Foundation's atomic write stages it where the sandbox allows.
+    /// answer. The panel's sandbox grant covers that one file and nothing beside it, so there is no
+    /// staging file — an atomic write's temporary sibling is exactly what the grant refuses.
+    ///
+    /// `O_NOFOLLOW`: the panel answers before the fetch finishes, and the folder is usually one
+    /// other apps write to. A symlink planted at the name in that gap fails the open (`ELOOP`)
+    /// rather than sending decrypted bytes to whatever it points at.
     func replace(_ data: Data, at url: URL) throws {
-        try data.write(to: url, options: .atomic)
+        let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o644)
+        }
+        guard descriptor >= 0 else { throw Self.failure(errno, at: url) }
+
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
     }
 
     /// Hidden and unguessable: it shares the download folder with the user's own files, and it is

@@ -24,13 +24,14 @@ extension WorkspaceState {
     /// Re-read the stored folder for the Storage settings row. Mirrors `refreshMediaCacheFootprint()`:
     /// the value is only needed while that pane is open.
     func refreshMediaDownloadDestinationPath() {
-        mediaDownloadDestinationPath = mediaDownloadDestinationStore.storedDestinationURL?
+        mediaDownloadDestinationPath = mediaDownloadDestinationStore.defaultFolderURL?
             .path(percentEncoded: false)
     }
 
     /// Settings entry point for changing the folder. Cancelling leaves the previous grant alone.
     func changeMediaDownloadDestination() {
-        guard let picked = mediaDownloadPanels.chooseFolder() else { return }
+        guard let picked = mediaDownloadPanels.chooseFolder(mediaDownloadDestinationStore.defaultFolderURL)
+        else { return }
         mediaDownloadDestinationStore.store(picked)
         refreshMediaDownloadDestinationPath()
     }
@@ -48,9 +49,9 @@ extension WorkspaceState {
 
     /// Download `attachments` to where the user says and report the outcome as a toast.
     ///
-    /// Where is the default folder — set in Storage settings, or by the panel on the first
-    /// download — unless the user has turned on "Always ask where to save", which asks every time:
-    /// Save As for one file, a folder for several.
+    /// Where is the default folder — Downloads, or the one picked in Storage settings (or by the
+    /// panel when the default could not be opened) — unless the user has turned on "Always ask
+    /// where to save", which asks every time: Save As for one file, a folder for several.
     ///
     /// One gesture per message at a time: the gallery's single-attachment button and the bubble's
     /// download-everything button both target the same message, and a double click should not
@@ -117,6 +118,8 @@ extension WorkspaceState {
         of message: MessageItem
     ) -> MediaDownloadTarget? {
         if mediaDownloadDestinationStore.alwaysAsksWhereToSave {
+            // Both panels open in the default folder, so accepting one as offered lands there.
+            let defaultFolder = mediaDownloadDestinationStore.defaultFolderURL
             if attachments.count == 1 {
                 let attachment = attachments[0]
                 var loaded: MessageMediaDownload?
@@ -126,18 +129,20 @@ extension WorkspaceState {
                 let suggestedName = MediaFileDownloader.suggestedFileName(
                     loaded?.fileName.nilIfBlank ?? attachment.reference.fileName,
                     mediaType: loaded?.mediaType ?? attachment.reference.mediaType)
-                return mediaDownloadPanels.chooseFile(suggestedName).map(MediaDownloadTarget.file)
+                return mediaDownloadPanels.chooseFile(suggestedName, defaultFolder)
+                    .map(MediaDownloadTarget.file)
             }
             // A folder picked for one gesture is not remembered: the user asked to be asked. The
             // panel's grant lasts for the app's lifetime, so there is nothing to release.
-            return mediaDownloadPanels.chooseFolder().map {
+            return mediaDownloadPanels.chooseFolder(defaultFolder).map {
                 .folder(MediaDownloadDestinationAccess(url: $0, isSecurityScoped: false))
             }
         }
         if let stored = mediaDownloadDestinationStore.resolveDestination() {
             return .folder(stored)
         }
-        guard let picked = mediaDownloadPanels.chooseFolder() else { return nil }
+        guard let picked = mediaDownloadPanels.chooseFolder(mediaDownloadDestinationStore.defaultFolderURL)
+        else { return nil }
         mediaDownloadDestinationStore.store(picked)
         refreshMediaDownloadDestinationPath()
         // Use the panel's URL directly rather than re-resolving the bookmark just written: the

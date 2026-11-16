@@ -3372,9 +3372,9 @@ struct MediaTests: WorkspaceTestSupport {
         let key = "whitenoise.mac.mediaDownloadDestinationBookmark"
         // Not a bookmark at all — resolution throws, which is the failure both paths see.
         defaults.set(Data([0x00, 0x01, 0x02, 0x03]), forKey: key)
-        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults)
+        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults, downloadsFolder: nil)
 
-        #expect(store.storedDestinationURL == nil)
+        #expect(store.defaultFolderURL == nil)
         #expect(defaults.data(forKey: key) != nil)
 
         // The download path is the one place a dead grant actually blocks a write, so that is
@@ -3387,12 +3387,14 @@ struct MediaTests: WorkspaceTestSupport {
     @Test func mediaDownloadDestinationForgetsTheOldFolderWhenTheNewOneCannotBePersisted() throws {
         // Changing the folder in Settings and having the write fail must not leave the previous
         // folder in place: the next download would go there silently, which is the one folder the
-        // user has just said no to. Nothing stored means the panel asks, which is the safe answer.
+        // user has just said no to. Nothing stored means Downloads again.
         let suiteName = "whitenoise.mac.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let key = "whitenoise.mac.mediaDownloadDestinationBookmark"
-        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults)
+        let downloads = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: downloads) }
+        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults, downloadsFolder: downloads)
 
         let folder = try uniqueTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -3406,8 +3408,8 @@ struct MediaTests: WorkspaceTestSupport {
         store.store(replacement)
 
         #expect(defaults.data(forKey: key) == nil)
-        #expect(store.storedDestinationURL == nil)
-        #expect(store.resolveDestination()?.url == nil)
+        #expect(store.defaultFolderURL == downloads)
+        #expect(store.resolveDestination()?.url == downloads)
     }
 
     @Test func mediaFileDownloaderSanitizesRemoteAttachmentNames() {
@@ -3600,6 +3602,8 @@ struct MediaTests: WorkspaceTestSupport {
             fixture.message.mediaAttachments, for: fixture.message)
 
         #expect(destination.suggestedFileNames == ["photo.jpg"])
+        // Save As opens in the default folder, so accepting it as offered lands the file there.
+        #expect(destination.openedInFolders == [remembered])
         #expect(destination.pickCallCount == 0)
         #expect(try Data(contentsOf: chosen) == payload)
         #expect(try folderContents(of: remembered).isEmpty)
@@ -3682,7 +3686,10 @@ struct MediaTests: WorkspaceTestSupport {
         // remembered, because the user asked to be asked.
         let folder = try uniqueTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let destination = FakeMediaDownloadDestination(pickedURL: folder, alwaysAsks: true)
+        let remembered = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: remembered) }
+        let destination = FakeMediaDownloadDestination(
+            storedURL: remembered, pickedURL: folder, alwaysAsks: true)
         let fixture = await mediaDownloadFixture(
             attachments: [
                 (fileName: "photo.jpg", mediaType: "image/jpeg", data: Data([0x01]), isAvailable: true),
@@ -3695,6 +3702,8 @@ struct MediaTests: WorkspaceTestSupport {
             fixture.message.mediaAttachments, for: fixture.message)
 
         #expect(destination.pickCallCount == 1)
+        #expect(destination.openedInFolders == [remembered])
+        #expect(destination.storedURL == remembered)
         #expect(destination.suggestedFileNames.isEmpty)
         #expect(destination.storeCallCount == 0)
         #expect(try folderContents(of: folder).sorted() == ["notes.pdf", "photo.jpg"])
@@ -3707,6 +3716,49 @@ struct MediaTests: WorkspaceTestSupport {
 
         #expect(destination.pickCallCount == 2)
         fixture.state.dismissMediaDownloadFeedback()
+    }
+
+    @MainActor
+    @Test func mediaDownloadDestinationDefaultsToTheDownloadsFolderUntilTheUserPicksOne() throws {
+        // A fresh install saves into Downloads, as a Mac app should, without a panel first. Picking
+        // a folder replaces that default.
+        let suiteName = "whitenoise.mac.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let downloads = try uniqueTemporaryDirectory()
+        let picked = try uniqueTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: downloads)
+            try? FileManager.default.removeItem(at: picked)
+        }
+        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults, downloadsFolder: downloads)
+
+        #expect(store.defaultFolderURL == downloads)
+        let access = try #require(store.resolveDestination())
+        #expect(access.url == downloads)
+        // Downloads is an entitlement, not a security-scoped grant this code opened.
+        #expect(!access.isSecurityScoped)
+
+        store.store(picked)
+
+        #expect(store.defaultFolderURL?.standardizedFileURL == picked.standardizedFileURL)
+    }
+
+    @Test func savePanelWriteNeverFollowsASymlinkAtTheChosenName() async throws {
+        // Downloads is a folder other apps write to, and the panel answers before the fetch ends. A
+        // symlink planted at the chosen name in that gap must not redirect decrypted bytes into the
+        // file it points at.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let target = folder.appending(path: "target.txt")
+        try Data([0xAA]).write(to: target)
+        let chosen = folder.appending(path: "photo.jpg")
+        try FileManager.default.createSymbolicLink(at: chosen, withDestinationURL: target)
+
+        await #expect(throws: (any Error).self) {
+            try await MediaDownloadWriter.shared.replace(Data([0x01]), at: chosen)
+        }
+        #expect(try Data(contentsOf: target) == Data([0xAA]))
     }
 
     @MainActor
@@ -3738,6 +3790,7 @@ struct MediaTests: WorkspaceTestSupport {
 
         fixture.state.changeMediaDownloadDestination()
 
+        #expect(destination.openedInFolders == [folder])
         #expect(destination.storedURL == replacement)
         #expect(fixture.state.mediaDownloadDestinationPath == replacement.path(percentEncoded: false))
 
