@@ -1657,6 +1657,43 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(try #require(await cache.cachedDownload(for: secondKey)).data == secondPlaintext)
     }
 
+    @Test func messageMediaDiskCacheEntryPurgeRemovesOnlyTheNamedPayloadsForThatAccount() async throws {
+        // A discarded failed send names the encrypted payloads it carried; only those go, and only
+        // for its account. The same payload cached by another account, and other media, stay.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let discardedPlaintext = Data("discarded send".utf8)
+        let keptPlaintext = Data("other media".utf8)
+        let discardedReference = mediaDiskCacheReference(plaintext: discardedPlaintext, ciphertextByte: 0xd1)
+        let discardedKey = MessageMediaDiskCacheKey(
+            accountId: "account-a", groupIdHex: "group-a", reference: discardedReference)
+        let otherAccountKey = MessageMediaDiskCacheKey(
+            accountId: "account-b", groupIdHex: "group-a", reference: discardedReference)
+        let keptKey = MessageMediaDiskCacheKey(
+            accountId: "account-a", groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: keptPlaintext, ciphertextByte: 0xd2))
+        for (key, data) in [
+            (discardedKey, discardedPlaintext), (otherAccountKey, discardedPlaintext), (keptKey, keptPlaintext),
+        ] {
+            await cache.store(
+                MessageMediaDownload(
+                    data: data, fileName: "a.jpg", mediaType: "image/jpeg", sizeBytes: UInt64(data.count),
+                    payloadId: key.payloadID),
+                for: key)
+        }
+
+        await cache.purgeEntries(
+            accountId: "account-a", ciphertextSha256s: [discardedReference.ciphertextSha256.uppercased()])
+
+        #expect(await cache.cachedDownload(for: discardedKey) == nil)
+        #expect(try #require(await cache.cachedDownload(for: otherAccountKey)).data == discardedPlaintext)
+        #expect(try #require(await cache.cachedDownload(for: keptKey)).data == keptPlaintext)
+    }
+
     @Test func messageMediaDiskCacheAccountPurgeCleansUnreadableEntriesAfterAccountPass() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

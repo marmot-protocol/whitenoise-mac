@@ -905,7 +905,10 @@ extension WorkspaceState {
         return L10n.string("Remove this message for everyone in the group, or hide it just for you.")
     }
 
-    func deleteSelectedMessages() async {
+    /// `discardFailedSend` takes the selected sends that never got out: nobody received them, so
+    /// they are discarded locally (MarmotKit 0.17 `discardFailedSend`) rather than deleted for
+    /// everyone, exactly as the row menu's Remove does.
+    func deleteSelectedMessages(discardFailedSend: (MessageItem) async -> Void) async {
         // Multi-select acts only on messages the user may delete for everyone — it must not
         // silently mix in local hides; single-message delete-for-me goes through the confirmation.
         let targets = selectedTimelineMessagesForAction.compactMap { message -> MessageDeletionTarget? in
@@ -916,7 +919,11 @@ extension WorkspaceState {
         }
         guard !targets.isEmpty else { return }
         for target in targets {
-            await deleteForEveryone(target)
+            if target.message.isLocalPublishFailure {
+                await discardFailedSend(target.message)
+            } else {
+                await deleteForEveryone(target)
+            }
         }
         cancelMessageSelection()
     }

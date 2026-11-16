@@ -468,16 +468,38 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
         let accountDigest = MessageMediaDiskCacheKey.accountDigest(for: accountId)
         let task = beginPurge(scope: .account(accountDigest)) { [self] in
-            Self.removeEntries(
-                matchingAccountDigest: accountDigest,
-                root: root,
-                symmetricKey: symmetricKey
-            )
+            Self.removeEntries(root: root, symmetricKey: symmetricKey) { $0.accountDigest == accountDigest }
             // Keep account matching separate from corrupt-entry reclamation. The first
             // pass only removes entries it can attribute to the target account; this
             // second pass is account-agnostic and deletes entries no account can read.
             Self.removeUnreadableEntries(root: root, symmetricKey: symmetricKey)
             // Account purges remove an arbitrary subset of entries. Re-seed lazily on the next store.
+            trackedFootprint = nil
+        }
+        await task.task.value
+        finishPurge(task)
+    }
+
+    /// Removes this account's entries for the given encrypted payloads, leaving the rest of the cache
+    /// alone: what a discarded failed send (MarmotKit 0.17 `discardFailedSend`) reports it carried.
+    func purgeEntries(accountId: String, ciphertextSha256s: [String]) async {
+        let hashes = Set(ciphertextSha256s.map { $0.lowercased() })
+        guard !hashes.isEmpty else { return }
+        await waitForActivePurge()
+
+        let root: URL
+        let symmetricKey: SymmetricKey
+        do {
+            root = try directoryResolver()
+            symmetricKey = try encryptionKey()
+        } catch {
+            return
+        }
+        let accountDigest = MessageMediaDiskCacheKey.accountDigest(for: accountId)
+        let task = beginPurge(scope: .account(accountDigest)) { [self] in
+            Self.removeEntries(root: root, symmetricKey: symmetricKey) {
+                $0.accountDigest == accountDigest && hashes.contains($0.ciphertextSha256.lowercased())
+            }
             trackedFootprint = nil
         }
         await task.task.value
@@ -996,9 +1018,9 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     private static func removeEntries(
-        matchingAccountDigest accountDigest: String,
         root: URL,
-        symmetricKey: SymmetricKey
+        symmetricKey: SymmetricKey,
+        matching shouldRemove: (Metadata) -> Bool
     ) {
         guard
             let shardDirectories = try? FileManager.default.contentsOfDirectory(
@@ -1029,7 +1051,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                     // corrupt-entry reclamation.
                     continue
                 }
-                if metadata.accountDigest == accountDigest {
+                if shouldRemove(metadata) {
                     try? FileManager.default.removeItem(at: entryDirectory)
                     removeEmptyDirectory(shardDirectory)
                 }

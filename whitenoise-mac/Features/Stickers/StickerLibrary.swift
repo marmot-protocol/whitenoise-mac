@@ -108,9 +108,20 @@ final class StickerLibrary {
     }
 
     /// Sends `sticker` to the group as its own kind-9 message.
-    func send(_ sticker: StickerFfi, groupIdHex: String) async throws {
-        _ = try await requireRuntime().sendSticker(
-            accountRef: accountRef, groupIdHex: groupIdHex, stickerRef: StickerKey(sticker).ref)
+    /// Sends a sticker, as a reply to `replyingTo` when one is open (MarmotKit 0.17.0).
+    func send(_ sticker: StickerFfi, groupIdHex: String, replyingTo targetMessageId: String? = nil) async throws {
+        _ = try await requireRuntime().sendTaggedSticker(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            stickerRef: StickerKey(sticker).ref,
+            messageTags: MessageReplyTags.tags(replyingTo: targetMessageId)
+        )
+    }
+
+    /// The pack's Sonar share link. MDK builds it locally with the relay hints it kept for the
+    /// pack, so this contacts no server.
+    func shareLink(for pack: StickerPackFfi) throws -> String {
+        try requireRuntime().stickerPackShareLink(accountRef: accountRef, coordinate: pack.coordinate)
     }
 
     /// The pack author as an abbreviated `npub`, or the abbreviated hex when it has none.

@@ -18,17 +18,15 @@ import MarmotKit
 /// `lastError` prints `MarmotKit.MarmotKitError.MissingKeyPackage(account: "…")` at the user.
 /// Every creation path maps through here instead.
 nonisolated enum ChatCreationFailure: Equatable {
-    /// A recipient has no usable published KeyPackage. `account` is the single member the core
-    /// named: `create_group` resolves members in order and stops at the first unreachable one, so
-    /// a roster with several needs one attempt per refusal to enumerate (see
-    /// `WorkspaceState.createGroupResolvingEveryRefusal`, which spends them all in one press).
-    /// `nil` when the core reported the condition without naming anyone.
+    /// A recipient has no usable published KeyPackage. `account` is the member the core named, or
+    /// `nil` when it reported the condition without naming anyone. Since MarmotKit 0.17 creates and
+    /// invites report this per member in `memberOutcomes` (`MemberResolutionReport`); the error
+    /// form remains for `startDirectConversation`, which stays all-or-nothing.
     case notOnWhiteNoise(account: String?)
     /// The recipient *is* on White Noise, but every KeyPackage they published is from an
     /// outdated app (`MissingKeyPackageReasonFfi.obsoleteOnly`). An invite prompt would be wrong —
     /// they need to update and open the app — so this is reported, not offered as an invitation,
-    /// and the refusal-enumerating paths stop on it rather than filing them under "not on White
-    /// Noise yet".
+    /// and never filed under "not on White Noise yet".
     case needsAppUpdate(account: String?)
     case other(message: String)
 

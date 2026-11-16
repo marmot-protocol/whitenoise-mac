@@ -208,9 +208,20 @@ build.
   every report-to-White-Noise affordance on `ModerationReporter.isAvailable`; Block itself never
   depends on it. Retained outcomes (`AcceptedPending`, `CompletionUnknown`) are queued and retried
   by MDK: show them as waiting, never resubmit, and never report to the group twice on a retry.
-- `MissingKeyPackage` carries a reason: `obsoleteOnly` recipients are on White Noise with an
-  outdated app, so they get "needs to update" copy (`ChatCreationFailure.needsAppUpdate`), never
-  the invite prompt or the "not on White Noise yet" mark.
+- Since 0.17.0 `createGroup` and `inviteMembersDetailed` go ahead with the members MDK can reach and
+  report every requested account in `memberOutcomes`; there is no all-or-nothing mode over the FFI,
+  so never probe the roster with repeated attempts. Read the result through
+  `MemberResolutionReport` (`Core/MemberResolutionReport.swift`): a missing group id / invite summary
+  means nothing changed (mark the unreachable, keep the composer or sheet open); otherwise open the
+  chat and name the people left out. `incomplete` is a relay read that did not finish, never an
+  "unreachable" mark. `startDirectConversation` stays all-or-nothing and still throws.
+- `MissingKeyPackage` (and the `obsoleteKeyPackage` outcome) carries a reason: `obsoleteOnly`
+  recipients are on White Noise with an outdated app, so they get "needs to update" copy
+  (`ChatCreationFailure.needsAppUpdate`), never the invite prompt or the "not on White Noise yet"
+  mark.
+- The audit source (`setAuditLogSource`, `TelemetryBuildConfig.auditLogSource()`) is held in memory
+  only and a recorder keeps the source it opened with, so it is set on every launch before accounts
+  come online. The v4 whole-file upload is gone since 0.17.0.
 - Documents open in another app (and Shared Media → Save As copies) from MDK's
   `openAttachmentHandoff` lease on the original slot (`Core/AttachmentHandoff.swift`), not a host
   plaintext export; in-app display and playback stay on `readAttachmentAsset`. Release the lease
@@ -250,14 +261,16 @@ build.
   through 90–98, 0.12.0 through 99–101, 0.13.0 through 102–107, 0.14.0 through 108–116
   (plus the directory cache from schema 1 to 2), and 0.15.0 through 117–153, 160–180, 200 and 201
   (schema 116 → 201). 0.16.0 leaves account databases alone but moves `shared.sqlite3` from
-  schema 3 to 4, which 0.15.0 refuses. An older app must not
+  schema 3 to 4, which 0.15.0 refuses. 0.17.0 moves account databases through 202–207 (schema
+  201 → 207), which 0.16.0 refuses. An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every
   database once to a raw SQLCipher key, which 0.13.0 cannot open at all, so the only way back is a
   copy of the account directory taken before the upgrade; see
   `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md`,
   `docs/MarmotKit-0.12.0-migration.md`, `docs/MarmotKit-0.14.0-migration.md`,
-  `docs/MarmotKit-0.15.0-migration.md` and `docs/MarmotKit-0.16.0-migration.md`.
+  `docs/MarmotKit-0.15.0-migration.md`, `docs/MarmotKit-0.16.0-migration.md` and
+  `docs/MarmotKit-0.17.0-migration.md`.
 - Start a direct chat with `startDirectConversation` (both accounts founding admins, retry-safe),
   not `createGroup` plus a promotion. The one exception is an explicitly requested *additional*
   direct chat with someone, which that call would answer with the existing one.

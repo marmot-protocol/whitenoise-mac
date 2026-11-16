@@ -187,23 +187,19 @@ struct TelemetryBuildConfig: Equatable {
         )
     }
 
-    /// The v4 tracker config. It is more than the v4 drain: in MarmotKit 0.11 its `source` is the
-    /// only way the host gets data into v5 records. mdk copies `appVersion`, `platform` and
-    /// `hardwareModel` into every v5 `source_context`, and neither the v5 OTLP envelope nor
-    /// `AuditOtlpConfigV5Ffi` has a field of its own for them. Deleting this config therefore
-    /// strips the version and flavor from delivered audit data, even after the v4 files drain.
-    func auditTrackerConfig() -> AuditLogTrackerConfigV4Ffi {
-        // Account identity now lives in the JSONL source_context emitted by the
-        // Marmot core (Goggles contract), so the host no longer supplies an
-        // account label here.
-        AuditLogTrackerConfigV4Ffi(
-            endpoint: nil,
-            authorizationBearerToken: auditLogBearerToken,
-            source: AuditLogUploadSourceV4Ffi(
-                hardwareModel: deviceModelIdentifier,
-                platform: "macos",
-                appVersion: auditAppVersion
-            )
+    /// The audit source: `appVersion`, `platform` and `hardwareModel`, which mdk copies into every
+    /// v5 `source_context`. Neither the v5 OTLP envelope nor `AuditOtlpConfigV5Ffi` has a field of
+    /// its own for them, so without this the version and flavor vanish from delivered audit data.
+    /// MarmotKit holds it in memory only and a recorder keeps the source it opened with, so it is
+    /// applied on every launch before any account opens. `hardwareModel` is `hw.model`, never a
+    /// device name, hostname or serial number.
+    func auditLogSource() -> AuditLogSourceFfi {
+        // Account identity lives in the JSONL source_context emitted by the Marmot core
+        // (Goggles contract), so the host supplies no account label here.
+        AuditLogSourceFfi(
+            hardwareModel: deviceModelIdentifier,
+            platform: "macos",
+            appVersion: auditAppVersion
         )
     }
 

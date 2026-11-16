@@ -450,7 +450,8 @@ struct MessageBubble: View {
                 MessageContextMenuItems(
                     message: message,
                     onReactionPick: pickReaction,
-                    moderation: moderationActions
+                    moderation: moderationActions,
+                    discardFailedSend: discardFailedSend
                 )
             }
         }
@@ -506,6 +507,15 @@ struct MessageBubble: View {
 
     private var showsInlineActions: Bool {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+    }
+
+    /// Remove for a failed own send: discarded on this device and never published, because a
+    /// delete would tell the group about a message nobody received. `nil` for every other row.
+    private var discardFailedSend: (() -> Void)? {
+        guard message.isLocalPublishFailure else { return nil }
+        return { [conversationModel, workspace, message] in
+            Task { await FailedSendDiscard.run(message, model: conversationModel, workspace: workspace) }
+        }
     }
 
     /// Report and Block for the context menu and the hover strip's overflow. Resolved against the
@@ -708,6 +718,7 @@ struct MessageBubble: View {
                 message: message,
                 onReactionPick: pickReaction,
                 moderation: moderationActions,
+                discardFailedSend: discardFailedSend,
                 customEmoji: .conversation(conversationModel)
             )
             // The strip is an overlay on the bubble's edge, pushed clear of it by the width
@@ -2644,6 +2655,7 @@ struct MessageInlineActions: View {
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
     let moderation: MessageModerationActions
+    var discardFailedSend: (() -> Void)?
     var customEmoji: CustomEmojiPickerContent?
 
     var body: some View {
@@ -2701,6 +2713,7 @@ struct MessageInlineActions: View {
                     MessageOverflowPopover(
                         message: message,
                         moderation: moderation,
+                        discardFailedSend: discardFailedSend,
                         dismiss: { isOverflowPresented = false }
                     )
                 }
@@ -2921,6 +2934,7 @@ struct MessageRowAction: Identifiable {
         workspace: WorkspaceState,
         now: Date = .now,
         moderation: MessageModerationActions? = nil,
+        discardFailedSend: (() -> Void)? = nil,
         focusComposer: @escaping () -> Void = {},
         dismiss: @escaping () -> Void = {}
     ) -> [MessageRowAction] {
@@ -2999,7 +3013,16 @@ struct MessageRowAction: Identifiable {
                     moderation.block()
                 })
         }
-        if workspace.canDeleteMessage(message) {
+        if message.isLocalPublishFailure, let discardFailedSend {
+            // "Remove", as for a staged send that never got out: nobody received this message, so
+            // it is discarded here without a delete for everyone and without that confirmation.
+            actions.append(
+                MessageRowAction(kind: .delete, title: L10n.string("Remove"), systemImage: "trash", role: .destructive)
+                {
+                    dismiss()
+                    discardFailedSend()
+                })
+        } else if workspace.canDeleteMessage(message) {
             actions.append(
                 MessageRowAction(kind: .delete, title: L10n.string("Delete"), systemImage: "trash", role: .destructive)
                 {
@@ -3062,11 +3085,25 @@ struct MessageRowAction: Identifiable {
     }
 }
 
+/// Removes a failed own send for the row menu and the selection toolbar alike: discarded on this
+/// device through the conversation model, with its own decrypted media dropped from the host cache
+/// and any failure on the error line.
+@MainActor
+enum FailedSendDiscard {
+    static func run(_ message: MessageItem, model: ConversationViewModel, workspace: WorkspaceState) async {
+        let failure = await model.discardFailedSend(messageIdHex: message.id) { [cache = workspace.mediaDiskCache] in
+            await cache.purgeEntries(accountId: model.account.id, ciphertextSha256s: $0)
+        }
+        if let failure { workspace.reportUserActionError(failure) }
+    }
+}
+
 struct MessageOverflowPopover: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.composerFocusRequester) private var composerFocusRequester
     let message: MessageItem
     let moderation: MessageModerationActions
+    var discardFailedSend: (() -> Void)?
     let dismiss: () -> Void
 
     var body: some View {
@@ -3075,6 +3112,7 @@ struct MessageOverflowPopover: View {
                 for: message,
                 workspace: workspace,
                 moderation: moderation,
+                discardFailedSend: discardFailedSend,
                 focusComposer: composerFocusRequester.request,
                 dismiss: dismiss
             )
@@ -3138,6 +3176,7 @@ struct MessageContextMenuItems: View {
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
     let moderation: MessageModerationActions
+    var discardFailedSend: (() -> Void)?
 
     var body: some View {
         Group {
@@ -3176,6 +3215,7 @@ struct MessageContextMenuItems: View {
                     for: message,
                     workspace: workspace,
                     moderation: moderation,
+                    discardFailedSend: discardFailedSend,
                     focusComposer: composerFocusRequester.request
                 )
             ) { action in

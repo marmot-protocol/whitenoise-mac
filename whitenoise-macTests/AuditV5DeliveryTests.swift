@@ -47,15 +47,15 @@ struct AuditV5DeliveryTests {
     }
 
     /// One audit token serves every flavor, so the flavor has to travel inside the records. mdk
-    /// copies the v4 source's `appVersion` into each v5 `source_context`, which is the only
+    /// copies the audit source's `appVersion` into each v5 `source_context`, which is the only
     /// host-supplied field the v5 schema has room for.
     @Test func theAuditAppVersionCarriesTheFlavor() {
         let production = telemetryBuildConfig(environment: "production", serviceVersion: "2026.9.22+16")
         let development = telemetryBuildConfig(environment: "development", serviceVersion: "2026.9.22+16")
 
-        #expect(production.auditTrackerConfig().source.appVersion == "2026.9.22+16.production")
-        #expect(production.auditTrackerConfig().source.platform == "macos")
-        #expect(development.auditTrackerConfig().source.appVersion == "2026.9.22+16.development")
+        #expect(production.auditLogSource().appVersion == "2026.9.22+16.production")
+        #expect(production.auditLogSource().platform == "macos")
+        #expect(development.auditLogSource().appVersion == "2026.9.22+16.development")
     }
 
     @Test func aVersionWithoutABuildNumberStartsTheBuildMetadataWithTheFlavor() {
@@ -79,7 +79,7 @@ struct AuditV5DeliveryTests {
 
     @Test func noDestinationIsNotReportedAsASuccessfulUpload() {
         let message = DiagnosticsSettingsViewModel.auditUploadStatusMessage(
-            Self.result(v4SkippedReason: "audit log files missing", v5: nil)
+            Self.result(v5: nil)
         )
 
         #expect(message == L10n.string("No audit destination is configured, so audit logs stay on this Mac."))
@@ -87,10 +87,9 @@ struct AuditV5DeliveryTests {
 
     @Test func acceptedBatchesAreReportedAsSent() {
         let message = DiagnosticsSettingsViewModel.auditUploadStatusMessage(
-            Self.result(v4SkippedReason: "audit log files missing", v5: Self.v5(accepted: 3, idle: 1))
+            Self.result(v5: Self.v5(accepted: 3, idle: 1))
         )
 
-        // The v4 skip reason is routine once 0.10.4's files have drained; it must not show.
         #expect(message == L10n.string("Audit logs sent."))
     }
 
@@ -120,28 +119,10 @@ struct AuditV5DeliveryTests {
         #expect(message == String(format: L10n.string("Audit upload skipped: %@"), "v5 delivery pass failed"))
     }
 
-    @Test func leftoverV4FilesThatDrainAreReportedAlongsideV5() {
-        let message = DiagnosticsSettingsViewModel.auditUploadStatusMessage(
-            Self.result(
-                v4Uploaded: [AuditLogUploadResultFfi(path: "/tmp/audit-v4.jsonl", status: 200, bytesSent: 2048)],
-                v5: Self.v5(idle: 1)
-            )
-        )
-
-        let drained = String(
-            format: L10n.string("Uploaded %d audit log files (%@)."),
-            1,
-            ByteCountFormatter.string(fromByteCount: 2048, countStyle: .file)
-        )
-        // v5 had nothing new, so the drain line stands alone rather than claiming "up to date".
-        #expect(message == drained)
-    }
-
     @Test func disabledRecordingReportsTheSkipReason() {
         let message = DiagnosticsSettingsViewModel.auditUploadStatusMessage(
             Self.result(
                 enabled: false,
-                v4SkippedReason: "audit logging disabled",
                 v5: Self.v5(skippedReason: "audit logging disabled")
             )
         )
@@ -163,14 +144,10 @@ struct AuditV5DeliveryTests {
 
     private static func result(
         enabled: Bool = true,
-        v4Uploaded: [AuditLogUploadResultFfi] = [],
-        v4SkippedReason: String? = nil,
         v5: AuditOtlpTrackerResultV5Ffi?
     ) -> AuditLogTrackerUpdateResultV5Ffi {
         AuditLogTrackerUpdateResultV5Ffi(
             enabled: enabled,
-            v4Uploaded: v4Uploaded,
-            v4SkippedReason: v4SkippedReason,
             v5: v5
         )
     }

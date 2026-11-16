@@ -106,6 +106,8 @@ final class ConversationViewModel {
     private(set) var reactionDetails: MessageReactionsViewModel?
     /// A blocked leave's cancel in flight (MarmotKit 0.15 `cancelLeave`), and why the last one failed.
     private(set) var isCancellingLeave = false
+    /// Failed sends with a discard in flight, so a second click on Remove is dropped.
+    @ObservationIgnored private var discardingMessageIds: Set<String> = []
     private(set) var cancelLeaveFailure: String?
 
     @ObservationIgnored private let runtime: any MarmotRuntime
@@ -385,16 +387,49 @@ final class ConversationViewModel {
         )
     }
 
-    /// Sends a new poll. MDK 0.13 accepts polls in direct conversations as well as groups.
-    func createPoll(_ submission: PollDraft.Submission) async throws {
-        _ = try await runtime.createPoll(
+    /// Sends a new poll, as a reply to `replyingTo` when one is open. MDK 0.13 accepts polls in
+    /// direct conversations as well as groups; 0.17 carries the reply's `e`/`q` tags on the poll.
+    func createPoll(_ submission: PollDraft.Submission, replyingTo targetMessageId: String? = nil) async throws {
+        _ = try await runtime.createTaggedPoll(
             accountRef: account.accountRef,
             groupIdHex: groupIdHex,
             question: submission.question,
             options: submission.options,
             pollType: submission.pollType,
-            endsAt: submission.endsAt
+            endsAt: submission.endsAt,
+            messageTags: MessageReplyTags.tags(replyingTo: targetMessageId)
         )
+    }
+
+    /// Removes a failed own send from this device. Nothing is published: a delete would tell the
+    /// group about a message nobody received. The row leaves the timeline through the window's
+    /// next snapshot.
+    ///
+    /// `purgeMedia` receives the ciphertext hashes of the send's encrypted media, so the host's
+    /// decrypted copies go with it. Returns the message to show when the send could not be
+    /// discarded, or `nil`.
+    func discardFailedSend(messageIdHex: String, purgeMedia: ([String]) async -> Void) async -> String? {
+        guard !discardingMessageIds.contains(messageIdHex) else { return nil }
+        discardingMessageIds.insert(messageIdHex)
+        defer { discardingMessageIds.remove(messageIdHex) }
+        do {
+            let result = try await runtime.discardFailedSend(
+                accountRef: account.accountRef, groupIdHex: groupIdHex, messageIdHex: messageIdHex)
+            switch result.outcome {
+            case .discarded:
+                if !result.mediaCiphertextSha256.isEmpty { await purgeMedia(result.mediaCiphertextSha256) }
+                return nil
+            case .stillSending:
+                return L10n.string("This message may still be sending. Try again in a moment.")
+            case .notFailedSend:
+                // It was retried or delivered after the menu opened; there is nothing to discard.
+                return nil
+            }
+        } catch is CancellationError {
+            return nil
+        } catch {
+            return UserFacingError.message(for: error)
+        }
     }
 
     /// The poll with any in-flight local vote applied.

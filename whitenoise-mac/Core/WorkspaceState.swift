@@ -56,7 +56,7 @@ final class WorkspaceState {
         let buildConfig: TelemetryBuildConfig
         let accountLabel: String?
         let relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi
-        let auditLogTrackerConfig: AuditLogTrackerConfigV4Ffi
+        let auditLogSource: AuditLogSourceFfi
         /// What was last handed to `setAuditOtlpConfigV5`, accepted or not. A rejection is
         /// deterministic for a given build config, so it is not retried on every account switch.
         let auditOtlpConfig: AuditOtlpConfigV5Ffi
@@ -424,21 +424,18 @@ final class WorkspaceState {
     /// Disappearing-message timer chosen on the name-group panel. Not a `createGroup`
     /// parameter, so it is applied right after creation.
     var groupDraftRetentionSecs: UInt64 = 0
-    /// Draft members the core has named as having no usable KeyPackage, by lowercased account
-    /// id. `create_group` stops at the first unreachable member, so an attempt names at most one;
-    /// `createGroupResolvingEveryRefusal` spends as many attempts as it takes to fill this in
-    /// completely. The name-group panel lists them apart and the next attempt leaves them out.
+    /// Draft members MDK found no messaging setup for, by lowercased account id. Since MarmotKit
+    /// 0.17 a create goes ahead with whoever is available, so these are filled in only by a create
+    /// that added nobody (`MemberResolutionReport`). The name-group panel lists them apart and the
+    /// next attempt leaves them out.
     var unreachableDraftMemberIdHexes: Set<String> = []
-    /// Staged add-members recipients the core has named as having no usable KeyPackage, by
-    /// lowercased account id. The add-members sheet is the compose draft's twin — `invite_members`
-    /// resolves the roster the same way `create_group` does and reports the same one refusal per
-    /// attempt — so it splits its staged list the same way rather than naming one person per press.
+    /// Staged add-members recipients MDK found no messaging setup for, by lowercased account id:
+    /// the compose draft's twin, filled in by an invite that added nobody.
     var unreachableInviteMemberIdHexes: Set<String> = []
     /// The add-members counterpart of `hasUnnamedGroupDraftRefusal`.
     var hasUnnamedInviteRefusal = false
-    /// Set when a group-draft attempt was refused for want of a usable KeyPackage and no draft
-    /// member could be held responsible — a KeyPackage that exists but can't be used names nobody,
-    /// and one can turn up before this press has a refused member to probe with.
+    /// Set when MDK reported someone unreachable whom no draft member matches, so no row can
+    /// carry the mark, or when a refusal thrown as an error names nobody.
     ///
     /// It feeds the same notice `unreachableDraftMemberIdHexes` does rather than `lastError`,
     /// because a red line contradicting the notice above it ("2 people here aren't on White
@@ -1942,7 +1939,7 @@ final class WorkspaceState {
         let generation = observabilityRuntimeGeneration
 
         let relayRuntimeConfig = config.runtimeConfig()
-        let auditTrackerConfig = config.auditTrackerConfig()
+        let auditLogSource = config.auditLogSource()
         let auditOtlpConfig = config.auditOtlpConfig()
         let productAnalyticsRuntimeConfig = config.productAnalyticsRuntimeConfig()
 
@@ -1952,9 +1949,9 @@ final class WorkspaceState {
                 activeAccountId == accountId
             else { return }
         }
-        if observabilityRuntimeConfiguration?.auditLogTrackerConfig != auditTrackerConfig {
+        if observabilityRuntimeConfiguration?.auditLogSource != auditLogSource {
             _ = try await FFIExecutor.run {
-                try client.setAuditLogTrackerConfig(config: auditTrackerConfig)
+                try client.setAuditLogSource(source: auditLogSource)
             }
             guard !Task.isCancelled, observabilityRuntimeGeneration == generation,
                 activeAccountId == accountId
@@ -1990,7 +1987,7 @@ final class WorkspaceState {
             buildConfig: config,
             accountLabel: accountLabel,
             relayTelemetryRuntimeConfig: relayRuntimeConfig,
-            auditLogTrackerConfig: auditTrackerConfig,
+            auditLogSource: auditLogSource,
             auditOtlpConfig: auditOtlpConfig,
             productAnalyticsRuntimeConfig: productAnalyticsRuntimeConfig
         )

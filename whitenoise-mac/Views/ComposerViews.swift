@@ -2010,6 +2010,7 @@ struct ConversationHeader: View {
 
 struct MessageSelectionToolbar: View {
     @Environment(WorkspaceState.self) private var workspace
+    let conversationModel: ConversationViewModel
 
     var body: some View {
         let messages = workspace.selectedTimelineMessagesForAction
@@ -2037,7 +2038,11 @@ struct MessageSelectionToolbar: View {
             .disabled(!canForward)
 
             Button(role: .destructive) {
-                Task { await workspace.deleteSelectedMessages() }
+                Task {
+                    await workspace.deleteSelectedMessages { message in
+                        await FailedSendDiscard.run(message, model: conversationModel, workspace: workspace)
+                    }
+                }
             } label: {
                 Label(L10n.string("Delete"), systemImage: "trash")
                     .frame(minWidth: 40, minHeight: 40)

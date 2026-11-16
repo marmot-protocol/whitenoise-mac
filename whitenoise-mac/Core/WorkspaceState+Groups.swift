@@ -522,8 +522,21 @@ extension WorkspaceState {
                     groupIdHex: groupIdHex
                 )
             else { return }
+            // MDK reports an unavailable member as an outcome, not an error. With nobody added there
+            // was no commit: the identifier stays in the field, the group details (and any unsaved
+            // profile draft) are left alone, and the error line names what was typed.
+            guard result.invite.summary != nil else {
+                let typed = NewChatRecipient(
+                    sourceQuery: query, memberRef: normalized.npub, accountIdHex: normalized.accountIdHex,
+                    npub: normalized.npub, displayName: query, pictureURL: nil)
+                let report = MemberResolutionReport(outcomes: result.invite.memberOutcomes, recipients: [typed])
+                lastError =
+                    report.nothingAddedMessage
+                    ?? String(format: L10n.string("%@ isn't on White Noise yet, so they can't be added."), typed.title)
+                return
+            }
+            applyGroupDetails(result.details, managementState: result.managementState)
             groupInviteMemberQuery = ""
-            applyGroupMutationResult(result)
             await reloadChats(forceFreshSnapshot: true)
         } catch {
             guard
@@ -569,10 +582,10 @@ extension WorkspaceState {
             let snapshot = groupDetailsSnapshot,
             !hasInFlightGroupCommit
         else { return false }
-        // Members the core has already refused are left out, exactly as the compose draft leaves
-        // them out of the next create: the sheet dims them and says why, so the invite being sent
-        // is the one the user is looking at.
-        var candidates = reachableInviteRecipients(recipients)
+        // Members MDK has already found unreachable are left out, exactly as the compose draft
+        // leaves them out of the next create: the sheet dims them and says why, so the invite being
+        // sent is the one the user is looking at.
+        let candidates = reachableInviteRecipients(recipients)
         guard !candidates.isEmpty else { return false }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex
@@ -583,200 +596,98 @@ extension WorkspaceState {
         isInvitingGroupMember = true
         defer { isInvitingGroupMember = false }
 
-        // `invite_members` resolves every member's KeyPackage before it commits anything and stops
-        // at the first one it can't, naming that account alone. Learning them one press at a time
-        // meant the sheet answered "who can't be added" with one name while several were at fault,
-        // so the refusals are chased down here the way `createGroupResolvingEveryRefusal` does:
-        // the member just refused rides along at the end of each follow-up, which keeps that
-        // follow-up failing in resolution — before any commit — while the roster ahead of it is
-        // checked. Keep the two in step.
-        var pinnedRefusal: NewChatRecipient?
-        // Collected and published in one go on the way out. Marking them as they arrive let the
-        // sheet render each partial answer — one name, then two, then three — which reads as the
-        // sheet changing its mind rather than as the single answer this press has.
-        var discovered: Set<String> = []
-        defer { unreachableInviteMemberIdHexes.formUnion(discovered) }
-        // Chasing refusals makes several attempts; the user is asked about an advisory once.
-        let consents = GroupChangeAdvisoryConsents()
-        while !candidates.isEmpty {
-            let attempt = candidates + (pinnedRefusal.map { [$0] } ?? [])
-            do {
-                let result = try await GroupChangeAdvisoryRetry.perform(
-                    prompter: advisory, consents: consents, isInvite: true, runtime: client,
-                    accountRef: activeAccount.accountRef, groupIdHex: groupIdHex
-                ) {
-                    try await client.inviteMembersDetailed(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: groupIdHex,
-                        memberRefs: attempt.map(\.inviteRef)
-                    )
-                }
-                guard
-                    isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
-                else { return false }
-                applyGroupMutationResult(result)
-                await reloadChats(forceFreshSnapshot: true)
-                return true
-            } catch {
-                guard
-                    isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
-                else { return false }
-                if error is GroupChangeAdvisoryDeclined || GroupChangeAdvisory(error: error) != nil {
-                    // Nothing was committed and nobody was refused: the group itself is what the
-                    // core held back, so there is no one to probe for.
-                    lastError = UserFacingError.message(for: error)
-                    return false
-                }
-                if case .needsAppUpdate = ChatCreationFailure(error) {
-                    // On White Noise with an outdated app: not a "can't be added" mark, and nothing
-                    // to enumerate — the error line names them and asks them to update.
-                    lastError = ChatCreationFailure.message(for: error, candidates: attempt)
-                    return false
-                }
-                if case .notOnWhiteNoise(let account) = ChatCreationFailure(error),
-                    let refused = ChatCreationFailure.refusedRecipient(named: account, among: attempt),
-                    let index = candidates.firstIndex(where: {
-                        $0.accountIdHex.caseInsensitiveCompare(refused.accountIdHex) == .orderedSame
-                    })
-                {
-                    // A named refusal aborts resolution before the commit, so there is nothing to
-                    // reconcile — only someone to mark and a roster to keep checking.
-                    discovered.insert(refused.accountIdHex.lowercased())
-                    candidates.remove(at: index)
-                    pinnedRefusal = refused
-                    // Everyone ahead of a refusal resolved; a refusal at the end of the roster
-                    // leaves nobody behind it to ask about.
-                    guard index < candidates.count else { return false }
-                    continue
-                }
-                let outcome = await reconcileOrAttributeInviteFailure(
-                    error,
-                    attempted: attempt,
-                    candidates: candidates,
-                    pin: pinnedRefusal ?? unreachableInviteRecipients(recipients).first,
-                    recipients: recipients,
-                    client: client,
-                    activeAccount: activeAccount,
+        do {
+            let result = try await GroupChangeAdvisoryRetry.perform(
+                prompter: advisory, isInvite: true, runtime: client,
+                accountRef: activeAccount.accountRef, groupIdHex: groupIdHex
+            ) {
+                try await client.inviteMembersDetailed(
+                    accountRef: activeAccount.accountRef,
                     groupIdHex: groupIdHex,
-                    accountId: accountId
+                    memberRefs: candidates.map(\.inviteRef)
                 )
-                discovered.formUnion(outcome.marks)
-                return outcome.didInvite
             }
+            guard
+                isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
+            else { return false }
+            // Since MarmotKit 0.17 an invite goes ahead with the members MDK can reach and names the
+            // rest in `memberOutcomes`, so one press answers for everyone staged.
+            let report = MemberResolutionReport(outcomes: result.invite.memberOutcomes, recipients: candidates)
+            guard result.invite.summary != nil else {
+                // Nobody was available, so no commit was made: the sheet stays up and marks them.
+                unreachableInviteMemberIdHexes.formUnion(report.unreachableRecipientIdHexes)
+                if report.hasUnnamedUnreachable {
+                    hasUnnamedInviteRefusal = true
+                }
+                if let message = report.nothingAddedMessage {
+                    lastError = message
+                }
+                return false
+            }
+            // The invite went out to the members MDK selected. The sheet closes with it, so the
+            // people left out are named on the banner instead.
+            applyGroupDetails(result.details, managementState: result.managementState)
+            if let notice = report.notAddedNotice {
+                backgroundStatus = notice
+            }
+            await reloadChats(forceFreshSnapshot: true)
+            return true
+        } catch {
+            guard
+                isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
+            else { return false }
+            if error is GroupChangeAdvisoryDeclined || GroupChangeAdvisory(error: error) != nil {
+                // Nothing was committed: the group itself is what the core held back.
+                lastError = UserFacingError.message(for: error)
+                return false
+            }
+            return await reconcileInviteFailure(
+                error,
+                attempted: candidates,
+                recipients: recipients,
+                groupIdHex: groupIdHex,
+                accountId: accountId
+            )
         }
-        return false
     }
 
-    /// What `reconcileOrAttributeInviteFailure` concluded: whether the invite turned out to have
-    /// gone through, and who it managed to name along the way.
-    private struct InviteFailureOutcome {
-        let didInvite: Bool
-        var marks: Set<String> = []
-    }
-
-    /// An invite failure that named nobody in the staged roster: either the commit went through and
-    /// only the read of it failed, or one member is failing in a way the error doesn't attribute.
-    ///
-    /// Sorts the two out in that order — a published invite must never be reported as a refusal —
-    /// then asks about the remaining members one at a time, exactly as the compose draft does, so
-    /// the sheet can name everyone rather than the first person the core happened to mention.
-    private func reconcileOrAttributeInviteFailure(
+    /// `inviteMembersDetailed` can throw while reading post-commit details *after* the MLS invite
+    /// already published. Refresh the roster and reconcile: if anyone from this attempt is now in
+    /// the group, the invite went out despite the read error — report success so the sheet
+    /// dismisses and a retry doesn't hit "already a member", and name whoever MDK left out, since
+    /// the outcomes that would have said so were lost with the read. Otherwise the error goes on
+    /// the line.
+    private func reconcileInviteFailure(
         _ error: Error,
         attempted: [NewChatRecipient],
-        candidates: [NewChatRecipient],
-        pin: NewChatRecipient?,
         recipients: [NewChatRecipient],
-        client: any MarmotRuntime,
-        activeAccount: AccountItem,
         groupIdHex: String,
         accountId: String
-    ) async -> InviteFailureOutcome {
-        // `inviteMembersDetailed` can throw while reading post-commit details *after* the MLS
-        // invite already published. Refresh the roster and reconcile: if every member of this
-        // attempt is now in the group, the invite succeeded despite the read error — report success
-        // so the sheet dismisses and a retry doesn't hit "already a member".
+    ) async -> Bool {
         await reloadChats(forceFreshSnapshot: true)
         // Every await here suspends the actor, so re-validate the full presentation context
         // after each one — not just the snapshot: a switch to another chat leaves the old
         // snapshot temporarily intact (`loadGroupDetails` early-returns for a deselected
         // group), and this error must not land in whatever the user is looking at now.
         guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex) else {
-            return InviteFailureOutcome(didInvite: false)
+            return false
         }
         await loadGroupDetails(groupIdHex: groupIdHex)
         guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex) else {
-            return InviteFailureOutcome(didInvite: false)
+            return false
         }
-        let currentMemberIds = Set(groupDetailsSnapshot?.members.map(\.id) ?? [])
-        if !currentMemberIds.isEmpty,
-            attempted.allSatisfy({ currentMemberIds.contains($0.accountIdHex) })
-        {
-            return InviteFailureOutcome(didInvite: true)
-        }
-
-        // Nothing was committed, so this is about the people. `[candidate, pin]` is a question the
-        // core answers by refusing: the pin is already known to have no usable KeyPackage, and
-        // resolution stops at the first member it can't resolve — the candidate, who goes first.
-        var marks: Set<String> = []
-        // The core named a member at some point in this pass — evidence that it is naming them at
-        // all, without which an unnamed answer says nothing about the candidate it was asked about.
-        var didNameAnyone = false
-        var unattributed: [NewChatRecipient] = []
-        if let pin {
-            for candidate in candidates {
-                do {
-                    let result = try await client.inviteMembersDetailed(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: groupIdHex,
-                        memberRefs: [candidate, pin].map(\.inviteRef)
-                    )
-                    // The pin resolved between attempts, so this invited both — which is what the
-                    // user staged them for.
-                    guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex)
-                    else { return InviteFailureOutcome(didInvite: false) }
-                    unreachableInviteMemberIdHexes.remove(pin.accountIdHex.lowercased())
-                    applyGroupMutationResult(result)
-                    await reloadChats(forceFreshSnapshot: true)
-                    return InviteFailureOutcome(didInvite: true)
-                } catch {
-                    // Guarded on the presentation context rather than the mutation generation the
-                    // caller captured: the reconciliation above reloads the group details, which
-                    // supersedes that generation by design.
-                    guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex)
-                    else { return InviteFailureOutcome(didInvite: false, marks: marks) }
-                    var named: NewChatRecipient?
-                    if case .notOnWhiteNoise(let account) = ChatCreationFailure(error) {
-                        named = ChatCreationFailure.refusedRecipient(named: account, among: [candidate, pin])
-                    }
-                    guard let named else {
-                        unattributed.append(candidate)
-                        continue
-                    }
-                    didNameAnyone = true
-                    if named.accountIdHex.caseInsensitiveCompare(pin.accountIdHex) == .orderedSame {
-                        continue
-                    }
-                    marks.insert(candidate.accountIdHex.lowercased())
-                }
+        let currentMemberIds = Set(groupDetailsSnapshot?.members.map { $0.id.lowercased() } ?? [])
+        let leftOut = attempted.filter { !currentMemberIds.contains($0.accountIdHex.lowercased()) }
+        if leftOut.count < attempted.count {
+            if !leftOut.isEmpty {
+                backgroundStatus = String(
+                    format: L10n.string("Couldn’t add %@ to the group."),
+                    ListFormatter.localizedString(byJoining: leftOut.map(\.title)))
             }
-            // Only convict on an unnamed answer where the core has shown it names members at all
-            // this pass; otherwise the failure is as likely to be about the group or the relays,
-            // and marking everyone would empty the sheet of people who are perfectly reachable.
-            if didNameAnyone {
-                for candidate in unattributed {
-                    marks.insert(candidate.accountIdHex.lowercased())
-                }
-            }
-        }
-        guard marks.isEmpty else { return InviteFailureOutcome(didInvite: false, marks: marks) }
-        if case .notOnWhiteNoise = ChatCreationFailure(error) {
-            // Nobody could be named, so the sheet says there is someone rather than blaming a
-            // person the core never mentioned.
-            hasUnnamedInviteRefusal = true
-            return InviteFailureOutcome(didInvite: false)
+            return true
         }
         lastError = ChatCreationFailure.message(for: error, candidates: recipients)
-        return InviteFailureOutcome(didInvite: false)
+        return false
     }
 
     func acceptGroupInvite(for chat: ChatItem) async {

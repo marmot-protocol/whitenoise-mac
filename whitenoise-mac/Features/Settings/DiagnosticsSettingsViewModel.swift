@@ -232,32 +232,17 @@ final class DiagnosticsSettingsViewModel {
         )
     }
 
-    /// One pass reports two paths. v5 carries everything MarmotKit 0.11 records; the v4 upload
-    /// list only drains files left by 0.10.4, so an empty one says nothing about success. The v4
-    /// skip reason is not shown while v5 is configured: once those files are gone it reads
-    /// "audit log files missing" on every pass.
+    /// What one delivery pass did. Since MarmotKit 0.17 the pass is v5 only: the v4 whole-file
+    /// upload is gone, and leftover v4 files stay local until retention expires them.
     static func auditUploadStatusMessage(_ result: AuditLogTrackerUpdateResultV5Ffi) -> String {
         guard result.enabled else {
-            guard let reason = nonEmpty(result.v5?.skippedReason) ?? nonEmpty(result.v4SkippedReason) else {
+            guard let reason = nonEmpty(result.v5?.skippedReason) else {
                 return L10n.string("No audit logs uploaded.")
             }
             return String(format: L10n.string("Audit upload skipped: %@"), reason)
         }
 
         var lines: [String] = []
-        if !result.v4Uploaded.isEmpty {
-            let totalBytes = result.v4Uploaded.reduce(UInt64(0)) { $0 + $1.bytesSent }
-            lines.append(
-                String(
-                    format: L10n.string("Uploaded %d audit log files (%@)."),
-                    result.v4Uploaded.count,
-                    ByteCountFormatter.string(
-                        fromByteCount: Int64(clamping: totalBytes),
-                        countStyle: .file
-                    )
-                )
-            )
-        }
         guard let v5 = result.v5 else {
             lines.append(L10n.string("No audit destination is configured, so audit logs stay on this Mac."))
             return lines.joined(separator: " ")
