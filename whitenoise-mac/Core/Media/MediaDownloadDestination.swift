@@ -27,7 +27,15 @@ nonisolated struct MediaDownloadDestinationAccess: Sendable {
     }
 }
 
-/// Remembers the one folder the user granted, so downloading is a single click after the first one.
+/// Where one download gesture writes: a single file named in the Save As panel, or a folder that
+/// takes every attachment under a name no file there already has.
+enum MediaDownloadTarget {
+    case file(URL)
+    case folder(MediaDownloadDestinationAccess)
+}
+
+/// Remembers the one folder the user granted, so downloading is a single click after the first one,
+/// and whether the user would rather be asked every time.
 @MainActor
 protocol MediaDownloadDestinationStoring: AnyObject {
     /// The stored folder with access started, or `nil` when nothing is stored or the grant no
@@ -43,12 +51,17 @@ protocol MediaDownloadDestinationStoring: AnyObject {
     /// The stored folder for display, resolved without opening access to it. `nil` while it does
     /// not resolve, and the grant itself survives that — see `resolveDestination()`.
     var storedDestinationURL: URL? { get }
+
+    /// Whether every download asks where to go (Save As for one file, a folder for several) rather
+    /// than going straight into the stored folder.
+    var alwaysAsksWhereToSave: Bool { get set }
 }
 
 @MainActor
 final class UserDefaultsMediaDownloadDestinationStore: MediaDownloadDestinationStoring {
     private enum Key {
         static let bookmark = "whitenoise.mac.mediaDownloadDestinationBookmark"
+        static let alwaysAsks = "whitenoise.mac.mediaDownloadAlwaysAsksWhereToSave"
     }
 
     private let defaults: UserDefaults
@@ -111,6 +124,13 @@ final class UserDefaultsMediaDownloadDestinationStore: MediaDownloadDestinationS
 
     var storedDestinationURL: URL? {
         resolvedURL()
+    }
+
+    /// Asking is the default: a download that lands somewhere the user did not just choose is the
+    /// surprise this setting exists to avoid. Remembering a folder is the opt-in.
+    var alwaysAsksWhereToSave: Bool {
+        get { defaults.object(forKey: Key.alwaysAsks) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.alwaysAsks) }
     }
 
     /// Resolving a security-scoped bookmark does not open access — `startAccessingSecurityScopedResource()`

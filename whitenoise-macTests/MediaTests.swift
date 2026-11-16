@@ -3570,6 +3570,128 @@ struct MediaTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func downloadingOneAttachmentWhileAlwaysAskingSavesItWhereTheSavePanelSays() async throws {
+        // The Save As flow: the user names the file and picks its place, and that is where it goes —
+        // not into the remembered folder, which is left exactly as it was.
+        let folder = try uniqueTemporaryDirectory()
+        let remembered = try uniqueTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: remembered)
+        }
+        let destination = FakeMediaDownloadDestination(storedURL: remembered, alwaysAsks: true)
+        let chosen = folder.appending(path: "holiday.jpg")
+        destination.pickedFileURL = chosen
+        let payload = Data([0x0A, 0x0B, 0x0C])
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "photo.jpg", mediaType: "image/jpeg", data: payload, isAvailable: true)],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        #expect(destination.suggestedFileNames == ["photo.jpg"])
+        #expect(destination.pickCallCount == 0)
+        #expect(try Data(contentsOf: chosen) == payload)
+        #expect(try folderContents(of: remembered).isEmpty)
+        #expect(destination.storeCallCount == 0)
+        let feedback = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(feedback.savedCount == 1)
+        #expect(feedback.savedFileURLs == [chosen])
+        fixture.state.dismissMediaDownloadFeedback()
+    }
+
+    @MainActor
+    @Test func savePanelReplacesAFileTheUserChoseToReplace() async throws {
+        // The panel has already asked whether to replace an existing file, so a yes there must not
+        // turn into a "photo 2.jpg" beside it.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let chosen = folder.appending(path: "photo.jpg")
+        try Data([0xFF]).write(to: chosen)
+        let destination = FakeMediaDownloadDestination(alwaysAsks: true)
+        destination.pickedFileURL = chosen
+        let payload = Data([0x01, 0x02])
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "photo.jpg", mediaType: "image/jpeg", data: payload, isAvailable: true)],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        #expect(try Data(contentsOf: chosen) == payload)
+        #expect(try folderContents(of: folder) == ["photo.jpg"])
+        fixture.state.dismissMediaDownloadFeedback()
+    }
+
+    @MainActor
+    @Test func cancellingTheSavePanelWritesNothingAndShowsNoToast() async throws {
+        let destination = FakeMediaDownloadDestination(alwaysAsks: true)
+        destination.pickedFileURL = nil
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "photo.jpg", mediaType: "image/jpeg", data: Data([0x01]), isAvailable: true)],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        #expect(destination.suggestedFileNames == ["photo.jpg"])
+        #expect(fixture.state.mediaDownloadFeedback == nil)
+        #expect(!fixture.state.isDownloadingMediaAttachments(for: fixture.message))
+    }
+
+    @MainActor
+    @Test func downloadingSeveralAttachmentsWhileAlwaysAskingAsksForAFolderEachTime() async throws {
+        // One folder question per gesture, never one Save As per file — and the answer is not
+        // remembered, because the user asked to be asked.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(pickedURL: folder, alwaysAsks: true)
+        let fixture = await mediaDownloadFixture(
+            attachments: [
+                (fileName: "photo.jpg", mediaType: "image/jpeg", data: Data([0x01]), isAvailable: true),
+                (fileName: "notes.pdf", mediaType: "application/pdf", data: Data([0x02]), isAvailable: true),
+            ],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        #expect(destination.pickCallCount == 1)
+        #expect(destination.suggestedFileNames.isEmpty)
+        #expect(destination.storeCallCount == 0)
+        #expect(try folderContents(of: folder).sorted() == ["notes.pdf", "photo.jpg"])
+        let feedback = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(
+            feedback.savedFileURLs.map(\.lastPathComponent).sorted() == ["notes.pdf", "photo.jpg"])
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        #expect(destination.pickCallCount == 2)
+        fixture.state.dismissMediaDownloadFeedback()
+    }
+
+    @MainActor
+    @Test func mediaDownloadDestinationAlwaysAsksUntilTheUserTurnsItOff() throws {
+        // A fresh install asks where every download goes; turning that off is remembered.
+        let suiteName = "whitenoise.mac.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults)
+        #expect(store.alwaysAsksWhereToSave)
+
+        store.alwaysAsksWhereToSave = false
+
+        #expect(!UserDefaultsMediaDownloadDestinationStore(defaults: defaults).alwaysAsksWhereToSave)
+    }
+
+    @MainActor
     @Test func changeMediaDownloadDestinationStoresTheNewFolderAndKeepsItOnCancel() async throws {
         let folder = try uniqueTemporaryDirectory()
         let replacement = try uniqueTemporaryDirectory()
@@ -3696,21 +3818,26 @@ struct MediaTests: WorkspaceTestSupport {
         let destination = FakeMediaDownloadDestination()
         let fixture = await mediaDownloadFixture(attachments: [], destination: destination)
 
-        fixture.state.presentMediaDownloadFeedback(savedCount: 1, failedCount: 0)
-        fixture.state.presentMediaDownloadFeedback(savedCount: 2, failedCount: 1)
+        let first = URL(filePath: "/tmp/first.jpg")
+        let second = URL(filePath: "/tmp/second.jpg")
+        let third = URL(filePath: "/tmp/third.jpg")
+        fixture.state.presentMediaDownloadFeedback(savedFileURLs: [first], failedCount: 0)
+        fixture.state.presentMediaDownloadFeedback(savedFileURLs: [second, third], failedCount: 1)
 
         let feedback = try #require(fixture.state.mediaDownloadFeedback)
         #expect(feedback.savedCount == 3)
         #expect(feedback.failedCount == 1)
         #expect(feedback.hasFailures)
+        // Show in Finder reveals every file the toast is counting, not just the latest gesture's.
+        #expect(feedback.savedFileURLs == [first, second, third])
 
         // Once the toast is gone the next gesture starts a tally of its own, rather than inheriting
         // counts for files the user has already been told about.
         fixture.state.dismissMediaDownloadFeedback()
-        fixture.state.presentMediaDownloadFeedback(savedCount: 1, failedCount: 0)
+        fixture.state.presentMediaDownloadFeedback(savedFileURLs: [first], failedCount: 0)
 
         let afterDismissal = try #require(fixture.state.mediaDownloadFeedback)
-        #expect(afterDismissal.savedCount == 1)
+        #expect(afterDismissal.savedFileURLs == [first])
         #expect(afterDismissal.failedCount == 0)
         fixture.state.dismissMediaDownloadFeedback()
     }

@@ -69,6 +69,16 @@ actor MediaDownloadWriter {
         throw Self.failure(EEXIST, at: directory.appending(path: fileName))
     }
 
+    /// Write `data` to exactly `url`, replacing what is there.
+    ///
+    /// For a Save As destination only: the panel has already asked whether to replace an existing
+    /// file, so the unique-name stepping `write(_:fileName:into:)` does would undo the user's
+    /// answer. The panel's grant covers that file, not its folder, so there is no staging file of
+    /// this writer's own — Foundation's atomic write stages it where the sandbox allows.
+    func replace(_ data: Data, at url: URL) throws {
+        try data.write(to: url, options: .atomic)
+    }
+
     /// Hidden and unguessable: it shares the download folder with the user's own files, and it is
     /// only theirs to see if something goes wrong badly enough to leave it there.
     private static func stagingName() -> String {

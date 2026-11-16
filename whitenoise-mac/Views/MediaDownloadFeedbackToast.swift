@@ -1,12 +1,13 @@
+import AppKit
 import SwiftUI
 
 /// Transient confirmation for an attachment download, pinned to the window's bottom-leading
 /// corner.
 ///
-/// It is the only feedback the gesture gives: the file lands in the folder the user chose without
-/// a save panel, so without this the click would look like nothing happened. Non-interactive by
-/// design — it floats over the transcript and the image gallery, and must never swallow a click
-/// meant for either.
+/// It is the only feedback the gesture gives — a remembered folder takes the file without any
+/// panel — and the only way back to what was saved, through its Show in Finder button. It floats
+/// over the transcript and the image gallery, so only the card itself takes clicks; the padding
+/// around it never does.
 struct MediaDownloadFeedbackToast: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -19,7 +20,6 @@ struct MediaDownloadFeedbackToast: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
-        .allowsHitTesting(false)
         .animation(.smooth(duration: 0.2), value: workspace.mediaDownloadFeedback)
     }
 }
@@ -56,6 +56,15 @@ struct MediaDownloadFeedbackToastContent: View {
             }
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+
+            if !feedback.savedFileURLs.isEmpty {
+                Button(L10n.string("Show in Finder")) {
+                    NSWorkspace.shared.activateFileViewerSelecting(feedback.savedFileURLs)
+                }
+                .buttonStyle(.link)
+                .wnFont(.medium12)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -64,6 +73,16 @@ struct MediaDownloadFeedbackToastContent: View {
         // leaves the card hugging its text and only bounds how wide a long translation may wrap.
         .glassCard(cornerRadius: 10)
         .frame(maxWidth: 320, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
+}
+
+#Preview {
+    MediaDownloadFeedbackToastContent(
+        feedback: MediaDownloadFeedback(
+            savedFileURLs: [URL(filePath: "/Users/preview/Downloads/photo.jpg")],
+            failedCount: 1
+        )
+    )
+    .padding()
 }

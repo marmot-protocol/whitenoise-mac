@@ -686,10 +686,8 @@ final class WorkspaceState {
     /// panel is both the destination prompt and the sandbox's only grant of write access outside
     /// the container, and a test cannot dismiss a modal.
     let privateKeyExportDestinationPicker: @MainActor (String, UTType) -> URL?
-    /// Folder picker for attachment downloads. The panel is how the sandbox grants write access at
-    /// all, so this is the permission prompt as much as it is a preference; injected so tests can
-    /// answer it with a temporary directory instead of showing a modal.
-    let mediaDownloadDestinationPicker: @MainActor () -> URL?
+    /// Folder and Save As panels for attachment downloads — see `MediaDownloadPanels`.
+    let mediaDownloadPanels: MediaDownloadPanels
     let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     let groupImageSearchClient: any GroupImageSearchClient
     let groupImageSourceLoader: any GroupImageSourceLoading
@@ -1181,8 +1179,7 @@ final class WorkspaceState {
             WorkspaceState.chooseTranscriptExportDestination,
         privateKeyExportDestinationPicker: @escaping @MainActor (String, UTType) -> URL? =
             WorkspaceState.choosePrivateKeyExportDestination,
-        mediaDownloadDestinationPicker: @escaping @MainActor () -> URL? =
-            WorkspaceState.chooseMediaDownloadDestination,
+        mediaDownloadPanels: MediaDownloadPanels = .system,
         telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = {
             TelemetryBuildConfig.current()
         },
@@ -1221,7 +1218,7 @@ final class WorkspaceState {
         self.copyTextHandler = copyTextHandler
         self.transcriptExportDestinationPicker = transcriptExportDestinationPicker
         self.privateKeyExportDestinationPicker = privateKeyExportDestinationPicker
-        self.mediaDownloadDestinationPicker = mediaDownloadDestinationPicker
+        self.mediaDownloadPanels = mediaDownloadPanels
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.groupImageSourceLoader = groupImageSourceLoader ?? SecureGroupImageSourceLoader()

@@ -41582,7 +41582,7 @@
       }
     },
     "Choose where to save downloads" : {
-      "comment" : "Title of the folder panel shown before the first attachment download.",
+      "comment" : "Title of the folder panel for attachment downloads.",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
@@ -101144,66 +101144,6 @@
         }
       }
     },
-    "White Noise saves downloaded attachments to this folder." : {
-      "comment" : "Explanatory message in the folder panel for downloads.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "White Noise speichert heruntergeladene Anhänge in diesem Ordner."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "White Noise guarda los adjuntos descargados en esta carpeta."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "White Noise enregistre les pièces jointes téléchargées dans ce dossier."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "White Noise salva gli allegati scaricati in questa cartella."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O White Noise salva os anexos baixados nesta pasta."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "White Noise сохраняет загруженные вложения в эту папку."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "White Noise indirilen ekleri bu klasöre kaydeder."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "White Noise 会将下载的附件保存到此文件夹。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "White Noise 會將下載的附件儲存到此檔案夾。"
-          }
-        }
-      }
-    },
     "White Noise Support" : {
       "comment" : "A name of a support contact",
       "extractionState" : "manual",
@@ -105246,6 +105186,126 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "📊 投票：%@"
+          }
+        }
+      }
+    },
+    "Always ask where to save" : {
+      "comment" : "Toggle in Storage settings: ask for a location (Save As, or a folder for several files) on every attachment download instead of using one remembered folder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immer fragen, wo gespeichert werden soll"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preguntar siempre dónde guardar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toujours demander où enregistrer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiedi sempre dove salvare"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sempre perguntar onde salvar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всегда спрашивать, куда сохранять"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her zaman nereye kaydedileceğini sor"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "始终询问保存位置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一律詢問儲存位置"
+          }
+        }
+      }
+    },
+    "Show in Finder" : {
+      "comment" : "Button in the attachment download toast: reveal the saved files in Finder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Finder anzeigen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar en el Finder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher dans le Finder"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra nel Finder"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar no Finder"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать в Finder"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finder’da Göster"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在访达中显示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 Finder 中顯示"
           }
         }
       }
