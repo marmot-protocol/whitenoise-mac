@@ -260,7 +260,7 @@ struct AttachmentRejectionTests: WorkspaceTestSupport {
         )
 
         let limit = AttachmentRejection.formattedLimit(OutgoingMediaDraftProcessor.maxAttachmentBytes, locale: english)
-        #expect(limit == "50 MB")
+        #expect(limit == "512 MB")
         #expect(rejection.displayName(locale: english) == "holiday-video.mov")
         #expect(
             rejection.reasonDescription(locale: english)

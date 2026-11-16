@@ -151,11 +151,11 @@ struct AvatarCropTests: WorkspaceTestSupport {
     }
 
     /// A picture the app took before the editor existed is still one it takes: the editor's byte
-    /// cap is the attachment cap, not iOS's lower one.
+    /// cap is an image attachment's source cap, not iOS's lower one.
     @Test func theEditorTakesAnyFileAnAttachmentCouldBe() {
-        #expect(AvatarImageCropper.maximumEncodedBytes == OutgoingMediaDraftProcessor.maxAttachmentBytes)
+        #expect(AvatarImageCropper.maximumEncodedBytes == OutgoingMediaDraftProcessor.maxImageSourceBytes)
         #expect(AvatarImageCropper.encodedByteCountIsAllowed(30 * 1024 * 1024))
-        #expect(!AvatarImageCropper.encodedByteCountIsAllowed(OutgoingMediaDraftProcessor.maxAttachmentBytes + 1))
+        #expect(!AvatarImageCropper.encodedByteCountIsAllowed(OutgoingMediaDraftProcessor.maxImageSourceBytes + 1))
     }
 
     // MARK: - Sources

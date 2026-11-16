@@ -116,21 +116,50 @@ extension WorkspaceState {
         pendingOutgoingMediaUploadTasks[id] = nil
         setPendingOutgoingMediaMessageState(.uploading, for: id, in: draftKey)
 
+        let caption = message.caption.isEmpty ? nil : message.caption
+        // MDK keeps this reply target through upload and durable admission, and refuses a
+        // malformed one before anything uploads.
+        let messageTags = MessageReplyTags.tags(replyingTo: message.replyContext?.targetMessageId)
         do {
-            let submission = try await client.uploadMediaWithClientToken(
-                accountRef: account.accountRef,
-                groupIdHex: draftKey.chatId,
-                request: MediaUploadRequestFfi(
-                    attachments: message.attachments.map(\.uploadRequest),
-                    caption: message.caption.isEmpty ? nil : message.caption,
-                    send: true,
-                    blossomServer: nil,
-                    // MDK keeps this reply target through upload and durable admission, and
-                    // refuses a malformed one before anything uploads.
-                    messageTags: MessageReplyTags.tags(replyingTo: message.replyContext?.targetMessageId)
-                ),
-                clientToken: message.clientToken
-            )
+            let submission: MediaUploadSubmissionFfi
+            switch MediaUploadRoute.route(byteCounts: message.attachments.map(\.data.count)) {
+            case .bytes:
+                submission = try await client.uploadMediaWithClientToken(
+                    accountRef: account.accountRef,
+                    groupIdHex: draftKey.chatId,
+                    request: MediaUploadRequestFfi(
+                        attachments: message.attachments.map(\.uploadRequest),
+                        caption: caption,
+                        send: true,
+                        blossomServer: nil,
+                        messageTags: messageTags
+                    ),
+                    clientToken: message.clientToken
+                )
+            case .files:
+                // Hundreds of megabytes must not cross the FFI as one array: MDK copies each
+                // source file into its store with bounded buffers instead.
+                let control = MediaFileTransferControlFfi()
+                let accountRef = account.accountRef
+                let groupIdHex = draftKey.chatId
+                let clientToken = message.clientToken
+                submission = try await MediaFileUploadRunner.run(message.attachments, control: control) {
+                    requests in
+                    try await client.uploadMediaFilesWithClientToken(
+                        accountRef: accountRef,
+                        groupIdHex: groupIdHex,
+                        request: MediaFileUploadRequestFfi(
+                            attachments: requests,
+                            caption: caption,
+                            send: true,
+                            blossomServer: nil,
+                            messageTags: messageTags
+                        ),
+                        control: control,
+                        clientToken: clientToken
+                    )
+                }
+            }
             guard submission.acceptance != nil else {
                 throw MarmotKitError.InvalidMediaReference(
                     details: "Media upload completed without durable message admission"

@@ -27,6 +27,7 @@ extension WorkspaceState {
         try? await FFIExecutor.run {
             MediaPlaybackTempStore.purge()
             OutgoingMediaMetadataTempStore.purge()
+            MediaUploadScratch.purge()
         }
         do {
             let runtime = try clientFactory()
@@ -922,6 +923,7 @@ extension WorkspaceState {
         try? await FFIExecutor.run {
             MediaPlaybackTempStore.purge()
             OutgoingMediaMetadataTempStore.purge()
+            MediaUploadScratch.purge()
         }
 
         do {

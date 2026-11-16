@@ -12,9 +12,18 @@ private nonisolated struct ComposerDraftPersistenceSnapshot: Sendable {
     let content: String
     let replyToMessageIdHex: String?
     let mediaAttachments: [MessageDraftAttachmentFfi]
+    /// Attachments staged in the composer that the saved draft leaves out because MDK's draft API
+    /// would copy them on every save (`OutgoingMediaDraftProcessor.maxDraftAttachmentBytes`).
+    let holdsUnsavedAttachments: Bool
 
+    /// Nothing worth saving: the stored draft is cleared.
     var isEmpty: Bool {
         content.isEmpty && replyToMessageIdHex == nil && mediaAttachments.isEmpty
+    }
+
+    /// Nothing in the composer at all, so a saved draft may be restored into it.
+    var isComposerEmpty: Bool {
+        isEmpty && !holdsUnsavedAttachments
     }
 }
 
@@ -129,7 +138,7 @@ extension WorkspaceState {
             let account = accounts.first(where: { $0.id == accountId })
         else { return }
 
-        if !composerDraftPersistenceSnapshot(for: key).isEmpty {
+        if !composerDraftPersistenceSnapshot(for: key).isComposerEmpty {
             composerDraftRestores[key] = .settled
             return
         }
@@ -199,7 +208,7 @@ extension WorkspaceState {
             }
 
             guard composerDraftMutationGenerations[key] ?? 0 == startingGeneration,
-                composerDraftPersistenceSnapshot(for: key).isEmpty
+                composerDraftPersistenceSnapshot(for: key).isComposerEmpty
             else { return }
             guard let storedDraft else { return }
 
@@ -415,10 +424,16 @@ extension WorkspaceState {
             selections: mentionSelections,
             candidates: []
         )
+        // MDK's draft API copies every attachment's bytes on each save, so an attachment over the
+        // draft cap stays out of the saved draft until MDK can keep one by file
+        // (marmot-protocol/mdk#3431). Leaving the chat keeps it in this session's composer, but a
+        // relaunch brings back only the rest of the draft.
+        let saved = mediaAttachments.filter(OutgoingMediaDraftProcessor.persistsInDraft)
         return ComposerDraftPersistenceSnapshot(
             content: canonicalContent,
             replyToMessageIdHex: replyContext?.targetMessageId,
-            mediaAttachments: mediaAttachments.map(Self.messageDraftAttachment(from:))
+            mediaAttachments: saved.map(Self.messageDraftAttachment(from:)),
+            holdsUnsavedAttachments: saved.count < mediaAttachments.count
         )
     }
 

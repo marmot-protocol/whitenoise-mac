@@ -31,6 +31,9 @@ nonisolated struct AttachmentRejection: Equatable, Sendable {
         static var perMessageLimitReached: Reason {
             .attachmentLimitReached(maxCount: OutgoingMediaDraftProcessor.maxAttachmentCount)
         }
+        /// Each file fits on its own, but together with what is already staged the message would
+        /// pass MDK's per-send bound (`maxFileMediaCiphertextBytes()`).
+        case exceedsBatchLimit
 
         /// Anything else, already localized by whoever threw it (a file-system error, usually).
         case other(String)
@@ -97,6 +100,8 @@ nonisolated struct AttachmentRejection: Equatable, Sendable {
                 format: L10n.string("You can send up to %lld attachments at once", locale: locale),
                 Int64(maxCount)
             )
+        case .exceedsBatchLimit:
+            L10n.string("These attachments are too large to send together.", locale: locale)
         case .other(let description):
             description
         }

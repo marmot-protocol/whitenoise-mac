@@ -111,6 +111,10 @@ per test and per process by default — see `whitenoise-macTests/Support/TestSto
   directory and a fixed in-memory key under a test run, never to the user's real
   Application Support directory or Keychain. A test that asserts on cache contents
   should still build its own with `MessageMediaDiskCache.makeIsolated()`.
+- The outgoing-attachment scratch (`PickedMediaFile`, `MediaUploadSourceFiles`) likewise resolves
+  to a per-process temporary root under a test run, and `MediaUploadScratch.purge()` — which every
+  `bootstrap()` calls — does nothing there, since parallel suites stage into it. Test the purge
+  through `purge(directories:)`.
 - Do not reintroduce a fixed shared path. Isolation that has to be remembered is
   isolation that gets forgotten; `StorageRootIsolationTests` guards these properties.
 
@@ -228,6 +232,14 @@ build.
   once the surface is done (idempotent; retry `Io`/`StorageClosed` on whichever runtime is open).
   Cancel a copy only through its `MediaFileTransferControlFfi`, never by cancelling the awaiting
   task. Only bytes MDK holds no slot for (an own send still going out) use the host export.
+- Outgoing attachments may reach MDK's 512 MiB blob limit (`Core/MediaFileUpload.swift`). Read
+  picked files through `PickedMediaFile` (an unlinked, mapped clone), never into resident memory;
+  images keep the 50 MB `maxImageSourceBytes` because they are decoded. The composer refuses an
+  attachment that would take one send past `maxFileMediaCiphertextBytes()`. MDK's draft API copies
+  every attachment on each save, so until marmot-protocol/mdk#3431 lands, attachments over
+  `maxDraftAttachmentBytes` are left out of saved drafts, are not uploaded ahead of Send, skip the
+  host media cache, and their message goes through `uploadMediaFilesWithClientToken` (anything
+  smaller keeps the byte upload).
 - Settings → Storage → Manage Storage (`ManageStorageViewModel`) reads MDK's attachment storage
   figures and removes in bulk. Bulk removals report counts, not hashes, so every removal runs the
   shell's `attachmentsDidChange` hook, which clears the host media cache.

@@ -133,6 +133,55 @@ struct StorageRootIsolationTests {
         )
     }
 
+    // MARK: - Outgoing attachment scratch
+
+    @Test func theUploadScratchNeverResolvesIntoApplicationSupport() throws {
+        let applicationSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        )
+        for resolved in [try PickedMediaFile.defaultDirectory(), try MediaUploadSourceFiles.defaultDirectory()] {
+            #expect(!resolved.path(percentEncoded: false).hasPrefix(applicationSupport.path(percentEncoded: false)))
+            #expect(
+                resolved.path(percentEncoded: false)
+                    .hasPrefix(FileManager.default.temporaryDirectory.path(percentEncoded: false))
+            )
+        }
+    }
+
+    /// Every bootstrapping test runs the launch purge while other suites stage attachments in
+    /// parallel, so under a test run it must leave the scratch alone.
+    @Test func theLaunchPurgeLeavesTheTestScratchAlone() throws {
+        let directory = try MediaUploadSourceFiles.defaultDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let staged = directory.appendingPathComponent(UUID().uuidString)
+        try Data("in flight".utf8).write(to: staged)
+        defer { try? FileManager.default.removeItem(at: staged) }
+
+        MediaUploadScratch.purge()
+
+        #expect(FileManager.default.fileExists(atPath: staged.path))
+    }
+
+    @Test func purgingScratchDirectoriesRemovesThem() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let picked = root.appendingPathComponent(PickedMediaFile.directoryName, isDirectory: true)
+        let uploads = root.appendingPathComponent(MediaUploadSourceFiles.directoryName, isDirectory: true)
+        for directory in [picked, uploads] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data("leftover".utf8).write(to: directory.appendingPathComponent("clone"))
+        }
+
+        MediaUploadScratch.purge(directories: [picked, uploads])
+
+        #expect(!FileManager.default.fileExists(atPath: picked.path))
+        #expect(!FileManager.default.fileExists(atPath: uploads.path))
+    }
+
     /// `WorkspaceState` defaults `mediaDiskCache` to `.shared`, which is the parameter
     /// ~500 tests leave alone. That default must be the test-scoped instance.
     @MainActor

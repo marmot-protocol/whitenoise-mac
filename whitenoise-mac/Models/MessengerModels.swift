@@ -2101,7 +2101,53 @@ nonisolated enum OutgoingMediaDraftProcessor {
     static let maxAttachmentCount = 10
     static let maxLongEdge: CGFloat = 2048
     static let maxImageAttachmentBytes = 10 * 1024 * 1024
-    static let maxAttachmentBytes = 50 * 1024 * 1024
+    /// Images are decoded into a resident bitmap before they are re-encoded, so their source stays
+    /// under this bound whatever the attachment cap.
+    static let maxImageSourceBytes = 50 * 1024 * 1024
+    /// MDK's largest encrypted media blob (512 MiB) less the AEAD tag encryption adds to it.
+    static let maxAttachmentBytes = 512 * 1024 * 1024 - Int(MediaFileUploadLimit.aeadTagBytes)
+    /// MDK's draft API copies every attachment's bytes on each save, so larger attachments stay out
+    /// of saved drafts (and are not uploaded ahead of Send) until it can keep one by file
+    /// (marmot-protocol/mdk#3431). It is also the old attachment cap, so everything it admits keeps
+    /// the byte upload it always had.
+    static let maxDraftAttachmentBytes = 50 * 1024 * 1024
+
+    /// Whether a picked file of `kind` is sent as its own bytes. Images are decoded and re-encoded,
+    /// so their source size is neither the upload size nor bound by the attachment cap.
+    static func sendsSourceBytes(_ kind: MessageMediaKind?) -> Bool {
+        kind != .image
+    }
+
+    /// The size a picked file may have before it is read: images are refused at their decode
+    /// limit, everything else at the attachment cap.
+    static func maxSourceBytes(for kind: MessageMediaKind?) -> Int {
+        sendsSourceBytes(kind) ? maxAttachmentBytes : maxImageSourceBytes
+    }
+
+    /// Whether `attachment` is small enough for MDK's draft API to copy on every save.
+    static func persistsInDraft(_ attachment: PendingMediaAttachment) -> Bool {
+        attachment.data.count <= maxDraftAttachmentBytes
+    }
+
+    /// The composer's attachments once `added` is staged: a recording is sent on its own, and new
+    /// audio replaces the previous audio attachment.
+    static func attachmentsKept(
+        _ attachments: [PendingMediaAttachment],
+        adding added: PendingMediaAttachment
+    ) -> [PendingMediaAttachment] {
+        if added.isVoiceMessage { return [] }
+        if added.kind == .audio { return attachments.filter { $0.kind != .audio } }
+        return attachments
+    }
+
+    /// Whether `attachment` still fits in one send beside `kept`, against MDK's per-send bound.
+    static func fitsInOneSend(
+        _ attachment: PendingMediaAttachment,
+        alongside kept: [PendingMediaAttachment],
+        limit: UInt64 = maxFileMediaCiphertextBytes()
+    ) -> Bool {
+        MediaFileUploadLimit.fits(attachment.data.count, alongside: kept.map(\.data.count), limit: limit)
+    }
 
     enum Failure: LocalizedError {
         case unsupportedImage
@@ -2134,20 +2180,28 @@ nonisolated enum OutgoingMediaDraftProcessor {
 
     static func preparedAttachment(fromFileURL url: URL) async throws -> PendingMediaAttachment {
         let prepared = try await Task.detached(priority: .userInitiated) { () async throws -> SendableAttachment in
-            let resourceValues = try url.resourceValues(forKeys: [
+            // A dropped symlink stands for its target: measure and read the target, since the
+            // clone `PickedMediaFile` maps would otherwise be the link itself. A no-op for a
+            // regular file.
+            let target = url.resolvingSymlinksInPath()
+            let resourceValues = try target.resourceValues(forKeys: [
                 .contentTypeKey, .nameKey, .fileSizeKey, .isDirectoryKey,
             ])
             guard resourceValues.isDirectory != true else {
                 throw Failure.unsupportedAttachment
             }
-            if let fileSize = resourceValues.fileSize, fileSize > maxAttachmentBytes {
-                throw Failure.attachmentTooLarge(fileSize)
+            let fileName = resourceValues.name ?? target.lastPathComponent
+            let sourceLimit = maxSourceBytes(
+                for: kind(for: resourceValues.contentType?.identifier, fileName: fileName)
+            )
+            if let fileSize = resourceValues.fileSize, fileSize > sourceLimit {
+                throw Failure.attachmentTooLarge(fileSize, limit: sourceLimit)
             }
-            let data = try readAttachmentData(from: url)
+            let data = try readAttachmentData(from: target)
             return try await SendableAttachment(
                 attachment: preparedAttachmentValue(
                     from: data,
-                    fileName: resourceValues.name ?? url.lastPathComponent,
+                    fileName: fileName,
                     typeIdentifier: resourceValues.contentType?.identifier
                 ))
         }.value
@@ -2169,12 +2223,11 @@ nonisolated enum OutgoingMediaDraftProcessor {
         return prepared.attachment
     }
 
+    /// Maps the file rather than reading it into resident memory: an attachment may be hundreds of
+    /// megabytes. The mapping is of a private, already-unlinked clone (`PickedMediaFile`), so the
+    /// picked file changing or vanishing afterwards cannot fault the mapped pages.
     private static func readAttachmentData(from url: URL) throws -> Data {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        // Read at most one byte past the cap so URLs without fileSize cannot force
-        // unbounded buffering before the raw-size guard runs.
-        let data = try handle.read(upToCount: maxAttachmentBytes + 1) ?? Data()
+        let data = try PickedMediaFile.mappedData(from: url)
         try enforceRawAttachmentSize(data)
         return data
     }
@@ -2222,6 +2275,9 @@ nonisolated enum OutgoingMediaDraftProcessor {
         try enforceRawAttachmentSize(data)
         let kind = kind(for: typeIdentifier, fileName: fileName)
         if kind == .image {
+            guard data.count <= maxImageSourceBytes else {
+                throw Failure.attachmentTooLarge(data.count, limit: maxImageSourceBytes)
+            }
             return try imageAttachment(from: data, fileName: fileName)
         }
         guard
@@ -2250,7 +2306,7 @@ nonisolated enum OutgoingMediaDraftProcessor {
         }
     }
 
-    private static func kind(for typeIdentifier: String?, fileName: String?) -> MessageMediaKind? {
+    static func kind(for typeIdentifier: String?, fileName: String?) -> MessageMediaKind? {
         if let typeIdentifier, let type = UTType(typeIdentifier) {
             if type.conforms(to: .image) { return .image }
             if type.conforms(to: .movie) { return .video }

@@ -25,9 +25,10 @@ struct ComposerAttachmentRejections: Equatable {
     }
 }
 
-/// A file the composer refused, drawn in the staging strip as the tile it would have been,
-/// with the red X a failed upload would end on. The reason is one click away (and on hover)
-/// rather than spelled out above the composer, so a refused file costs the strip one tile.
+/// A file the composer refused, drawn in the staging strip as the tile it would have been, tinted
+/// red so it reads as a problem at a glance. The reason is one click away (and on hover) behind
+/// the small info badge rather than spelled out above the composer, so a refused file costs the
+/// strip one tile. The strip's red X on the corner is the only X: it dismisses the tile.
 struct RejectedAttachmentTile: View {
     @Environment(\.locale) private var locale
     let rejection: AttachmentRejection
@@ -50,21 +51,21 @@ struct RejectedAttachmentTile: View {
                     .truncationMode(.middle)
                     .multilineTextAlignment(.center)
             }
-            .foregroundStyle(WNColor.backgroundContentTertiary)
+            .foregroundStyle(WNColor.intentionErrorContent)
             .padding(.horizontal, 8)
             .frame(width: tileSize.width, height: tileSize.height)
             .background {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(WNColor.fillSecondary)
+                    .fill(WNColor.intentionErrorBackground)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(WNColor.borderDestructiveSecondary, lineWidth: 1)
             }
-            // Where an uploading tile shows its spinner, so the two read as one control that
-            // ended differently.
-            .overlay(alignment: .bottomTrailing) {
-                RejectedAttachmentFailureBadge()
+            // The one free corner: the strip's dismiss X takes the top trailing one, and a bottom
+            // badge would sit on a two-line file name.
+            .overlay(alignment: .topLeading) {
+                RejectedAttachmentInfoBadge()
                     .padding(5)
             }
             .clipShape(.rect(cornerRadius: 8, style: .continuous))
@@ -84,16 +85,15 @@ struct RejectedAttachmentTile: View {
     }
 }
 
-/// The red disc a failed tile ends on. Same size, place and colors as the retry badge an upload
-/// that failed after staging wears, but an X: there is nothing to retry, the file itself was refused.
-private struct RejectedAttachmentFailureBadge: View {
+/// The small "i" on a refused tile's corner: the reason is behind it. Deliberately not an X, which
+/// the strip already puts on the tile to dismiss it; two would read as two ways to remove it.
+private struct RejectedAttachmentInfoBadge: View {
     var body: some View {
-        Image(systemName: "xmark")
-            .wnFont(.bold12)
-            .foregroundStyle(WNColor.fillContentQuaternary)
-            .frame(width: 24, height: 24)
-            .background(WNColor.fillDestructive, in: .circle)
-            .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+        Image(systemName: "info.circle.fill")
+            .wnFont(.semiBold12)
+            .symbolRenderingMode(.palette)
+            // Two-layer glyph: a white "i" punched into a red disc.
+            .foregroundStyle(WNColor.fillContentQuaternary, WNColor.fillDestructive)
             .accessibilityHidden(true)
     }
 }
