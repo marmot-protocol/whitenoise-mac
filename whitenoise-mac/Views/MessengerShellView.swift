@@ -764,7 +764,7 @@ private struct ConversationView: View {
                     // removed from (`invalid_transition`), so the whole composer —
                     // reply/media drafts included — gives way to an explanatory notice.
                     if workspace.isTimelineSelectionMode {
-                        MessageSelectionToolbar()
+                        MessageSelectionToolbar(conversationModel: model)
                     } else if !chat.lifecycle.allowsMessaging {
                         // A disband ends the group for everyone, members included, so it
                         // outranks where this account stood in it.

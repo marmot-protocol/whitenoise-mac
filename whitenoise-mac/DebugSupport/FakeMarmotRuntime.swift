@@ -182,6 +182,9 @@
         var discardFailedSendResult = DiscardFailedSendResultFfi(
             outcome: .discarded, mediaCiphertextSha256: [], erasurePending: false)
         var discardFailedSendError: Error?
+        /// Thrown by `inviteMembersDetailed` after the invite committed, posing as the post-commit
+        /// details read failing.
+        var inviteMembersFailureAfterCommit: Error?
         private(set) var discardedFailedSends: [(groupIdHex: String, messageIdHex: String)] = []
         /// Every stored emoji set; `installed` marks installed ones.
         var emojiSetStore: [EmojiSetFfi] = []
@@ -2601,6 +2604,7 @@
             }
             groupDetailsById[groupIdHex] = details
             groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+            if let inviteMembersFailureAfterCommit { throw inviteMembersFailureAfterCommit }
             let mutation = try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-invite")
             return GroupInviteResultFfi(
                 invite: InviteMembersResultFfi(summary: mutation.summary, memberOutcomes: outcomes),

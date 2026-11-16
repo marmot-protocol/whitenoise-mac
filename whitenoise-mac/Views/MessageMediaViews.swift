@@ -514,12 +514,7 @@ struct MessageBubble: View {
     private var discardFailedSend: (() -> Void)? {
         guard message.isLocalPublishFailure else { return nil }
         return { [conversationModel, workspace, message] in
-            Task {
-                let failure = await conversationModel.discardFailedSend(messageIdHex: message.id) {
-                    await workspace.clearMediaCache()
-                }
-                if let failure { workspace.reportUserActionError(failure) }
-            }
+            Task { await FailedSendDiscard.run(message, model: conversationModel, workspace: workspace) }
         }
     }
 
@@ -3087,6 +3082,19 @@ struct MessageRowAction: Identifiable {
                 workspace.discardPendingOutgoingTextMessage(message.id)
             },
         ]
+    }
+}
+
+/// Removes a failed own send for the row menu and the selection toolbar alike: discarded on this
+/// device through the conversation model, with the host media cache cleared when it carried media
+/// and any failure on the error line.
+@MainActor
+enum FailedSendDiscard {
+    static func run(_ message: MessageItem, model: ConversationViewModel, workspace: WorkspaceState) async {
+        let failure = await model.discardFailedSend(messageIdHex: message.id) {
+            await workspace.clearMediaCache()
+        }
+        if let failure { workspace.reportUserActionError(failure) }
     }
 }
 

@@ -7750,6 +7750,36 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func deletingASelectionDiscardsFailedSendsAndDeletesTheRest() async throws {
+        // A failed send in a multi-select is discarded like the row menu's Remove; publishing a
+        // delete for everyone would tell the group about a message nobody received.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(chat)
+        func own(_ id: String, invalidationStatus: String?) -> MessageItem {
+            MessageItem(
+                id: id, groupIdHex: "group", sourceMessageIdHex: nil, senderAccountIdHex: account.accountIdHex,
+                senderName: "Desktop Account", body: id, sentAt: .now, invalidationStatus: invalidationStatus,
+                isOutgoing: true)
+        }
+        state.messageTimelineStores["group"] = .loaded(with: [
+            own("failed", invalidationStatus: "local_publish_failed"), own("delivered", invalidationStatus: nil),
+        ])
+        state.selectedTimelineMessageIds = ["failed", "delivered"]
+        #expect(state.selectedTimelineMessagesForAction.count == 2)
+        var discarded: [String] = []
+
+        await state.deleteSelectedMessages { discarded.append($0.id) }
+
+        #expect(discarded == ["failed"])
+        #expect(runtime.deletedMessage == DeletedMessage(groupIdHex: "group", targetMessageId: "delivered"))
+    }
+
+    @MainActor
     @Test func aFailedSendOffersRemoveInsteadOfDelete() async throws {
         // Nobody received a failed send, so the menu discards it here rather than publishing a
         // delete for everyone about a message the group never had.

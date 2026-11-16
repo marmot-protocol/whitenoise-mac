@@ -648,9 +648,11 @@ extension WorkspaceState {
     }
 
     /// `inviteMembersDetailed` can throw while reading post-commit details *after* the MLS invite
-    /// already published. Refresh the roster and reconcile: if every member of this attempt is now
-    /// in the group, the invite succeeded despite the read error — report success so the sheet
-    /// dismisses and a retry doesn't hit "already a member". Otherwise the error goes on the line.
+    /// already published. Refresh the roster and reconcile: if anyone from this attempt is now in
+    /// the group, the invite went out despite the read error — report success so the sheet
+    /// dismisses and a retry doesn't hit "already a member", and name whoever MDK left out, since
+    /// the outcomes that would have said so were lost with the read. Otherwise the error goes on
+    /// the line.
     private func reconcileInviteFailure(
         _ error: Error,
         attempted: [NewChatRecipient],
@@ -670,10 +672,14 @@ extension WorkspaceState {
         guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex) else {
             return false
         }
-        let currentMemberIds = Set(groupDetailsSnapshot?.members.map(\.id) ?? [])
-        if !currentMemberIds.isEmpty,
-            attempted.allSatisfy({ currentMemberIds.contains($0.accountIdHex) })
-        {
+        let currentMemberIds = Set(groupDetailsSnapshot?.members.map { $0.id.lowercased() } ?? [])
+        let leftOut = attempted.filter { !currentMemberIds.contains($0.accountIdHex.lowercased()) }
+        if leftOut.count < attempted.count {
+            if !leftOut.isEmpty {
+                backgroundStatus = String(
+                    format: L10n.string("Couldn’t add %@ to the group."),
+                    ListFormatter.localizedString(byJoining: leftOut.map(\.title)))
+            }
             return true
         }
         lastError = ChatCreationFailure.message(for: error, candidates: recipients)

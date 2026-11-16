@@ -2858,6 +2858,27 @@ struct GroupsTests: WorkspaceTestSupport {
                     ListFormatter.localizedString(byJoining: ["Bob", "Carol"])))
     }
     @MainActor
+    @Test func aPartialInviteWhoseResultReadFailsStillCountsAsSent() async throws {
+        // The commit went out to Carol, then the post-commit read threw and took MDK's outcomes
+        // with it. Carol is in the group, so the sheet must close (a retry would hit "already a
+        // member"), and Bob, who is not, is named.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1carol", accountIdHex: Self.carolAccountIdHex, npub: "npub1carol")
+        runtime.missingKeyPackageAccountIdHexByMemberRef["npub1p0p"] = Self.bobAccountIdHex
+        runtime.inviteMembersFailureAfterCommit = MarmotKitError.StorageBusy(details: "busy")
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        let invited = await state.inviteMembers([Self.carolDraftRecipient(), Self.bobDraftRecipient()])
+
+        #expect(invited)
+        #expect(state.lastError == nil)
+        #expect(state.backgroundStatus == String(format: L10n.string("Couldn’t add %@ to the group."), "Bob"))
+    }
+
+    @MainActor
     @Test func anInviteWithNobodyReachableMarksThemAndCommitsNothing() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
