@@ -146,8 +146,8 @@ final class UserDefaultsMediaDownloadDestinationStore: MediaDownloadDestinationS
     /// Resolving a security-scoped bookmark does not open access — `startAccessingSecurityScopedResource()`
     /// does — so this is safe for the Settings row as well as for the download path.
     ///
-    /// A failure here is reported, never acted on: `resolveDestination()` decides whether it is
-    /// worth discarding the grant over.
+    /// A failure here is reported, never acted on: the grant is dropped only by `store(_:)`, once
+    /// the user has picked a replacement — see `resolveDestination()`.
     private func resolvedURL() -> URL? {
         guard let data = defaults.data(forKey: Key.bookmark) else { return nil }
         var isStale = false

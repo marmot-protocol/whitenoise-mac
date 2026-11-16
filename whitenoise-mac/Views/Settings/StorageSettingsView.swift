@@ -30,7 +30,7 @@ struct StorageSettingsView: View {
                 SettingsValueRow(
                     title: L10n.string("Save downloads to"),
                     value: workspace.mediaDownloadDestinationPath
-                        ?? L10n.string("Chosen the first time you download"),
+                        ?? L10n.string("The chosen folder can’t be opened"),
                     truncatesMiddle: true
                 )
 

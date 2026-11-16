@@ -152,8 +152,9 @@ final class WorkspaceState {
     var mediaDownloadingMessageIds = Set<String>()
     /// Tally of the download gestures the visible toast covers. `nil` while no toast is up.
     var mediaDownloadFeedback: MediaDownloadFeedback?
-    /// The remembered download folder, as shown in Storage settings. Loaded on demand by
-    /// `refreshMediaDownloadDestinationPath()`; `nil` until the user has chosen one.
+    /// The default download folder, as shown in Storage settings: Downloads, or the folder the user
+    /// picked. Loaded on demand by `refreshMediaDownloadDestinationPath()`; `nil` while a picked
+    /// folder cannot be opened (an ejected drive, say).
     var mediaDownloadDestinationPath: String?
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by

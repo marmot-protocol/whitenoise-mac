@@ -76,15 +76,18 @@ actor MediaDownloadWriter {
     /// answer. The panel's sandbox grant covers that one file and nothing beside it, so there is no
     /// staging file — an atomic write's temporary sibling is exactly what the grant refuses.
     ///
-    /// `O_NOFOLLOW`: the panel answers before the fetch finishes, and the folder is usually one
-    /// other apps write to. A symlink planted at the name in that gap fails the open (`ELOOP`)
-    /// rather than sending decrypted bytes to whatever it points at.
+    /// `O_NOFOLLOW` is a cheap guard, not a defense: the panel answers before the fetch finishes,
+    /// and a symlink left at the name in that gap fails the open (`ELOOP`) rather than sending the
+    /// bytes elsewhere. Another process running as the user — the only thing that can plant
+    /// anything in their folders — can already read and replace their files, so it is outside what
+    /// this write tries to withstand; other kinds of node at the name are not checked for.
     func replace(_ data: Data, at url: URL) throws {
-        let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
-            guard let path else { return -1 }
-            return open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o644)
+        let (descriptor, openError) = url.withUnsafeFileSystemRepresentation { path -> (Int32, Int32) in
+            guard let path else { return (-1, EINVAL) }
+            let descriptor = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o644)
+            return (descriptor, errno)
         }
-        guard descriptor >= 0 else { throw Self.failure(errno, at: url) }
+        guard descriptor >= 0 else { throw Self.failure(openError, at: url) }
 
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
         do {
