@@ -899,6 +899,9 @@
         var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
         var storedAuditLogFiles: [AuditLogFileFfi] = []
         var usageDiagnosticsSettingsError: Error?
+        var usageDiagnosticsStatusError: Error?
+        /// Thrown by `setUsageDiagnosticsConsent` in place of recording the choice.
+        var setUsageDiagnosticsConsentError: Error?
         /// MDK's defaults: 30 days and 256 MiB per account.
         var storedAuditLogRetention = AuditLogRetentionFfi(maxAgeDays: 30, maxBytesPerAccount: 256 << 20)
         var auditLogRetentionError: Error?
@@ -1651,10 +1654,12 @@
         }
 
         func usageDiagnosticsStatus() throws -> UsageDiagnosticsStatusFfi {
-            usageStatus
+            if let usageDiagnosticsStatusError { throw usageDiagnosticsStatusError }
+            return usageStatus
         }
 
         func setUsageDiagnosticsConsent(enabled: Bool) throws -> UsageDiagnosticsSettingsFfi {
+            if let setUsageDiagnosticsConsentError { throw setUsageDiagnosticsConsentError }
             usageSettings.decision = enabled ? .granted : .declined
             usageSettings.previouslyEnabled = usageSettings.previouslyEnabled || enabled
             usageStatus.consent = usageSettings.decision

@@ -59,18 +59,19 @@ final class DiagnosticsSettingsViewModel {
         isLoading = true
         defer { isLoading = false }
         do {
+            // The receipt is read and kept on its own: the first-run prompt decides from it alone,
+            // and losing it to a failed status or audit read would let the prompt close without
+            // recording a decline, leaving the receipt pending for the next sign-in.
+            let receipt = try await FFIExecutor.run { [runtime] in try runtime.usageDiagnosticsSettings() }
+            guard !Task.isCancelled else { return }
+            settings = receipt
             let loaded = try await FFIExecutor.run { [runtime] in
-                (
-                    try runtime.usageDiagnosticsSettings(),
-                    try runtime.usageDiagnosticsStatus(),
-                    try runtime.auditLogSettings()
-                )
+                (try runtime.usageDiagnosticsStatus(), try runtime.auditLogSettings())
             }
             guard !Task.isCancelled else { return }
-            settings = loaded.0
-            status = loaded.1
-            auditSettings = loaded.2
-            configureProductAnalytics(for: loaded.0)
+            status = loaded.0
+            auditSettings = loaded.1
+            configureProductAnalytics(for: receipt)
             error = nil
             await loadAuditLogs()
         } catch is CancellationError {
@@ -125,6 +126,59 @@ final class DiagnosticsSettingsViewModel {
 
     func refresh() async {
         await load()
+    }
+
+    // MARK: - The first-run prompt
+
+    /// Nobody on this Mac has answered the usage question yet, or the policy changed since.
+    /// MarmotKit's receipt is device-wide, so this is what keeps the prompt to the first account.
+    var isPromptPending: Bool { settings?.decision == .acceptanceRequired }
+
+    /// Whether closing the prompt can run now: never while a write is in flight, so a decline
+    /// cannot race the switch the user just flipped.
+    var canFinishPrompt: Bool { !isLoading && !isSavingUsage && !isSavingAudit }
+
+    /// Why a Mac that already answered is being asked again. Mirrors iOS's
+    /// `DeviceDiagnosticsConsent.explanation` case for case, so both apps read MarmotKit's receipt
+    /// the same way.
+    var promptExplanation: String? {
+        guard let settings, isPromptPending else { return nil }
+        if settings.previouslyEnabled && settings.policyRevision.isEmpty {
+            return L10n.string(
+                "You previously shared reliability metrics. Sharing now also includes feature usage, so we need your permission again."
+            )
+        }
+        if !settings.policyRevision.isEmpty {
+            return L10n.string(
+                "The scope of usage and diagnostics has changed. Review the updated information before sharing again."
+            )
+        }
+        return nil
+    }
+
+    /// Closes the prompt the way iOS does: leaving the usage switch untouched is an answer, so a
+    /// still-pending receipt is written as declined. Without that the receipt would stay pending
+    /// and the next account signed up on this Mac would be asked the same question again.
+    ///
+    /// Returns whether the sheet may close. A failed write keeps it open with the error showing,
+    /// because the choice was not recorded. A decline that *was* recorded closes it even if the
+    /// status re-read after it failed: the receipt is what keeps the next account from being asked.
+    /// An unreadable receipt (`settings == nil`) is not pending, so the sheet closes and
+    /// Privacy & Security remains the place to choose.
+    func finishPrompt() async -> Bool {
+        guard canFinishPrompt else { return false }
+        guard isPromptPending else { return true }
+        await setEnabled(false)
+        return !isPromptPending
+    }
+
+    /// The ✕: tries the same decline as Done, but closes even when the write fails, so a write
+    /// that keeps failing cannot hold a modal over Chats. The receipt then stays pending and the
+    /// next first entry asks again. Done stays strict (`finishPrompt()`).
+    func dismissPrompt() async -> Bool {
+        guard canFinishPrompt else { return false }
+        _ = await finishPrompt()
+        return true
     }
 
     func flush() async {
