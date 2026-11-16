@@ -302,6 +302,14 @@ extension ChatItem {
             return PreviewProjection(text: text)
         }
 
+        // The disband's system row projects as "no last message" so `previewPlaceholder(locale:)`
+        // draws it in the timeline's wording at render time: a translation stored here would keep
+        // the previous language after a language switch. MDK writes the disband tombstone (which
+        // marks the row `.disbanded`) before it projects this system row, so the row is `.ended`.
+        if preview.groupSystem?.systemType == GroupLifecycle.disbandedSystemType {
+            return PreviewProjection(text: "")
+        }
+
         let presentation = MessageItem.presentation(for: preview.kind)
         if presentation == .poll {
             return PreviewProjection(text: MessageItem.pollLabel(question: preview.plaintext))
@@ -759,6 +767,10 @@ nonisolated extension MessageItem {
             ) {
                 return text
             }
+        case GroupLifecycle.disbandedSystemType:
+            // MDK's own text for this row is unlocalized English; the chat-list row draws the same
+            // localized wording for an ended group, so the two always agree.
+            return GroupLifecycle.disbandedSystemText()
         case "disappearing_timer_changed":
             if let text = disappearingTimerChangedText(
                 event,
@@ -1445,6 +1457,8 @@ nonisolated extension MessageItem {
             return L10n.string("Group avatar changed")
         case "disappearing_timer_changed":
             return L10n.string("Disappearing timer changed")
+        case GroupLifecycle.disbandedSystemType:
+            return GroupLifecycle.disbandedSystemText()
         default:
             return L10n.string("Group updated")
         }

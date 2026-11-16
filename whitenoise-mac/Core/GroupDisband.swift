@@ -61,6 +61,18 @@ nonisolated enum GroupLifecycle: Hashable, Sendable {
         case .ended: "xmark.circle.fill"
         }
     }
+
+    /// MDK's `system_type` for the timeline row a disband leaves behind: mdk's
+    /// `GROUP_SYSTEM_TYPE_GROUP_DISBANDED` in `crates/traits/src/app_event.rs`. The binding types it
+    /// as a free `String`, so a mismatch here would compile and silently match nothing.
+    static let disbandedSystemType = "group_disbanded"
+
+    /// How the disband reads wherever it stands in for a message: the timeline's system row, and
+    /// a chat-list row's last-message line. One wording for both, so the row says exactly what the
+    /// reader finds when they open the chat.
+    static func disbandedSystemText(locale: Locale = AppLanguage.currentLocale) -> String {
+        L10n.string("Group ended", locale: locale)
+    }
 }
 
 /// What the inspector reports about a disband, beyond offering one.
