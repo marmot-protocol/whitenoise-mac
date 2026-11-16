@@ -69,6 +69,36 @@ actor MediaDownloadWriter {
         throw Self.failure(EEXIST, at: directory.appending(path: fileName))
     }
 
+    /// Write `data` to exactly `url`, replacing what is there.
+    ///
+    /// For a Save As destination only: the panel has already asked whether to replace an existing
+    /// file, so the unique-name stepping `write(_:fileName:into:)` does would undo the user's
+    /// answer. The panel's sandbox grant covers that one file and nothing beside it, so there is no
+    /// staging file — an atomic write's temporary sibling is exactly what the grant refuses.
+    ///
+    /// `O_NOFOLLOW` is a cheap guard, not a defense: the panel answers before the fetch finishes,
+    /// and a symlink left at the name in that gap fails the open (`ELOOP`) rather than sending the
+    /// bytes elsewhere. Another process running as the user — the only thing that can plant
+    /// anything in their folders — can already read and replace their files, so it is outside what
+    /// this write tries to withstand; other kinds of node at the name are not checked for.
+    func replace(_ data: Data, at url: URL) throws {
+        let (descriptor, openError) = url.withUnsafeFileSystemRepresentation { path -> (Int32, Int32) in
+            guard let path else { return (-1, EINVAL) }
+            let descriptor = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o644)
+            return (descriptor, errno)
+        }
+        guard descriptor >= 0 else { throw Self.failure(openError, at: url) }
+
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
+    }
+
     /// Hidden and unguessable: it shares the download folder with the user's own files, and it is
     /// only theirs to see if something goes wrong badly enough to leave it there.
     private static func stagingName() -> String {

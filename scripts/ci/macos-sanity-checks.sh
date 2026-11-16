@@ -130,6 +130,9 @@ assert_entitlement_true "com.apple.security.files.user-selected.read-write"
 # grant. This entitlement grants no folder by itself; it only lets the app remember the pick across
 # launches, and without it every download would reopen the panel.
 assert_entitlement_true "com.apple.security.files.bookmarks.app-scope"
+# Downloads is the default download folder before the user picks another, so it needs a grant of
+# its own — no panel has run yet to give one.
+assert_entitlement_true "com.apple.security.files.downloads.read-write"
 assert_entitlement_true "com.apple.security.device.audio-input"
 
 assert_build_setting_equals "PRODUCT_BUNDLE_IDENTIFIER" "dev.ipf.whitenoise.mac"

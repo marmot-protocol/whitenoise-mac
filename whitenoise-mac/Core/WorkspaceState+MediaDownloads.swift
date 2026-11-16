@@ -1,5 +1,5 @@
-import AppKit
 import Foundation
+import MarmotKit
 import OSLog
 
 /// The toast counts failures but cannot say *why* one failed, and the two causes need different
@@ -11,9 +11,6 @@ private let mediaDownloadLogger = Logger(subsystem: "com.whitenoise.media", cate
 
 @MainActor
 extension WorkspaceState {
-    /// How long a download toast stays up before it dismisses itself.
-    static let mediaDownloadFeedbackDuration: Duration = .seconds(4)
-
     /// Bounded retry for the two gaps in which a load has published `.loading` but has registered
     /// neither task `resolvedMediaDownload(_:for:)` could await: before reference resolution
     /// starts, and between it finishing and the download being registered. The first covers a
@@ -24,34 +21,17 @@ extension WorkspaceState {
     private static let mediaDownloadResolutionAttempts = 10
     private static let mediaDownloadResolutionPollInterval: Duration = .milliseconds(50)
 
-    /// Ask the user which folder downloads go to.
-    ///
-    /// The app is sandboxed with only `files.user-selected.read-write`, so a folder is writable
-    /// precisely because the user picked it here — the panel is the permission grant, not a
-    /// formality. It runs once; the grant is then remembered as an app-scoped bookmark.
-    static func chooseMediaDownloadDestination() -> URL? {
-        let panel = NSOpenPanel()
-        panel.title = L10n.string("Choose where to save downloads")
-        panel.message = L10n.string("White Noise saves downloaded attachments to this folder.")
-        panel.prompt = L10n.string("Choose")
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK else { return nil }
-        return panel.url
-    }
-
     /// Re-read the stored folder for the Storage settings row. Mirrors `refreshMediaCacheFootprint()`:
     /// the value is only needed while that pane is open.
     func refreshMediaDownloadDestinationPath() {
-        mediaDownloadDestinationPath = mediaDownloadDestinationStore.storedDestinationURL?
+        mediaDownloadDestinationPath = mediaDownloadDestinationStore.defaultFolderURL?
             .path(percentEncoded: false)
     }
 
     /// Settings entry point for changing the folder. Cancelling leaves the previous grant alone.
     func changeMediaDownloadDestination() {
-        guard let picked = mediaDownloadDestinationPicker() else { return }
+        guard let picked = mediaDownloadPanels.chooseFolder(mediaDownloadDestinationStore.defaultFolderURL)
+        else { return }
         mediaDownloadDestinationStore.store(picked)
         refreshMediaDownloadDestinationPath()
     }
@@ -67,7 +47,11 @@ extension WorkspaceState {
         mediaDownloadingMessageIds.contains(message.id)
     }
 
-    /// Download `attachments` into the folder the user chose and report the tally as a toast.
+    /// Download `attachments` to where the user says and report the outcome as a toast.
+    ///
+    /// Where is the default folder — Downloads, or the one picked in Storage settings (or by the
+    /// panel when the default could not be opened) — unless the user has turned on "Always ask
+    /// where to save", which asks every time: Save As for one file, a folder for several.
     ///
     /// One gesture per message at a time: the gallery's single-attachment button and the bubble's
     /// download-everything button both target the same message, and a double click should not
@@ -80,11 +64,10 @@ extension WorkspaceState {
 
         // No destination means the user closed the panel without choosing. That is a cancelled
         // gesture, not a failure — no toast, nothing written.
-        guard let destination = resolveMediaDownloadDestination() else { return }
-        defer { destination.release() }
-        let directory = destination.url
+        guard let destination = resolveMediaDownloadDestination(for: attachments, of: message) else { return }
+        defer { if case .folder(let access) = destination { access.release() } }
 
-        var savedCount = 0
+        var savedFileURLs: [URL] = []
         var failedCount = 0
         for attachment in attachments {
             guard let download = await resolvedMediaDownload(attachment, for: message) else {
@@ -98,13 +81,19 @@ extension WorkspaceState {
                 failedCount += 1
                 continue
             }
-            // The core's own name for the file wins over the timeline's: it is what the sender
-            // uploaded, and the timeline reference can carry a blank one.
-            let fileName = download.fileName.nilIfBlank ?? attachment.fileName
             do {
-                try await MediaDownloadWriter.shared.write(
-                    download.payload.data, fileName: fileName, into: directory)
-                savedCount += 1
+                switch destination {
+                case .file(let url):
+                    try await MediaDownloadWriter.shared.replace(download.payload.data, at: url)
+                    savedFileURLs.append(url)
+                case .folder(let access):
+                    // The core's own name for the file wins over the timeline's: it is what the
+                    // sender uploaded, and the timeline reference can carry a blank one.
+                    let fileName = download.fileName.nilIfBlank ?? attachment.fileName
+                    savedFileURLs.append(
+                        try await MediaDownloadWriter.shared.write(
+                            download.payload.data, fileName: fileName, into: access.url))
+                }
             } catch {
                 // Private for the same reason as the fetch reason above: a write error names the
                 // file it could not write, and that is the destination path and the sender's own
@@ -116,22 +105,50 @@ extension WorkspaceState {
             }
         }
 
-        presentMediaDownloadFeedback(savedCount: savedCount, failedCount: failedCount)
+        presentMediaDownloadFeedback(savedFileURLs: savedFileURLs, failedCount: failedCount)
     }
 
-    /// The folder to write into: the remembered grant if there is one, otherwise whatever the user
-    /// picks now. `nil` means the user cancelled.
-    private func resolveMediaDownloadDestination() -> MediaDownloadDestinationAccess? {
-        if let stored = mediaDownloadDestinationStore.resolveDestination() {
-            return stored
+    /// Where one download gesture writes. `nil` means the user cancelled.
+    ///
+    /// Asking happens before anything is fetched, so a cancelled panel costs no download. Save As
+    /// offers the core's name for the file when the tile has already loaded it — the name the row
+    /// shows and the folder path writes — and the timeline's otherwise.
+    private func resolveMediaDownloadDestination(
+        for attachments: [MessageMediaAttachment],
+        of message: MessageItem
+    ) -> MediaDownloadTarget? {
+        if mediaDownloadDestinationStore.alwaysAsksWhereToSave {
+            // Both panels open in the default folder, so accepting one as offered lands there.
+            let defaultFolder = mediaDownloadDestinationStore.defaultFolderURL
+            if attachments.count == 1 {
+                let attachment = attachments[0]
+                var loaded: MessageMediaDownload?
+                if case .loaded(let download) = mediaDownloadStateStore(for: message, attachment: attachment).state {
+                    loaded = download
+                }
+                let suggestedName = MediaFileDownloader.suggestedFileName(
+                    loaded?.fileName.nilIfBlank ?? attachment.reference.fileName,
+                    mediaType: loaded?.mediaType ?? attachment.reference.mediaType)
+                return mediaDownloadPanels.chooseFile(suggestedName, defaultFolder)
+                    .map(MediaDownloadTarget.file)
+            }
+            // A folder picked for one gesture is not remembered: the user asked to be asked. The
+            // panel's grant lasts for the app's lifetime, so there is nothing to release.
+            return mediaDownloadPanels.chooseFolder(defaultFolder).map {
+                .folder(MediaDownloadDestinationAccess(url: $0, isSecurityScoped: false))
+            }
         }
-        guard let picked = mediaDownloadDestinationPicker() else { return nil }
+        if let stored = mediaDownloadDestinationStore.resolveDestination() {
+            return .folder(stored)
+        }
+        guard let picked = mediaDownloadPanels.chooseFolder(mediaDownloadDestinationStore.defaultFolderURL)
+        else { return nil }
         mediaDownloadDestinationStore.store(picked)
         refreshMediaDownloadDestinationPath()
         // Use the panel's URL directly rather than re-resolving the bookmark just written: the
         // panel already granted access for this launch, and a freshly picked folder is not a
         // security-scoped resource this code opened, so it must not be closed either.
-        return MediaDownloadDestinationAccess(url: picked, isSecurityScoped: false)
+        return .folder(MediaDownloadDestinationAccess(url: picked, isSecurityScoped: false))
     }
 
     /// Non-identifying detail for the fetch-failure log line: which terminal state the store was
@@ -162,31 +179,22 @@ extension WorkspaceState {
         return reason
     }
 
-    /// Report a finished gesture, folding the tally into a toast that is still up.
+    /// Report a finished gesture, folding it into a toast that is still up.
     ///
     /// Downloads on different messages run concurrently, so a second gesture can finish while the
-    /// first one's toast is still on screen. Replacing the count there would report one file when
-    /// two were saved, so the counts add and the dismissal timer restarts — the toast describes
-    /// everything it has had time to tell the user about.
-    func presentMediaDownloadFeedback(savedCount: Int, failedCount: Int) {
+    /// first one's toast is still on screen. Replacing what is there would report one file when
+    /// two were saved, and Show in Finder would reveal only one, so the files and failures add —
+    /// the toast describes everything it has had time to tell the user about. The toast owns its
+    /// own dismissal timer, which restarts because the value changed.
+    func presentMediaDownloadFeedback(savedFileURLs: [URL], failedCount: Int) {
         let showing = mediaDownloadFeedback
         mediaDownloadFeedback = MediaDownloadFeedback(
-            savedCount: savedCount + (showing?.savedCount ?? 0),
+            savedFileURLs: (showing?.savedFileURLs ?? []) + savedFileURLs,
             failedCount: failedCount + (showing?.failedCount ?? 0)
         )
-        // Cancelling is the whole of the handover: the previous timer is flagged before it can
-        // resume, so it cannot close a toast it no longer describes.
-        mediaDownloadFeedbackDismissTask?.cancel()
-        mediaDownloadFeedbackDismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.mediaDownloadFeedbackDuration)
-            guard !Task.isCancelled else { return }
-            self?.mediaDownloadFeedback = nil
-        }
     }
 
     func dismissMediaDownloadFeedback() {
-        mediaDownloadFeedbackDismissTask?.cancel()
-        mediaDownloadFeedbackDismissTask = nil
         mediaDownloadFeedback = nil
     }
 

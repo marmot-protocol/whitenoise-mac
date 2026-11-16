@@ -12,6 +12,10 @@ import SwiftUI
 struct StorageSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showClearConfirmation = false
+    /// Mirrors the stored preference, which is not observable; loaded when the pane opens.
+    @State private var alwaysAsksWhereToSave = false
+    /// The folder row says it cannot be opened only once a refresh has actually found that.
+    @State private var hasRefreshedDownloadFolder = false
     @State private var retainedMiB = 2_048
     @State private var reserveMiB = 256
     @State private var transferMiB = 64
@@ -22,13 +26,13 @@ struct StorageSettingsView: View {
             title: L10n.string("Storage"),
             subtitle: L10n.string("Downloaded attachments stored on this Mac.")
         ) {
-            // The folder is granted by the panel on the first download, so without this row there
-            // would be no way to see where files went or to move them somewhere else.
             SettingsSection(title: L10n.string("Downloads")) {
+                // Downloads until the user picks another folder here; without this row there would
+                // be no way to see where files went or to move them elsewhere.
                 SettingsValueRow(
                     title: L10n.string("Save downloads to"),
                     value: workspace.mediaDownloadDestinationPath
-                        ?? L10n.string("Chosen the first time you download"),
+                        ?? (hasRefreshedDownloadFolder ? L10n.string("The chosen folder can’t be opened") : ""),
                     truncatesMiddle: true
                 )
 
@@ -36,6 +40,18 @@ struct StorageSettingsView: View {
                     workspace.changeMediaDownloadDestination()
                 }
                 .buttonStyle(.wnSecondary)
+
+                WNToggle(
+                    L10n.string("Always ask where to save"),
+                    systemImage: "questionmark.folder",
+                    isOn: Binding(
+                        get: { alwaysAsksWhereToSave },
+                        set: { asks in
+                            alwaysAsksWhereToSave = asks
+                            workspace.mediaDownloadDestinationStore.alwaysAsksWhereToSave = asks
+                        }
+                    )
+                )
             }
 
             SettingsSection(
@@ -145,7 +161,9 @@ struct StorageSettingsView: View {
             }
         }
         .task {
+            alwaysAsksWhereToSave = workspace.mediaDownloadDestinationStore.alwaysAsksWhereToSave
             workspace.refreshMediaDownloadDestinationPath()
+            hasRefreshedDownloadFolder = true
             await workspace.refreshMediaCacheFootprint()
             await model.load()
         }

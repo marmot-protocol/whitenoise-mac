@@ -1191,21 +1191,42 @@ final class RacingFileManager: FileManager, @unchecked Sendable {
 }
 
 final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
-    /// What the panel returns. `nil` means the user closed it without choosing.
+    /// What the folder panel returns. `nil` means the user closed it without choosing.
     var pickedURL: URL?
     private(set) var pickCallCount = 0
+    /// What the Save As panel returns, and the names it was offered, in order.
+    var pickedFileURL: URL?
+    private(set) var suggestedFileNames: [String] = []
+    /// The folder each panel (folder or Save As) was opened in, in order.
+    private(set) var openedInFolders: [URL?] = []
+    var alwaysAsksWhereToSave: Bool
     private(set) var storedURL: URL?
     private(set) var storeCallCount = 0
-    private(set) var clearCallCount = 0
     /// Simulates a grant that no longer resolves — folder deleted, volume ejected.
     var failsToResolve = false
 
-    init(storedURL: URL? = nil, pickedURL: URL? = nil) {
+    /// `alwaysAsks` defaults to off, as the production store does: downloads use the default folder.
+    init(storedURL: URL? = nil, pickedURL: URL? = nil, alwaysAsks: Bool = false) {
         self.storedURL = storedURL
         self.pickedURL = pickedURL
+        self.alwaysAsksWhereToSave = alwaysAsks
     }
 
-    /// Passed to `WorkspaceState(mediaDownloadDestinationPicker:)`.
+    /// Passed to `WorkspaceState(mediaDownloadPanels:)`.
+    var panels: MediaDownloadPanels {
+        MediaDownloadPanels(
+            chooseFolder: { [unowned self] openIn in
+                openedInFolders.append(openIn)
+                return pick()
+            },
+            chooseFile: { [unowned self] name, openIn in
+                openedInFolders.append(openIn)
+                suggestedFileNames.append(name)
+                return pickedFileURL
+            }
+        )
+    }
+
     func pick() -> URL? {
         pickCallCount += 1
         return pickedURL
@@ -1222,12 +1243,7 @@ final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
         failsToResolve = false
     }
 
-    func clear() {
-        clearCallCount += 1
-        storedURL = nil
-    }
-
-    var storedDestinationURL: URL? {
+    var defaultFolderURL: URL? {
         storedURL
     }
 }
@@ -1302,7 +1318,7 @@ func mediaDownloadFixture(
     }
 
     let state = WorkspaceState(
-        mediaDownloadDestinationPicker: { destination.pick() },
+        mediaDownloadPanels: destination.panels,
         mediaDownloadDestinationStore: destination,
         clientFactory: { runtime }
     )
