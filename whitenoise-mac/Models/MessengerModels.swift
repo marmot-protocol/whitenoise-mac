@@ -229,11 +229,23 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// message belongs there. `nil` means `preview` speaks for itself.
     ///
     /// A removal outranks the last message: the chat is closed to the reader, so what the row has
-    /// to report is that fact rather than whatever was said before it. Every other state only
-    /// fills the line when there is no message to draw — see `previewPlaceholder(locale:)`.
+    /// to report is that fact rather than whatever was said before it. It stays first because an
+    /// ended group's removed members are ended too, and the removal is the more specific fact.
+    ///
+    /// An ended group outranks the last message the same way. The line cannot wait for the
+    /// disband's system row to arrive as the last message: MDK keeps that row in the timeline only
+    /// and never projects it onto the chat list, so an ended row carries whichever message or
+    /// membership change came before it (or nothing). The lifecycle is the one signal every
+    /// account's row agrees on. A group still `.ending` keeps its message; the badge says the rest.
+    ///
+    /// Every other state only fills the line when there is no message to draw — see
+    /// `previewPlaceholder(locale:)`.
     func previewNotice(locale: Locale = AppLanguage.currentLocale) -> String? {
         if selfMembership.reportsInChatRowPreviewLine {
             return selfMembership.endedDescription(locale: locale)
+        }
+        if lifecycle == .ended {
+            return GroupLifecycle.disbandedSystemText(locale: locale)
         }
         if isBlockedDirectPeer {
             return L10n.string("You blocked this user", locale: locale)
@@ -253,15 +265,10 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// the chat list is not rebuilt on a language switch, so a stored translation would keep the
     /// previous language until some unrelated update happened to rebuild the row.
     ///
-    /// An ended group is never "No messages yet": a disband leaves a system row in the timeline,
-    /// and the group may well have had messages before it that the row no longer carries. The line
-    /// says what that system row says instead. A row whose last message *is* that system row
-    /// arrives here with an empty `preview` too, so both cases follow a language switch.
+    /// An ended group never reaches the placeholder through `previewNotice(locale:)`, which reports
+    /// "Group ended" before asking for one.
     func previewPlaceholder(locale: Locale = AppLanguage.currentLocale) -> String? {
         guard preview.isEmpty else { return nil }
-        if lifecycle == .ended {
-            return GroupLifecycle.disbandedSystemText(locale: locale)
-        }
         guard ChatRowStatus.status(for: self) == .pendingInvite else {
             return L10n.string("No messages yet", locale: locale)
         }
