@@ -14,6 +14,8 @@ struct StorageSettingsView: View {
     @State private var showClearConfirmation = false
     /// Mirrors the stored preference, which is not observable; loaded when the pane opens.
     @State private var alwaysAsksWhereToSave = false
+    /// The folder row says it cannot be opened only once a refresh has actually found that.
+    @State private var hasRefreshedDownloadFolder = false
     @State private var retainedMiB = 2_048
     @State private var reserveMiB = 256
     @State private var transferMiB = 64
@@ -30,7 +32,7 @@ struct StorageSettingsView: View {
                 SettingsValueRow(
                     title: L10n.string("Save downloads to"),
                     value: workspace.mediaDownloadDestinationPath
-                        ?? L10n.string("The chosen folder can’t be opened"),
+                        ?? (hasRefreshedDownloadFolder ? L10n.string("The chosen folder can’t be opened") : ""),
                     truncatesMiddle: true
                 )
 
@@ -161,6 +163,7 @@ struct StorageSettingsView: View {
         .task {
             alwaysAsksWhereToSave = workspace.mediaDownloadDestinationStore.alwaysAsksWhereToSave
             workspace.refreshMediaDownloadDestinationPath()
+            hasRefreshedDownloadFolder = true
             await workspace.refreshMediaCacheFootprint()
             await model.load()
         }
