@@ -240,7 +240,10 @@ build.
   tag URL, never reuse a reference in another chat, and re-encrypt once on `MediaReferenceStaleEpoch`.
   Stickers (`sendSticker`) and emoji sets live on `AccountScope`. Loading a sticker or a set preview
   contacts a server the author chose, so that happens only on a deliberate action or for an installed
-  pack.
+  pack. Received emoji images load like iOS's: MDK's retained slot first
+  (`CustomEmojiRetainedBytes`), then `requestAutomaticAttachment`, and `downloadMedia` (under the
+  emoji's own download cap) only when MDK cannot acquire the slot; a `downloadMedia` per emoji per
+  open is what made them lag behind Unicode emoji.
 - The built-in emoji (`CustomEmojiBuiltins`: `:marmot:`, `:wn:` and the `:marmot_*:` expressions)
   ship as asset data sets with the same PNG bytes as White Noise for iOS. `:marmot:` and the
   expressions are 128 px pixel art; `:marmot_classic:` is the previous 72 px `:marmot:`. Keep them

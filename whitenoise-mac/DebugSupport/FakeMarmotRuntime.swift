@@ -102,6 +102,10 @@
         var attachmentHistoryPageQueue: [AttachmentPageReadFfi] = []
         private(set) var attachmentHistoryPageReadCount = 0
         var attachmentLocalAssetResults: [AttachmentLocalAssetFfi] = []
+        /// Served in order before falling back to `attachmentLocalAssetResults`, for a slot that
+        /// becomes readable between two reads.
+        var attachmentLocalAssetQueue: [[AttachmentLocalAssetFfi]] = []
+        private(set) var automaticAttachmentRequestTargets: [AttachmentLocalTargetFfi] = []
         var attachmentTransferSnapshots: [AttachmentTransferSnapshotFfi] = []
         var attachmentTransferDelayNanoseconds: UInt64 = 0
         var automaticAttachmentResult = AutomaticAttachmentRequestFfi(
@@ -1738,6 +1742,9 @@
         func attachmentLocalAssets(
             accountRef: String, groupIdHex: String, targets: [AttachmentLocalTargetFfi]
         ) async throws -> [AttachmentLocalAssetFfi] {
+            if !attachmentLocalAssetQueue.isEmpty {
+                return attachmentLocalAssetQueue.removeFirst()
+            }
             if attachmentLocalAssetResults.isEmpty {
                 return targets.map { _ in AttachmentLocalAssetFfi(reference: nil, byteCount: 0) }
             }
@@ -1772,7 +1779,8 @@
         func requestAutomaticAttachment(
             accountRef: String, groupIdHex: String, target: AttachmentLocalTargetFfi
         ) async throws -> AutomaticAttachmentRequestFfi {
-            automaticAttachmentResult
+            automaticAttachmentRequestTargets.append(target)
+            return automaticAttachmentResult
         }
 
         func requestExplicitAttachment(

@@ -328,6 +328,115 @@ struct CustomEmojiTests {
         #expect(await waitFor { store.image(for: reference) != nil })
     }
 
+    /// The slowness this fixes: every emoji went through `downloadMedia`, a media-server round trip
+    /// on each conversation open. A slot MDK already holds is read locally, as on iOS.
+    @MainActor
+    @Test func anEmojiMDKRetainsIsReadLocallyWithoutADownload() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let png = try Self.pngDownload().plaintext
+        let reference = mediaAttachmentReference(
+            mediaType: "image/png", fileName: "party.png", plaintextSha256: CustomEmojiDigest.hex(png))
+        runtime.attachmentLocalAssetResults = [
+            AttachmentLocalAssetFfi(reference: "retained", byteCount: UInt64(png.count))
+        ]
+        runtime.attachmentBytesByReference["retained"] = png
+        let store = Self.store(runtime: runtime)
+
+        store.load(reference, target: Self.target)
+
+        #expect(await waitFor { store.image(for: reference) != nil })
+        #expect(runtime.downloadMediaCallCount == 0)
+        #expect(runtime.automaticAttachmentRequestTargets.isEmpty)
+    }
+
+    /// A slot MDK does not hold yet is requested as automatic work (ahead of the chat's other
+    /// automatic downloads) and read once its transfer is ready, so the next open is local too.
+    @MainActor
+    @Test func anEmojiMDKDoesNotHoldYetIsRequestedAndReadOnceReady() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let png = try Self.pngDownload().plaintext
+        let reference = mediaAttachmentReference(
+            mediaType: "image/png", fileName: "party.png", plaintextSha256: CustomEmojiDigest.hex(png))
+        runtime.attachmentLocalAssetQueue = [[AttachmentLocalAssetFfi(reference: nil, byteCount: 0)]]
+        runtime.attachmentLocalAssetResults = [
+            AttachmentLocalAssetFfi(reference: "retained", byteCount: UInt64(png.count))
+        ]
+        runtime.attachmentBytesByReference["retained"] = png
+        runtime.automaticAttachmentResult = AutomaticAttachmentRequestFfi(
+            status: Self.transferStatus(.queued), newlyQueued: true)
+        runtime.attachmentTransferSnapshots = [
+            AttachmentTransferSnapshotFfi(items: [Self.transferStatus(.downloading)]),
+            AttachmentTransferSnapshotFfi(items: [Self.transferStatus(.ready)]),
+        ]
+        let store = Self.store(runtime: runtime)
+
+        store.load(reference, target: Self.target)
+
+        #expect(await waitFor { store.image(for: reference) != nil })
+        #expect(runtime.automaticAttachmentRequestTargets == [Self.target])
+        #expect(runtime.downloadMediaCallCount == 0)
+    }
+
+    /// With automatic downloads off MDK will not acquire the slot; the emoji still loads, through
+    /// `downloadMedia` as before.
+    @MainActor
+    @Test func anEmojiMDKWillNotAcquireFallsBackToADownload() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "party.png")
+        runtime.installMediaRecord(
+            Self.record(messageIdHex: "message", index: 0, reference: reference), download: try Self.pngDownload())
+        runtime.automaticAttachmentResult = AutomaticAttachmentRequestFfi(
+            status: Self.transferStatus(.policyBlocked), newlyQueued: false)
+        let store = Self.store(runtime: runtime)
+
+        store.load(reference, target: Self.target)
+
+        #expect(await waitFor { store.image(for: reference) != nil })
+        #expect(runtime.automaticAttachmentRequestTargets == [Self.target])
+        #expect(runtime.downloadMediaCallCount == 1)
+    }
+
+    /// Retained bytes are drawn only when they are the referenced image.
+    @MainActor
+    @Test func retainedBytesThatDoNotMatchTheReferenceAreDownloadedInstead() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "party.png")
+        runtime.installMediaRecord(
+            Self.record(messageIdHex: "message", index: 0, reference: reference), download: try Self.pngDownload())
+        let other = try Self.pngDownload().plaintext + Data([0])
+        runtime.attachmentLocalAssetResults = [
+            AttachmentLocalAssetFfi(reference: "retained", byteCount: UInt64(other.count))
+        ]
+        runtime.attachmentBytesByReference["retained"] = other
+        let store = Self.store(runtime: runtime)
+
+        store.load(reference, target: Self.target)
+
+        #expect(await waitFor { store.image(for: reference) != nil })
+        #expect(runtime.downloadMediaCallCount == 1)
+    }
+
+    /// A reaction's image is read from the slot `reactionAttachment` names.
+    @MainActor
+    @Test func aReactionImageIsReadFromTheSlotReactionAttachmentNames() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let png = try Self.pngDownload().plaintext
+        let reference = mediaAttachmentReference(
+            mediaType: "image/png", fileName: "party.png", plaintextSha256: CustomEmojiDigest.hex(png))
+        runtime.reactionAttachments["kind7"] = Self.reactionEntry("kind7", reference: reference)
+        runtime.attachmentLocalAssetResults = [
+            AttachmentLocalAssetFfi(reference: "retained", byteCount: UInt64(png.count))
+        ]
+        runtime.attachmentBytesByReference["retained"] = png
+        let store = Self.store(runtime: runtime)
+        let reaction = MessageReaction(emoji: ":party:", count: 1, isOwn: false, reactionMessageIdHex: "kind7")
+
+        store.loadReactions([reaction])
+
+        #expect(await waitFor { store.reactionImage(for: reaction) != nil })
+        #expect(runtime.downloadMediaCallCount == 0)
+    }
+
     /// As on iOS: a `:marmot:` or `:wn:` reaction MDK holds no image for draws the built-in of
     /// that name, while any other shortcode with no image stays text.
     @MainActor
@@ -439,6 +548,13 @@ struct CustomEmojiTests {
     }
 
     // MARK: - Helpers
+
+    private static let target = AttachmentLocalTargetFfi(
+        messageIdHex: "message", sourceMessageIdHex: "message", attachmentIndex: 0)
+
+    private static func transferStatus(_ state: AttachmentTransferStateFfi) -> AttachmentTransferStatusFfi {
+        AttachmentTransferStatusFfi(reference: nil, state: state, attempt: 0, received: 0, total: nil, retryAt: nil)
+    }
 
     private static func attachment(_ fileName: String, mediaType: String = "image/png") -> MessageMediaAttachment {
         MessageMediaAttachment(

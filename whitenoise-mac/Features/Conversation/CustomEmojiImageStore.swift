@@ -8,9 +8,15 @@ import Observation
 ///
 /// A message's emoji image is one of its own attachments, so its reference is in hand. A
 /// reaction's is the attachment of the kind-7 that `ConversationReactionFfi.reactionMessageIdHex`
-/// names, which MarmotKit 0.15's `reactionAttachment` resolves with one bounded local read. Either
-/// way the bytes come through `downloadMedia` under the shared attachment-download cap, and keep
-/// their media epoch secret, so they stay decryptable after the group advances.
+/// names, which MarmotKit 0.15's `reactionAttachment` resolves with one bounded local read.
+///
+/// Bytes come from MDK's retained copy of the attachment's source slot first, as on iOS: a local
+/// read with no network, so an emoji the device already holds draws about as soon as the row does.
+/// A slot MDK does not hold yet is asked for with `requestAutomaticAttachment`, which puts it ahead
+/// of other automatic work and keeps it for the next open, and awaited for a bounded time. Only
+/// when that is not possible (no slot, automatic downloads off, a terminal transfer, a timeout) do
+/// the bytes come through `downloadMedia`, under the emoji's own download cap so tiny images never
+/// queue behind the photos and videos of the same chat.
 ///
 /// The media disk cache is read, never written: an emoji image is small and lives in memory for
 /// as long as the conversation does. Writing would need the purge fencing `WorkspaceState` keeps
@@ -26,6 +32,8 @@ final class CustomEmojiImageStore {
     private(set) var unavailable: Set<String> = []
     /// Reaction kind-7 id → the image attachment `reactionAttachment` resolved for it.
     private(set) var reactionReferences: [String: MediaAttachmentReferenceFfi] = [:]
+    /// Reaction kind-7 id → the source slot MDK resolved its image from.
+    @ObservationIgnored private var reactionTargets: [String: AttachmentLocalTargetFfi] = [:]
     /// Reaction kind-7 ids MDK holds no image for. A built-in shortcode among them draws the
     /// bundled image, as on iOS; any other stays its literal `:shortcode:`.
     private(set) var reactionsWithoutArtwork: Set<String> = []
@@ -40,6 +48,16 @@ final class CustomEmojiImageStore {
     /// The attachment has no tile or Download action of its own (it draws as text), so this is
     /// its only way back from a timeout or a relay hiccup.
     static let defaultRetryDelays: [Duration] = [.seconds(15), .seconds(60), .seconds(240)]
+    /// How long an emoji waits on MDK's own acquisition of its slot before falling back to
+    /// `downloadMedia`. MDK moves it ahead of other automatic work, so this only runs out when the
+    /// relay is slow, and the fallback then fetches it directly.
+    static let retainedAcquisitionTimeout: Duration = .seconds(20)
+    /// A retained emoji larger than this is not read into memory: it is no emoji.
+    static let maxRetainedBytes: UInt64 = 8 * 1024 * 1024
+    /// Emoji downloads get a cap of their own rather than `MediaAttachmentDownloadLimiter.shared`:
+    /// each is a few kilobytes, and behind a chat's photos and videos they took seconds to appear.
+    static let downloadLimiter = MediaAttachmentDownloadLimiter(
+        maxConcurrent: MediaAttachmentDownloadConcurrency.maxConcurrentDownloads)
 
     @ObservationIgnored private let accountId: String
     @ObservationIgnored private let accountRef: String
@@ -53,6 +71,8 @@ final class CustomEmojiImageStore {
     @ObservationIgnored private var downloads: [String: Task<MediaDownloadResultFfi, Error>] = [:]
     @ObservationIgnored private var retries: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var attempts: [String: Int] = [:]
+    /// The source slot MDK retains each key's bytes under, when the caller knew it.
+    @ObservationIgnored private var targets: [String: AttachmentLocalTargetFfi] = [:]
     @ObservationIgnored private var permanentlyFailed: Set<String> = []
     @ObservationIgnored private var pendingReactionIds: Set<String> = []
     @ObservationIgnored private var unresolvedReactionIds: [String: Date] = [:]
@@ -64,7 +84,7 @@ final class CustomEmojiImageStore {
         groupIdHex: String,
         runtime: any MarmotRuntime,
         diskCache: MessageMediaDiskCache = .shared,
-        limiter: MediaAttachmentDownloadLimiter = .shared,
+        limiter: MediaAttachmentDownloadLimiter = CustomEmojiImageStore.downloadLimiter,
         retryDelays: [Duration] = defaultRetryDelays,
         now: @escaping () -> Date = Date.init
     ) {
@@ -111,6 +131,7 @@ final class CustomEmojiImageStore {
     func recordOwnReaction(messageIds: [String], reference: MediaAttachmentReferenceFfi) {
         for messageIdHex in messageIds where !messageIdHex.isEmpty {
             reactionReferences[messageIdHex] = reference
+            reactionTargets[messageIdHex] = nil
             reactionsWithoutArtwork.remove(messageIdHex)
             unresolvedReactionIds[messageIdHex] = nil
             pendingReactionIds.remove(messageIdHex)
@@ -119,8 +140,11 @@ final class CustomEmojiImageStore {
     }
 
     /// Starts loading `reference` unless it is loaded, loading, waiting to retry, or given up.
-    func load(_ reference: MediaAttachmentReferenceFfi) {
+    /// `target` is the source slot MDK retains the attachment under; with it the bytes are read
+    /// locally when MDK holds them, which is what makes an emoji draw without a network round trip.
+    func load(_ reference: MediaAttachmentReferenceFfi, target: AttachmentLocalTargetFfi? = nil) {
         let key = Self.key(for: reference)
+        if let target { targets[key] = target }
         guard images[key] == nil, !unavailable.contains(key), loading[key] == nil else { return }
         loading[key] = Task { [weak self] in
             await self?.fetch(reference, key: key)
@@ -168,7 +192,7 @@ final class CustomEmojiImageStore {
                 continue
             }
             if let reference = reactionReferences[messageIdHex] {
-                load(reference)
+                load(reference, target: reactionTargets[messageIdHex])
             } else if let missedAt = unresolvedReactionIds[messageIdHex],
                 now().timeIntervalSince(missedAt) < Self.unresolvedReactionRetryInterval
             {
@@ -204,7 +228,8 @@ final class CustomEmojiImageStore {
                 unresolvedReactionIds[reactionMessageIdHex] = nil
                 reactionsWithoutArtwork.remove(reactionMessageIdHex)
                 reactionReferences[reactionMessageIdHex] = reference
-                load(reference)
+                reactionTargets[reactionMessageIdHex] = entry.map(Self.localTarget)
+                load(reference, target: reactionTargets[reactionMessageIdHex])
             } else {
                 unresolvedReactionIds[reactionMessageIdHex] = now()
                 reactionsWithoutArtwork.insert(reactionMessageIdHex)
@@ -226,13 +251,28 @@ final class CustomEmojiImageStore {
         return reference
     }
 
+    /// The original source slot of a resolved reaction image, which MDK's local reads take.
+    nonisolated static func localTarget(_ entry: AttachmentEntryFfi) -> AttachmentLocalTargetFfi {
+        let attachmentIndex: UInt32 =
+            switch entry.attachment {
+            case .accepted(let index, _), .rejected(let index, _): index
+            }
+        return AttachmentLocalTargetFfi(
+            messageIdHex: entry.messageIdHex, sourceMessageIdHex: entry.sourceMessageIdHex,
+            attachmentIndex: attachmentIndex)
+    }
+
     private func fetch(_ reference: MediaAttachmentReferenceFfi, key: String) async {
         defer { loading[key] = nil }
         let payload: DownloadedMediaPayload
         let cacheKey = MessageMediaDiskCacheKey(accountId: accountId, groupIdHex: groupIdHex, reference: reference)
         if let cached = await diskCache.cachedDownload(for: cacheKey) {
             payload = cached.payload
+        } else if let target = targets[key], let retained = await retainedBytes(reference, target: target) {
+            guard !Task.isCancelled else { return }
+            payload = DownloadedMediaPayload(id: "custom-emoji-\(UUID().uuidString)", data: retained)
         } else {
+            guard !Task.isCancelled else { return }
             let download = startDownload(reference, key: key)
             do {
                 // The timeout waits on the download rather than holding its permit, so a timed-out
@@ -261,6 +301,28 @@ final class CustomEmojiImageStore {
         guard !Task.isCancelled else { return }
         attempts[key] = nil
         images[key] = loaded.nsImage
+    }
+
+    /// The emoji's bytes from MDK's retained copy of `target`, asking MDK to acquire the slot when
+    /// it holds none yet. Nil hands the load to `downloadMedia`: no automatic acquisition possible,
+    /// a terminal transfer, a timeout, a read error, or bytes that are not the referenced image.
+    private func retainedBytes(
+        _ reference: MediaAttachmentReferenceFfi, target: AttachmentLocalTargetFfi
+    ) async -> Data? {
+        let data: Data?
+        do {
+            data = try await withMediaAttachmentDownloadTimeout(
+                nanoseconds: UInt64(Self.retainedAcquisitionTimeout.components.seconds) * 1_000_000_000
+            ) { [runtime, accountRef, groupIdHex] in
+                try await CustomEmojiRetainedBytes.acquire(
+                    runtime: runtime, accountRef: accountRef, groupIdHex: groupIdHex, target: target,
+                    maxBytes: Self.maxRetainedBytes)
+            }
+        } catch {
+            return nil
+        }
+        guard let data, CustomEmojiDigest.hex(data) == reference.plaintextSha256.lowercased() else { return nil }
+        return data
     }
 
     private func startDownload(
@@ -296,7 +358,7 @@ final class CustomEmojiImageStore {
             guard !Task.isCancelled, let self else { return }
             self.retries[key] = nil
             self.unavailable.remove(key)
-            self.load(reference)
+            self.load(reference, target: self.targets[key])
         }
     }
 }

@@ -802,7 +802,7 @@ struct MessageBubble: View {
         }
         .task(id: message.customEmoji.values.map(\.id).sorted()) {
             for attachment in message.customEmoji.values {
-                customEmojiImages.load(attachment.reference)
+                customEmojiImages.load(attachment.reference, target: attachment.localTarget(in: message))
             }
         }
     }
