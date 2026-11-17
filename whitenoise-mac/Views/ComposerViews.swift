@@ -624,6 +624,10 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             if let command = Self.mentionCommands[commandSelector], applyMentionCommand(command, in: textView) {
                 return true
             }
+            // A key that ended a composition was the input context's, not an edit command.
+            if (textView as? ComposerPasteInterceptingTextView)?.isHandlingKeyFromComposition == true {
+                return false
+            }
             switch commandSelector {
             case #selector(NSResponder.moveUp(_:)):
                 // Only an empty composer: with a draft, Up moves the caret between its lines.
@@ -869,10 +873,14 @@ private extension NSAttributedString.Key {
 }
 
 @MainActor
-private final class ComposerPasteInterceptingTextView: NSTextView {
+final class ComposerPasteInterceptingTextView: NSTextView {
     var mediaPasteHandler: (() -> Bool)?
     var returnKeySendHandler: (() -> Void)?
     var windowAttachHandler: (() -> Void)?
+    /// Whether the key being handled arrived while text was marked. The input context ends the
+    /// composition before the key's command reaches the delegate, so `hasMarkedText()` is
+    /// already false by then.
+    private(set) var isHandlingKeyFromComposition = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -887,6 +895,8 @@ private final class ComposerPasteInterceptingTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        isHandlingKeyFromComposition = hasMarkedText()
+        defer { isHandlingKeyFromComposition = false }
         guard event.charactersIgnoringModifiers == "\r" || event.charactersIgnoringModifiers == "\n" else {
             super.keyDown(with: event)
             return

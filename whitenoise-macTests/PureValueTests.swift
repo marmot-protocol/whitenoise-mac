@@ -566,6 +566,43 @@ struct PureValueTests {
         #expect(edits == [.cancelEdit])
     }
 
+    @MainActor
+    @Test func escapeEndingAnAccentCompositionLeavesTheEditOpen() throws {
+        // Escape that ends a marked composition (Option-E, then Escape) belongs to the input
+        // context; AppKit still forwards `cancelOperation:` for that same key, which must not
+        // also abandon the message edit and the changes made in it.
+        var edits: [ComposerEditCommand] = []
+        let (coordinator, _) = tabTestCoordinator(
+            text: "fixed typo", acceptResult: false,
+            editCalls: {
+                edits.append($0)
+                return true
+            }, acceptCalls: {}
+        )
+        func composer() -> ComposerPasteInterceptingTextView {
+            let textView = ComposerPasteInterceptingTextView()
+            textView.delegate = coordinator
+            textView.string = "fixed typo"
+            return textView
+        }
+        let escape = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false, keyCode: 53
+            ))
+
+        let composing = composer()
+        composing.setMarkedText(
+            "´", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 10, length: 0))
+        composing.keyDown(with: escape)
+        #expect(edits.isEmpty)
+
+        // With nothing being composed, the same key cancels the edit.
+        composer().keyDown(with: escape)
+        #expect(edits == [.cancelEdit])
+    }
+
     @Test func lastMessageEditTargetsTheNewestOwnEditableMessage() {
         let sentAt = Date(timeIntervalSince1970: 1_700_000_000)
         let older = MessageItem(id: "older", senderName: "You", body: "first", sentAt: sentAt, isOutgoing: true)
