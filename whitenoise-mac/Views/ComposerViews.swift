@@ -118,6 +118,9 @@ struct ComposerMessageInputView: View {
     /// Applies a picker key to the open "@query". Returns whether it was handled, so Tab, Return
     /// and the arrows keep their ordinary meaning when there is nothing to complete.
     let onMentionCommand: (ComposerMentionCommand) -> Bool
+    /// Applies Up in an empty composer or Escape to message editing. Returns whether it was
+    /// handled, so the key keeps its ordinary meaning when there is nothing to edit or cancel.
+    var onEditCommand: (ComposerEditCommand) -> Bool = { _ in false }
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
     var focusRequestID: UUID?
@@ -138,6 +141,7 @@ struct ComposerMessageInputView: View {
                 mentionContextScope: mentionContextScope,
                 onMentionContextChange: onMentionContextChange,
                 onMentionCommand: onMentionCommand,
+                onEditCommand: onEditCommand,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend,
                 focusRequestID: focusRequestID,
@@ -323,6 +327,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     /// Applies a picker key to the open "@query". Returns whether it was handled, so Tab, Return
     /// and the arrows keep their ordinary meaning when there is nothing to complete.
     let onMentionCommand: (ComposerMentionCommand) -> Bool
+    var onEditCommand: (ComposerEditCommand) -> Bool = { _ in false }
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
     /// A pending request moves keyboard focus into the text view, caret at the end of the draft,
@@ -355,7 +360,8 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             onPasteMedia: onPasteMedia,
             onSend: onSend,
             onMentionContextChange: onMentionContextChange,
-            onMentionCommand: onMentionCommand
+            onMentionCommand: onMentionCommand,
+            onEditCommand: onEditCommand
         )
     }
 
@@ -407,6 +413,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         context.coordinator.mentionSelections = $mentionSelections
         context.coordinator.onMentionContextChange = onMentionContextChange
         context.coordinator.onMentionCommand = onMentionCommand
+        context.coordinator.onEditCommand = onEditCommand
 
         guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
         configureHandlers(for: textView, coordinator: context.coordinator)
@@ -453,6 +460,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         var onMentionInsertionConsumed: (UUID) -> Void
         var onMentionContextChange: (ComposerMentionContext?) -> Void
         var onMentionCommand: (ComposerMentionCommand) -> Bool
+        var onEditCommand: (ComposerEditCommand) -> Bool
         private var lastEmojiInsertionID: UUID?
         /// Dedupes the focus attempt already queued for this update pass; cleared when it runs,
         /// so a request that could not be applied is retried on the next update.
@@ -474,7 +482,8 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             onEmojiInsertionConsumed: @escaping (UUID) -> Void = { _ in },
             onMentionInsertionConsumed: @escaping (UUID) -> Void = { _ in },
             onMentionContextChange: @escaping (ComposerMentionContext?) -> Void = { _ in },
-            onMentionCommand: @escaping (ComposerMentionCommand) -> Bool = { _ in false }
+            onMentionCommand: @escaping (ComposerMentionCommand) -> Bool = { _ in false },
+            onEditCommand: @escaping (ComposerEditCommand) -> Bool = { _ in false }
         ) {
             self.text = text
             self.measuredHeight = measuredHeight
@@ -486,6 +495,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             self.onMentionInsertionConsumed = onMentionInsertionConsumed
             self.onMentionContextChange = onMentionContextChange
             self.onMentionCommand = onMentionCommand
+            self.onEditCommand = onEditCommand
         }
 
         func scheduleEmojiInsertion(_ insertion: ComposerEmojiInsertion?, into textView: NSTextView) {
@@ -606,12 +616,28 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         ]
 
         /// Tab completes an open "@query" with the highlighted candidate, and Up and Down move the
-        /// highlight. Only when the picker is showing is the key consumed; otherwise the text view
+        /// highlight. Only when the picker is showing is the key consumed; otherwise Up in an empty
+        /// composer edits the user's latest message, Escape abandons an edit, and every other key
         /// inserts its tab or moves the caret as before. Arrives as a command, so it never fires
         /// mid-composition — the input context keeps these keys while text is marked.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard let command = Self.mentionCommands[commandSelector] else { return false }
-            return applyMentionCommand(command, in: textView)
+            if let command = Self.mentionCommands[commandSelector], applyMentionCommand(command, in: textView) {
+                return true
+            }
+            // A key that ended a composition was the input context's, not an edit command.
+            if (textView as? ComposerPasteInterceptingTextView)?.isHandlingKeyFromComposition == true {
+                return false
+            }
+            switch commandSelector {
+            case #selector(NSResponder.moveUp(_:)):
+                // Only an empty composer: with a draft, Up moves the caret between its lines.
+                guard textView.string.isEmpty else { return false }
+                return onEditCommand(.editLastMessage)
+            case #selector(NSResponder.cancelOperation(_:)):
+                return onEditCommand(.cancelEdit)
+            default:
+                return false
+            }
         }
 
         /// The send shortcut. While an "@query" is open and has a candidate, Return completes the
@@ -847,10 +873,14 @@ private extension NSAttributedString.Key {
 }
 
 @MainActor
-private final class ComposerPasteInterceptingTextView: NSTextView {
+final class ComposerPasteInterceptingTextView: NSTextView {
     var mediaPasteHandler: (() -> Bool)?
     var returnKeySendHandler: (() -> Void)?
     var windowAttachHandler: (() -> Void)?
+    /// Whether the key being handled arrived while text was marked. The input context ends the
+    /// composition before the key's command reaches the delegate, so `hasMarkedText()` is
+    /// already false by then.
+    private(set) var isHandlingKeyFromComposition = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -865,6 +895,8 @@ private final class ComposerPasteInterceptingTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        isHandlingKeyFromComposition = hasMarkedText()
+        defer { isHandlingKeyFromComposition = false }
         guard event.charactersIgnoringModifiers == "\r" || event.charactersIgnoringModifiers == "\n" else {
             super.keyDown(with: event)
             return

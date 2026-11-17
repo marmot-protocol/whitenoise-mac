@@ -470,6 +470,7 @@ struct PureValueTests {
         acceptResult: Bool,
         sendCalls: @escaping () -> Void = {},
         commandCalls: @escaping (ComposerMentionCommand) -> Void = { _ in },
+        editCalls: @escaping (ComposerEditCommand) -> Bool = { _ in false },
         acceptCalls: @escaping () -> Void
     ) -> (ComposerMessageTextViewRepresentable.Coordinator, NSTextView) {
         var measuredHeight: CGFloat = 20
@@ -486,7 +487,8 @@ struct PureValueTests {
                 commandCalls(command)
                 acceptCalls()
                 return acceptResult
-            }
+            },
+            onEditCommand: editCalls
         )
         let textView = NSTextView()
         textView.string = text
@@ -522,6 +524,105 @@ struct PureValueTests {
         )
         #expect(!plain.textView(plainView, doCommandBy: #selector(NSResponder.moveDown(_:))))
         #expect(commands == [.moveDown, .moveUp])
+    }
+
+    @MainActor
+    @Test func upInAnEmptyComposerAsksToEditTheLastMessage() {
+        var edits: [ComposerEditCommand] = []
+        func coordinator(text: String, handles: Bool) -> (ComposerMessageTextViewRepresentable.Coordinator, NSTextView)
+        {
+            tabTestCoordinator(
+                text: text,
+                acceptResult: true,
+                editCalls: { command in
+                    edits.append(command)
+                    return handles
+                },
+                acceptCalls: {}
+            )
+        }
+
+        let (empty, emptyView) = coordinator(text: "", handles: true)
+        #expect(empty.textView(emptyView, doCommandBy: #selector(NSResponder.moveUp(_:))))
+        #expect(edits == [.editLastMessage])
+        // Down never edits; it keeps its ordinary meaning.
+        #expect(!empty.textView(emptyView, doCommandBy: #selector(NSResponder.moveDown(_:))))
+        #expect(edits == [.editLastMessage])
+
+        // With nothing to edit the key falls through to the text view.
+        let (nothing, nothingView) = coordinator(text: "", handles: false)
+        #expect(!nothing.textView(nothingView, doCommandBy: #selector(NSResponder.moveUp(_:))))
+
+        // A draft keeps Up for moving the caret, and an open "@query" keeps it for the picker.
+        edits = []
+        let (draft, draftView) = coordinator(text: "line one\nline two", handles: true)
+        #expect(!draft.textView(draftView, doCommandBy: #selector(NSResponder.moveUp(_:))))
+        let (mention, mentionView) = coordinator(text: "@Al", handles: true)
+        #expect(mention.textView(mentionView, doCommandBy: #selector(NSResponder.moveUp(_:))))
+        #expect(edits.isEmpty)
+
+        // Escape is offered to cancel an edit whatever the text holds.
+        #expect(draft.textView(draftView, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+        #expect(edits == [.cancelEdit])
+    }
+
+    @MainActor
+    @Test func escapeEndingAnAccentCompositionLeavesTheEditOpen() throws {
+        // Escape that ends a marked composition (Option-E, then Escape) belongs to the input
+        // context; AppKit still forwards `cancelOperation:` for that same key, which must not
+        // also abandon the message edit and the changes made in it.
+        var edits: [ComposerEditCommand] = []
+        let (coordinator, _) = tabTestCoordinator(
+            text: "fixed typo", acceptResult: false,
+            editCalls: {
+                edits.append($0)
+                return true
+            }, acceptCalls: {}
+        )
+        func composer() -> ComposerPasteInterceptingTextView {
+            let textView = ComposerPasteInterceptingTextView()
+            textView.delegate = coordinator
+            textView.string = "fixed typo"
+            return textView
+        }
+        let escape = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false, keyCode: 53
+            ))
+
+        let composing = composer()
+        composing.setMarkedText(
+            "´", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 10, length: 0))
+        composing.keyDown(with: escape)
+        #expect(edits.isEmpty)
+
+        // With nothing being composed, the same key cancels the edit.
+        composer().keyDown(with: escape)
+        #expect(edits == [.cancelEdit])
+    }
+
+    @Test func lastMessageEditTargetsTheNewestOwnEditableMessage() {
+        let sentAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let older = MessageItem(id: "older", senderName: "You", body: "first", sentAt: sentAt, isOutgoing: true)
+        let latest = MessageItem(id: "latest", senderName: "You", body: "second", sentAt: sentAt, isOutgoing: true)
+        let deleted = MessageItem(
+            id: "deleted", senderName: "You", body: "gone", sentAt: sentAt, isDeleted: true, isOutgoing: true
+        )
+        let incoming = MessageItem(id: "incoming", senderName: "Alice", body: "hi", sentAt: sentAt, isOutgoing: false)
+        let atTail = TimelinePagingState.empty
+        var detached = TimelinePagingState.empty
+        detached.hasMoreAfter = true
+
+        // Someone else's reply and an own message that cannot be edited are skipped.
+        #expect(
+            ComposerLastMessageEdit.target(in: [older, latest, deleted, incoming], paging: atTail)?.id == "latest"
+        )
+        #expect(ComposerLastMessageEdit.target(in: [incoming], paging: atTail) == nil)
+        #expect(ComposerLastMessageEdit.target(in: [], paging: atTail) == nil)
+        // A window short of the newest message does not know which own message is the latest.
+        #expect(ComposerLastMessageEdit.target(in: [older, latest], paging: detached) == nil)
     }
 
     @Test func mentionHighlightStopsAtEitherEndOfThePicker() {
