@@ -152,7 +152,7 @@ extension WorkspaceState {
     /// user is already reading rather than on a conversation.
     ///
     /// Reached from `ProfileChooserView`, which the detail pane shows after the active profile is
-    /// deleted: Settings stays selected behind the chooser, so the pick lands back on the settings
+    /// deleted or signed out of: Settings stays selected behind the chooser, so the pick lands back on the settings
     /// page the deletion left. The account rail uses `selectAccount(_:)`, which lands on a chat.
     func selectAccountFromSettings(_ account: AccountItem) {
         guard !account.signedOut else { return }
@@ -774,7 +774,8 @@ extension WorkspaceState {
 
     /// Non-destructive sign-out: retains the account's local data but deactivates
     /// it (and cleans up its relay key packages). If it was the active account, the
-    /// UI switches to another signed-in account, or onboarding when none remain.
+    /// user is asked to choose one of the remaining signed-in accounts (`ProfileChooserView`),
+    /// or the app returns to onboarding when none remain.
     func signOutAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
         lastError = nil
@@ -809,10 +810,17 @@ extension WorkspaceState {
             guard currentActiveAccount == nil else { return }
 
             resetActiveAccountUIState()
-            if let nextActive = accounts.first(where: { !$0.signedOut }) {
-                switchActiveAccount(nextActive, finalSelection: settingsSelectionAfterAccountMutation)
-                await configureObservabilityRuntimeBestEffort()
-                await loadSettingsData()
+            if !signedInAccounts.isEmpty {
+                // Signing out of the profile the user was in, with others still signed in, asks
+                // which one to continue with — exactly as deleting it does (`removeAccount`) —
+                // rather than silently moving into whichever identity `accounts` lists first.
+                // Settings stays selected behind `ProfileChooserView`, so the pick lands back on
+                // Settings.
+                activeAccountId = nil
+                invalidateNotificationSettingsOperations()
+                UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
+                notificationSettings = .defaults
+                selection = settingsSelectionAfterAccountMutation
             } else {
                 // Signing out the last identity is a way out of the app, so it lands where a
                 // first launch does. It used to stay in `.ready` with no active account, which

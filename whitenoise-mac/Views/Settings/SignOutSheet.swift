@@ -218,8 +218,9 @@ struct SignOutSheet: View {
         // reader guessing whether they are still signed in. Same rule the encrypted-export sheet
         // follows, and the reason this sheet draws a `SettingsErrorView` at all.
         guard workspace.lastError == nil else { return }
-        // On success both paths either reselect another identity or land the app in onboarding,
-        // which takes this sheet with it. Dismissing covers the first case, harmless in the second.
+        // On success both paths either leave the profile chooser asking which identity comes
+        // next or land the app in onboarding, which takes this sheet with it. Dismissing covers
+        // the first case, harmless in the second.
         dismiss()
     }
 }
