@@ -82,6 +82,7 @@ private struct CustomEmojiPickerCell: View {
     let content: CustomEmojiPickerContent
     let isDisabled: Bool
     let onPick: () -> Void
+    @Environment(\.locale) private var locale
 
     var body: some View {
         Button(action: onPick) {
@@ -93,7 +94,7 @@ private struct CustomEmojiPickerCell: View {
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.28 : 1)
         .help(sendable.token)
-        .accessibilityLabel(Text(verbatim: sendable.spokenName))
+        .accessibilityLabel(Text(verbatim: sendable.spokenName(locale: locale)))
     }
 }
 

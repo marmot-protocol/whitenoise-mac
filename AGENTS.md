@@ -241,6 +241,12 @@ build.
   Stickers (`sendSticker`) and emoji sets live on `AccountScope`. Loading a sticker or a set preview
   contacts a server the author chose, so that happens only on a deliberate action or for an installed
   pack.
+- The built-in emoji (`CustomEmojiBuiltins`: `:marmot:`, `:wn:` and the `:marmot_*:` expressions)
+  ship as asset data sets with the same PNG bytes as White Noise for iOS. `:marmot:` and the
+  expressions are 128 px pixel art; `:marmot_classic:` is the previous 72 px `:marmot:`. Keep them
+  byte-identical with iOS, never revert to match a client still on the classic image. Product
+  names (Marmot, White Noise) are spoken untranslated; the expressions' VoiceOver names are catalog
+  keys.
 - The published macOS XCFramework is `aarch64-apple-darwin` only — there is no
   Intel or universal build upstream, so the app stays arm64-only.
 - `MarmotRuntime` (in `Core/MarmotClient.swift`) is the `nonisolated` protocol the

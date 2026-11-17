@@ -9,13 +9,20 @@ import MarmotKit
 // tag URL is never fetched. Everything here is pure so limits, tags and validation are testable
 // without a runtime.
 
-/// Built-in `:marmot:` and `:wn:`: the same PNG bytes White Noise ships on every platform. A
-/// message or reaction using one carries the image like any custom emoji, so clients without the
-/// built-ins still see it.
+/// Built-in `:marmot:`, `:wn:` and the `:marmot_*:` expressions: the same PNG bytes White Noise
+/// for iOS ships, which Android and Linux are adopting. A message or reaction using one carries the
+/// image like any custom emoji, so clients without the built-ins still see it.
 nonisolated struct CustomEmojiBuiltin: Hashable, Sendable {
+    /// What VoiceOver reads in place of the shortcode.
+    enum Name: Hashable, Sendable {
+        /// A product name, not translated.
+        case product(String)
+        /// A string catalog key, read in the app language when spoken.
+        case localized(String)
+    }
+
     let shortcode: String
-    /// Product name read by VoiceOver in place of the shortcode.
-    let spokenName: String
+    let name: Name
     let data: Data
     let plaintextSha256: String
     let dim: String?
@@ -23,9 +30,18 @@ nonisolated struct CustomEmojiBuiltin: Hashable, Sendable {
     var fileName: String { "\(shortcode).png" }
     var mediaType: String { "image/png" }
 
-    init(shortcode: String, spokenName: String, data: Data, dim: String?) {
+    /// What VoiceOver reads, in `locale`. Views pass the `\.locale` environment value so a
+    /// language switch re-renders them.
+    func spokenName(locale: Locale) -> String {
+        switch name {
+        case .product(let name): name
+        case .localized(let key): L10n.string(key, locale: locale)
+        }
+    }
+
+    init(shortcode: String, name: Name, data: Data, dim: String?) {
         self.shortcode = shortcode
-        self.spokenName = spokenName
+        self.name = name
         self.data = data
         self.dim = dim
         plaintextSha256 = CustomEmojiDigest.hex(data)
@@ -36,21 +52,31 @@ nonisolated enum CustomEmojiBuiltins {
     private struct Definition {
         let shortcode: String
         let asset: String
-        let spokenName: String
+        let name: CustomEmojiBuiltin.Name
     }
 
-    // Product names, not translated.
+    // Product names stay untranslated; the expressions' keys must match Localizable.xcstrings.
     private static let definitions = [
-        Definition(shortcode: "marmot", asset: "BuiltinEmojiMarmot", spokenName: "Marmot"),
-        Definition(shortcode: "wn", asset: "BuiltinEmojiWN", spokenName: "White Noise"),
+        Definition(shortcode: "marmot", asset: "BuiltinEmojiMarmot", name: .product("Marmot")),
+        Definition(shortcode: "wn", asset: "BuiltinEmojiWN", name: .product("White Noise")),
+        Definition(shortcode: "marmot_classic", asset: "BuiltinEmojiMarmotClassic", name: .localized("Classic marmot")),
+        Definition(shortcode: "marmot_wave", asset: "BuiltinEmojiMarmotWave", name: .localized("Waving marmot")),
+        Definition(shortcode: "marmot_yes", asset: "BuiltinEmojiMarmotYes", name: .localized("Marmot thumbs up")),
+        Definition(shortcode: "marmot_laugh", asset: "BuiltinEmojiMarmotLaugh", name: .localized("Laughing marmot")),
+        Definition(shortcode: "marmot_love", asset: "BuiltinEmojiMarmotLove", name: .localized("Marmot with heart")),
+        Definition(shortcode: "marmot_party", asset: "BuiltinEmojiMarmotParty", name: .localized("Party marmot")),
+        Definition(shortcode: "marmot_fire", asset: "BuiltinEmojiMarmotFire", name: .localized("Marmot on fire")),
+        Definition(shortcode: "marmot_wow", asset: "BuiltinEmojiMarmotWow", name: .localized("Surprised marmot")),
+        Definition(shortcode: "marmot_smirk", asset: "BuiltinEmojiMarmotSmirk", name: .localized("Smirking marmot")),
+        Definition(shortcode: "marmot_cry", asset: "BuiltinEmojiMarmotCry", name: .localized("Crying marmot")),
+        Definition(shortcode: "marmot_angry", asset: "BuiltinEmojiMarmotAngry", name: .localized("Angry marmot")),
     ]
 
     /// Every built-in whose bundled bytes load, in picker order.
     static let all: [CustomEmojiBuiltin] = definitions.compactMap { definition in
         guard let data = NSDataAsset(name: definition.asset)?.data, !data.isEmpty else { return nil }
         let dim = NSBitmapImageRep(data: data).map { "\($0.pixelsWide)x\($0.pixelsHigh)" }
-        return CustomEmojiBuiltin(
-            shortcode: definition.shortcode, spokenName: definition.spokenName, data: data, dim: dim)
+        return CustomEmojiBuiltin(shortcode: definition.shortcode, name: definition.name, data: data, dim: dim)
     }
 
     static func builtin(_ shortcode: String) -> CustomEmojiBuiltin? {
@@ -175,9 +201,9 @@ nonisolated struct CustomEmojiSendable: Identifiable, Equatable, Sendable {
         }
     }
 
-    /// What VoiceOver reads for the emoji.
-    var spokenName: String {
-        if case .builtin(let builtin) = artwork { return builtin.spokenName }
+    /// What VoiceOver reads for the emoji, in `locale`.
+    func spokenName(locale: Locale) -> String {
+        if case .builtin(let builtin) = artwork { return builtin.spokenName(locale: locale) }
         return shortcode
     }
 }

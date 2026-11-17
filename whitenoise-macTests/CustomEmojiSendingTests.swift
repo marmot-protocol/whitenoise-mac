@@ -46,12 +46,49 @@ struct CustomEmojiSendingTests {
 
     // MARK: - Built-ins
 
+    private static let builtinShortcodes = [
+        "marmot", "wn", "marmot_classic", "marmot_wave", "marmot_yes", "marmot_laugh", "marmot_love", "marmot_party",
+        "marmot_fire", "marmot_wow", "marmot_smirk", "marmot_cry", "marmot_angry",
+    ]
+
     @Test func theBuiltInsLoadFromTheBundleWithTheirDigests() throws {
-        #expect(CustomEmojiBuiltins.all.map(\.shortcode) == ["marmot", "wn"])
+        #expect(CustomEmojiBuiltins.all.map(\.shortcode) == Self.builtinShortcodes)
         let wn = try #require(CustomEmojiBuiltins.builtin("wn"))
         #expect(wn.plaintextSha256 == CustomEmojiDigest.hex(wn.data))
         #expect(wn.dim == "72x72")
-        #expect(wn.spokenName == "White Noise")
+        #expect(wn.spokenName(locale: Locale(identifier: "de")) == "White Noise")
+    }
+
+    @Test func theMarmotIsPixelArtAndTheClassicMarmotKeepsThePreviousImage() throws {
+        let marmot = try #require(CustomEmojiBuiltins.builtin("marmot"))
+        let classic = try #require(CustomEmojiBuiltins.builtin("marmot_classic"))
+        #expect(marmot.dim == "128x128")
+        #expect(classic.dim == "72x72")
+        #expect(marmot.plaintextSha256 != classic.plaintextSha256)
+        for builtin in CustomEmojiBuiltins.all where builtin.shortcode.hasPrefix("marmot_") {
+            let expected = builtin.shortcode == "marmot_classic" ? "72x72" : "128x128"
+            #expect(builtin.dim == expected, "\(builtin.shortcode)")
+        }
+    }
+
+    /// A catalog key that doesn't match falls back to the English key, so a typo shows up as an
+    /// untranslated or duplicated name.
+    @Test func everyBuiltinHasADistinctTranslatedSpokenName() {
+        let english = CustomEmojiBuiltins.all.map { $0.spokenName(locale: Locale(identifier: "en")) }
+        for language in AppLanguage.supportedAppLanguages {
+            let locale = Locale(identifier: language.rawValue)
+            let names = CustomEmojiBuiltins.all.map { $0.spokenName(locale: locale) }
+            #expect(Set(names).count == names.count, "\(language)")
+            #expect(names.allSatisfy { !$0.isEmpty }, "\(language)")
+            guard language != .english else { continue }
+            for (index, builtin) in CustomEmojiBuiltins.all.enumerated() {
+                guard case .localized = builtin.name else {
+                    #expect(names[index] == english[index], "\(language) \(builtin.shortcode)")
+                    continue
+                }
+                #expect(names[index] != english[index], "\(language) \(builtin.shortcode)")
+            }
+        }
     }
 
     // MARK: - Catalog
@@ -68,12 +105,12 @@ struct CustomEmojiSendingTests {
             ]
         )
 
-        #expect(sendables.map(\.shortcode) == ["marmot", "wn", "party", "cat"])
+        #expect(sendables.map(\.shortcode) == Self.builtinShortcodes + ["party", "cat"])
         guard case .builtin = sendables[1].artwork else {
             Issue.record("wn should stay built in")
             return
         }
-        guard case .installed = sendables[2].artwork else {
+        guard case .installed = sendables[Self.builtinShortcodes.count].artwork else {
             Issue.record("party should be installed")
             return
         }
@@ -124,7 +161,7 @@ struct CustomEmojiSendingTests {
         let groups = CustomEmojiSendCatalog.pickerGroups(sendables)
 
         #expect(groups.map(\.id) == ["custom", "s1", "s2"])
-        #expect(groups[0].emoji.map(\.shortcode) == ["marmot", "wn"])
+        #expect(groups[0].emoji.map(\.shortcode) == Self.builtinShortcodes)
     }
 
     // MARK: - Tags
@@ -155,15 +192,17 @@ struct CustomEmojiSendingTests {
     @Test func aMessageUploadsEachImageOnceAndSendsItTagged() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let sender = ConversationCustomEmojiSender(accountRef: "account", groupIdHex: Self.group, runtime: runtime)
-        let emoji = CustomEmojiSendCatalog.sendables(installed: [], chat: [])
+        let text = ":wn: :marmot: :wn:"
+        let emoji = CustomEmojiSendCatalog.used(
+            in: text, sendables: CustomEmojiSendCatalog.sendables(installed: [], chat: []))
 
-        try await sender.sendMessage(text: ":wn: :marmot: :wn:", replyTargetId: nil, emoji: emoji)
+        try await sender.sendMessage(text: text, replyTargetId: nil, emoji: emoji)
 
         let sent = try #require(runtime.taggedMediaSends.first)
         #expect(sent.groupIdHex == Self.group)
         #expect(sent.caption == ":wn: :marmot: :wn:")
         #expect(sent.attachments.count == 2)
-        #expect(sent.tags.map { Array($0.prefix(2)) } == [["emoji", "marmot"], ["emoji", "wn"]])
+        #expect(sent.tags.map { Array($0.prefix(2)) } == [["emoji", "wn"], ["emoji", "marmot"]])
         #expect(sent.tags.map { $0[2] } == sent.attachments.map { $0.locators[0].value })
         // Uploaded, not sent: the tagged message is the one send.
         #expect(runtime.uploadedMediaRequests.allSatisfy { !$0.request.send })
@@ -175,7 +214,9 @@ struct CustomEmojiSendingTests {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.sendTaggedMediaErrors = [MarmotKitError.Publish(details: "offline")]
         let sender = ConversationCustomEmojiSender(accountRef: "account", groupIdHex: Self.group, runtime: runtime)
-        let wn = try #require(CustomEmojiSendCatalog.sendables(installed: [], chat: []).last)
+        let wn = try #require(
+            CustomEmojiSendCatalog.sendable(
+                forReaction: ":wn:", in: CustomEmojiSendCatalog.sendables(installed: [], chat: [])))
 
         #expect(await !sender.submit(text: ":wn:", replyTargetId: nil, emoji: [wn]))
         #expect(sender.errorMessage == CustomEmojiSendError.sendFailed.message)
@@ -197,7 +238,9 @@ struct CustomEmojiSendingTests {
             diskCache: .makeIsolated())
         let sender = ConversationCustomEmojiSender(
             accountRef: "account", groupIdHex: Self.group, runtime: runtime, images: images)
-        let wn = try #require(CustomEmojiSendCatalog.sendables(installed: [], chat: []).last)
+        let wn = try #require(
+            CustomEmojiSendCatalog.sendable(
+                forReaction: ":wn:", in: CustomEmojiSendCatalog.sendables(installed: [], chat: [])))
 
         try await sender.sendMessage(text: ":wn:", replyTargetId: nil, emoji: [wn])
         let reference = try #require(runtime.taggedMediaSends.first?.attachments.first)
@@ -218,7 +261,9 @@ struct CustomEmojiSendingTests {
             diskCache: .makeIsolated())
         let sender = ConversationCustomEmojiSender(
             accountRef: "account", groupIdHex: Self.group, runtime: runtime, images: images)
-        let wn = try #require(CustomEmojiSendCatalog.sendables(installed: [], chat: []).last)
+        let wn = try #require(
+            CustomEmojiSendCatalog.sendable(
+                forReaction: ":wn:", in: CustomEmojiSendCatalog.sendables(installed: [], chat: [])))
 
         try await sender.sendReaction(wn, to: "target")
         let reaction = MessageReaction(emoji: ":wn:", count: 1, isOwn: true, reactionMessageIdHex: "media-reaction-1")
@@ -250,7 +295,9 @@ struct CustomEmojiSendingTests {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.sendTaggedMediaErrors = [MarmotKitError.MediaReferenceStaleEpoch(sourceEpoch: 1, currentEpoch: 2)]
         let sender = ConversationCustomEmojiSender(accountRef: "account", groupIdHex: Self.group, runtime: runtime)
-        let wn = try #require(CustomEmojiSendCatalog.sendables(installed: [], chat: []).last)
+        let wn = try #require(
+            CustomEmojiSendCatalog.sendable(
+                forReaction: ":wn:", in: CustomEmojiSendCatalog.sendables(installed: [], chat: [])))
 
         try await sender.sendMessage(text: ":wn:", replyTargetId: nil, emoji: [wn])
 
@@ -296,7 +343,9 @@ struct CustomEmojiSendingTests {
     @Test func aCustomReactionCarriesItsImageAndOneEmojiTag() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let sender = ConversationCustomEmojiSender(accountRef: "account", groupIdHex: Self.group, runtime: runtime)
-        let wn = try #require(CustomEmojiSendCatalog.sendables(installed: [], chat: []).last)
+        let wn = try #require(
+            CustomEmojiSendCatalog.sendable(
+                forReaction: ":wn:", in: CustomEmojiSendCatalog.sendables(installed: [], chat: [])))
 
         await sender.react(with: wn, to: "target")
 
@@ -379,7 +428,9 @@ struct CustomEmojiSendingTests {
     @Test func aStoppedSenderSendsNothing() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let sender = ConversationCustomEmojiSender(accountRef: "account", groupIdHex: Self.group, runtime: runtime)
-        let wn = try #require(CustomEmojiSendCatalog.sendables(installed: [], chat: []).last)
+        let wn = try #require(
+            CustomEmojiSendCatalog.sendable(
+                forReaction: ":wn:", in: CustomEmojiSendCatalog.sendables(installed: [], chat: [])))
         sender.stop()
 
         #expect(await !sender.submit(text: ":wn:", replyTargetId: nil, emoji: [wn]))
