@@ -10,25 +10,17 @@ import SwiftUI
 
 /// Replaces the composer while a group is ending and after it has ended. The core blocks every
 /// send in both states, so no input is offered; the transcript stays readable.
+///
+/// A `WNCallout` like the other notices that stand in for the composer, so its glyph is the info
+/// intent's rather than the sidebar capsule's `xmark.circle.fill`: an X at the leading edge of a
+/// card reads as a close button, and this notice has nothing to dismiss.
 struct GroupLifecycleComposerNotice: View {
     let lifecycle: GroupLifecycle
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: lifecycle.symbolName ?? "")
-                .wnFont(.semiBold14)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-
-            Text(lifecycle.composerNotice ?? "")
-                .wnFont(.semiBold12)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .glassCard()
-        .accessibilityIdentifier("composer.groupLifecycle")
+        WNCallout(title: lifecycle.composerNotice ?? "", intent: .info)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("composer.groupLifecycle")
     }
 }
 

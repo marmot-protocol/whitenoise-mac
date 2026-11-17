@@ -9,23 +9,13 @@ struct BlockedLeaveNotice: View {
     let onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(WNColor.intentionWarningContent)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(BlockedLeavePresentation.title)
-                        .wnFont(.semiBold12)
-                    Text(BlockedLeavePresentation.detail)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-            }
+        // The action sits under the callout, never inside it, as `HistoryNoticeBanner` does.
+        VStack(alignment: .leading, spacing: 8) {
+            WNCallout(
+                title: BlockedLeavePresentation.title,
+                message: BlockedLeavePresentation.detail,
+                intent: .warning
+            )
 
             if canCancel {
                 HStack(spacing: 8) {
@@ -46,9 +36,6 @@ struct BlockedLeaveNotice: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassCard()
         .accessibilityIdentifier("composer.blockedLeave")
     }
 }

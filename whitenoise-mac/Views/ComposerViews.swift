@@ -1682,25 +1682,12 @@ struct MembershipEndedComposerNotice: View {
     let membership: ChatSelfMembership
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: membership.endedSymbolName ?? "")
-                .wnFont(.semiBold14)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(membership.endedDescription ?? "")
-                    .wnFont(.semiBold12)
-
-                Text(ChatSelfMembership.endedHistoryExplanation)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .glassCard()
+        WNCallout(
+            title: membership.endedDescription ?? "",
+            message: ChatSelfMembership.endedHistoryExplanation,
+            intent: .info
+        )
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("composer.membershipEnded")
     }
 }

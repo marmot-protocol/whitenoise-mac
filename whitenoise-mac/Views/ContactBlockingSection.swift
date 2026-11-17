@@ -135,25 +135,19 @@ struct BlockedContactNotice: View {
     }
 }
 
+/// Replaces the composer in a direct chat with someone this account blocked. A `WNCallout`, like
+/// every other notice that stands in for the composer.
 struct BlockedConversationComposerNotice: View {
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hand.raised.fill")
-                .foregroundStyle(WNColor.backgroundContentDestructive)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.string("You blocked this user"))
-                    .wnFont(.semiBold12)
-                Text(
-                    L10n.string(
-                        "Blocking hides this person’s messages and prevents sending to them in direct chats. Existing history is retained."
-                    )
-                )
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        WNCallout(
+            title: L10n.string("You blocked this user"),
+            message: L10n.string(
+                "Blocking hides this person’s messages and prevents sending to them in direct chats. Existing history is retained."
+            ),
+            intent: .info
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("composer.blockedConversation")
     }
 }
 

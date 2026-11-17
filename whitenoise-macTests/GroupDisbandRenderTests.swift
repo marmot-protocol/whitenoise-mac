@@ -48,6 +48,25 @@ import Testing
         }
     }
 
+    /// The composer notice is the shared info callout with no detail line — the same drawing as
+    /// the other notices that replace the composer, and no `xmark` glyph that reads as a close
+    /// button.
+    @Test func theComposerNoticeIsATitleOnlyInfoCallout() throws {
+        for lifecycle in [GroupLifecycle.ending, .ended] {
+            let title = try #require(lifecycle.composerNotice)
+            let notice = try Self.drawnHeight(
+                GroupLifecycleComposerNotice(lifecycle: lifecycle).frame(width: 480), in: .aqua)
+            let callout = try Self.drawnHeight(
+                WNCallout(title: title, intent: .info).frame(width: 480), in: .aqua)
+            let withDetail = try Self.drawnHeight(
+                WNCallout(title: title, message: ChatSelfMembership.endedHistoryExplanation, intent: .info)
+                    .frame(width: 480),
+                in: .aqua)
+            #expect(notice == callout)
+            #expect(notice < withDetail)
+        }
+    }
+
     /// An admin held back by members on old clients still sees End Group, with the reason under it;
     /// one who can end the group sees the row without it.
     @Test func theLeaveSectionExplainsABlockedEndGroup() async throws {

@@ -67,13 +67,15 @@ enum WNCalloutIntent {
     }
 }
 
-/// A titled notice with a line of detail under it.
+/// A titled notice, with a line of detail under it when there is one.
 ///
 /// The detail is always shown. There is no fold: a notice worth putting on the page is worth
-/// reading, and a disclosure arrow only teaches the reader to leave it closed.
+/// reading, and a disclosure arrow only teaches the reader to leave it closed. Nothing on it is
+/// interactive — the glyph is the intent's, never a close button — so a caller that offers an
+/// action puts the button beside or under the callout, not inside it.
 struct WNCallout: View {
     let title: String
-    let message: String
+    var message: String? = nil
     var intent: WNCalloutIntent = .primary
 
     var body: some View {
@@ -87,11 +89,14 @@ struct WNCallout: View {
                 Text(title)
                     .wnFont(.bold14)
                     .foregroundStyle(intent.accent)
-
-                Text(message)
-                    .wnFont(.medium12)
-                    .foregroundStyle(intent.detail)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let message {
+                    Text(message)
+                        .wnFont(.medium12)
+                        .foregroundStyle(intent.detail)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -103,4 +108,17 @@ struct WNCallout: View {
                 .stroke(WNColor.borderTertiary, lineWidth: 1)
         }
     }
+}
+
+#Preview("Callout intents") {
+    VStack(spacing: 12) {
+        WNCallout(title: "Primary", message: "An explanatory notice that belongs to its page.")
+        WNCallout(title: "Info", message: "Something worth knowing.", intent: .info)
+        WNCallout(title: "A title with no detail line", intent: .info)
+        WNCallout(title: "Success", message: "It worked.", intent: .success)
+        WNCallout(title: "Warning", message: "Something needs attention.", intent: .warning)
+        WNCallout(title: "Error", message: "Something went wrong.", intent: .error)
+    }
+    .padding()
+    .frame(width: 480)
 }
