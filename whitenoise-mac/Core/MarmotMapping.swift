@@ -302,14 +302,6 @@ extension ChatItem {
             return PreviewProjection(text: text)
         }
 
-        // The disband's system row projects as "no last message" so `previewPlaceholder(locale:)`
-        // draws it in the timeline's wording at render time: a translation stored here would keep
-        // the previous language after a language switch. MDK writes the disband tombstone (which
-        // marks the row `.disbanded`) before it projects this system row, so the row is `.ended`.
-        if preview.groupSystem?.systemType == GroupLifecycle.disbandedSystemType {
-            return PreviewProjection(text: "")
-        }
-
         let presentation = MessageItem.presentation(for: preview.kind)
         if presentation == .poll {
             return PreviewProjection(text: MessageItem.pollLabel(question: preview.plaintext))
