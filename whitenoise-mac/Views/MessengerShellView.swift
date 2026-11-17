@@ -1155,6 +1155,26 @@ private struct ConversationView: View {
                         mentionHighlightIndex = command.movingHighlight(index, among: candidates.count)
                         return true
                     },
+                    onEditCommand: { command in
+                        guard !workspace.isSending else { return false }
+                        switch command {
+                        case .editLastMessage:
+                            guard workspace.editingMessageContext == nil,
+                                let target = ComposerLastMessageEdit.target(
+                                    in: workspace.selectedMessages,
+                                    paging: workspace.selectedTimelinePaging
+                                )
+                            else { return false }
+                            workspace.startEditingMessage(target)
+                            // Puts the caret at the end of the loaded text, as the Edit action does.
+                            composerFocusRequester.request()
+                            return true
+                        case .cancelEdit:
+                            guard workspace.editingMessageContext != nil else { return false }
+                            workspace.cancelEditingMessage()
+                            return true
+                        }
+                    },
                     onPasteMedia: { attachments in
                         guard workspace.editingMessageContext == nil else { return }
                         Task {
