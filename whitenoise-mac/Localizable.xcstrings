@@ -3949,7 +3949,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Toinen Kohinan kopio käyttää näitä tietoja. Lopeta se ja yritä sitten uudelleen."
+            "value" : "Toinen White Noisen kopio käyttää näitä tietoja. Lopeta se ja yritä sitten uudelleen."
           }
         },
         "fr" : {
@@ -9721,7 +9721,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Emojisarjat ovat julkisia, eikä Kohina tarkista niitä. Sarjan avaaminen tai asentaminen lataa sen kuvat tekijän valitsemilta palvelimilta, jotka näkevät IP-osoitteesi. Asentaminen ei muuta julkista emojiluetteloasi."
+            "value" : "Emojisarjat ovat julkisia, eikä White Noise tarkista niitä. Sarjan avaaminen tai asentaminen lataa sen kuvat tekijän valitsemilta palvelimilta, jotka näkevät IP-osoitteesi. Asentaminen ei muuta julkista emojiluetteloasi."
           }
         },
         "fr" : {
@@ -15739,7 +15739,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Palauta tämä ryhmä sulkemalla Kohina ja avaamalla se uudelleen."
+            "value" : "Palauta tämä ryhmä sulkemalla White Noise ja avaamalla se uudelleen."
           }
         },
         "fr" : {
@@ -16403,7 +16403,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ilmiantaminen Kohinalle ei ole käytettävissä tässä sovellusversiossa."
+            "value" : "Ilmiantaminen White Noiselle ei ole käytettävissä tässä sovellusversiossa."
           }
         },
         "fr" : {
@@ -16931,7 +16931,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tallennettu ja odottaa lähetystä Kohinan tiimille."
+            "value" : "Tallennettu ja odottaa lähetystä White Noisen tiimille."
           }
         },
         "fr" : {
@@ -17144,7 +17144,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tallennettu. Toimituksen vahvistusta Kohinan tiimille odotetaan."
+            "value" : "Tallennettu. Toimituksen vahvistusta White Noisen tiimille odotetaan."
           }
         },
         "fr" : {
@@ -18393,7 +18393,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lähetä Kohinalle"
+            "value" : "Lähetä White Noiselle"
           }
         },
         "fr" : {
@@ -18601,7 +18601,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lähetetty Kohinan tiimille."
+            "value" : "Lähetetty White Noisen tiimille."
           }
         },
         "fr" : {
@@ -19323,7 +19323,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Joidenkin jäsenten sovellukset eivät vielä pysty lopettamaan tätä ryhmää. Pyydä heitä päivittämään Kohina."
+            "value" : "Joidenkin jäsenten sovellukset eivät vielä pysty lopettamaan tätä ryhmää. Pyydä heitä päivittämään White Noise."
           }
         },
         "fr" : {
@@ -20175,7 +20175,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tarrapaketit ovat julkisia, eikä Kohina tarkista niitä. Asentamasi paketit näkyvät julkisesti releilläsi."
+            "value" : "Tarrapaketit ovat julkisia, eikä White Noise tarkista niitä. Asentamasi paketit näkyvät julkisesti releilläsi."
           }
         },
         "fr" : {
@@ -20973,7 +20973,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kopiota Kohinalle ei voitu lähettää. Yritä uudelleen."
+            "value" : "Kopiota White Noiselle ei voitu lähettää. Yritä uudelleen."
           }
         },
         "fr" : {
@@ -23548,7 +23548,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tällä henkilöllä ei ole yhteensopivaa kutsuavainta saatavilla. Pyydä häntä avaamaan Kohina ja yritä uudelleen."
+            "value" : "Tällä henkilöllä ei ole yhteensopivaa kutsuavainta saatavilla. Pyydä häntä avaamaan White Noise ja yritä uudelleen."
           }
         },
         "fr" : {
@@ -23613,7 +23613,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tällä henkilöllä ei ole saapuvien viestien relettä, jota Kohina voi käyttää, joten häntä ei voi vielä kutsua."
+            "value" : "Tällä henkilöllä ei ole saapuvien viestien relettä, jota White Noise voi käyttää, joten häntä ei voi vielä kutsua."
           }
         },
         "fr" : {
@@ -23944,7 +23944,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tämän henkilön kutsuavainta ei voi käyttää. Pyydä häntä avaamaan Kohina ja yrittämään uudelleen."
+            "value" : "Tämän henkilön kutsuavainta ei voi käyttää. Pyydä häntä avaamaan White Noise ja yrittämään uudelleen."
           }
         },
         "fr" : {
@@ -26457,7 +26457,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohina tallentaa parhaillaan. Yritä hetken kuluttua uudelleen."
+            "value" : "White Noise tallentaa parhaillaan. Yritä hetken kuluttua uudelleen."
           }
         },
         "fr" : {
@@ -26522,7 +26522,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohina hakee viestejä ajalta, jolloin tämä laite oli offline-tilassa."
+            "value" : "White Noise hakee viestejä ajalta, jolloin tämä laite oli offline-tilassa."
           }
         },
         "fr" : {
@@ -26587,7 +26587,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohina sulkeutuu. Avaa se uudelleen ja yritä sitten uudelleen."
+            "value" : "White Noise sulkeutuu. Avaa se uudelleen ja yritä sitten uudelleen."
           }
         },
         "fr" : {
@@ -27333,7 +27333,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Et näe hänen viestejään. Estä ja ilmianna ilmoittaa myös Kohinan tiimille."
+            "value" : "Et näe hänen viestejään. Estä ja ilmianna ilmoittaa myös White Noisen tiimille."
           }
         },
         "fr" : {
@@ -28913,7 +28913,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ilmiantosi ja lähettäjän julkinen avain lähetetään yksityisesti Kohinan tiimille. Itse viestiä ei jaeta, eikä lähettäjälle ilmoiteta."
+            "value" : "Ilmiantosi ja lähettäjän julkinen avain lähetetään yksityisesti White Noisen tiimille. Itse viestiä ei jaeta, eikä lähettäjälle ilmoiteta."
           }
         },
         "fr" : {
@@ -30501,7 +30501,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ ei ole vielä Kohinassa, joten häntä ei voi lisätä."
+            "value" : "%@ ei ole vielä White Noisessa, joten häntä ei voi lisätä."
           }
         },
         "fr" : {
@@ -30573,7 +30573,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ ei ole vielä Kohinassa. Jaa sovellus, niin voitte keskustella turvallisesti."
+            "value" : "%@ ei ole vielä White Noisessa. Jaa sovellus, niin voitte keskustella turvallisesti."
           }
         },
         "fr" : {
@@ -34171,13 +34171,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%lld jäsenen on päivitettävä Kohina, ennen kuin voit lopettaa tämän ryhmän."
+                      "value" : "%lld jäsenen on päivitettävä White Noise, ennen kuin voit lopettaa tämän ryhmän."
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%lld jäsenen on päivitettävä Kohina ennen kuin voit lopettaa tämän ryhmän."
+                      "value" : "%lld jäsenen on päivitettävä White Noise ennen kuin voit lopettaa tämän ryhmän."
                     }
                   }
                 }
@@ -34479,13 +34479,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%lld henkilö täällä ei ole vielä Kohinassa, joten häntä ei voi lisätä."
+                      "value" : "%lld henkilö täällä ei ole vielä White Noisessa, joten häntä ei voi lisätä."
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%lld henkilöä täällä ei ole vielä Kohinassa, joten heitä ei voi lisätä."
+                      "value" : "%lld henkilöä täällä ei ole vielä White Noisessa, joten heitä ei voi lisätä."
                     }
                   }
                 }
@@ -41485,7 +41485,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "501(c)3-voittoa tavoittelemattomana organisaationa Kohina on olemassa vain yksityisyytesi ja vapautesi vuoksi, ei voiton tavoittelua varten. Tukesi pitää sen riippumattomana ja tinkimättömänä."
+            "value" : "501(c)3-voittoa tavoittelemattomana organisaationa White Noise on olemassa vain yksityisyytesi ja vapautesi vuoksi, ei voiton tavoittelua varten. Tukesi pitää sen riippumattomana ja tinkimättömänä."
           }
         },
         "fr" : {
@@ -45627,7 +45627,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Valitse, miten Kohina käynnistyy ja toimii keskusteluissa."
+            "value" : "Valitse, miten White Noise käynnistyy ja toimii keskusteluissa."
           }
         },
         "fr" : {
@@ -45757,7 +45757,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Valitse Kohinan teema ja kieli."
+            "value" : "Valitse White Noisen teema ja kieli."
           }
         },
         "fr" : {
@@ -45822,7 +45822,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Valitse, milloin Kohina ilmoittaa sinulle ja kuinka paljon viestistä näytetään."
+            "value" : "Valitse, milloin White Noise ilmoittaa sinulle ja kuinka paljon viestistä näytetään."
           }
         },
         "fr" : {
@@ -50078,7 +50078,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sallii push-ilmoitukset. Ilman push-ilmoituksia toimitus voi viivästyä, kunnes Kohina on käynnissä."
+            "value" : "Sallii push-ilmoitukset. Ilman push-ilmoituksia toimitus voi viivästyä, kunnes White Noise on käynnissä."
           }
         },
         "fr" : {
@@ -53606,7 +53606,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lahjoita Kohinalle"
+            "value" : "Lahjoita White Noiselle"
           }
         },
         "fr" : {
@@ -60704,7 +60704,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auta parantamaan Kohinaa"
+            "value" : "Auta parantamaan White Noisea"
           }
         },
         "fr" : {
@@ -62935,7 +62935,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kutsu Kohinaan ja lisää ryhmään, kun käyttöönotto on valmis."
+            "value" : "Kutsu White Noiseen ja lisää ryhmään, kun käyttöönotto on valmis."
           }
         },
         "fr" : {
@@ -63586,7 +63586,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pidä tämä avain yksityisenä. Kuka tahansa, jolla se on, voi käyttää profiiliasi, eikä Kohina voi palauttaa sitä."
+            "value" : "Pidä tämä avain yksityisenä. Kuka tahansa, jolla se on, voi käyttää profiiliasi, eikä White Noise voi palauttaa sitä."
           }
         },
         "fr" : {
@@ -64173,7 +64173,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Käynnistä Kohina kirjautuessa"
+            "value" : "Käynnistä White Noise kirjautuessa"
           }
         },
         "fr" : {
@@ -67522,7 +67522,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Säilytä yksityinen avaimesi turvallisessa paikassa. Jos kadotat sen, Kohina ei voi palauttaa sitä. Suosittelemme suojaamaan varmuuskopion salasanalla."
+            "value" : "Säilytä yksityinen avaimesi turvallisessa paikassa. Jos kadotat sen, White Noise ei voi palauttaa sitä. Suosittelemme suojaamaan varmuuskopion salasanalla."
           }
         },
         "fr" : {
@@ -68708,7 +68708,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jutellaan Kohinassa: yksityistä ja turvallista viestintää. Lataa se osoitteesta https://whitenoise.chat"
+            "value" : "Jutellaan White Noisessa: yksityistä ja turvallista viestintää. Lataa se osoitteesta https://whitenoise.chat"
           }
         },
         "fr" : {
@@ -70744,7 +70744,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "macOS ei löytänyt Kohinan kirjautumiskohdetta."
+            "value" : "macOS ei löytänyt White Noisen kirjautumiskohdetta."
           }
         },
         "fr" : {
@@ -78811,7 +78811,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ei vielä Kohinassa"
+            "value" : "Ei vielä White Noisessa"
           }
         },
         "fr" : {
@@ -78883,7 +78883,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ei vielä Kohinassa: häntä ei lisätä tähän ryhmään."
+            "value" : "Ei vielä White Noisessa: häntä ei lisätä tähän ryhmään."
           }
         },
         "fr" : {
@@ -81816,7 +81816,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avaa Kohinan ikkuna automaattisesti, kun kirjaudut Maciin."
+            "value" : "Avaa White Noisen ikkuna automaattisesti, kun kirjaudut Maciin."
           }
         },
         "fr" : {
@@ -81881,7 +81881,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avaa Kohina nähdäksesi kutsun"
+            "value" : "Avaa White Noise nähdäksesi kutsun"
           }
         },
         "fr" : {
@@ -96567,7 +96567,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lähettää yleisen herätyksen, jotta Kohina voi tarkistaa uudet viestit taustalla. Viestin tiedot eivät koskaan poistu tältä Macilta."
+            "value" : "Lähettää yleisen herätyksen, jotta White Noise voi tarkistaa uudet viestit taustalla. Viestin tiedot eivät koskaan poistu tältä Macilta."
           }
         },
         "fr" : {
@@ -96632,7 +96632,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lähettää Kohinalle karsittuja teknisiä toimintatietoja ongelmien selvittämistä varten. Viestien sisältöä ei lähetetä, ja tunnisteet peitetään."
+            "value" : "Lähettää White Noiselle karsittuja teknisiä toimintatietoja ongelmien selvittämistä varten. Viestien sisältöä ei lähetetä, ja tunnisteet peitetään."
           }
         },
         "fr" : {
@@ -97876,7 +97876,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Käytä pitkää, yksilöllistä salasanaa. Tarvitset sitä salatun varmuuskopion avaamiseen. Kohina ei koskaan tallenna sitä."
+            "value" : "Käytä pitkää, yksilöllistä salasanaa. Tarvitset sitä salatun varmuuskopion avaamiseen. White Noise ei koskaan tallenna sitä."
           }
         },
         "fr" : {
@@ -99158,7 +99158,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jakaa anonyymejä luotettavuus-, suorituskyky- ja ominaisuuksien käyttötietoja Kohinan kehittämiseksi. Viestit, media, yhteystiedot, profiilin tiedot ja avaimet eivät koskaan sisälly."
+            "value" : "Jakaa anonyymejä luotettavuus-, suorituskyky- ja ominaisuuksien käyttötietoja White Noisen kehittämiseksi. Viestit, media, yhteystiedot, profiilin tiedot ja avaimet eivät koskaan sisälly."
           }
         },
         "fr" : {
@@ -100401,7 +100401,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kirjaa ulos kaikki tilit ja poistaa pysyvästi kaikki Kohinan tiedot tältä Macilta."
+            "value" : "Kirjaa ulos kaikki tilit ja poistaa pysyvästi kaikki White Noisen tiedot tältä Macilta."
           }
         },
         "fr" : {
@@ -100940,7 +100940,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Joku tämän ryhmän jäsenistä ei ole vielä Kohinassa, joten ryhmää ei voi luoda."
+            "value" : "Joku tämän ryhmän jäsenistä ei ole vielä White Noisessa, joten ryhmää ei voi luoda."
           }
         },
         "fr" : {
@@ -101012,7 +101012,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Joku valitsemistasi ei ole vielä Kohinassa, joten häntä ei voi lisätä."
+            "value" : "Joku valitsemistasi ei ole vielä White Noisessa, joten häntä ei voi lisätä."
           }
         },
         "fr" : {
@@ -101812,7 +101812,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jakaa automaattisesti Kohinalle ominaisuuksien käyttömäärät ja sovelluksen suorituskyvyn."
+            "value" : "Jakaa automaattisesti White Noiselle ominaisuuksien käyttömäärät ja sovelluksen suorituskyvyn."
           }
         },
         "fr" : {
@@ -104917,7 +104917,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Järjestelmä seuraa Macisi kieltä. Muut valinnat päivittävät Kohinan heti."
+            "value" : "Järjestelmä seuraa Macisi kieltä. Muut valinnat päivittävät White Noisen heti."
           }
         },
         "fr" : {
@@ -107652,7 +107652,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nämä ovat asennuskehotteita. Valitse agenttisi, kopioi sen kehote ja liitä se kyseiselle agentille, niin agentti yhdistetään Kohinaan. Kehote sisältää npubisi (julkinen avain, ei salaisuus) ja pyytää agenttia selittämään, miten connector toimii, ennen kuin se pyytää lupaasi asennukseen. Käytä vain agenttia, jota itse ajat ja johon luotat. Yksityistä avaintasi ei koskaan liitetä mukaan."
+            "value" : "Nämä ovat asennuskehotteita. Valitse agenttisi, kopioi sen kehote ja liitä se kyseiselle agentille, niin agentti yhdistetään White Noiseen. Kehote sisältää npubisi (julkinen avain, ei salaisuus) ja pyytää agenttia selittämään, miten connector toimii, ennen kuin se pyytää lupaasi asennukseen. Käytä vain agenttia, jota itse ajat ja johon luotat. Yksityistä avaintasi ei koskaan liitetä mukaan."
           }
         },
         "fr" : {
@@ -107724,7 +107724,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hän ei ole vielä Kohinassa. Jaa sovellus, niin voitte keskustella turvallisesti."
+            "value" : "Hän ei ole vielä White Noisessa. Jaa sovellus, niin voitte keskustella turvallisesti."
           }
         },
         "fr" : {
@@ -108055,7 +108055,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tämä poistaa kaikki tilit, keskustelut ja viestit tältä Macilta ja palauttaa Kohinan juuri asennettuun tilaan. Tätä ei voi kumota."
+            "value" : "Tämä poistaa kaikki tilit, keskustelut ja viestit tältä Macilta ja palauttaa White Noisen juuri asennettuun tilaan. Tätä ei voi kumota."
           }
         },
         "fr" : {
@@ -113896,7 +113896,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohina"
+            "value" : "White Noise"
           }
         },
         "fr" : {
@@ -113961,7 +113961,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohina · Uusi viesti"
+            "value" : "White Noise · Uusi viesti"
           }
         },
         "fr" : {
@@ -114026,7 +114026,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohinan salattu yksityinen avain"
+            "value" : "White Noisen salattu yksityinen avain"
           }
         },
         "fr" : {
@@ -114091,7 +114091,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohina salaa välimuistiin tallennetut liitetiedot tällä Macilla. Tyhjentäminen ei poista tilejä, viestejä, luonnoksia eikä asetuksia."
+            "value" : "White Noise salaa välimuistiin tallennetut liitetiedot tällä Macilla. Tyhjentäminen ei poista tilejä, viestejä, luonnoksia eikä asetuksia."
           }
         },
         "fr" : {
@@ -114221,7 +114221,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohina kirjaa tämän tilin audit-lokiin, joka säilytetään tällä Macilla, jokaisen paljastuksen, kopioinnin ja viennin päivämäärän ja ajan. Yksityistä avaintasi ei koskaan kirjoiteta lokiin."
+            "value" : "White Noise kirjaa tämän tilin audit-lokiin, joka säilytetään tällä Macilla, jokaisen paljastuksen, kopioinnin ja viennin päivämäärän ja ajan. Yksityistä avaintasi ei koskaan kirjoiteta lokiin."
           }
         },
         "fr" : {
@@ -114286,7 +114286,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohinan yksityinen avain"
+            "value" : "White Noisen yksityinen avain"
           }
         },
         "fr" : {
@@ -114353,7 +114353,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohinan tuki"
+            "value" : "White Noisen tuki"
           }
         },
         "fr" : {
@@ -114418,7 +114418,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kohina toimii tekoälyagenttien kanssa. Agenttisi toimii omalla koneellasi tai palvelimellasi erillisenä Marmot-tilinä, ja keskustelet sen kanssa täällä kuin minkä tahansa yhteystiedon kanssa, päästä päähän salattuna."
+            "value" : "White Noise toimii tekoälyagenttien kanssa. Agenttisi toimii omalla koneellasi tai palvelimellasi erillisenä Marmot-tilinä, ja keskustelet sen kanssa täällä kuin minkä tahansa yhteystiedon kanssa, päästä päähän salattuna."
           }
         },
         "fr" : {
