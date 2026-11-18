@@ -2,8 +2,8 @@
 //  ProfileChooserView.swift
 //  whitenoise-mac
 //
-//  "Choose a profile": what the detail pane shows after the active profile was deleted while other
-//  signed-in profiles remain on this Mac. Ported from `whitenoise-ios`, whose account exit asks for
+//  "Choose a profile": what the detail pane shows after the active profile was deleted or signed
+//  out of while other signed-in profiles remain on this Mac. Ported from `whitenoise-ios`, whose account exit asks for
 //  an explicit choice (`AccountExitProfileChooser` / `SignedOutProfilesView`) instead of quietly
 //  moving the user into whichever identity happens to be listed first.
 //
