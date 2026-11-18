@@ -197,6 +197,14 @@ struct whitenoise_macApp: App {
         workspace.stopChatListListener()
         let account = scope.account
         let chatListModel = scope.chatListModel
+        // MDK names no peer for a direct chat either side left; the sidebar names it after the
+        // peer the workspace remembered, as the open chat's header already does.
+        chatListModel.rememberedDirectPeer = { [weak workspace] groupIdHex in
+            workspace?.rememberedDirectPeer(groupIdHex: groupIdHex, accountId: account.id)
+        }
+        chatListModel.cachedRoster = { [weak workspace] groupIdHex in
+            workspace?.groupMemberDetailsCache[groupIdHex]
+        }
         await chatListModel.setSnapshotObserver { [weak workspace, weak chatListModel] snapshot in
             guard let workspace, let chatListModel else { return }
             await workspace.applyPresentedChatListSnapshot(

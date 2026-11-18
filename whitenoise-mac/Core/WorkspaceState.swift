@@ -75,9 +75,11 @@ final class WorkspaceState {
     var selectedChatRevision = 0
     var archivedChatsByAccount: [String: [ChatItem]] = [:]
     var pinnedChatIdsByAccount: [String: Set<String>] = [:]
-    /// Account id → group id → the peer that conversation was last a two-person chat with. Read
-    /// only while enriching chat rows, so it does not need to drive observation on its own.
-    @ObservationIgnored var rememberedDirectPeersByAccount: [String: [String: RememberedDirectPeer]] = [:]
+    /// Account id → group id → the peer that conversation was last a two-person chat with.
+    /// Observed: the sidebar names a direct chat this account left from it (MDK presents no peer
+    /// once the account is no longer a member), and must re-render when a peer is recorded.
+    /// Writes are no-ops for an unchanged peer, so steady-state snapshots invalidate nothing.
+    var rememberedDirectPeersByAccount: [String: [String: RememberedDirectPeer]] = [:]
     /// Conversations whose transcript held no other sender, so no peer can be recovered from it —
     /// a note-to-self chat is the ordinary case. Session-scoped, purely to avoid rescanning.
     @ObservationIgnored var unrecoverableDirectPeerGroupIds = Set<String>()

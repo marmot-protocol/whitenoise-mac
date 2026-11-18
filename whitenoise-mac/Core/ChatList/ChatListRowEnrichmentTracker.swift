@@ -15,15 +15,41 @@ import Foundation
 /// task match a *future* task's reused token and erroneously drop the future task's slot,
 /// reintroducing the untracked / uncancellable enrichment work this is meant to prevent.
 struct ChatListRowEnrichmentTracker {
+    /// How long a backfill attempt keeps its group from being attempted again. A backfill that
+    /// fails (the roster or transcript read threw) records nothing, so without this every chat-list
+    /// snapshot would re-run it for as long as the read keeps failing.
+    static let backfillRetryDelay: TimeInterval = 60
+
     private var tasks: [String: Task<Void, Never>] = [:]
     private var tokens: [String: Int] = [:]
     private var nextToken: Int = 0
+    /// Earliest time each group's backfill may run again. Separate from `tokens`, which only cover
+    /// a task while it is in flight and are gone the moment a failed attempt finishes.
+    private var backfillNotBefore: [String: Date] = [:]
 
     /// Number of currently tracked (live) tasks. Diagnostic / test helper.
     var trackedTaskCount: Int { tasks.count }
 
     /// The current ownership token for `group`, if any. Diagnostic / test helper.
     func currentToken(forGroup group: String) -> Int? { tokens[group] }
+
+    /// The task currently owning `group`, if any — so a test can await it instead of polling.
+    func task(forGroup group: String) -> Task<Void, Never>? { tasks[group] }
+
+    /// Whether a backfill for `group` may start at `now`: nothing is in flight for it, and its
+    /// last attempt (if any) is at least `backfillRetryDelay` old.
+    func mayStartBackfill(forGroup group: String, now: Date) -> Bool {
+        guard tokens[group] == nil else { return false }
+        guard let notBefore = backfillNotBefore[group] else { return true }
+        return now >= notBefore
+    }
+
+    /// Records that a backfill for `group` starts at `now`, holding off the next one until
+    /// `backfillRetryDelay` has passed. A successful one leaves nothing to backfill, so this only
+    /// ever gates a retry of one that failed.
+    mutating func noteBackfillAttempt(forGroup group: String, now: Date) {
+        backfillNotBefore[group] = now.addingTimeInterval(Self.backfillRetryDelay)
+    }
 
     /// Allocates a globally unique, never-reused ownership token for `group` and cancels any
     /// task currently owning it. Call before spawning the replacement task.
@@ -54,7 +80,7 @@ struct ChatListRowEnrichmentTracker {
         tokens[group] = nil
     }
 
-    /// Cancels every tracked task and clears all ownership state. The token sequence is
+    /// Cancels every tracked task and clears all ownership and backfill-retry state. The token sequence is
     /// deliberately **not** reset, so tokens issued after this call stay unique with respect to
     /// any still-unwinding canceled task.
     mutating func cancelAll() {
@@ -63,5 +89,6 @@ struct ChatListRowEnrichmentTracker {
         }
         tasks.removeAll()
         tokens.removeAll()
+        backfillNotBefore.removeAll()
     }
 }
