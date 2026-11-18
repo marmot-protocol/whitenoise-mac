@@ -237,6 +237,12 @@ struct ProfileKeysSourceContractTests {
         // One button, one label, in one place, armed or not.
         #expect(sheet.contains(".buttonStyle(.wnDestructive)"))
         #expect(sheet.contains("AccountWipeConfirmation.matches"))
+        // The teardown's progress is drawn inside that button, not in a view swapped in for the
+        // form: the sheet keeps its shape while the sign-out runs.
+        // The label's text never changes; the stage's wording is VoiceOver's value only.
+        #expect(!sheet.contains("stage?.labelKey ?? \"Sign Out\""))
+        #expect(sheet.contains(".accessibilityValue(stage.map { Text(L10n.string($0.labelKey)) }"))
+        #expect(!sheet.contains("progress(stage)"))
         // A failed teardown has to stay on screen. Both `signOutAccount` and `removeAccount` clear
         // `lastError` on entry and set it from their `catch`, so dismissing unconditionally would
         // take the sheet's own `SettingsErrorView` away with the error still unread and leave the
