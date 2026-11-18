@@ -69,12 +69,7 @@ struct SignOutSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-
-            if let stage {
-                progress(stage)
-            } else {
-                form
-            }
+            form
         }
         .padding(20)
         .frame(width: 420)
@@ -110,18 +105,6 @@ struct SignOutSheet: View {
     }
 
     @ViewBuilder
-    private func progress(_ stage: Stage) -> some View {
-        HStack(spacing: 12) {
-            ProgressView().controlSize(.small)
-            Text(L10n.string(stage.labelKey))
-                .wnFont(.medium14)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 24)
-    }
-
-    @ViewBuilder
     private var form: some View {
         // The account the button acts on, named on the sheet that acts on it. With several
         // identities signed in on this Mac, "Sign Out" alone does not say which one is leaving.
@@ -145,6 +128,8 @@ struct SignOutSheet: View {
         Divider()
 
         VStack(alignment: .leading, spacing: 8) {
+            // Locked while the teardown runs: the form stays on screen so the reader can still see
+            // which account is leaving and whether its data goes too, but the choice is made.
             WNToggle(isOn: $wipesLocalData) {
                 // The label takes the width so the switch lands at the trailing edge, the way a
                 // grouped `Form` row places it. A bare label hugs, which put the switch in the
@@ -153,6 +138,7 @@ struct SignOutSheet: View {
                     .wnFont(.medium14)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .disabled(stage != nil)
 
             // One note, rewritten by the toggle rather than two notes stacked. What changes when
             // the switch moves is what happens to the data, so the sentence about the data is the
@@ -172,6 +158,7 @@ struct SignOutSheet: View {
                 TextField(challenge, text: $confirmationInput)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
+                    .disabled(stage != nil)
                     .accessibilityLabel(Text(L10n.string("Wipe Data From This Device")))
 
                 SettingsFooterText(
@@ -186,16 +173,29 @@ struct SignOutSheet: View {
         Button {
             Task { await signOut() }
         } label: {
-            Text(L10n.string("Sign Out"))
-                .frame(maxWidth: .infinity)
+            // The progress lives in the button that started it rather than in a view swapped in
+            // for the whole form: the sheet keeps its shape, and the reader's eye is already on
+            // the button they pressed. The label keeps its text; the spinner beside it is the only
+            // visible change, and the stage's wording goes to VoiceOver as the button's value.
+            HStack(spacing: 8) {
+                if stage != nil {
+                    ProgressView().controlSize(.small)
+                }
+                Text(L10n.string("Sign Out"))
+            }
+            .frame(maxWidth: .infinity)
         }
+        .accessibilityValue(stage.map { Text(L10n.string($0.labelKey)) } ?? Text(verbatim: ""))
         // One button in one place with one label, armed or not, because the choice the reader made
         // is the toggle above it — a second, differently-worded button appearing when the toggle
         // moves would make the sheet look like it had swapped tasks. Red in both states: without
         // wiping this still ends the session and drops the account's published key packages.
         .buttonStyle(.wnDestructive)
         .controlSize(.large)
-        .disabled(!canSignOut)
+        // Stays red with its spinner while the teardown runs, as Delete Profile's button does,
+        // rather than greying out as though the gate had closed. `signOut()` still ignores taps:
+        // `canSignOut` is false while a stage is set.
+        .disabled(stage == nil && !canSignOut)
 
         if let error = workspace.lastError {
             SettingsErrorView(error: error)
