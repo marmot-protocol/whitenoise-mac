@@ -504,6 +504,19 @@ import Testing
         #expect(OnboardingView.showsAccountSetup(model) == false)
     }
 
+    /// An account opened at launch or by a switch is in its chats without ever passing through
+    /// onboarding. Settings → Add Profile reopens onboarding with that account still active, and its
+    /// checkpoint, ready or not, must neither replace Welcome nor take the user back to the chats.
+    @Test func anAccountWhoseChatsAreShowingNeverTakesOverAddProfile() async {
+        let model = await F.coordinator(F.snapshot(steps: [F.step(.relays, .checking)]))
+        #expect(OnboardingView.showsAccountSetup(model), "an unfinished checkpoint shows while signing in")
+
+        model.chatsAreShowing()
+
+        #expect(model.hasEnteredChats)
+        #expect(OnboardingView.showsAccountSetup(model) == false)
+    }
+
     // MARK: - Cancel
 
     /// A cancellation MarmotKit is still finishing cannot be asked for again: the pane hides its

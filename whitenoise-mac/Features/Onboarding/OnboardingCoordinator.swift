@@ -139,6 +139,16 @@ final class OnboardingCoordinator {
         hasEnteredChats = true
     }
 
+    /// Records that this account's chats are on screen however they got there: a launch or an
+    /// account switch opens them without passing through onboarding, so `didEnterChats()` never
+    /// runs for that scope. Without this, Settings → Add Profile reopened onboarding with a scope
+    /// that had never "entered", so the account's own checklist could stand in for Welcome, and its
+    /// next checkpoint revision sent the shell straight back to the chats. Unlike `didEnterChats()`,
+    /// it does not need a ready checkpoint: the chats are already showing.
+    func chatsAreShowing() {
+        hasEnteredChats = true
+    }
+
     /// Opens `step`'s own screen. Refused for a step the checkpoint does not list or has already
     /// finished, and while a cancellation is finishing.
     func review(_ step: OnboardingStepFfi) {

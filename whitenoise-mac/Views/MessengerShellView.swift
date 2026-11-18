@@ -198,14 +198,24 @@ private struct DetailPaneView: View {
                 }
             }
         }
+        // An account whose chats are showing is past onboarding, whatever its checkpoint says, so
+        // Settings → Add Profile lands on Welcome and stays there. See `chatsAreShowing()`.
+        .task(id: ChatsShowingKey(accountId: session.accountScope?.account.id, isReady: workspace.phase == .ready)) {
+            guard workspace.phase == .ready, workspace.activeAccount != nil else { return }
+            session.accountScope?.onboarding.chatsAreShowing()
+        }
         .task(
             id: OnboardingEntryTrigger(
                 revision: session.accountScope?.onboarding.snapshot?.revision,
                 canEnterChats: session.accountScope?.onboarding.canEnterChats == true
             )
         ) {
+            // Only the onboarding of an account not yet in its chats ends by entering them. Add
+            // Profile reopens onboarding with the current account still active, and a new revision
+            // of its checkpoint must not take the user back out of it.
             guard workspace.phase == .onboarding,
                 session.accountScope?.onboarding.canEnterChats == true,
+                session.accountScope?.onboarding.hasEnteredChats == false,
                 workspace.activeAccount != nil
             else { return }
             let enteredAccountIdHex = workspace.activeAccount?.accountIdHex
@@ -215,6 +225,13 @@ private struct DetailPaneView: View {
             await workspace.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         }
     }
+}
+
+/// What re-runs the shell's "these chats are showing" mark: another account's scope, or the phase
+/// returning to the chats.
+private struct ChatsShowingKey: Equatable {
+    let accountId: String?
+    let isReady: Bool
 }
 
 /// What re-runs the shell's leave-onboarding check: a new checkpoint revision, or the user
