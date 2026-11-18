@@ -607,7 +607,8 @@ extension WorkspaceState {
     /// Deletes the account's private key and local Marmot/MLS state via the runtime, then
     /// updates `accounts`/`chatsByAccount`. When the removed account is the active one, the
     /// in-memory message/profile caches are cleared and the user is asked to choose one of the
-    /// remaining signed-in accounts (or the app returns to onboarding when none remain).
+    /// remaining signed-in accounts — or the app switches straight into the only one left, or
+    /// returns to onboarding when none remain.
     func removeAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
 
@@ -687,6 +688,14 @@ extension WorkspaceState {
             // A racing selection of a still-valid account is the user's choice already, and a
             // racing selection of the removed one leaves the old active account to restore.
             if wasActive, activeAccountInvalid {
+                // A chooser with a single row is no choice: with exactly one profile left, go
+                // straight into it, still on the settings page the deletion left.
+                if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
+                    switchActiveAccount(remaining, finalSelection: settingsSelectionAfterAccountMutation)
+                    await configureObservabilityRuntimeBestEffort()
+                    await loadSettingsData()
+                    return
+                }
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
@@ -775,7 +784,8 @@ extension WorkspaceState {
     /// Non-destructive sign-out: retains the account's local data but deactivates
     /// it (and cleans up its relay key packages). If it was the active account, the
     /// user is asked to choose one of the remaining signed-in accounts (`ProfileChooserView`),
-    /// or the app returns to onboarding when none remain.
+    /// the app switches straight into the only one left, or it returns to onboarding when none
+    /// remain.
     func signOutAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
         lastError = nil
@@ -810,12 +820,19 @@ extension WorkspaceState {
             guard currentActiveAccount == nil else { return }
 
             resetActiveAccountUIState()
-            if !signedInAccounts.isEmpty {
-                // Signing out of the profile the user was in, with others still signed in, asks
-                // which one to continue with — exactly as deleting it does (`removeAccount`) —
-                // rather than silently moving into whichever identity `accounts` lists first.
-                // Settings stays selected behind `ProfileChooserView`, so the pick lands back on
-                // Settings.
+            if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
+                // Exactly one profile left: a chooser with a single row is no choice, so continue
+                // straight into it, still on the settings page the sign-out left — as deleting
+                // the active profile does (`removeAccount`).
+                switchActiveAccount(remaining, finalSelection: settingsSelectionAfterAccountMutation)
+                await configureObservabilityRuntimeBestEffort()
+                await loadSettingsData()
+            } else if !signedInAccounts.isEmpty {
+                // Signing out of the profile the user was in, with two or more others still
+                // signed in, asks which one to continue with — exactly as deleting it does
+                // (`removeAccount`) — rather than silently moving into whichever identity
+                // `accounts` lists first. Settings stays selected behind `ProfileChooserView`, so
+                // the pick lands back on Settings.
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
