@@ -150,6 +150,15 @@ nonisolated enum DeviceLinkPresentation {
         device.status == .inactive && !device.keepWhileInactive && !device.isThisDevice && !device.removalPending
     }
 
+    /// The note beside "linking moves it" while a device this Mac approved is still joining.
+    static func finishLinkingBeforeMoving(deviceLabel: String) -> String {
+        let label = deviceLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(
+            format: L10n.string(
+                "Finish linking %@ before moving this Mac. Moving now can stop it from joining your chats."),
+            label.isEmpty ? L10n.string("A new device") : label)
+    }
+
     /// A label MDK accepts for `link_device` and `rename_linked_device`: not blank, at most 64 bytes.
     static func isValidLabel(_ label: String) -> Bool {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -128,6 +128,35 @@ struct DeviceLinkingTests: WorkspaceTestSupport {
         #expect(model.devices.count == 1)
     }
 
+    /// MDK warns that moving this device can fail a link it approved that is still joining, so the
+    /// Devices page names each such device: by its roster label, or "A new device" when it has none.
+    /// Closing a prompt's sheet doesn't finish its link, so closed prompts count too.
+    @Test func aLinkThisDeviceApprovedThatIsStillJoiningIsNamedBeforeAMove() async {
+        let runtime = makeRuntime()
+        var named = Self.device("b")
+        named.label = "Work iPhone"
+        runtime.deviceLinking.devices = [Self.device("a", thisDevice: true), named]
+        var joining = Self.prompt("p1", .linking)
+        joining.slotIdHex = named.slotIdHex
+        runtime.deviceLinking.snapshot = Self.snapshot(prompts: [
+            joining, Self.prompt("p2", .linking), Self.prompt("p3", .linked),
+        ])
+        let model = makeModel(runtime)
+
+        await model.refreshAll()
+
+        #expect(model.devicesStillLinking == ["Work iPhone", ""])
+        #expect(
+            DeviceLinkPresentation.finishLinkingBeforeMoving(deviceLabel: "Work iPhone")
+                == String(
+                    format: L10n.string(
+                        "Finish linking %@ before moving this Mac. Moving now can stop it from joining your chats."),
+                    "Work iPhone"))
+        #expect(
+            DeviceLinkPresentation.finishLinkingBeforeMoving(deviceLabel: " ")
+                .contains(L10n.string("A new device")))
+    }
+
     @Test func aFailedReadKeepsWhatWasShown() async {
         let runtime = makeRuntime()
         runtime.deviceLinking.devices = [Self.device("a", thisDevice: true)]

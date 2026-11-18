@@ -265,6 +265,12 @@ private struct DeviceLinkSection: View {
                 )
                 .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
+                // A note only: moving is still allowed, but can fail a link this Mac approved.
+                ForEach(Array(model.devicesStillLinking.enumerated()), id: \.offset) { _, label in
+                    Text(DeviceLinkPresentation.finishLinkingBeforeMoving(deviceLabel: label))
+                        .wnFont(.medium12)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                }
             }
         }
     }
