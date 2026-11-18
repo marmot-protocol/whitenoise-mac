@@ -16,6 +16,10 @@
 #
 # MDK_DIR (default: ../mdk next to this repo) is the mdk clone to build from. The build runs in
 # a detached worktree under build/dev-device-groups/, so the clone's own checkout is untouched.
+# MDK_SHA (default: the pinned mdk-sha) builds another full commit instead, for an ad-hoc test of
+# unreleased MDK; set it for `use` and `status` too. MDK commits from mdk#3476 on have no
+# `dev-device-groups` feature (device groups are always built in), so the flag is passed only to a
+# commit whose build script still has it.
 
 set -euo pipefail
 
@@ -26,7 +30,16 @@ MDK_DIR="${MDK_DIR:-$(cd "$APP_DIR/.." && pwd)/mdk}"
 LOCAL_FRAMEWORK="MarmotKitFFI-dev-device-groups.xcframework"
 
 pinned_sha() {
-    sed -n 's/^mdk-sha: //p' "$PACKAGE_DIR/MARMOT_VERSION"
+    if [[ -n "${MDK_SHA:-}" ]]; then
+        echo "$MDK_SHA"
+    else
+        sed -n 's/^mdk-sha: //p' "$PACKAGE_DIR/MARMOT_VERSION"
+    fi
+}
+
+# Whether this commit's macOS build script still has the explicit opt-in.
+has_dev_flag() {
+    grep -q -- '--dev-device-groups' "$(worktree_dir)/crates/marmot-uniffi/xcframework-macos.sh"
 }
 
 worktree_dir() {
@@ -34,7 +47,11 @@ worktree_dir() {
 }
 
 output_dir() {
-    echo "$(worktree_dir)/crates/marmot-uniffi/output-dev-device-groups/macos"
+    if has_dev_flag 2>/dev/null; then
+        echo "$(worktree_dir)/crates/marmot-uniffi/output-dev-device-groups/macos"
+    else
+        echo "$(worktree_dir)/crates/marmot-uniffi/output/macos"
+    fi
 }
 
 # The vendored copy has trailing whitespace stripped (sync-bindings.sh), so compare ignoring it.
@@ -65,8 +82,10 @@ cmd_build() {
 
     # Match the published release's features so only device groups differ.
     echo "==> Building the dev-device-groups macOS XCFramework (this takes a while)"
+    local flag=()
+    if has_dev_flag; then flag=(--dev-device-groups); fi
     OTLP_EXPORT=1 PRODUCT_ANALYTICS_EXPORT=1 \
-        "$tree/crates/marmot-uniffi/xcframework-macos.sh" --dev-device-groups
+        "$tree/crates/marmot-uniffi/xcframework-macos.sh" ${flag[@]+"${flag[@]}"}
 
     local out
     out="$(output_dir)"
