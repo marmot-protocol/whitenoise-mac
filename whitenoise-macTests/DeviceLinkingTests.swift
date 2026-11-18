@@ -557,6 +557,63 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(monitor.notice == nil)
     }
 
+    /// A profile left with Later stays here signed out, and signed-out profiles show nowhere else, so
+    /// the notice comes back once a launch. Signing in to it raises it again even after Later.
+    @Test func anUnlinkedProfileStillHereIsRaisedOnceALaunchAndOnSignIn() {
+        let monitor = DeviceUnlinkMonitor()
+        let unlinked = AccountItem(
+            id: "jeff", accountRef: "jeff", displayName: "Jeff", accountIdHex: "AA", signedOut: true, unlinked: true)
+        let signedOut = AccountItem(
+            id: "lab", accountRef: "lab", displayName: "Lab", accountIdHex: "bb", signedOut: true)
+
+        monitor.remind(about: [unlinked, signedOut])
+        #expect(monitor.notice?.accountIdHex == "aa")
+        monitor.dismiss()
+        #expect(monitor.notice == nil)
+
+        monitor.remind(about: [unlinked, signedOut])
+        #expect(monitor.notice == nil)
+
+        monitor.present(unlinked)
+        #expect(monitor.notice?.accountIdHex == "aa")
+    }
+
+    /// The live event counts as this launch's notice, so the reminder doesn't repeat it.
+    @Test func theLiveEventCountsAsThisLaunchsReminder() {
+        let monitor = DeviceUnlinkMonitor()
+        monitor.receive(.init(accountIdHex: "aa", accountLabel: "jeff"))
+        monitor.dismiss()
+
+        monitor.remind(about: [
+            AccountItem(
+                id: "jeff", accountRef: "jeff", displayName: "Jeff", accountIdHex: "aa", signedOut: true,
+                unlinked: true)
+        ])
+
+        #expect(monitor.notice == nil)
+    }
+
+    /// Signing in with the key of a profile another device unlinked hands that profile back, so the
+    /// sign-in pane can offer to delete it, rather than ending in an error with no way forward.
+    @Test func signingInToAnUnlinkedProfileHandsItBack() async throws {
+        var summary = desktopAccount()
+        summary.signedOut = true
+        summary.unlinked = true
+        let runtime = FakeMarmotRuntime(accounts: [summary])
+        runtime.beginOnboardingError = MarmotKitError.AccountUnlinked(accountRef: summary.label)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1desktop"
+        let unlinked = await state.login()
+
+        #expect(unlinked?.accountRef == summary.label)
+        #expect(unlinked?.unlinked == true)
+        #expect(
+            state.lastError == UserFacingError.message(for: MarmotKitError.AccountUnlinked(accountRef: summary.label)))
+    }
+
     @Test func withoutDeviceGroupsItDoesNotSubscribe() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         let monitor = DeviceUnlinkMonitor()

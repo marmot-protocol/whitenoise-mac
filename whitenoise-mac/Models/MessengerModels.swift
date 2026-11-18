@@ -21,6 +21,9 @@ struct AccountItem: Identifiable, Hashable {
     /// True when the account has been signed out (non-destructive): local data is
     /// retained but it is not active until signed back in.
     let signedOut: Bool
+    /// True once another of the account's devices removed this Mac (MDK's `unlinked`). It stays
+    /// signed out for good: signing in to it fails with `AccountUnlinked` until it is deleted here.
+    let unlinked: Bool
 
     nonisolated init(
         id: String,
@@ -34,7 +37,8 @@ struct AccountItem: Identifiable, Hashable {
         localSigning: Bool = true,
         externalSigning: Bool = false,
         isRunning: Bool = true,
-        signedOut: Bool = false
+        signedOut: Bool = false,
+        unlinked: Bool = false
     ) {
         self.id = id
         self.accountRef = accountRef
@@ -49,6 +53,7 @@ struct AccountItem: Identifiable, Hashable {
         self.externalSigning = externalSigning
         self.isRunning = isRunning
         self.signedOut = signedOut
+        self.unlinked = unlinked
     }
 }
 

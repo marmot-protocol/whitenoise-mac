@@ -23,8 +23,6 @@ struct ContentView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     @State private var timestampReferenceDate = Date()
-    /// "This Mac was unlinked", for any signed-in account. Lives as long as the runtime.
-    @State private var unlinkMonitor = DeviceUnlinkMonitor()
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -45,7 +43,7 @@ struct ContentView: View {
                 } == true
             )
             .deviceUnlinkAlert(
-                unlinkMonitor,
+                session.deviceUnlinks,
                 accountName: { account(forUnlinked: $0)?.displayName },
                 onRemove: { notice in
                     guard let account = account(forUnlinked: notice) else { return }
@@ -78,7 +76,12 @@ struct ContentView: View {
             }
             .task(id: workspace.client?.storageRootPath) {
                 guard let client = workspace.client else { return }
-                await unlinkMonitor.observe(client)
+                await session.deviceUnlinks.observe(client)
+            }
+            // A profile unlinked in an earlier launch (or left with Later) is still here, signed out
+            // and shown nowhere else, so its notice comes back once a launch.
+            .task(id: workspace.accounts.filter(\.unlinked).map(\.accountIdHex)) {
+                session.deviceUnlinks.remind(about: workspace.accounts)
             }
             // App-wide default: static text is selectable, so anything on screen — a startup
             // failure message, a relay URL, an npub, a profile field — can be selected and

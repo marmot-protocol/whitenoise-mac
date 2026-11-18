@@ -14,7 +14,8 @@ extension AccountItem {
             localSigning: summary.localSigning,
             externalSigning: summary.externalSigning,
             isRunning: summary.running,
-            signedOut: summary.signedOut
+            signedOut: summary.signedOut,
+            unlinked: summary.unlinked
         )
     }
 }

@@ -9,7 +9,10 @@ import SwiftUI
 ///
 /// MDK asks hosts to say this device was unlinked and to stop showing its history. The account can't
 /// sign in again as it is (`AccountUnlinked`); removing it from this Mac and signing in anew links the
-/// device again.
+/// device again. A profile left with Later is signed out, and signed-out profiles appear nowhere in
+/// the app, so the notice comes back: once each launch while the profile is still here
+/// (`remind(about:)`), and whenever signing in to it is refused (`present(_:)`).
+/// Owned by `SessionState`, for the life of the launch.
 @MainActor
 @Observable
 final class DeviceUnlinkMonitor {
@@ -22,6 +25,8 @@ final class DeviceUnlinkMonitor {
     /// The notice on screen. Others wait in `queue`; one alert at a time.
     private(set) var notice: Notice?
     @ObservationIgnored private var queue: [Notice] = []
+    /// Accounts already raised this launch, so a launch reminder doesn't repeat one.
+    @ObservationIgnored private var raised: Set<String> = []
 
     /// Runs until cancelled, so the shell ties it to the runtime's lifetime with `.task(id:)`.
     func observe(_ runtime: any MarmotRuntime) async {
@@ -35,7 +40,23 @@ final class DeviceUnlinkMonitor {
         }
     }
 
+    /// Raises the notice for each unlinked profile still on this Mac that hasn't had it this launch.
+    func remind(about accounts: [AccountItem]) {
+        for account in accounts where account.unlinked {
+            let id = account.accountIdHex.lowercased()
+            guard !raised.contains(id) else { continue }
+            receive(Notice(accountIdHex: id, accountLabel: account.accountRef))
+        }
+    }
+
+    /// Raises the notice for `account` now, even if it was put off this launch: signing in to it was
+    /// just refused, and deleting it is the way forward.
+    func present(_ account: AccountItem) {
+        receive(Notice(accountIdHex: account.accountIdHex.lowercased(), accountLabel: account.accountRef))
+    }
+
     func receive(_ next: Notice) {
+        raised.insert(next.accountIdHex)
         guard notice != next, !queue.contains(next) else { return }
         if notice == nil {
             notice = next

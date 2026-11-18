@@ -266,7 +266,7 @@ struct AccountTests: WorkspaceTestSupport {
         state.loginIdentity = "nsec1desktop"
 
         runtime.loginGateEnabled = true
-        async let pendingLogin: Void = state.login()
+        async let pendingLogin: AccountItem? = state.login()
         while !runtime.didReachLoginGate {
             await Task.yield()
         }

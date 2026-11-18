@@ -14,6 +14,9 @@ final class SessionState {
     var wipeReport: AccountWipeReport?
     /// Link requests for signed-in profiles other than the active one.
     let linkRequests = ProfileLinkRequestsMonitor()
+    /// "This Mac was unlinked", for any profile on this Mac. Here rather than on the shell so the
+    /// sign-in pane can raise it when a key it was given belongs to an unlinked profile.
+    let deviceUnlinks = DeviceUnlinkMonitor()
     /// The app shell has two independent task owners (bootstrap and account-id observation), so
     /// cancelling either task cannot supersede an activation already suspended in old-scope
     /// revocation. This ticket lets only the most recent caller install a replacement scope.

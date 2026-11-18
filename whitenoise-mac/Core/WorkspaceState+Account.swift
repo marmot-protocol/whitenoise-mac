@@ -413,12 +413,16 @@ extension WorkspaceState {
         }
     }
 
-    func login() async {
-        guard !isAuthenticating else { return }
+    /// Signs in with the entered private key. Returns the profile on this Mac that key belongs to
+    /// when another of its devices unlinked this Mac (`AccountUnlinked`): it can't sign in as it is,
+    /// so the shell offers to delete it, after which signing in links this Mac anew.
+    @discardableResult
+    func login() async -> AccountItem? {
+        guard !isAuthenticating else { return nil }
         let identity = loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines)
         // Private keys only, whoever calls: the pane already disables Sign In for anything else,
         // and an `npub1…` the core would accept as a read-only account must not get in another way.
-        guard LoginIdentityDraft(identity).isSubmittable else { return }
+        guard LoginIdentityDraft(identity).isSubmittable else { return nil }
 
         lastError = nil
         authenticationActivity = .login
@@ -429,7 +433,7 @@ extension WorkspaceState {
             clearEnteredLoginIdentity()
         }
 
-        guard let client = await clientForAuthentication() else { return }
+        guard let client = await clientForAuthentication() else { return nil }
 
         do {
             let options = OnboardingOptionsFfi(
@@ -455,7 +459,7 @@ extension WorkspaceState {
                 let enteredAccountIdHex = activeAccount?.accountIdHex
                 await activateReadyState()
                 await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
-                return
+                return nil
             }
             let summaries = try await FFIExecutor.run { try client.listAccounts() }
             guard let summary = summaries.first(where: { $0.accountIdHex == snapshot.accountIdHex }) else {
@@ -472,7 +476,7 @@ extension WorkspaceState {
                 // command. Keeping the app in onboarding makes termination/relaunch resume
                 // the same checkpoint instead of opening a partially prepared account.
                 phase = .onboarding
-                return
+                return nil
             }
             // Read before `activateReadyState()`: it goes `.ready` part-way through, after which a
             // switch from Settings can land on a different identity. See
@@ -480,8 +484,18 @@ extension WorkspaceState {
             let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
             await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            return nil
+        } catch MarmotKitError.AccountUnlinked(let accountRef) {
+            lastError = UserFacingError.message(for: MarmotKitError.AccountUnlinked(accountRef: accountRef))
+            if !accounts.contains(where: { $0.accountRef == accountRef }),
+                let refreshed = try? await accountItemsFromRuntime(client: client)
+            {
+                accounts = refreshed
+            }
+            return accounts.first { $0.accountRef == accountRef }
         } catch {
             lastError = SignInFailure.message
+            return nil
         }
     }
 
@@ -1221,7 +1235,8 @@ extension WorkspaceState {
             localSigning: base.localSigning,
             externalSigning: base.externalSigning,
             isRunning: base.isRunning,
-            signedOut: base.signedOut
+            signedOut: base.signedOut,
+            unlinked: base.unlinked
         )
     }
 
@@ -1241,7 +1256,8 @@ extension WorkspaceState {
             localSigning: account.localSigning,
             externalSigning: account.externalSigning,
             isRunning: account.isRunning,
-            signedOut: account.signedOut
+            signedOut: account.signedOut,
+            unlinked: account.unlinked
         )
     }
 }
