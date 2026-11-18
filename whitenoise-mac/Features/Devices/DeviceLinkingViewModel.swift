@@ -99,15 +99,15 @@ final class DeviceLinkingViewModel {
 
     var thisDevice: LinkedDeviceFfi? { devices.first(where: \.isThisDevice) }
 
-    /// Labels of the devices this one approved that haven't joined yet (`Linking`), from the roster
-    /// entry for each prompt's slot; empty when the device has none. MDK warns that moving this
-    /// device now can fail those links and skip their chat additions. Every prompt counts, closed
-    /// ones included: closing the sheet doesn't finish the link.
-    var devicesStillLinking: [String] {
-        snapshot.prompts.compactMap { prompt in
-            guard case .linking = prompt.state else { return nil }
-            return devices.first { $0.slotIdHex == prompt.slotIdHex }?.label ?? ""
-        }
+    /// A device this one approved hasn't joined yet (`Linking`) while this device is in a device list.
+    /// MDK warns that moving this device now can fail that link and skip its chat additions. Every
+    /// prompt counts, closed ones included: closing the sheet doesn't finish the link.
+    var approvedLinkStillJoining: Bool {
+        thisDevice != nil
+            && snapshot.prompts.contains { prompt in
+                if case .linking = prompt.state { return true }
+                return false
+            }
     }
 
     /// This device has no name in the roster yet, or no roster at all (it has never been linked):

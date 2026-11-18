@@ -1,62 +1,62 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Finish linking %@ before moving this Mac. Moving now can stop it from joining your chats." : {
-      "comment" : "Device linking: Settings → Devices and the link sheets. %@ is the new device's name, or “A new device”.",
+    "Finish linking your new device before moving this Mac. Moving now can stop it from joining your chats." : {
+      "comment" : "Device linking: Settings → Devices, while a device this Mac approved is still joining.",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schließe die Verknüpfung von %@ ab, bevor du diesen Mac verschiebst. Wenn du ihn jetzt verschiebst, kann das verhindern, dass es deinen Chats beitritt."
+            "value" : "Schließe die Verknüpfung deines neuen Geräts ab, bevor du diesen Mac verschiebst. Wenn du ihn jetzt verschiebst, kann das verhindern, dass es deinen Chats beitritt."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Termina de vincular %@ antes de mover este Mac. Si lo mueves ahora, puede que no se una a tus chats."
+            "value" : "Termina de vincular tu nuevo dispositivo antes de mover este Mac. Si lo mueves ahora, puede que no se una a tus chats."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Terminez l’association de %@ avant de déplacer ce Mac. Le déplacer maintenant peut l’empêcher de rejoindre vos discussions."
+            "value" : "Terminez l’association de votre nouvel appareil avant de déplacer ce Mac. Le déplacer maintenant peut l’empêcher de rejoindre vos discussions."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Completa il collegamento di %@ prima di spostare questo Mac. Spostarlo ora può impedirgli di unirsi alle tue chat."
+            "value" : "Completa il collegamento del nuovo dispositivo prima di spostare questo Mac. Spostarlo ora può impedirgli di unirsi alle tue chat."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Termine de vincular %@ antes de mover este Mac. Movê-lo agora pode impedir que ele entre nas suas conversas."
+            "value" : "Termine de vincular seu novo dispositivo antes de mover este Mac. Movê-lo agora pode impedir que ele entre nas suas conversas."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Завершите привязку %@, прежде чем перемещать этот Mac. Если переместить его сейчас, устройство может не попасть в ваши чаты."
+            "value" : "Завершите привязку нового устройства, прежде чем перемещать этот Mac. Если переместить его сейчас, устройство может не попасть в ваши чаты."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu Mac’i taşımadan önce %@ bağlantısını tamamla. Şimdi taşımak, onun sohbetlerine katılmasını engelleyebilir."
+            "value" : "Bu Mac’i taşımadan önce yeni cihazının bağlantısını tamamla. Şimdi taşımak, onun sohbetlerine katılmasını engelleyebilir."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请先完成关联 %@，再移动这台 Mac。现在移动可能会导致它无法加入你的聊天。"
+            "value" : "请先完成关联你的新设备，再移动这台 Mac。现在移动可能会导致它无法加入你的聊天。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "請先完成連結 %@，再移動這台 Mac。現在移動可能會導致它無法加入你的聊天。"
+            "value" : "請先完成連結你的新裝置，再移動這台 Mac。現在移動可能會導致它無法加入你的聊天。"
           }
         }
       }
