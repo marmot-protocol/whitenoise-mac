@@ -163,6 +163,13 @@
         /// `reactionAttachment`, keyed by reaction message id.
         var reactionAttachments: [String: AttachmentEntryFfi] = [:]
         private(set) var reactionAttachmentRequests: [String] = []
+        /// `cachedPublicEventPreviews`: what MDK already holds, keyed by reference.
+        var cachedPublicEvents: [String: PublicEventPreviewFfi] = [:]
+        /// `resolvePublicEventPreview`: what a relay fetch finds, keyed by reference. A miss
+        /// returns the cached state, or `missing`.
+        var resolvablePublicEvents: [String: PublicEventPreviewFfi] = [:]
+        var resolvePublicEventError: Error?
+        private(set) var resolvedPublicEventReferences: [String] = []
         /// Every stored sticker pack; `installed` marks the account's installed ones.
         var stickerPackStore: [StickerPackFfi] = []
         var stickerPacksError: Error?
@@ -1975,6 +1982,26 @@
         ) async throws -> AttachmentEntryFfi? {
             reactionAttachmentRequests.append(reactionMessageIdHex)
             return reactionAttachments[reactionMessageIdHex]
+        }
+
+        func cachedPublicEventPreviews(accountRef: String, references: [String]) throws
+            -> [PublicEventPreviewFfi]
+        {
+            references.map { reference in
+                cachedPublicEvents[reference]
+                    ?? PublicEventPreviewFfi(reference: reference, state: .missing, eventJson: nil, fetchedAt: nil)
+            }
+        }
+
+        func resolvePublicEventPreview(accountRef: String, reference: String) async throws -> PublicEventPreviewFfi {
+            resolvedPublicEventReferences.append(reference)
+            if let resolvePublicEventError { throw resolvePublicEventError }
+            if let found = resolvablePublicEvents[reference] {
+                cachedPublicEvents[reference] = found
+                return found
+            }
+            return cachedPublicEvents[reference]
+                ?? PublicEventPreviewFfi(reference: reference, state: .missing, eventJson: nil, fetchedAt: nil)
         }
 
         func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws

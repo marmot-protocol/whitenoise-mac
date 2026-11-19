@@ -184,7 +184,7 @@ struct LinkPreviewSettingsSection: View {
     var body: some View {
         SettingsSection(
             footer: L10n.string(
-                "Shows the title and image of links in chats. Loading a preview tells the linked website, and the site hosting its image, your IP address."
+                "Shows the title and image of links in chats, and the Nostr posts they point to. Loading a preview tells the linked website, the site hosting its image, or the post’s relays your IP address."
             )
         ) {
             WNToggle(

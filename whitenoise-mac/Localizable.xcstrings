@@ -99853,71 +99853,6 @@
         }
       }
     },
-    "Shows the title and image of links in chats. Loading a preview tells the linked website, and the site hosting its image, your IP address." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zeigt Titel und Bild von Links in Chats. Beim Laden einer Vorschau erfahren die verlinkte Website und die Website, auf der das Bild liegt, deine IP-Adresse."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Muestra el título y la imagen de los enlaces en los chats. Al cargar una vista previa, el sitio web enlazado y el sitio que aloja su imagen conocen tu dirección IP."
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Näyttää keskusteluissa linkkien otsikon ja kuvan. Esikatselun lataaminen kertoo IP-osoitteesi linkitetylle sivustolle ja sen kuvaa isännöivälle sivustolle."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Affiche le titre et l’image des liens dans les discussions. Le chargement d’un aperçu communique votre adresse IP au site lié et au site qui héberge son image."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostra il titolo e l’immagine dei link nelle chat. Il caricamento di un’anteprima comunica il tuo indirizzo IP al sito collegato e al sito che ospita la sua immagine."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostra o título e a imagem dos links nas conversas. Carregar uma pré-visualização informa o seu endereço IP ao site vinculado e ao site que hospeda a imagem."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показывает заголовок и изображение ссылок в чатах. При загрузке превью связанный сайт и сайт, на котором размещено изображение, узнают ваш IP-адрес."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sohbetlerdeki bağlantıların başlığını ve görselini gösterir. Önizleme yüklemek, bağlantılı web sitesine ve görselini barındıran siteye IP adresinizi bildirir."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示聊天中链接的标题和图片。加载预览会让链接的网站以及托管其图片的网站得知你的 IP 地址。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "顯示聊天中連結的標題與圖片。載入預覽會讓連結的網站以及託管其圖片的網站得知你的 IP 位址。"
-          }
-        }
-      }
-    },
     "Sign In" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -119533,6 +119468,138 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拷貝一個連結，其他人可以用它新增此貼圖包。"
+          }
+        }
+      }
+    },
+    "Shows the title and image of links in chats, and the Nostr posts they point to. Loading a preview tells the linked website, the site hosting its image, or the post’s relays your IP address." : {
+      "comment" : "Footer under the Show Link Previews switch: what it shows and what loading a preview reveals.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt Titel und Bild von Links in Chats sowie die Nostr-Beiträge, auf die sie verweisen. Beim Laden einer Vorschau erfahren die verlinkte Website, die Website, auf der das Bild liegt, oder die Relays des Beitrags deine IP-Adresse."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra el título y la imagen de los enlaces en los chats, y las publicaciones de Nostr a las que apuntan. Al cargar una vista previa, el sitio web enlazado, el sitio que aloja su imagen o los relés de la publicación conocen tu dirección IP."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Näyttää keskusteluissa linkkien otsikon ja kuvan sekä Nostr-julkaisut, joihin ne osoittavat. Esikatselun lataaminen kertoo IP-osoitteesi linkitetylle sivustolle, sen kuvaa isännöivälle sivustolle tai julkaisun välittäjille."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche le titre et l’image des liens dans les discussions, ainsi que les publications Nostr vers lesquelles ils pointent. Le chargement d’un aperçu communique votre adresse IP au site lié, au site qui héberge son image ou aux relais de la publication."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra il titolo e l’immagine dei link nelle chat e i post Nostr a cui rimandano. Il caricamento di un’anteprima comunica il tuo indirizzo IP al sito collegato, al sito che ospita la sua immagine o ai relay del post."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra o título e a imagem dos links nas conversas e as publicações do Nostr para as quais apontam. Carregar uma pré-visualização informa o seu endereço IP ao site vinculado, ao site que hospeda a imagem ou aos relays da publicação."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает заголовок и изображение ссылок в чатах, а также публикации Nostr, на которые они указывают. При загрузке превью связанный сайт, сайт, на котором размещено изображение, или релеи публикации узнают ваш IP-адрес."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbetlerdeki bağlantıların başlığını ve görselini, ayrıca işaret ettikleri Nostr gönderilerini gösterir. Önizleme yüklemek, bağlantılı web sitesine, görselini barındıran siteye veya gönderinin rölelerine IP adresinizi bildirir."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示聊天中链接的标题和图片，以及链接指向的 Nostr 帖子。加载预览会让链接的网站、托管其图片的网站或帖子所在的中继得知你的 IP 地址。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示聊天中連結的標題與圖片，以及連結指向的 Nostr 貼文。載入預覽會讓連結的網站、託管其圖片的網站或貼文所在的中繼得知你的 IP 位址。"
+          }
+        }
+      }
+    },
+    "Nostr event" : {
+      "comment" : "Title of the card for a linked public Nostr event of a kind the app does not draw.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nostr-Ereignis"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Evento de Nostr"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nostr-tapahtuma"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Événement Nostr"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Evento Nostr"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Evento do Nostr"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Событие Nostr"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nostr etkinliği"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nostr 事件"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nostr 事件"
           }
         }
       }

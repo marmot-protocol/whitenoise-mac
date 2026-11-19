@@ -5,6 +5,7 @@
 //  Link-opening policy for untrusted message Markdown.
 //
 
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -35,6 +36,10 @@ extension WorkspaceState {
 
         if MarkdownLinkPolicy.isResolvableProfileReference(reference) {
             await openProfileReference(reference)
+        } else if let viewerURL = MarkdownLinkPolicy.eventViewerURL(for: reference) {
+            // A note, event or article has no in-app view: it opens on njump.me, on the user's
+            // click alone, exactly like a web link in the message.
+            NSWorkspace.shared.open(viewerURL)
         } else {
             backgroundStatus = L10n.string("This Nostr link type is not supported yet.")
         }

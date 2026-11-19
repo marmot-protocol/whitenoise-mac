@@ -865,6 +865,13 @@ struct MessageBubble: View {
                             .id(linkPreviewURL)
                     }
 
+                    if let nostrEventReference {
+                        NostrEventPreviewCard(
+                            reference: nostrEventReference, store: conversationModel.nostrEventPreviews
+                        )
+                        .id(nostrEventReference)
+                    }
+
                     MarkdownMessageView(
                         message: message,
                         trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
@@ -920,6 +927,13 @@ struct MessageBubble: View {
     private var linkPreviewURL: URL? {
         guard !message.isDeleted, LinkPreviewPreference.shared.showsPreviews else { return nil }
         return LinkPreviewMetadata.previewURL(in: message.contentMarkdown)
+    }
+
+    /// The first public Nostr event the message links, while "Show Link Previews" is on: loading
+    /// it asks relays the sender chose, the same cost a web preview has.
+    private var nostrEventReference: String? {
+        guard !message.isDeleted, LinkPreviewPreference.shared.showsPreviews else { return nil }
+        return NostrEventPreview.previewReference(in: message.contentMarkdown)
     }
 
     private var showsInlineMetadata: Bool {
