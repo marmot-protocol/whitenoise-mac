@@ -1601,7 +1601,7 @@ struct AccountTests: WorkspaceTestSupport {
 
     /// Signing out of the active profile with exactly one other still signed in continues straight
     /// into it: a chooser offering a single profile is no choice. It stays on the settings page the
-    /// sign-out left and brings the remaining profile's chats back.
+    /// sign-out left.
     @MainActor
     @Test func signingOutTheActiveProfileWithOneLeftSwitchesToIt() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
@@ -1630,6 +1630,52 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.activeAccountId == "Backup Account")
         #expect(state.activeAccount?.id == "Backup Account")
         #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
+        #expect(state.selection == .settings(.overview))
+        #expect(state.lastError == nil)
+    }
+
+    /// "Exactly one left" counts signed-in profiles, not every identity on this Mac. A signed-out
+    /// one is not offered anywhere, so with one signed-in and one signed-out profile surviving,
+    /// removing or signing out of the active profile still goes straight into the signed-in one.
+    @MainActor
+    @Test(arguments: [true, false])
+    func aSignedOutSurvivorDoesNotTurnTheOnlyProfileLeftIntoAChoice(removes: Bool) async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        var signedOutThird = Self.thirdAccount
+        signedOutThird.signedOut = true
+        signedOutThird.running = false
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary, signedOutThird])
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let active = try #require(state.activeAccount)
+        try #require(active.id == "Desktop Account")
+
+        state.showSettingsPage(.overview)
+        if removes {
+            await state.removeAccount(active)
+            #expect(runtime.removedAccountRefs == ["Desktop Account"])
+        } else {
+            await state.signOutAccount(active)
+            #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
+        }
+
+        #expect(state.phase == .ready)
+        #expect(state.signedInAccounts.map(\.id) == ["Backup Account"])
+        #expect(state.accounts.contains { $0.id == "Third Account" && $0.signedOut })
+        #expect(state.activeAccountId == "Backup Account")
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
         #expect(state.selection == .settings(.overview))
         #expect(state.lastError == nil)

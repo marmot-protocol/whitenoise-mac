@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import MarmotKit
 import Testing
 import UniformTypeIdentifiers
 
@@ -234,6 +235,9 @@ struct ProfileKeysSourceContractTests {
         // accent — the exact defect that component exists to remove, and the reason the app has
         // no bare switch left.
         #expect(sheet.contains("WNToggle(isOn: $wipesLocalData)"))
+        // An armed wipe never survives a change of account: the host re-renders an open sheet for
+        // whichever account is active, and the typed confirmation was given for the old one.
+        #expect(sheet.contains(".onChange(of: account.id)"))
         // One button, one label, in one place, armed or not.
         #expect(sheet.contains(".buttonStyle(.wnDestructive)"))
         #expect(sheet.contains("AccountWipeConfirmation.matches"))
@@ -243,14 +247,15 @@ struct ProfileKeysSourceContractTests {
         #expect(!sheet.contains("stage?.labelKey ?? \"Sign Out\""))
         #expect(sheet.contains(".accessibilityValue(stage.map { Text(L10n.string($0.labelKey)) }"))
         #expect(!sheet.contains("progress(stage)"))
-        // A failed teardown has to stay on screen. Both `signOutAccount` and `removeAccount` clear
-        // `lastError` on entry and set it from their `catch`, so dismissing unconditionally would
-        // take the sheet's own `SettingsErrorView` away with the error still unread and leave the
-        // reader unsure whether they are signed in. Only a clean run closes the sheet.
-        #expect(sheet.contains("guard workspace.lastError == nil else { return }"))
-        // And the shared error is cleared on the way in, so the gate above can only ever see an
-        // error this sheet produced — otherwise an earlier profile or relay failure would both
-        // render here and stop a successful sign-out from dismissing.
+        // A failed teardown has to stay on screen, and a successful one has to close the sheet.
+        // Dismissal is decided from the account list, not `lastError`: after a sign-out that
+        // switches straight into the only profile left, the survivor's settings load can set
+        // `lastError`, and gating on it would leave the sheet up — re-rendered for the survivor.
+        // `SignOutSheetExitTests` pins what the helper decides.
+        #expect(sheet.contains("Self.exitSucceeded(for: account, wipedLocalData: wipes, in: workspace.accounts)"))
+        #expect(!sheet.contains("guard workspace.lastError == nil"))
+        // The shared error is cleared on the way in, so an earlier profile or relay failure does
+        // not render here as if this sheet had produced it.
         #expect(sheet.contains("workspace.lastError = nil"))
 
         // And the two confirmations it replaced are gone rather than merely unreferenced.
@@ -440,5 +445,96 @@ struct ProfileKeysViewModelTests {
         model.reset()
 
         #expect(!model.isRevealed)
+    }
+}
+
+/// Whether the sign-out sheet closes is read off the account list the exit leaves behind, never off
+/// `lastError`, which also carries failures from whatever ran after a successful exit.
+@Suite
+@MainActor
+struct SignOutSheetExitTests: WorkspaceTestSupport {
+    private struct RelayListReadFailed: LocalizedError {
+        var errorDescription: String? { "Relay lists could not be read." }
+    }
+
+    private static let backup = AccountSummaryFfi(
+        label: "Backup Account",
+        accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+        localSigning: true,
+        externalSigning: false,
+        signedOut: false,
+        running: true,
+        unlinked: false
+    )
+
+    private func account(_ summary: AccountSummaryFfi, signedOut: Bool) -> AccountItem {
+        var summary = summary
+        summary.signedOut = signedOut
+        return AccountItem(summary: summary)
+    }
+
+    @Test func aSignOutSucceededOnceTheAccountIsSignedOutOrGone() {
+        let active = account(desktopAccount(), signedOut: false)
+        let backup = account(Self.backup, signedOut: false)
+
+        #expect(
+            SignOutSheet.exitSucceeded(
+                for: active, wipedLocalData: false, in: [account(desktopAccount(), signedOut: true), backup]))
+        #expect(SignOutSheet.exitSucceeded(for: active, wipedLocalData: false, in: [backup]))
+        #expect(!SignOutSheet.exitSucceeded(for: active, wipedLocalData: false, in: [active, backup]))
+    }
+
+    @Test func aWipeSucceededOnlyOnceTheAccountIsGone() {
+        let active = account(desktopAccount(), signedOut: false)
+        let backup = account(Self.backup, signedOut: false)
+
+        #expect(SignOutSheet.exitSucceeded(for: active, wipedLocalData: true, in: [backup]))
+        #expect(SignOutSheet.exitSucceeded(for: active, wipedLocalData: true, in: []))
+        #expect(!SignOutSheet.exitSucceeded(for: active, wipedLocalData: true, in: [active, backup]))
+        #expect(
+            !SignOutSheet.exitSucceeded(
+                for: active, wipedLocalData: true, in: [account(desktopAccount(), signedOut: true), backup]))
+    }
+
+    /// The regression the helper exists for: signing out with exactly one other profile left
+    /// switches straight into it, and that profile's settings load fails. `lastError` is set, yet
+    /// the exit went through and the sheet must close.
+    @Test func aFailedLoadForTheOnlyProfileLeftStillClosesTheSheet() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), Self.backup])
+        runtime.accountRelayListsErrorByAccountRef = ["Backup Account": RelayListReadFailed()]
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let active = try #require(state.activeAccount)
+        try #require(active.id == "Desktop Account")
+
+        await state.signOutAccount(active)
+
+        #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(state.lastError == RelayListReadFailed().errorDescription)
+        #expect(SignOutSheet.exitSucceeded(for: active, wipedLocalData: false, in: state.accounts))
+    }
+
+    /// A refused sign-out leaves the account signed in, so the sheet stays to show why.
+    @Test func aRefusedSignOutKeepsTheSheet() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), Self.backup])
+        runtime.signOutError = RelayListReadFailed()
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let active = try #require(state.activeAccount)
+
+        await state.signOutAccount(active)
+
+        #expect(state.lastError != nil)
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(!SignOutSheet.exitSucceeded(for: active, wipedLocalData: false, in: state.accounts))
     }
 }
