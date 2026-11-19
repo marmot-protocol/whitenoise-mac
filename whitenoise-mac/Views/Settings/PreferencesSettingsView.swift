@@ -56,6 +56,10 @@ struct PreferencesSettingsView: View {
             }
 
             QuickReactionsSettingsSection()
+
+            if #available(macOS 26.0, *) {
+                DictationSettingsSection(preference: .shared, installer: .shared)
+            }
         }
         .onAppear {
             launchAtLogin.refresh()

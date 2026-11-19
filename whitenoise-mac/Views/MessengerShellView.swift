@@ -995,7 +995,11 @@ private struct ConversationView: View {
         @Bindable var workspace = workspace
 
         if let message = model.customEmojiSender.errorMessage {
-            CustomEmojiSendNotice(message: message, onDismiss: model.customEmojiSender.dismissError)
+            ComposerNotice(message: message, onDismiss: model.customEmojiSender.dismissError)
+        }
+
+        if let notice = model.dictation.notice {
+            DictationNoticeView(notice: notice, controller: model.dictation)
         }
 
         if let editingMessageContext = workspace.editingMessageContext {
@@ -1043,7 +1047,26 @@ private struct ConversationView: View {
             }
         }
 
-        if workspace.isRecordingVoiceMessage {
+        if model.dictation.isActive {
+            DictationComposerView(
+                state: model.dictation.state,
+                transcript: model.dictation.transcript,
+                onCancel: model.dictation.cancel,
+                onFinish: model.dictation.stop
+            )
+            // Words spoken for one draft never land in another: starting or ending an edit swaps
+            // the draft, and a notice replacing the composer (a block, a removal, selection mode)
+            // takes the bar away with the dictation still running.
+            .onChange(of: workspace.editingMessageContext?.targetMessageId) { _, _ in
+                model.dictation.cancel()
+            }
+            .onChange(of: workspace.selectedComposerDraftKey) { _, _ in
+                model.dictation.cancel()
+            }
+            .onDisappear {
+                model.dictation.cancel()
+            }
+        } else if workspace.isRecordingVoiceMessage {
             VoiceRecordingComposerView(
                 samples: workspace.voiceRecordingSamples,
                 durationSeconds: workspace.voiceRecordingDurationSeconds,
@@ -1194,6 +1217,14 @@ private struct ConversationView: View {
                 }
                 .accessibilityIdentifier("composer.message")
 
+                if DictationSupport.isSupportedOS, DictationPreference.shared.isEnabled {
+                    ComposerDictationButton(
+                        isDisabled: workspace.isSending || workspace.isRecordingVoiceMessage
+                            || workspace.isPreparingVoiceRecording,
+                        action: startDictation
+                    )
+                }
+
                 if workspace.editingMessageContext != nil {
                     Button {
                         workspace.cancelEditingMessage()
@@ -1235,6 +1266,18 @@ private struct ConversationView: View {
                 .disabled(!workspace.canSend)
                 .help(workspace.editingMessageContext == nil ? L10n.string("Send") : L10n.string("Save edit"))
             }
+        }
+    }
+
+    /// Listens into this chat's composer. The words join whatever draft is in the field when
+    /// dictation finishes — the same draft it started on, since switching chats or edits cancels
+    /// it — and the field takes focus so the person can read them and send.
+    private func startDictation() {
+        let draftKey = workspace.selectedComposerDraftKey
+        model.dictation.begin(localeIdentifiers: DictationLanguages.candidates) { result in
+            guard workspace.selectedComposerDraftKey == draftKey else { return }
+            workspace.draftText = DictationTextMerge.merged(draft: workspace.draftText, transcript: result.text)
+            composerFocusRequester.request()
         }
     }
 

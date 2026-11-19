@@ -162,40 +162,6 @@ struct CustomEmojiManageSetsButton: View {
     }
 }
 
-/// Inline, persistent explanation of why a custom emoji message or reaction was not sent. A
-/// message's draft is still in the composer, so Send retries it.
-struct CustomEmojiSendNotice: View {
-    let message: String
-    let onDismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 6) {
-            Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(WNColor.intentionErrorContent)
-                .accessibilityHidden(true)
-            Text(message)
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .wnFont(.semiBold10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(L10n.string("Dismiss"))
-            .accessibilityLabel(L10n.string("Dismiss"))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .onAppear { AccessibilityNotification.Announcement(message).post() }
-        .onChange(of: message) { _, message in AccessibilityNotification.Announcement(message).post() }
-    }
-}
-
 // MARK: - Browsing and installing sets
 
 /// The emoji-set browser and one set's page, navigated inside the emoji picker.
@@ -772,9 +738,4 @@ private enum EmojiSetPreviewData {
     }
     .padding(10)
     .frame(width: 420, height: 200)
-}
-
-#Preview("Send notice") {
-    CustomEmojiSendNotice(message: CustomEmojiSendError.mixedWithAttachments.message, onDismiss: {})
-        .frame(width: 420)
 }

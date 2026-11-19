@@ -69,6 +69,9 @@ final class ConversationViewModel {
     let customEmojiSender: ConversationCustomEmojiSender
     /// Search within this conversation's history; ends when the conversation goes away.
     let search: ConversationSearchViewModel
+    /// Dictation into this conversation's composer; cancelled when the conversation goes away,
+    /// so words spoken for one chat never land in another's draft.
+    let dictation: ComposerDictationController
     private(set) var snapshot: ConversationWindowSnapshotFfi?
     private(set) var isLoading = false
     /// True while a page, a jump, or a return to the latest is in flight. Each quotes the window's
@@ -127,7 +130,8 @@ final class ConversationViewModel {
         runtime: any MarmotRuntime,
         productAnalytics: ProductAnalyticsRecorder? = nil,
         stickers: StickerLibrary? = nil,
-        emojiSets: EmojiSetLibrary? = nil
+        emojiSets: EmojiSetLibrary? = nil,
+        dictationEngine: DictationEngine = .live
     ) {
         self.account = account
         self.groupIdHex = groupIdHex
@@ -149,6 +153,7 @@ final class ConversationViewModel {
             accountRef: account.accountRef,
             groupIdHex: groupIdHex
         )
+        self.dictation = ComposerDictationController(engine: dictationEngine)
     }
 
     /// What the pickers and composer can send here: the built-ins, the account's installed set
@@ -204,6 +209,7 @@ final class ConversationViewModel {
         customEmojiImages.cancelAll()
         customEmojiSender.stop()
         search.end()
+        dictation.cancel()
     }
 
     /// Ends the window subscription only, so `start` can reopen it without restarting emoji loads.

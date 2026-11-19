@@ -1100,6 +1100,7 @@ extension WorkspaceState {
         RemoteImageLoader.shared.clearCache()
         RemoteGIFLoadingPreference.shared.reset()
         StickerLoadingPreference.shared.reset()
+        DictationPreference.shared.reset()
         LinkPreviewPreference.shared.reset()
         LinkPreviewLoader.shared.clearCache()
         settingsLoadTask?.cancel()
