@@ -7,7 +7,9 @@
 //  whose account exit asks for an explicit choice (`AccountExitProfileChooser` /
 //  `SignedOutProfilesView`) instead of quietly moving the user into whichever identity happens to
 //  be listed first. With exactly one profile left there is nothing to choose, so the workspace
-//  switches straight into it and this view never appears.
+//  switches straight into it and this view never appears. That is a deliberate divergence: iOS
+//  asks even then (`AppState.requestProfileSelection()` runs for any number of survivors), and
+//  this app does not put up a chooser with a single row.
 //
 
 import SwiftUI

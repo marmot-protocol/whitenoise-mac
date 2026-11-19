@@ -75,16 +75,23 @@ struct SignOutSheet: View {
         .frame(width: 420)
         .interactiveDismissDisabled(stage != nil)
         .onAppear {
-            // Required, not cosmetic, now that `signOut()` keeps the sheet up whenever `lastError`
-            // is set: `signOutAccount`/`removeAccount` clear it only *after* their entry guard, so
-            // an error left behind by some earlier profile or relay failure would both render here
-            // as if this sheet caused it and stop a successful sign-out from ever dismissing.
+            // The sheet draws the shared `lastError`, and `signOutAccount`/`removeAccount` clear it
+            // only *after* their entry guard, so an error left behind by some earlier profile or
+            // relay failure would otherwise render here as if this sheet had caused it.
             workspace.lastError = nil
         }
         .onChange(of: wipesLocalData) { _, wipesLocalData in
             // The typed name is scoped to the armed toggle. Leaving it behind would let a reader
             // who turned wiping off and back on find the gate already cleared.
             if !wipesLocalData { confirmationInput = "" }
+        }
+        .onChange(of: account.id) {
+            // The host builds this sheet from whichever account is active, so a sheet that
+            // outlives an identity change is re-rendered for another account with its `@State`
+            // intact. An armed wipe and a typed confirmation belong to the account they were
+            // given for; carried over, one click would erase a profile nobody confirmed.
+            wipesLocalData = false
+            confirmationInput = ""
         }
     }
 
@@ -204,7 +211,10 @@ struct SignOutSheet: View {
 
     private func signOut() async {
         guard canSignOut else { return }
-        if wipesLocalData {
+        // Captured before the teardown: once it succeeds the host may hand this sheet another
+        // account, and `.onChange(of: account.id)` resets the toggle under the await.
+        let wipes = wipesLocalData
+        if wipes {
             stage = .wiping
             await workspace.removeAccount(account)
         } else {
@@ -212,15 +222,30 @@ struct SignOutSheet: View {
             await workspace.signOutAccount(account)
         }
         stage = nil
-        // Dismiss only when the teardown actually ran. Both calls clear `lastError` on entry and
-        // set it from their `catch`, so a non-nil error here means nothing was torn down —
-        // dismissing would take the only place that error is shown away with it and leave the
-        // reader guessing whether they are still signed in. Same rule the encrypted-export sheet
-        // follows, and the reason this sheet draws a `SettingsErrorView` at all.
-        guard workspace.lastError == nil else { return }
-        // On success both paths either leave the profile chooser asking which identity comes
-        // next or land the app in onboarding, which takes this sheet with it. Dismissing covers
-        // the first case, harmless in the second.
+        // Dismiss only when the teardown actually ran, read off the account list it left behind —
+        // the rule `DeleteProfileRemoval` follows — and never off `lastError`. There are three
+        // outcomes, and `lastError` cannot tell the last two apart:
+        //  - Nothing was torn down (the core refused, or another account change held the gate):
+        //    the account is still signed in. The sheet stays, so the error it draws in its
+        //    `SettingsErrorView` is read rather than dismissed with it.
+        //  - The exit ran and the app moved on, to the profile chooser or onboarding: dismissing
+        //    covers the first, and is harmless in the second, which takes the sheet with it.
+        //  - The exit ran and the app switched straight into the only profile left, whose
+        //    settings then failed to load. That error is the survivor's and stays on `lastError`
+        //    for its settings page; it is no reason to keep this sheet up. The host re-renders it
+        //    for the now-active survivor, so staying would put a Sign Out button for the wrong
+        //    identity under the reader's cursor.
+        guard Self.exitSucceeded(for: account, wipedLocalData: wipes, in: workspace.accounts) else {
+            return
+        }
         dismiss()
+    }
+
+    /// Whether the exit this sheet ran went through for `account`, judged from the account list
+    /// the workspace holds afterwards. A wipe succeeded when the account is gone from this Mac; a
+    /// sign-out when it is gone or still listed but signed out.
+    static func exitSucceeded(for account: AccountItem, wipedLocalData: Bool, in accounts: [AccountItem]) -> Bool {
+        guard let remaining = accounts.first(where: { $0.id == account.id }) else { return true }
+        return !wipedLocalData && remaining.signedOut
     }
 }
