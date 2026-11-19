@@ -1725,6 +1725,8 @@ struct ProjectionMigrationTests {
         }
 
         #expect(model.chats(view: .unread, nicknames: .none).map(\.id) == ["unread", "marked"])
+        // The invite Unread leaves out has a tab of its own.
+        #expect(model.pendingInvites(nicknames: .none).map(\.id) == ["invite"])
         model.stop()
     }
 

@@ -264,7 +264,11 @@ struct ChatListDrawerView: View {
                             ChatListSearchFailedState {
                                 // The search key has not changed, so `.onChange` will not rerun it;
                                 // a failed search reruns the same text when asked again.
-                                search?.search(workspace.searchText, view: filter.chatListView)
+                                search?.search(
+                                    workspace.searchText,
+                                    view: filter.chatListView,
+                                    condition: filter.chatListCondition
+                                )
                             }
                             .padding()
                         } else if isSearching {
@@ -279,6 +283,8 @@ struct ChatListDrawerView: View {
                                 ArchivedEmptyDrawerState()
                             case .unread:
                                 UnreadEmptyDrawerState()
+                            case .invites:
+                                InvitesEmptyDrawerState()
                             case .left:
                                 LeftEmptyDrawerState()
                             case .active:
@@ -296,15 +302,21 @@ struct ChatListDrawerView: View {
                         }
                     }
                 }
-                .onChange(of: ChatListSearchKey(text: workspace.searchText, view: filter.chatListView), initial: true) {
-                    _, key in
-                    search?.search(key.text, view: key.view)
+                .onChange(
+                    of: ChatListSearchKey(
+                        text: workspace.searchText,
+                        view: filter.chatListView,
+                        condition: filter.chatListCondition
+                    ),
+                    initial: true
+                ) { _, key in
+                    search?.search(key.text, view: key.view, condition: key.condition)
                 }
                 .onChange(
                     of: ChatListSelectionScope(
                         query: isSearching
-                            ? search?.matchesQuery ?? ChatListSearchQuery.unfiltered(filter.chatListView)
-                            : ChatListSearchQuery.unfiltered(filter.chatListView),
+                            ? search?.matchesQuery ?? filter.unfilteredQuery
+                            : filter.unfilteredQuery,
                         // Every tab reads Select All's universe from MDK. The inbox and search
                         // results are bounded windows, and the other tabs are drawn by host
                         // predicates that do not match MDK's views (MDK files a chat that is both
@@ -404,6 +416,13 @@ extension ChatListDrawerView {
                     mentionNames: workspace.cachedMentionNames(groupIdHex:)
                 )
                 ?? activeChats.filter { $0.hasUnread && !$0.belongsToLeft }
+        case .invites:
+            chats =
+                model?.pendingInvites(
+                    nicknames: workspace.activeContactNicknames,
+                    mentionNames: workspace.cachedMentionNames(groupIdHex:)
+                )
+                ?? activeChats.filter { $0.pendingConfirmation && !$0.belongsToLeft }
         case .archived:
             // A chat that is archived and left is filed under Left only, as in MDK's views.
             chats = archivedChats.filter { !$0.belongsToLeft }
@@ -420,7 +439,7 @@ extension ChatListDrawerView {
         switch filter {
         case .archived, .left:
             archivedIds = model?.archivedGroupIds ?? Set(archivedChats.map(\.id))
-        case .active, .unread:
+        case .active, .unread, .invites:
             archivedIds = []
         }
         return (chats, archivedIds)
@@ -619,6 +638,20 @@ private struct ArchivedEmptyDrawerState: View {
         WNEmptyStateView(title: L10n.string("No archived chats", locale: locale), systemImage: "archivebox")
             .padding()
     }
+}
+
+private struct InvitesEmptyDrawerState: View {
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        WNEmptyStateView(title: L10n.string("No pending invites", locale: locale), systemImage: "envelope")
+            .padding()
+    }
+}
+
+#Preview("No pending invites") {
+    InvitesEmptyDrawerState()
+        .frame(width: 320, height: 240)
 }
 
 private struct UnreadEmptyDrawerState: View {
@@ -1396,10 +1429,11 @@ struct MembershipEndedBadge: View {
     }
 }
 
-/// What a search runs on: the typed text and the drawer's view.
+/// What a search runs on: the typed text and the drawer's view, with the tab's condition.
 private struct ChatListSearchKey: Equatable {
     let text: String
     let view: ChatListViewFfi
+    let condition: ChatListConditionFfi?
 }
 
 /// Under search results capped at MDK's 500-id window: the rest exist but are not listed.

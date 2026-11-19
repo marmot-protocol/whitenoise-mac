@@ -4250,6 +4250,9 @@ struct ComposeContact: Identifiable, Equatable {
 enum ChatListFilter: String, CaseIterable {
     case active
     case unread
+    /// Invitations not yet accepted or declined. They never count as unread, so without this tab
+    /// an invite that scrolled down the inbox had no list of its own to be found in.
+    case invites
     case archived
     case left
 
@@ -4259,6 +4262,8 @@ enum ChatListFilter: String, CaseIterable {
             return L10n.string("Chats")
         case .unread:
             return L10n.string("Unread")
+        case .invites:
+            return L10n.string("Invites")
         case .archived:
             return L10n.string("Archived")
         case .left:
@@ -4272,6 +4277,8 @@ enum ChatListFilter: String, CaseIterable {
             return "bubble.left.and.bubble.right"
         case .unread:
             return "circle.fill"
+        case .invites:
+            return "envelope"
         case .archived:
             return "archivebox"
         case .left:
