@@ -222,8 +222,8 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         return (state, active)
     }
 
-    /// The deletion went through, the user picked the backup identity in the chooser, and its
-    /// settings then failed to load. That failure is the backup's, not the deletion's: the page
+    /// The deletion went through, the app continued into the backup identity (the only one left),
+    /// and its settings then failed to load. That failure is the backup's, not the deletion's: the page
     /// reported success, and the error stays where the backup's settings page will show it.
     @Test func aFailedLoadForTheNextAccountIsNotAFailedDeletion() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
@@ -238,13 +238,6 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         #expect(failure == nil)
         #expect(runtime.removedAccountRefs == ["Desktop Account"])
         #expect(!state.accounts.contains(where: { $0.id == "Desktop Account" }))
-        #expect(state.activeAccountId == nil)
-        #expect(state.lastError == nil)
-
-        let next = try #require(state.signedInAccounts.first)
-        state.selectAccountFromSettings(next)
-        await state.loadSettingsData()
-
         #expect(state.activeAccountId == "Backup Account")
         #expect(state.lastError == RelayListReadFailed().errorDescription)
     }

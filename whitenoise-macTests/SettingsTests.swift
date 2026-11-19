@@ -643,8 +643,8 @@ struct SettingsTests: WorkspaceTestSupport {
     }
 
     /// The rail's sign-out lands in Settings on the overview, because the identity that owned the
-    /// open chat is gone. Another profile is still signed in, so the detail pane asks which one to
-    /// continue with — like deleting a profile does — and the overview is what the pick lands on.
+    /// open chat is gone. Exactly one other profile is still signed in, so the app continues
+    /// straight into it on that overview rather than asking the user to pick from a single row.
     @MainActor
     @Test func signingOutTheActiveAccountFromAChatLandsOnTheSettingsOverview() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
@@ -672,14 +672,8 @@ struct SettingsTests: WorkspaceTestSupport {
 
         await state.signOutAccount(active)
 
-        #expect(state.activeAccountId == nil)
-        #expect(state.signedInAccounts.map(\.id) == [secondary.label])
-        #expect(state.selection == .settings(.overview))
-
-        let next = try #require(state.signedInAccounts.first)
-        state.selectAccountFromSettings(next)
-
         #expect(state.activeAccountId == secondary.label)
+        #expect(state.signedInAccounts.map(\.id) == [secondary.label])
         #expect(state.selection == .settings(.overview))
     }
 

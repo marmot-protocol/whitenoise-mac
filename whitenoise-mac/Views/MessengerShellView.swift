@@ -132,9 +132,10 @@ private struct DetailPaneView: View {
                 FailureView(message: message)
             case .ready:
                 if workspace.activeAccount == nil, !workspace.signedInAccounts.isEmpty {
-                    // The active profile was deleted or signed out of, and others are still signed in. Like iOS,
-                    // the user picks the next one rather than being dropped into whichever
-                    // identity happens to be listed first.
+                    // The active profile was deleted or signed out of, and two or more others are
+                    // still signed in. Like iOS, the user picks the next one rather than being
+                    // dropped into whichever identity happens to be listed first. (With exactly
+                    // one left, the workspace switches into it and this branch is not reached.)
                     ProfileChooserView(
                         accounts: workspace.signedInAccounts,
                         isBusy: workspace.isAccountMutationInProgress,

@@ -25,6 +25,18 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct AccountTests: WorkspaceTestSupport {
+    /// A third signed-in identity, so that removing or signing out of the active one still leaves
+    /// a real choice between two.
+    static let thirdAccount = AccountSummaryFfi(
+        label: "Third Account",
+        accountIdHex: "3333333333333333333333333333333333333333333333333333333333333333",
+        localSigning: true,
+        externalSigning: false,
+        signedOut: false,
+        running: true,
+        unlinked: false
+    )
+
     @MainActor
     @Test func emptyRuntimeBootstrapsToOnboarding() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
@@ -1280,7 +1292,7 @@ struct AccountTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func removeActiveAccountCallsRuntimeAndAsksForTheNextAccount() async throws {
+    @Test func removeActiveAccountCallsRuntimeAndSwitchesToTheOnlyOneLeft() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -1308,9 +1320,9 @@ struct AccountTests: WorkspaceTestSupport {
 
         #expect(runtime.removedAccountRefs == ["Desktop Account"])
         #expect(state.accounts.map(\.id) == ["Backup Account"])
-        // The survivor is not activated on the user's behalf: the detail pane's chooser asks.
-        #expect(state.activeAccountId == nil)
-        #expect(state.signedInAccounts.map(\.id) == ["Backup Account"])
+        // One profile left is no choice: the app continues straight into it instead of showing a
+        // chooser with a single row.
+        #expect(state.activeAccountId == "Backup Account")
         #expect(state.selection == .settings(.overview))
     }
 
@@ -1428,9 +1440,8 @@ struct AccountTests: WorkspaceTestSupport {
 
         #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
         #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
-        // The survivor is not activated on the user's behalf: the detail pane's chooser asks.
-        #expect(state.activeAccountId == nil)
-        #expect(state.signedInAccounts.map(\.id) == ["Backup Account"])
+        // The only profile left is activated directly; there is nothing to choose between.
+        #expect(state.activeAccountId == "Backup Account")
         #expect(
             await RemoteImageLoader.shared.image(
                 for: Data([0x00]),
@@ -1440,10 +1451,9 @@ struct AccountTests: WorkspaceTestSupport {
         )
     }
 
-    /// Settings → Delete Profile removes the active profile. When another identity survives, the
-    /// app asks which profile to continue with, like iOS — it does not move into one on its own —
-    /// and the settings it keeps behind the chooser are the overview, never the next profile's
-    /// deletion page.
+    /// Settings → Delete Profile removes the active profile. When exactly one identity survives,
+    /// the app continues straight into it — a chooser with one row is no choice — and lands on the
+    /// overview, never on the next profile's deletion page.
     @MainActor
     @Test func deletingTheActiveProfileFromItsPageLeavesThePage() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
@@ -1470,16 +1480,14 @@ struct AccountTests: WorkspaceTestSupport {
 
         #expect(runtime.removedAccountRefs == ["Desktop Account"])
         #expect(state.phase == .ready)
-        #expect(state.activeAccountId == nil)
-        #expect(state.activeAccount == nil)
-        #expect(state.signedInAccounts.map(\.id) == ["Backup Account"])
-        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == nil)
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
         #expect(state.selection == .settings(.overview))
         #expect(state.lastError == nil)
     }
 
-    /// Picking a profile in the chooser that follows a deletion activates it and lands on the
-    /// settings the deletion left, not on a chat.
+    /// With two or more profiles left, deleting the active one asks which to continue with, like
+    /// iOS. Picking one activates it and lands on the settings the deletion left, not on a chat.
     @MainActor
     @Test func choosingAProfileAfterDeletionActivatesItOnSettings() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
@@ -1494,7 +1502,7 @@ struct AccountTests: WorkspaceTestSupport {
             running: true,
             unlinked: false
         )
-        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary])
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary, Self.thirdAccount])
         UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
@@ -1502,6 +1510,11 @@ struct AccountTests: WorkspaceTestSupport {
 
         state.showSettingsPage(.deleteProfile)
         await state.removeAccount(active)
+
+        #expect(state.activeAccountId == nil)
+        #expect(state.signedInAccounts.map(\.id) == ["Backup Account", "Third Account"])
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == nil)
+        #expect(state.selection == .settings(.overview))
         let next = try #require(state.signedInAccounts.first)
 
         state.selectAccountFromSettings(next)
@@ -1527,7 +1540,7 @@ struct AccountTests: WorkspaceTestSupport {
             running: true,
             unlinked: false
         )
-        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary])
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary, Self.thirdAccount])
         UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
@@ -1542,11 +1555,55 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.activeAccountId == nil)
     }
 
-    /// Signing out of the active profile while another is still signed in asks which profile to
-    /// continue with, as deleting it does, instead of moving into the first one listed. The
-    /// signed-out identity stays on this Mac but is not offered in the chooser.
+    /// Signing out of the active profile while two or more others are still signed in asks which
+    /// profile to continue with, as deleting it does, instead of moving into the first one listed.
+    /// The signed-out identity stays on this Mac but is not offered in the chooser.
     @MainActor
     @Test func signingOutTheActiveProfileAsksForTheNextOne() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), secondary, Self.thirdAccount])
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let active = try #require(state.activeAccount)
+
+        state.showSettingsPage(.overview)
+        await state.signOutAccount(active)
+
+        #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
+        #expect(state.phase == .ready)
+        #expect(state.activeAccountId == nil)
+        #expect(state.activeAccount == nil)
+        #expect(state.signedInAccounts.map(\.id) == ["Backup Account", "Third Account"])
+        #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == nil)
+        #expect(state.selection == .settings(.overview))
+        #expect(state.lastError == nil)
+
+        let next = try #require(state.signedInAccounts.first)
+        state.selectAccountFromSettings(next)
+
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
+        #expect(state.selection == .settings(.overview))
+    }
+
+    /// Signing out of the active profile with exactly one other still signed in continues straight
+    /// into it: a chooser offering a single profile is no choice. It stays on the settings page the
+    /// sign-out left and brings the remaining profile's chats back.
+    @MainActor
+    @Test func signingOutTheActiveProfileWithOneLeftSwitchesToIt() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
         defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
 
@@ -1570,20 +1627,12 @@ struct AccountTests: WorkspaceTestSupport {
 
         #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
         #expect(state.phase == .ready)
-        #expect(state.activeAccountId == nil)
-        #expect(state.activeAccount == nil)
-        #expect(state.signedInAccounts.map(\.id) == ["Backup Account"])
-        #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
-        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == nil)
-        #expect(state.selection == .settings(.overview))
-        #expect(state.lastError == nil)
-
-        let next = try #require(state.signedInAccounts.first)
-        state.selectAccountFromSettings(next)
-
         #expect(state.activeAccountId == "Backup Account")
+        #expect(state.activeAccount?.id == "Backup Account")
+        #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
         #expect(state.selection == .settings(.overview))
+        #expect(state.lastError == nil)
     }
 
     @MainActor

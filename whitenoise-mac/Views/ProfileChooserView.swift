@@ -3,9 +3,11 @@
 //  whitenoise-mac
 //
 //  "Choose a profile": what the detail pane shows after the active profile was deleted or signed
-//  out of while other signed-in profiles remain on this Mac. Ported from `whitenoise-ios`, whose account exit asks for
-//  an explicit choice (`AccountExitProfileChooser` / `SignedOutProfilesView`) instead of quietly
-//  moving the user into whichever identity happens to be listed first.
+//  out of while two or more signed-in profiles remain on this Mac. Ported from `whitenoise-ios`,
+//  whose account exit asks for an explicit choice (`AccountExitProfileChooser` /
+//  `SignedOutProfilesView`) instead of quietly moving the user into whichever identity happens to
+//  be listed first. With exactly one profile left there is nothing to choose, so the workspace
+//  switches straight into it and this view never appears.
 //
 
 import SwiftUI
