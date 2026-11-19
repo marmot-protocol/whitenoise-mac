@@ -59,6 +59,18 @@ struct NostrEventPreviewTests {
         }
     }
 
+    /// An inline event link leaves through the same system dispatch as a web link, aimed at njump.me,
+    /// instead of the old "not supported" status.
+    @MainActor
+    @Test func anInlineEventLinkOpensOnNjump() {
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+
+        let result = state.handleMessageLinkOpen(URL(string: "nostr:\(Self.note)")!)
+
+        #expect(String(describing: result).contains("https://njump.me/\(Self.note)"))
+        #expect(state.backgroundStatus == nil)
+    }
+
     @Test func previewReferenceIsTheFirstLinkedEventOutsideCode() {
         var text = AttributedString("see ")
         text.append(linked("@bob", "nostr:npub1qqqqqqqq"))
@@ -171,26 +183,31 @@ struct NostrEventPreviewTests {
         store.load(Self.note)
 
         #expect(await waitFor { Self.noteText(store, Self.note) == "hi" })
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await waitFor { runtime.userProfileCallCount > 0 })
         #expect(store.author(Self.author) == nil)
         #expect(runtime.refreshedProfileIds.isEmpty)
     }
 
     /// Whatever MDK holds decides the card: a deletion or an event it no longer has retracts it, and
-    /// a newer version at the same address brings it back.
+    /// a newer version at the same address brings it back. Each lookup is held until the card it
+    /// starts from has been seen, so every step is a transition, not a starting state.
     @MainActor
     @Test func theCardFollowsWhatMDKHolds() async {
         let runtime = FakeMarmotRuntime(accounts: [])
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
+
+        // Cached, then deleted by its author.
         runtime.cachedPublicEvents[Self.naddr] = Self.present(Self.naddr, content: "v1")
         runtime.resolvablePublicEvents[Self.naddr] = PublicEventPreviewFfi(
             reference: Self.naddr, state: .deleted, eventJson: nil, fetchedAt: nil)
-        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
-
+        runtime.resolvePublicEventGate.isEnabled = true
         store.load(Self.naddr)
-        #expect(await waitFor { runtime.resolvedPublicEventReferences.count == 1 })
+        await runtime.resolvePublicEventGate.waitUntilReached()
+        #expect(Self.noteText(store, Self.naddr) == "v1")
+        runtime.resolvePublicEventGate.release()
         #expect(await waitFor { store.preview(for: Self.naddr) == nil })
 
-        runtime.cachedPublicEvents = [:]
+        // A newer version at the same address. MDK holds nothing now, so only the lookup finds it.
         runtime.resolvablePublicEvents[Self.naddr] = Self.present(Self.naddr, content: "v2")
         #expect(
             await waitFor {
@@ -198,13 +215,20 @@ struct NostrEventPreviewTests {
                 return Self.noteText(store, Self.naddr) == "v2"
             })
 
+        // MDK no longer holds it: the cached v2 shows until the lookup says so.
+        let gate = AsyncFfiGate()
+        gate.isEnabled = true
+        runtime.resolvePublicEventGate = gate
         runtime.resolvablePublicEvents[Self.naddr] = PublicEventPreviewFfi(
             reference: Self.naddr, state: .missing, eventJson: nil, fetchedAt: nil)
         #expect(
             await waitFor {
                 store.load(Self.naddr)
-                return store.preview(for: Self.naddr) == nil
+                return gate.didReach
             })
+        #expect(Self.noteText(store, Self.naddr) == "v2")
+        gate.release()
+        #expect(await waitFor { store.preview(for: Self.naddr) == nil })
     }
 
     /// A relay that timed out the first time the row was shown must not hide the card for the rest
@@ -250,12 +274,18 @@ struct NostrEventPreviewTests {
     @Test func noRelayIsAskedOnceThePreviewsAreOff() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "cached")
-        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { false })
+        var askedToFetch = false
+        let store = NostrEventPreviewStore(
+            accountRef: "account", runtime: runtime,
+            mayFetch: {
+                askedToFetch = true
+                return false
+            })
 
         store.load(Self.note)
 
-        #expect(await waitFor { Self.noteText(store, Self.note) == "cached" })
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await waitFor { askedToFetch })
+        #expect(Self.noteText(store, Self.note) == "cached")
         #expect(runtime.resolvedPublicEventReferences.isEmpty)
     }
 }

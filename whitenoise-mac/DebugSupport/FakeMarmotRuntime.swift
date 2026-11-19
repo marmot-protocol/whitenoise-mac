@@ -171,7 +171,15 @@
             set { recordedStateLock.withLock { _cachedPublicEvents = newValue } }
         }
         private var _cachedPublicEvents: [String: PublicEventPreviewFfi] = [:]
+        /// Parks the next `resolvePublicEventPreview` while armed. One-shot, like every `AsyncFfiGate`:
+        /// assign a fresh one to hold a later call.
+        var resolvePublicEventGate: AsyncFfiGate {
+            get { recordedStateLock.withLock { _resolvePublicEventGate } }
+            set { recordedStateLock.withLock { _resolvePublicEventGate = newValue } }
+        }
+        private var _resolvePublicEventGate = AsyncFfiGate()
         /// `resolvePublicEventPreview`: what a relay fetch finds, keyed by reference, else `missing`.
+        /// Like MDK, the answer replaces what `cachedPublicEventPreviews` returns next.
         var resolvablePublicEvents: [String: PublicEventPreviewFfi] {
             get { recordedStateLock.withLock { _resolvablePublicEvents } }
             set { recordedStateLock.withLock { _resolvablePublicEvents = newValue } }
@@ -2011,9 +2019,13 @@
 
         func resolvePublicEventPreview(accountRef: String, reference: String) async throws -> PublicEventPreviewFfi {
             recordedStateLock.withLock { _resolvedPublicEventReferences.append(reference) }
+            await resolvePublicEventGate.passIfArmed()
             if let resolvePublicEventError { throw resolvePublicEventError }
-            return resolvablePublicEvents[reference]
+            let found =
+                resolvablePublicEvents[reference]
                 ?? PublicEventPreviewFfi(reference: reference, state: .missing, eventJson: nil, fetchedAt: nil)
+            cachedPublicEvents[reference] = found.state == .present ? found : nil
+            return found
         }
 
         func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws

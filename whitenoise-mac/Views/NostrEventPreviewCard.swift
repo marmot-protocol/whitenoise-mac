@@ -35,7 +35,7 @@ struct NostrEventPreviewCard: View {
                 } label: {
                     NostrEventPreviewCardContent(
                         preview: preview,
-                        author: store.author(preview.authorIdHex),
+                        author: visibleAuthor(of: preview),
                         image: cover(for: preview)?.image,
                         showsImageSlot: cover(for: preview)?.failed != true
                     )
@@ -43,7 +43,8 @@ struct NostrEventPreviewCard: View {
                 .buttonStyle(.plain)
                 .pointerStyle(.link)
                 .help(viewerURL.absoluteString)
-                .task(id: articleImageURL(of: preview)) {
+                .task(id: CoverTaskID(url: articleImageURL(of: preview), isVisible: isVisible)) {
+                    guard isVisible else { return }
                     await loadImage(articleImageURL(of: preview))
                 }
             } else {
@@ -55,6 +56,13 @@ struct NostrEventPreviewCard: View {
             guard isVisible else { return }
             store.load(reference)
         }
+    }
+
+    /// The author, with no picture while the row is off screen: an event that resolves after the
+    /// reader scrolled past must not make the transcript fetch from the avatar's host.
+    private func visibleAuthor(of preview: NostrEventPreview) -> NostrEventPreviewStore.Author? {
+        guard let author = store.author(preview.authorIdHex) else { return nil }
+        return isVisible ? author : NostrEventPreviewStore.Author(name: author.name, pictureURL: nil)
     }
 
     private func articleImageURL(of preview: NostrEventPreview) -> URL? {
@@ -82,6 +90,11 @@ struct NostrEventPreviewCard: View {
         let image: NSImage?
         let failed: Bool
     }
+}
+
+private struct CoverTaskID: Equatable {
+    let url: URL?
+    let isVisible: Bool
 }
 
 private struct NostrEventPreviewTaskID: Equatable {
