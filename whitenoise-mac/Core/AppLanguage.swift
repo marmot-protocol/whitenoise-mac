@@ -11,6 +11,7 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
     case portuguese = "pt"
     case russian = "ru"
     case turkish = "tr"
+    case finnish = "fi"
     case chineseSimplified = "zh-Hans"
     case chineseTraditional = "zh-Hant"
 
@@ -26,6 +27,7 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
             .portuguese,
             .russian,
             .turkish,
+            .finnish,
             .chineseSimplified,
             .chineseTraditional,
         ]
@@ -190,6 +192,8 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
             "Русский"
         case .turkish:
             "Türkçe"
+        case .finnish:
+            "Suomi"
         case .chineseSimplified:
             "简体中文"
         case .chineseTraditional:

@@ -649,7 +649,7 @@ import Testing
     /// happens to be running in.
     ///
     /// The privacy card is the pane's only multi-line block, and its summary is the one string here
-    /// whose length is a translator's decision: two lines in English, Spanish and Chinese, three in
+    /// whose length is a translator's decision: two lines in English, Spanish, Finnish and Chinese, three in
     /// German, French, Italian, Portuguese and Turkish, four in Russian. The test above measures
     /// the host's language and would therefore pass in English while shipping a pane whose Create
     /// profile button is off the bottom edge in Russian.

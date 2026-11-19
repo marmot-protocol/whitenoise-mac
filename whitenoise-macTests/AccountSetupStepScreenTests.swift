@@ -289,8 +289,9 @@ import Testing
     /// Where the closed card's summary is two lines. Measured on 2026-10-29 at the smallest window:
     /// 616pt in English, Spanish and Chinese; 631pt in de/fr/it/pt/tr (three lines) and 646pt in
     /// Russian (four), against 620 — this screen has 26pt less room than Sign Up, for its header
-    /// progress and Not Now. Those scroll from the top, with Not Now a short scroll away.
-    private static let languagesThatFitClosed = ["en", "es", "zh-Hans", "zh-Hant"]
+    /// progress and Not Now. Those scroll from the top, with Not Now a short scroll away. Finnish,
+    /// added on 2026-11-16, is two lines and fits.
+    private static let languagesThatFitClosed = ["en", "es", "fi", "zh-Hans", "zh-Hant"]
 
     /// The progress in the header row counts the step being reviewed among the checkpoint's steps.
     @Test func theProgressNamesTheStepAmongTheCheckpointsSteps() {

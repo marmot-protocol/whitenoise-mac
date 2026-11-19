@@ -108,6 +108,7 @@ struct DisplayCopyTests {
         // whatever language the app is currently in.
         #expect(AppLanguage.spanish.displayName == "Español")
         #expect(AppLanguage.german.displayName == "Deutsch")
+        #expect(AppLanguage.finnish.displayName == "Suomi")
         #expect(AppLanguage.chineseTraditional.displayName == "繁體中文")
         #expect(AppLanguage.system.displayName == L10n.string("System"))
     }

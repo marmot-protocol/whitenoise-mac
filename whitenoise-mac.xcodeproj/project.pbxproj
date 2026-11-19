@@ -223,6 +223,7 @@
 				pt,
 				ru,
 				tr,
+				fi,
 				"zh-Hans",
 				"zh-Hant",
 			);
