@@ -163,11 +163,20 @@
         /// `reactionAttachment`, keyed by reaction message id.
         var reactionAttachments: [String: AttachmentEntryFfi] = [:]
         private(set) var reactionAttachmentRequests: [String] = []
-        /// `cachedPublicEventPreviews`: what MDK already holds, keyed by reference.
-        var cachedPublicEvents: [String: PublicEventPreviewFfi] = [:]
+        /// `cachedPublicEventPreviews`: what MDK already holds, keyed by reference. Under the
+        /// recorder lock, like the other event-preview state: the FFI queue reads it while a test
+        /// may be changing it.
+        var cachedPublicEvents: [String: PublicEventPreviewFfi] {
+            get { recordedStateLock.withLock { _cachedPublicEvents } }
+            set { recordedStateLock.withLock { _cachedPublicEvents = newValue } }
+        }
+        private var _cachedPublicEvents: [String: PublicEventPreviewFfi] = [:]
         /// `resolvePublicEventPreview`: what a relay fetch finds, keyed by reference, else `missing`.
-        /// Neither dictionary is written by the fake, so concurrent reads need no lock.
-        var resolvablePublicEvents: [String: PublicEventPreviewFfi] = [:]
+        var resolvablePublicEvents: [String: PublicEventPreviewFfi] {
+            get { recordedStateLock.withLock { _resolvablePublicEvents } }
+            set { recordedStateLock.withLock { _resolvablePublicEvents = newValue } }
+        }
+        private var _resolvablePublicEvents: [String: PublicEventPreviewFfi] = [:]
         var resolvePublicEventError: Error?
         var resolvedPublicEventReferences: [String] {
             recordedStateLock.withLock { _resolvedPublicEventReferences }
@@ -601,7 +610,11 @@
         /// Number of times `userProfile` was queried — used to assert settings-load coalescing
         /// (issue #4 regression): overlapping `loadSettingsData()` calls for the same account must
         /// not duplicate the per-account profile fetch.
-        private(set) var userProfileCallCount = 0
+        /// Read from the FFI queue by concurrent callers, so it counts under the recorder lock.
+        var userProfileCallCount: Int {
+            recordedStateLock.withLock { _userProfileCallCount }
+        }
+        private var _userProfileCallCount = 0
         private(set) var accountRelayListsCallCount = 0
         /// Per-group call count for `groupDetails`, used to assert chat-list enrichment runs
         /// through the incremental per-row path (issue #40 regression).
@@ -1031,7 +1044,7 @@
         }
 
         func userProfile(accountIdHex: String) throws -> UserProfileMetadataFfi? {
-            userProfileCallCount += 1
+            recordedStateLock.withLock { _userProfileCallCount += 1 }
             recordSyncCall("userProfile")
             // Test-only hook fired inside the off-main profile-resolution batch, used to
             // simulate a slow batch advancing the wall clock so the post-FFI cache stamp can

@@ -25,7 +25,7 @@ struct NostrEventPreviewCard: View {
 
     var body: some View {
         Group {
-            if case .loaded(let preview) = store.entry(for: reference),
+            if let preview = store.preview(for: reference),
                 let viewerURL = MarkdownLinkPolicy.eventViewerURL(for: reference)
             {
                 // Through the environment's `openURL`, so the card opens exactly the way a web

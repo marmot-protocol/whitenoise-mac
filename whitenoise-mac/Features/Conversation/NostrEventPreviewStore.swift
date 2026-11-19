@@ -19,14 +19,8 @@ final class NostrEventPreviewStore {
         let pictureURL: URL?
     }
 
-    nonisolated enum Entry: Equatable, Sendable {
-        case loading
-        case loaded(NostrEventPreview)
-        /// Deleted by its author, or not an event at all: no card, and no point asking again.
-        case unavailable
-    }
-
-    private(set) var entries: [String: Entry] = [:]
+    /// The events with a card, keyed by reference. Anything absent draws no card.
+    private(set) var previews: [String: NostrEventPreview] = [:]
     private(set) var authors: [String: Author] = [:]
 
     @ObservationIgnored private let accountRef: String
@@ -44,40 +38,31 @@ final class NostrEventPreviewStore {
         self.mayFetch = mayFetch
     }
 
-    func entry(for reference: String) -> Entry? {
-        entries[reference]
+    func preview(for reference: String) -> NostrEventPreview? {
+        previews[reference]
     }
 
     func author(_ accountIdHex: String) -> Author? {
         authors[accountIdHex]
     }
 
-    /// Reads, then refreshes, `reference`, unless a load is already running or it is known to be
-    /// unavailable. A miss or a failed fetch is forgotten, so the next time the card is shown it
-    /// asks again; MDK's own cooldown keeps that cheap.
+    /// Reads, then refreshes, `reference` unless a load of it is already running. Called every
+    /// time its card comes on screen; MDK's cooldown and refresh policy keep that cheap.
     func load(_ reference: String) {
-        guard loads[reference] == nil, entries[reference] != .unavailable else { return }
-        if entries[reference] == nil { entries[reference] = .loading }
+        guard loads[reference] == nil else { return }
         loads[reference] = Task { [weak self] in
             await self?.fetch(reference)
         }
     }
 
-    /// The conversation is going away: stop every fetch. A cut-short load is forgotten, so the
-    /// next `load` starts over.
+    /// The conversation is going away: stop every fetch.
     func cancelAll() {
-        for (reference, task) in loads {
-            task.cancel()
-            if entries[reference] == .loading { entries[reference] = nil }
-        }
+        for task in loads.values { task.cancel() }
         loads.removeAll()
     }
 
     private func fetch(_ reference: String) async {
-        defer {
-            loads[reference] = nil
-            if entries[reference] == .loading { entries[reference] = nil }
-        }
+        defer { loads[reference] = nil }
         let accountRef = accountRef
         let runtime = runtime
 
@@ -87,6 +72,7 @@ final class NostrEventPreviewStore {
         guard !Task.isCancelled else { return }
         if let cached { await apply(cached, for: reference) }
 
+        // A thrown fetch keeps the card: MDK's cache is unchanged by it.
         guard mayFetch(), !Task.isCancelled,
             let resolved = try? await runtime.resolvePublicEventPreview(accountRef: accountRef, reference: reference),
             !Task.isCancelled
@@ -94,22 +80,18 @@ final class NostrEventPreviewStore {
         await apply(resolved, for: reference)
     }
 
-    /// A present event replaces the card; a deletion retracts it for good. A miss changes nothing:
-    /// MDK keeps prior content when a fetch comes back empty.
+    /// Either result is MDK's local state for the reference, so it decides the card outright: a
+    /// present event draws, and anything else (deleted, no longer held, not an event) draws none.
+    /// MDK keeps prior content when a fetch comes back empty, so a miss here is not a relay hiccup.
     private func apply(_ result: PublicEventPreviewFfi, for reference: String) async {
-        switch result.state {
-        case .present:
-            guard let json = result.eventJson, let preview = NostrEventPreview.parse(eventJson: json) else {
-                entries[reference] = .unavailable
-                return
-            }
-            if entries[reference] != .loaded(preview) { entries[reference] = .loaded(preview) }
-            await loadAuthor(preview.authorIdHex)
-        case .deleted, .unsupported:
-            entries[reference] = .unavailable
-        case .missing:
-            break
+        guard result.state == .present, let json = result.eventJson,
+            let preview = NostrEventPreview.parse(eventJson: json)
+        else {
+            previews[reference] = nil
+            return
         }
+        if previews[reference] != preview { previews[reference] = preview }
+        await loadAuthor(preview.authorIdHex)
     }
 
     private func loadAuthor(_ accountIdHex: String) async {

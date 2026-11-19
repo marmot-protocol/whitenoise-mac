@@ -42,7 +42,7 @@ struct NostrEventPreviewTests {
 
     // MARK: - References and njump
 
-    @Test func onlyWellFormedEventReferencesOpenOnNjump() {
+    @Test func onlyEventReferencesInTheBech32AlphabetBuildAnNjumpURL() {
         #expect(
             MarkdownLinkPolicy.eventViewerURL(for: "nostr:\(Self.note)")
                 == URL(string: "https://njump.me/\(Self.note)"))
@@ -131,7 +131,7 @@ struct NostrEventPreviewTests {
 
     @MainActor
     private static func noteText(_ store: NostrEventPreviewStore, _ reference: String) -> String? {
-        guard case .loaded(let preview) = store.entry(for: reference), case .note(let text) = preview.body else {
+        guard case .note(let text) = store.preview(for: reference)?.body else {
             return nil
         }
         return text
@@ -176,19 +176,35 @@ struct NostrEventPreviewTests {
         #expect(runtime.refreshedProfileIds.isEmpty)
     }
 
+    /// Whatever MDK holds decides the card: a deletion or an event it no longer has retracts it, and
+    /// a newer version at the same address brings it back.
     @MainActor
-    @Test func aDeletionRetractsTheCardForGood() async {
+    @Test func theCardFollowsWhatMDKHolds() async {
         let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "gone soon")
-        runtime.resolvablePublicEvents[Self.note] = PublicEventPreviewFfi(
-            reference: Self.note, state: .deleted, eventJson: nil, fetchedAt: nil)
+        runtime.cachedPublicEvents[Self.naddr] = Self.present(Self.naddr, content: "v1")
+        runtime.resolvablePublicEvents[Self.naddr] = PublicEventPreviewFfi(
+            reference: Self.naddr, state: .deleted, eventJson: nil, fetchedAt: nil)
         let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
 
-        store.load(Self.note)
-        #expect(await waitFor { store.entry(for: Self.note) == .unavailable })
-        store.load(Self.note)
+        store.load(Self.naddr)
+        #expect(await waitFor { runtime.resolvedPublicEventReferences.count == 1 })
+        #expect(await waitFor { store.preview(for: Self.naddr) == nil })
 
-        #expect(runtime.resolvedPublicEventReferences == [Self.note])
+        runtime.cachedPublicEvents = [:]
+        runtime.resolvablePublicEvents[Self.naddr] = Self.present(Self.naddr, content: "v2")
+        #expect(
+            await waitFor {
+                store.load(Self.naddr)
+                return Self.noteText(store, Self.naddr) == "v2"
+            })
+
+        runtime.resolvablePublicEvents[Self.naddr] = PublicEventPreviewFfi(
+            reference: Self.naddr, state: .missing, eventJson: nil, fetchedAt: nil)
+        #expect(
+            await waitFor {
+                store.load(Self.naddr)
+                return store.preview(for: Self.naddr) == nil
+            })
     }
 
     /// A relay that timed out the first time the row was shown must not hide the card for the rest
@@ -200,20 +216,20 @@ struct NostrEventPreviewTests {
 
         store.load(Self.note)
         #expect(await waitFor { runtime.resolvedPublicEventReferences.count == 1 })
-        #expect(await waitFor { store.entry(for: Self.note) == nil })
 
         runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "found")
-        store.load(Self.note)
-        #expect(await waitFor { Self.noteText(store, Self.note) == "found" })
+        #expect(
+            await waitFor {
+                store.load(Self.note)
+                return Self.noteText(store, Self.note) == "found"
+            })
 
-        // The card coming back on screen, once the load that found it has finished.
         runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "edited")
         #expect(
             await waitFor {
                 store.load(Self.note)
-                return runtime.resolvedPublicEventReferences.count >= 3
+                return Self.noteText(store, Self.note) == "edited"
             })
-        #expect(await waitFor { Self.noteText(store, Self.note) == "edited" })
     }
 
     @MainActor
