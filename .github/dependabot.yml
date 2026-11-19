@@ -1,0 +1,14 @@
+# Actions are pinned to commit SHAs so a moved upstream tag cannot change what
+# CI runs. Dependabot keeps those pins current, one reviewable PR at a time.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
