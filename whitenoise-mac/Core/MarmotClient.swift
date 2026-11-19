@@ -402,6 +402,16 @@ nonisolated protocol MarmotRuntime: Sendable {
         request: MediaUploadRequestFfi,
         clientToken: String
     ) async throws -> MediaUploadSubmissionFfi
+    /// File-backed `uploadMediaWithClientToken`: MDK copies each source file into its encrypted
+    /// store with bounded buffers, so a large attachment never crosses the FFI as one byte array.
+    /// Cancel only through `control`.
+    func uploadMediaFilesWithClientToken(
+        accountRef: String,
+        groupIdHex: String,
+        request: MediaFileUploadRequestFfi,
+        control: MediaFileTransferControlFfi,
+        clientToken: String
+    ) async throws -> MediaUploadSubmissionFfi
     func sendTextWithClientToken(accountRef: String, groupIdHex: String, text: String, clientToken: String) async throws
         -> LocalSendAcceptanceFfi
     func replyToMessageWithClientToken(
@@ -1673,6 +1683,22 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             accountRef: accountRef,
             groupIdHex: groupIdHex,
             request: request,
+            clientToken: clientToken
+        )
+    }
+
+    func uploadMediaFilesWithClientToken(
+        accountRef: String,
+        groupIdHex: String,
+        request: MediaFileUploadRequestFfi,
+        control: MediaFileTransferControlFfi,
+        clientToken: String
+    ) async throws -> MediaUploadSubmissionFfi {
+        try await marmot.uploadMediaFilesWithClientToken(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            request: request,
+            control: control,
             clientToken: clientToken
         )
     }

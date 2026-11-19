@@ -957,7 +957,7 @@ struct PendingMediaDraftStrip: View {
                 ForEach(rejections) { item in
                     ZStack(alignment: .topTrailing) {
                         RejectedAttachmentTile(rejection: item.rejection, tileSize: tileSize)
-                        PendingMediaDraftRemoveButton(help: L10n.string("Dismiss")) {
+                        PendingMediaDraftRemoveButton(help: L10n.string("Dismiss"), isDestructive: true) {
                             onDismissRejection(item.id)
                         }
                     }
@@ -971,9 +971,11 @@ struct PendingMediaDraftStrip: View {
     }
 }
 
-/// The small disc on a strip tile's corner that takes it out of the draft.
+/// The small disc on a strip tile's corner that takes it out of the draft. A refused file's tile
+/// wears it red, matching the tile it dismisses.
 private struct PendingMediaDraftRemoveButton: View {
     let help: String
+    var isDestructive = false
     let action: () -> Void
 
     var body: some View {
@@ -984,7 +986,9 @@ private struct PendingMediaDraftRemoveButton: View {
                 // Two-layer glyph: the inner disc is the surface it is
                 // punched out of, the ring is content on that surface.
                 .foregroundStyle(
-                    WNColor.backgroundPrimary, WNColor.backgroundContentSecondary)
+                    isDestructive ? WNColor.fillContentQuaternary : WNColor.backgroundPrimary,
+                    isDestructive ? WNColor.fillDestructive : WNColor.backgroundContentSecondary
+                )
         }
         .buttonStyle(.plain)
         .help(help)

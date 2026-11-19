@@ -439,6 +439,13 @@
             recordedStateLock.withLock { _tokenizedMediaSubmissions }
         }
         private var _tokenizedMediaSubmissions: [TokenizedMediaSubmission] = []
+        /// Every file-backed send, in call order. Each also runs through
+        /// `uploadMediaWithClientToken` with the files' bytes, so it shows up in
+        /// `tokenizedMediaSubmissions` too.
+        var fileBackedMediaSubmissions: [FileBackedMediaSubmission] {
+            recordedStateLock.withLock { _fileBackedMediaSubmissions }
+        }
+        private var _fileBackedMediaSubmissions: [FileBackedMediaSubmission] = []
         var sentMediaAttachments: [SentMediaAttachments] {
             recordedStateLock.withLock { _sentMediaAttachments }
         }
@@ -3960,6 +3967,51 @@
             return MediaUploadSubmissionFfi(upload: upload, acceptance: acceptance)
         }
 
+        func uploadMediaFilesWithClientToken(
+            accountRef: String,
+            groupIdHex: String,
+            request: MediaFileUploadRequestFfi,
+            control: MediaFileTransferControlFfi,
+            clientToken: String
+        ) async throws -> MediaUploadSubmissionFfi {
+            // Read now: the caller removes the source files once this returns, as with MDK.
+            let attachments = try request.attachments.map { attachment in
+                let plaintext = try Data(contentsOf: URL(fileURLWithPath: attachment.sourcePath))
+                if let expectedSize = attachment.expectedSize, expectedSize != UInt64(plaintext.count) {
+                    throw FakeMarmotRuntimeError.mediaUploadFailed
+                }
+                return MediaUploadAttachmentRequestFfi(
+                    fileName: attachment.fileName,
+                    mediaType: attachment.mediaType,
+                    plaintext: plaintext,
+                    dim: attachment.dim,
+                    thumbhash: attachment.thumbhash
+                )
+            }
+            recordedStateLock.withLock {
+                _fileBackedMediaSubmissions.append(
+                    FileBackedMediaSubmission(
+                        groupIdHex: groupIdHex,
+                        request: request,
+                        plaintexts: attachments.map(\.plaintext),
+                        clientToken: clientToken
+                    )
+                )
+            }
+            return try await uploadMediaWithClientToken(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                request: MediaUploadRequestFfi(
+                    attachments: attachments,
+                    caption: request.caption,
+                    send: request.send,
+                    blossomServer: request.blossomServer,
+                    messageTags: request.messageTags
+                ),
+                clientToken: clientToken
+            )
+        }
+
         func sendTextWithClientToken(accountRef: String, groupIdHex: String, text: String, clientToken: String)
             async throws
             -> LocalSendAcceptanceFfi
@@ -4563,6 +4615,14 @@
     struct TokenizedMediaSubmission: Equatable {
         let groupIdHex: String
         let request: MediaUploadRequestFfi
+        let clientToken: String
+    }
+
+    struct FileBackedMediaSubmission: Equatable {
+        let groupIdHex: String
+        let request: MediaFileUploadRequestFfi
+        /// What each source file held when the call read it.
+        let plaintexts: [Data]
         let clientToken: String
     }
 

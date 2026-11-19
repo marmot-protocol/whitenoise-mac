@@ -41,11 +41,11 @@ nonisolated enum AvatarImageCropper {
     }
 
     static let maximumZoom: CGFloat = 6
-    /// The cap on picked bytes, before decoding: the same one any attachment gets, which is what a
-    /// picture could be before the editor existed. iOS stops at 25 MB, but memory is bounded by
-    /// `maximumSourcePixelCount` and `maximumEditorPixelSize`, not by this, so halving it here would
-    /// only refuse large photos that used to work.
-    static let maximumEncodedBytes = OutgoingMediaDraftProcessor.maxAttachmentBytes
+    /// The cap on picked bytes, before decoding: the same one any image attachment gets, which is
+    /// what a picture could be before the editor existed. iOS stops at 25 MB, but memory is bounded
+    /// by `maximumSourcePixelCount` and `maximumEditorPixelSize`, not by this, so halving it here
+    /// would only refuse large photos that used to work.
+    static let maximumEncodedBytes = OutgoingMediaDraftProcessor.maxImageSourceBytes
     /// The cap on decoded source pixels, checked from the header before anything is decoded.
     static let maximumSourcePixelCount = 80_000_000
     /// The longest edge the editor works on. The output is 1024 square, so anything sharper than

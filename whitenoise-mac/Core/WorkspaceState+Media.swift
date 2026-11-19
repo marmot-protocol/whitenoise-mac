@@ -674,6 +674,16 @@ extension WorkspaceState {
                 }
                 continue
             }
+            // Each file fits on its own, but this one would take the message past MDK's per-send
+            // size bound beside what is already staged.
+            let kept = OutgoingMediaDraftProcessor.attachmentsKept(
+                pendingMediaAttachmentsByConversation[draftKey] ?? [],
+                adding: attachment
+            )
+            guard OutgoingMediaDraftProcessor.fitsInOneSend(attachment, alongside: kept) else {
+                rejections.append(AttachmentRejection(source: outcome.source, reason: .exceedsBatchLimit))
+                continue
+            }
             // Something else filled the composer while this batch was preparing, and the append
             // refused it at the cap. That file is as rejected as one that never got a slot, and
             // the notice is its only report: the global cap warning would say it a second time.
@@ -1000,36 +1010,35 @@ extension WorkspaceState {
     }
 
     /// Returns whether `attachment` was staged. `reportsCapacity: false` leaves a refusal at the
-    /// cap to the caller instead of raising the global warning.
+    /// cap (or at MDK's per-send size bound) to the caller instead of raising the global warning.
     @discardableResult
     func appendPendingMediaAttachment(
         _ attachment: PendingMediaAttachment,
         for draftKey: ComposerDraftKey,
         reportsCapacity: Bool = true
     ) -> Bool {
-        var attachments = pendingMediaAttachmentsByConversation[draftKey] ?? []
-        if attachment.isVoiceMessage {
-            // A recording is a whole message rather than an attachment, so it lands alone: the
-            // composer refuses to stage anything alongside it, and anything already there is
-            // dropped here — with its upload cancelled, since it has nowhere left to land.
-            for superseded in attachments {
-                cancelPendingMediaUpload(superseded.id)
-                pendingMediaUploadStatesByConversation[draftKey]?[superseded.id] = nil
-            }
-            attachments.removeAll()
-        } else if attachment.kind == .audio {
-            // A new audio file replaces the old one, so the superseded upload has nowhere to land.
-            for superseded in attachments where superseded.kind == .audio {
-                cancelPendingMediaUpload(superseded.id)
-                pendingMediaUploadStatesByConversation[draftKey]?[superseded.id] = nil
-            }
-            attachments.removeAll { $0.kind == .audio }
-        }
+        let existing = pendingMediaAttachmentsByConversation[draftKey] ?? []
+        // A recording is a whole message rather than an attachment, so it lands alone, and a new
+        // audio file replaces the old one. What it displaces goes only once it is admitted: a
+        // refused attachment must not cost the user the one it would have replaced.
+        var attachments = OutgoingMediaDraftProcessor.attachmentsKept(existing, adding: attachment)
         guard attachments.count < OutgoingMediaDraftProcessor.maxAttachmentCount else {
             if reportsCapacity {
                 presentMaxMediaAttachmentWarning()
             }
             return false
+        }
+        guard OutgoingMediaDraftProcessor.fitsInOneSend(attachment, alongside: attachments) else {
+            if reportsCapacity {
+                lastError = L10n.string("These attachments are too large to send together.")
+            }
+            return false
+        }
+        let keptIds = Set(attachments.map(\.id))
+        // The superseded uploads have nowhere left to land.
+        for superseded in existing where !keptIds.contains(superseded.id) {
+            cancelPendingMediaUpload(superseded.id)
+            pendingMediaUploadStatesByConversation[draftKey]?[superseded.id] = nil
         }
         attachments.append(attachment)
         pendingMediaAttachmentsByConversation[draftKey] = attachments
@@ -1039,8 +1048,12 @@ extension WorkspaceState {
         }
         // Upload straight away so Send only has to publish the reference. Every staging path
         // (importer, drag-drop, paste, voice) funnels through here; restored drafts are the one
-        // bypass and kick their own uploads in `restoreComposerDraftIfNeeded`.
-        beginPendingMediaUpload(attachment, for: draftKey)
+        // bypass and kick their own uploads in `restoreComposerDraftIfNeeded`. An attachment too
+        // large for drafts is not uploaded ahead: Send's own upload replaces this one anyway, and
+        // a second pass over hundreds of megabytes would only compete with it.
+        if OutgoingMediaDraftProcessor.persistsInDraft(attachment) {
+            beginPendingMediaUpload(attachment, for: draftKey)
+        }
         composerDraftDidChange(for: draftKey)
         return true
     }

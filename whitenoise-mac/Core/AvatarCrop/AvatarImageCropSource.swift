@@ -40,13 +40,13 @@ nonisolated enum AvatarImageCropSource {
                 throw OutgoingMediaDraftProcessor.Failure.unsupportedImage
             }
             if let fileSize = values.fileSize, fileSize > maximumBytes {
-                throw OutgoingMediaDraftProcessor.Failure.attachmentTooLarge(fileSize)
+                throw OutgoingMediaDraftProcessor.Failure.attachmentTooLarge(fileSize, limit: maximumBytes)
             }
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
             guard data.count <= maximumBytes else {
-                throw OutgoingMediaDraftProcessor.Failure.attachmentTooLarge(data.count)
+                throw OutgoingMediaDraftProcessor.Failure.attachmentTooLarge(data.count, limit: maximumBytes)
             }
             guard !data.isEmpty else { throw OutgoingMediaDraftProcessor.Failure.unsupportedImage }
             return data
