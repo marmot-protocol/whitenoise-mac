@@ -22,7 +22,7 @@ final class SessionState {
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
         removeAccount: DeleteProfileViewModel.RemoveAccount? = nil,
         groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks(),
-        chatsDidChange: @escaping @MainActor (_ departedGroupIds: Set<String>) async -> Void = { _ in }
+        chatsDidChange: @escaping @MainActor (ChatListBatchChanges) async -> Void = { _ in }
     ) async {
         guard let account, let runtime else {
             await deactivate()

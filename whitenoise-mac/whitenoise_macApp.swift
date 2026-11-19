@@ -173,15 +173,24 @@ struct whitenoise_macApp: App {
             ),
             // A bulk action from the chat-list selection ran against MDK directly; bring the
             // legacy chat state along, as each single-row action does after its own mutation.
-            chatsDidChange: { [weak workspace] departedGroupIds in
+            chatsDidChange: { [weak workspace] changes in
                 guard let workspace, let accountID = activatingAccountID,
                     workspace.activeAccountId == accountID
                 else { return }
-                for groupIdHex in departedGroupIds {
+                let removed = changes.removedGroupIds
+                for groupIdHex in removed {
                     workspace.clearMediaReferenceResolutionCache(forAccountId: accountID, groupIdHex: groupIdHex)
                 }
-                if let open = workspace.groupDetailsSnapshot?.groupIdHex, departedGroupIds.contains(open) {
+                if let open = workspace.groupDetailsSnapshot?.groupIdHex, removed.contains(open) {
                     workspace.closeGroupDetails()
+                }
+                // A left chat keeps its history, so its conversation may stay open; a deleted one
+                // is gone, so it closes as a single-row delete closes it.
+                if case .chat(let open) = workspace.selection, changes.deletedGroupIds.contains(open) {
+                    workspace.leaveActiveConversation()
+                    workspace.stopTimelineListener()
+                    workspace.selection = nil
+                    workspace.pruneMessageCache(keeping: nil)
                 }
                 await workspace.reloadChats(forceFreshSnapshot: true)
             }

@@ -56,7 +56,7 @@ final class AccountScope {
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
         removeAccount: DeleteProfileViewModel.RemoveAccount? = nil,
         groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks(),
-        chatsDidChange: @escaping @MainActor (_ departedGroupIds: Set<String>) async -> Void = { _ in }
+        chatsDidChange: @escaping @MainActor (ChatListBatchChanges) async -> Void = { _ in }
     ) {
         let attachmentPolicy = AttachmentPolicyController(accountRef: account.accountRef, runtime: runtime)
         let blockedUsers = BlockedUsersViewModel(accountRef: account.accountRef, runtime: runtime)

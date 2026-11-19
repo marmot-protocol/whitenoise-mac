@@ -4210,6 +4210,8 @@
         var exportEncryptedSecretKeyCallCount = 0
         var deleteGroupLocalCallCount = 0
         var locallyDeletedGroupIds: [String] = []
+        /// Groups whose `deleteGroupLocal` throws, and nothing is removed.
+        var deleteGroupLocalFailingIds: Set<String> = []
         var updateMessageRetentionCallCount = 0
         var lastRetentionSecs: UInt64?
         var secureDeleteExpiredCallCount = 0
@@ -4326,6 +4328,7 @@
 
         func deleteGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool {
             deleteGroupLocalCallCount += 1
+            if deleteGroupLocalFailingIds.contains(groupIdHex) { throw FakeMarmotRuntimeError.unused }
             locallyDeletedGroupIds.append(groupIdHex)
             guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else { return false }
             groups.remove(at: index)

@@ -3,7 +3,7 @@ import MarmotKit
 import Observation
 
 /// Selecting several chats in the list and acting on all of them at once — archive or unarchive,
-/// mute or unmute, leave. The Mac's counterpart to `whitenoise-ios`'s chat-list selection mode,
+/// mute or unmute, leave, or delete chats already left from this device. The Mac's counterpart to `whitenoise-ios`'s chat-list selection mode,
 /// with the same bulk rules (`ChatListSelection`).
 ///
 /// Owned by `AccountScope`, so switching accounts drops the selection and cancels a batch that is
@@ -28,10 +28,18 @@ final class ChatListSelectionViewModel {
         case muting
         case preparingLeave
         case leaving
+        case deleting
     }
 
     /// The leave the user is being asked to confirm, already checked for blockers.
     struct LeaveConfirmation: Identifiable, Equatable {
+        let id = UUID()
+        let groupIds: [String]
+        var count: Int { groupIds.count }
+    }
+
+    /// The local delete the user is being asked to confirm.
+    struct DeleteConfirmation: Identifiable, Equatable {
         let id = UUID()
         let groupIds: [String]
         var count: Int { groupIds.count }
@@ -49,6 +57,7 @@ final class ChatListSelectionViewModel {
     private(set) var visibleOrder: [String] = []
     private(set) var operation: Operation?
     var pendingLeave: LeaveConfirmation?
+    var pendingDelete: DeleteConfirmation?
     var alert: ChatActionAlert?
 
     var isBusy: Bool { operation != nil }
@@ -66,9 +75,10 @@ final class ChatListSelectionViewModel {
     /// `nil` only in previews, where every action fails as it would with no runtime.
     @ObservationIgnored private let runtime: (any MarmotRuntime)?
     @ObservationIgnored private let advisory: GroupChangeAdvisoryPrompter?
-    /// Runs after every batch with the chats the batch left, so the shell can refresh its legacy
-    /// chat state and close an inspector showing a chat this account no longer belongs to.
-    @ObservationIgnored private let chatsDidChange: @MainActor (_ departedGroupIds: Set<String>) async -> Void
+    /// Runs after every batch with the chats the batch left or deleted, so the shell can refresh its
+    /// legacy chat state, close an inspector showing a chat this account no longer belongs to, and
+    /// close a conversation whose local copy is gone.
+    @ObservationIgnored private let chatsDidChange: @MainActor (ChatListBatchChanges) async -> Void
     /// How long a windowed list's rows must be still before its ids are read again.
     @ObservationIgnored private let refreshDelay: Duration
     /// The longest a refresh waits on rows that never go still: past it, a row change no longer
@@ -99,7 +109,7 @@ final class ChatListSelectionViewModel {
         refreshDelay: Duration = .milliseconds(300),
         refreshMaxWait: Duration = .seconds(2),
         failedReadRetryDelay: Duration = .seconds(15),
-        chatsDidChange: @escaping @MainActor (_ departedGroupIds: Set<String>) async -> Void = { _ in }
+        chatsDidChange: @escaping @MainActor (ChatListBatchChanges) async -> Void = { _ in }
     ) {
         self.refreshDelay = refreshDelay
         self.refreshMaxWait = refreshMaxWait
@@ -130,6 +140,7 @@ final class ChatListSelectionViewModel {
         selectedIds = []
         anchorId = nil
         pendingLeave = nil
+        pendingDelete = nil
         viewIdsTask?.cancel()
         viewIdsTask = nil
         viewIds = nil
@@ -234,6 +245,7 @@ final class ChatListSelectionViewModel {
         viewIdsTask = nil
         operation = nil
         pendingLeave = nil
+        pendingDelete = nil
         alert = nil
         end()
     }
@@ -360,7 +372,7 @@ final class ChatListSelectionViewModel {
             }
             guard !Task.isCancelled else { return }
             if leavable.isEmpty {
-                await self.chatsDidChange([])
+                await self.chatsDidChange(.none)
                 self.endAfterBatch()
             } else {
                 self.pendingLeave = LeaveConfirmation(groupIds: leavable)
@@ -410,7 +422,7 @@ final class ChatListSelectionViewModel {
                 }
             }
             guard !Task.isCancelled else { return }
-            await self.chatsDidChange(departed)
+            await self.chatsDidChange(ChatListBatchChanges(departedGroupIds: departed))
             guard !Task.isCancelled else { return }
             if !failed.isEmpty {
                 self.selectedIds = failed
@@ -426,6 +438,87 @@ final class ChatListSelectionViewModel {
                 self.alert = waited.waitedAlert
             }
             self.endAfterBatch()
+        }
+        self.task = task
+        return task
+    }
+
+    /// Asks to delete the selected chats from this device. Only a selection whose every chat would
+    /// offer Delete on its own row qualifies (`ChatListSelection.canDeleteLocally`) — chats this
+    /// account already left, or whose group ended — so nothing still live is ever dropped, and no
+    /// eligibility read is needed: a local delete publishes nothing and has no blockers.
+    ///
+    /// `selected` is the selection resolved to rows. A selected chat with no row was never checked,
+    /// so nothing is asked and the selection stays as it is.
+    @discardableResult
+    func requestDelete(_ selected: [ChatItem]) -> Bool {
+        guard isActive, !isBusy, pendingLeave == nil, pendingDelete == nil, !selectedIds.isEmpty else {
+            return false
+        }
+        let resolved = selected.filter { selectedIds.contains($0.id) }
+        guard selectedIds.isSubset(of: resolved.map(\.id)), ChatListSelection.canDeleteLocally(resolved) else {
+            return false
+        }
+        pendingDelete = DeleteConfirmation(groupIds: orderedSelection)
+        return true
+    }
+
+    /// Deletes each confirmed chat's local copy, top to bottom. The selection is revalidated first,
+    /// so a chat that left the view since the confirmation is skipped rather than deleted. Each chat
+    /// that stays is then checked against its current row, since a view such as the inbox keeps a
+    /// chat re-added to its group while the dialog was open, and `deleteGroupLocal` would drop its
+    /// history all the same; one that no longer qualifies is skipped and deselected too. Failures
+    /// stay selected and are reported together; a clean pass ends selection mode.
+    @discardableResult
+    func confirmDelete(_ confirmation: DeleteConfirmation) -> Task<Void, Never>? {
+        // Not keyed on `pendingDelete`, for the same reason as `confirmLeave`.
+        guard isActive, !isBusy, !confirmation.groupIds.isEmpty else { return nil }
+        pendingDelete = nil
+        operation = .deleting
+        let query = query
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.finish() }
+            let targets: [String]
+            do {
+                targets = try await self.revalidated(confirmation.groupIds, in: query)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.alert = Self.deleteFailedAlert(count: confirmation.groupIds.count)
+                return
+            }
+            var deleted = Set<String>()
+            var failed = Set<String>()
+            for groupIdHex in targets {
+                // Cancelled only when the account scope ends, and an account switch closes the
+                // conversation and reloads the list on its own.
+                guard !Task.isCancelled else { return }
+                do {
+                    guard let runtime = self.runtime else { throw ChatListSelectionUnavailable() }
+                    let row = try await runtime.presentedChatListRow(
+                        accountRef: self.accountRef, groupIdHex: groupIdHex)
+                    guard !Task.isCancelled else { return }
+                    guard let row, ChatListSelection.canDeleteLocally(row.row) else {
+                        self.selectedIds.remove(groupIdHex)
+                        continue
+                    }
+                    _ = try await runtime.deleteGroupLocal(accountRef: self.accountRef, groupIdHex: groupIdHex)
+                    deleted.insert(groupIdHex)
+                } catch {
+                    failed.insert(groupIdHex)
+                }
+            }
+            guard !Task.isCancelled else { return }
+            await self.chatsDidChange(ChatListBatchChanges(deletedGroupIds: deleted))
+            guard !Task.isCancelled else { return }
+            if failed.isEmpty {
+                self.endAfterBatch()
+            } else {
+                self.selectedIds = failed
+                self.alert = Self.deleteFailedAlert(count: failed.count)
+            }
         }
         self.task = task
         return task
@@ -528,7 +621,7 @@ final class ChatListSelectionViewModel {
                 }
             }
             guard !Task.isCancelled else { return }
-            await self.chatsDidChange([])
+            await self.chatsDidChange(.none)
             guard !Task.isCancelled else { return }
             if failed.isEmpty {
                 self.endAfterBatch()
@@ -638,6 +731,13 @@ final class ChatListSelectionViewModel {
     private func endAfterBatch() {
         operation = nil
         end()
+    }
+
+    private static func deleteFailedAlert(count: Int) -> ChatActionAlert {
+        ChatActionAlert(
+            title: L10n.string("Couldn't delete chat"),
+            message: L10n.plural("%lld chats remain. Try again.", Int64(count))
+        )
     }
 
     private static func leaveBlockedAlert(_ subject: ChatConfirmationSubject, message: String) -> ChatActionAlert {
