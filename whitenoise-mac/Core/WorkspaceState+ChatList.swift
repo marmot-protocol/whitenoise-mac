@@ -213,11 +213,28 @@ extension WorkspaceState {
             avatarBytesByReference = [:]
         }
         guard activeAccountId == account.id, !Task.isCancelled else { return }
+        // MDK stops presenting a direct chat's peer once this account leaves it, and the prepared
+        // list never runs the enrichment that records one — so record it while it is presented.
+        // Recorded in one batch, before the rows below read it: one write for the whole snapshot.
+        var presentedPeers: [String: RememberedDirectPeer] = [:]
+        for prepared in preparedRows.values {
+            let groupIdHex = prepared.row.groupIdHex
+            let recorded = rememberedDirectPeer(groupIdHex: groupIdHex, accountId: account.id)
+            if let peer = RememberedDirectPeer(presented: prepared, recorded: recorded) {
+                presentedPeers[groupIdHex] = peer
+            }
+        }
+        rememberDirectPeers(presentedPeers, accountId: account.id)
         let item: (ChatListRowFfi) -> ChatItem = { row in
             guard let prepared = preparedRows[row.groupIdHex] else {
                 return self.baseChatItem(from: row, account: account)
             }
-            let peerNickname = prepared.presentation.peerId.flatMap {
+            let departedPeer = ChatItem.departedDirectPeer(
+                of: prepared,
+                remembered: { self.rememberedDirectPeer(groupIdHex: $0, accountId: account.id) },
+                cachedRoster: { self.groupMemberDetailsCache[$0] }
+            )
+            let peerNickname = (prepared.presentation.peerId?.nilIfBlank ?? departedPeer?.accountIdHex).flatMap {
                 nicknames.nickname(forContactAccountIdHex: $0)
             }
             let senderNickname: String?
@@ -232,7 +249,9 @@ extension WorkspaceState {
                 nickname: peerNickname,
                 lastSenderNickname: senderNickname,
                 avatarBytes: prepared.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] },
-                mentionNames: prepared.previewMentionsAnyone ? self.cachedMentionNames(groupIdHex: row.groupIdHex) : [:]
+                mentionNames: prepared.previewMentionsAnyone
+                    ? self.cachedMentionNames(groupIdHex: row.groupIdHex) : [:],
+                departedPeer: departedPeer
             )
         }
         let activeItems = activeRows.map(item)
@@ -289,6 +308,67 @@ extension WorkspaceState {
             where prepared.previewMentionsAnyone && groupMemberDetailsCache[prepared.row.groupIdHex] == nil {
                 let groupIdHex = prepared.row.groupIdHex
                 Task { _ = await self.cachedGroupMembers(groupIdHex: groupIdHex, account: account, client: client) }
+            }
+            // A direct chat this account left before its peer was ever recorded (one left on an
+            // earlier version, or never seen live on this device) has nothing to name it. One
+            // enrichment pass reads the roster MDK kept — or the transcript — and records the
+            // peer, which re-renders the row named. Once recorded, or found unrecoverable, the
+            // row stops qualifying. A pass whose reads failed records neither, so each attempt
+            // also holds the next one off for a bounded delay rather than re-running per snapshot.
+            let now = nowProvider()
+            let unnamedDirectRows = preparedRows.values.compactMap { prepared -> ChatListRowFfi? in
+                let groupIdHex = prepared.row.groupIdHex
+                guard ChatItem.presentsNoPeerForDirectChat(prepared),
+                    rememberedDirectPeer(groupIdHex: groupIdHex, accountId: account.id) == nil,
+                    !unrecoverableDirectPeerGroupIds.contains(groupIdHex),
+                    chatListRowEnrichment.mayStartBackfill(forGroup: groupIdHex, now: now)
+                else { return nil }
+                return prepared.row
+            }
+            startChatListEnrichment(rows: unnamedDirectRows, account: account, replacingCurrent: false)
+            for row in unnamedDirectRows {
+                chatListRowEnrichment.noteBackfillAttempt(forGroup: row.groupIdHex, now: now)
+            }
+            // A direct chat the *other* person left is an unnamed `.group` row to MDK — its roster
+            // is down to this account — which a real unnamed group also is. Only the roster tells
+            // them apart, so read it (once per invalidation; it is cached and observed, which
+            // re-renders the sidebar row named). With nobody else left, the enrichment pass names
+            // the chat from the remembered peer, or recovers one from the transcript and records
+            // it. More than one other member is a real group: drop any peer remembered from when
+            // it was a two-person chat. Rate-limited like the backfill above.
+            for prepared in preparedRows.values where ChatItem.presentsNoPeerForUnnamedGroup(prepared) {
+                let row = prepared.row
+                let groupIdHex = row.groupIdHex
+                let roster = groupMemberDetailsCache[groupIdHex]
+                let needsRoster = roster == nil
+                let needsPeer =
+                    ChatItem.rosterHasNoOtherMembers(roster)
+                    && rememberedDirectPeer(groupIdHex: groupIdHex, accountId: account.id) == nil
+                    && !unrecoverableDirectPeerGroupIds.contains(groupIdHex)
+                guard needsRoster || needsPeer,
+                    chatListRowEnrichment.mayStartBackfill(forGroup: groupIdHex, now: now)
+                else { continue }
+                chatListRowEnrichment.noteBackfillAttempt(forGroup: groupIdHex, now: now)
+                let token = chatListRowEnrichment.beginTask(forGroup: groupIdHex)
+                let task = Task { [weak self] in
+                    guard let self else { return }
+                    defer { self.chatListRowEnrichment.finishTask(forGroup: groupIdHex, token: token) }
+                    guard
+                        let members = await self.cachedGroupMembers(
+                            groupIdHex: groupIdHex,
+                            account: account,
+                            client: client
+                        ),
+                        !Task.isCancelled, self.activeAccountId == account.id
+                    else { return }
+                    let others = Self.otherMembers(in: members, activeAccount: account)
+                    if others.count > 1 {
+                        self.forgetDirectPeer(groupIdHex: groupIdHex, accountId: account.id)
+                    } else if others.isEmpty {
+                        await self.enrichChatRows([row], account: account)
+                    }
+                }
+                chatListRowEnrichment.register(task: task, forGroup: groupIdHex, token: token)
             }
         }
         // AccountScope's live account-attention projection owns rail badges. Chat rows no longer
@@ -633,9 +713,12 @@ extension WorkspaceState {
             hasUnread: current.hasUnread,
             manuallyMarkedUnread: current.manuallyMarkedUnread,
             unreadMentionCount: current.unreadMentionCount,
+            // MDK's kind is authoritative, except that it calls a direct chat the other person
+            // left `.group` (one member, no name). Enrichment only finds a peer for an unnamed
+            // conversation with nobody else left in it, so a peer it found keeps the chat direct.
             isDirect:
                 current.hasAuthoritativeConversationKind
-                ? current.isDirect
+                ? current.isDirect || enrichedItem.directPeerAccountIdHex != nil
                 : enrichedItem.isDirect,
             hasAuthoritativeConversationKind: current.hasAuthoritativeConversationKind,
             isAuthoritativeGroup: current.isAuthoritativeGroup,
@@ -849,11 +932,19 @@ extension WorkspaceState {
         // The roster is the only place this identity is available; once the peer leaves, MDK stops
         // reporting them. Capture it while it is in hand so the chat can still name them later.
         if activeAccountId == activeAccount.id {
+            // A profile that did not resolve (`userProfile` failed, or nothing is cached yet) says
+            // nothing new about the peer, so it must not replace what the chat-list snapshot
+            // recorded from their profile with a roster-only name and no picture — the two
+            // writers would otherwise flap on every pass.
+            let profileResolved =
+                firstNonBlank([resolved?.profileDisplayName, resolved?.profileName, resolved?.profilePicture]) != nil
+            let recorded = rememberedDirectPeer(groupIdHex: groupIdHex, accountId: activeAccount.id)
+                .flatMap { !profileResolved && $0.accountIdHex == memberId ? $0 : nil }
             rememberDirectPeer(
                 RememberedDirectPeer(
                     accountIdHex: memberId,
-                    displayName: published,
-                    pictureURL: pictureURL
+                    displayName: recorded?.displayName ?? published,
+                    pictureURL: recorded?.pictureURL ?? pictureURL
                 ),
                 groupIdHex: groupIdHex,
                 accountId: activeAccount.id
@@ -923,34 +1014,30 @@ extension WorkspaceState {
         var memberId = row.lastMessage?.sender.nilIfBlank.flatMap { $0 == selfIdHex ? nil : $0 }
         if memberId == nil {
             // The newest message is this account's own (or there is none), so page back through
-            // the transcript for the newest message that is not.
-            let accountRef = activeAccount.accountRef
-            memberId = try? await FFIExecutor.run { () -> String? in
-                let page = try client.timelineMessages(
-                    accountRef: accountRef,
-                    query: TimelineMessageQueryFfi(
-                        groupIdHex: groupIdHex,
-                        search: nil,
-                        sender: nil,
-                        since: nil,
-                        until: nil,
-                        cursorGroupId: nil,
-                        before: nil,
-                        beforeMessageId: nil,
-                        after: nil,
-                        afterMessageId: nil,
-                        limit: Self.directPeerRecoveryScanLimit
-                    )
+            // the transcript for the newest message that is not. A failed read says nothing about
+            // who spoke here, so it must not mark the chat unrecoverable — only a scan that
+            // completed and found no other sender does; a failure stays eligible for a retry.
+            // `try?` would fold "the read failed" into "nobody else spoke", so keep the two apart.
+            let found: String?
+            do {
+                found = try await newestOtherSender(
+                    groupIdHex: groupIdHex,
+                    selfIdHex: selfIdHex,
+                    accountRef: activeAccount.accountRef,
+                    client: client
                 )
-                return page.messages.reversed().first { $0.sender != selfIdHex }?.sender.nilIfBlank
+            } catch {
+                return nil
             }
+            guard activeAccountId == activeAccount.id else { return nil }
+            guard let found else {
+                unrecoverableDirectPeerGroupIds.insert(groupIdHex)
+                return nil
+            }
+            memberId = found
         }
 
-        guard activeAccountId == activeAccount.id else { return nil }
-        guard let memberId else {
-            unrecoverableDirectPeerGroupIds.insert(groupIdHex)
-            return nil
-        }
+        guard activeAccountId == activeAccount.id, let memberId else { return nil }
 
         let resolved = await resolvedPeerFFI(
             accountIdHex: memberId,
@@ -961,7 +1048,9 @@ extension WorkspaceState {
             resolved?.profileDisplayName,
             resolved?.profileName,
             resolved?.directoryDisplayName,
-            PeerDisplayText.sanitize(row.lastMessage?.senderDisplayName),
+            // The row's sender name belongs to its sender, so it names this peer only when the
+            // newest message is theirs — not when the peer came from paging back past our own.
+            row.lastMessage?.sender == memberId ? PeerDisplayText.sanitize(row.lastMessage?.senderDisplayName) : nil,
         ])
         let pictureURL = resolved?.profilePicture?.nilIfBlank
         let nickname = activeContactNicknames.nickname(forContactAccountIdHex: memberId)
@@ -984,6 +1073,36 @@ extension WorkspaceState {
             publishedDisplayName: nickname == nil ? nil : published,
             pictureURL: pictureURL
         )
+    }
+
+    /// The newest sender in `groupIdHex`'s transcript other than `selfIdHex`, or nil when the
+    /// scanned page holds nobody else. Throws when the transcript could not be read at all.
+    private func newestOtherSender(
+        groupIdHex: String,
+        selfIdHex: String,
+        accountRef: String,
+        client: any MarmotRuntime
+    ) async throws -> String? {
+        let limit = Self.directPeerRecoveryScanLimit
+        return try await FFIExecutor.run { () -> String? in
+            let page = try client.timelineMessages(
+                accountRef: accountRef,
+                query: TimelineMessageQueryFfi(
+                    groupIdHex: groupIdHex,
+                    search: nil,
+                    sender: nil,
+                    since: nil,
+                    until: nil,
+                    cursorGroupId: nil,
+                    before: nil,
+                    beforeMessageId: nil,
+                    after: nil,
+                    afterMessageId: nil,
+                    limit: limit
+                )
+            )
+            return page.messages.reversed().first { $0.sender != selfIdHex }?.sender.nilIfBlank
+        }
     }
 
     func resolvedPeerFFI(

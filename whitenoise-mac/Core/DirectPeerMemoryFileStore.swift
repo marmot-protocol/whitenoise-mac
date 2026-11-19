@@ -25,6 +25,7 @@ nonisolated struct RememberedDirectPeer: Codable, Hashable, Sendable {
         self.displayName = displayName
         self.pictureURL = pictureURL
     }
+
 }
 
 nonisolated protocol DirectPeerMemoryStoring: AnyObject {

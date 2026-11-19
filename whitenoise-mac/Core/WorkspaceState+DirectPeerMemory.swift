@@ -33,9 +33,24 @@ extension WorkspaceState {
     /// Re-recording an unchanged peer is a no-op, so the steady state of chat-list enrichment does
     /// no disk writes at all — only an actual change to who the other party is costs a write.
     func rememberDirectPeer(_ peer: RememberedDirectPeer, groupIdHex: String, accountId: String) {
-        guard !groupIdHex.isEmpty, !peer.accountIdHex.isEmpty else { return }
-        guard rememberedDirectPeersByAccount[accountId]?[groupIdHex] != peer else { return }
-        rememberedDirectPeersByAccount[accountId, default: [:]][groupIdHex] = peer
+        rememberDirectPeers([groupIdHex: peer], accountId: accountId)
+    }
+
+    /// Record several conversations' peers at once, keyed by group id, with a single write.
+    ///
+    /// The record is one encrypted file per account, so recording a whole chat-list snapshot one
+    /// peer at a time would rewrite it once per direct chat. Unchanged peers are skipped, and when
+    /// nothing changed neither the file nor the observed dictionary is touched.
+    func rememberDirectPeers(_ peersByGroupId: [String: RememberedDirectPeer], accountId: String) {
+        var peers = rememberedDirectPeersByAccount[accountId] ?? [:]
+        var changed = false
+        for (groupIdHex, peer) in peersByGroupId
+        where !groupIdHex.isEmpty && !peer.accountIdHex.isEmpty && peers[groupIdHex] != peer {
+            peers[groupIdHex] = peer
+            changed = true
+        }
+        guard changed else { return }
+        rememberedDirectPeersByAccount[accountId] = peers
         persistRememberedDirectPeers(forAccountId: accountId)
     }
 

@@ -489,10 +489,75 @@ nonisolated enum ChatMessageDeliveryState: Hashable, Sendable {
 }
 
 extension ChatItem {
+    /// Whether MDK names nobody for a conversation that is still one-to-one.
+    ///
+    /// MDK only presents a peer while this account is a member (`presentation_peer` requires
+    /// `SelfMembership::Member`), so a direct chat this account left keeps its two-person roster —
+    /// `conversationKind` stays `.direct` — but is titled `.unnamedGroup` with no `peerId`. The
+    /// remembered peer is what names it then, as it already does the open chat's header.
+    nonisolated static func presentsNoPeerForDirectChat(_ presented: PresentedChatRowFfi) -> Bool {
+        guard case .unnamedGroup = presented.presentation.title else { return false }
+        return presented.row.conversationKind == .direct
+            && presented.presentation.peerId?.nilIfBlank == nil
+            && PeerDisplayText.sanitize(presented.row.groupName) == nil
+    }
+
+    /// Whether MDK titles `presented` as an unnamed conversation with nobody to name it after —
+    /// the shape of both a direct chat this account left (`presentsNoPeerForDirectChat`) and one
+    /// the *other* person left.
+    ///
+    /// Once the peer leaves, the roster holds only this account, and MDK's `conversation_kind`
+    /// reports a one-member unnamed conversation as `.group`. So does it for a real unnamed group
+    /// of three or more, which the row alone cannot tell apart: a `.group` row only takes a
+    /// departed peer once its roster confirms nobody else is left (see
+    /// `departedDirectPeer(of:remembered:cachedRoster:)`).
+    nonisolated static func presentsNoPeerForUnnamedConversation(_ presented: PresentedChatRowFfi) -> Bool {
+        guard case .unnamedGroup = presented.presentation.title else { return false }
+        let kind = presented.row.conversationKind
+        return (kind == .direct || kind == .group)
+            && presented.presentation.peerId?.nilIfBlank == nil
+            && PeerDisplayText.sanitize(presented.row.groupName) == nil
+    }
+
+    /// Whether `presented` is an unnamed `.group` row MDK names nobody for — a direct chat whose
+    /// peer left, or a real unnamed group; only the roster tells which.
+    nonisolated static func presentsNoPeerForUnnamedGroup(_ presented: PresentedChatRowFfi) -> Bool {
+        presented.row.conversationKind == .group && presentsNoPeerForUnnamedConversation(presented)
+    }
+
+    /// Whether a fetched roster holds nobody but this account. A roster not fetched yet (`nil`)
+    /// proves nothing, so it is not "empty".
+    nonisolated static func rosterHasNoOtherMembers(_ roster: [GroupMemberDetailsFfi]?) -> Bool {
+        guard let roster else { return false }
+        return roster.allSatisfy(\.isSelf)
+    }
+
+    /// The remembered peer that names `presented`, or nil when MDK already names the row (or it is
+    /// not a one-to-one chat at all, where one remembered person would mislabel a group).
+    ///
+    /// A direct chat this account left names its peer from `remembered` alone. An unnamed `.group`
+    /// row does only when `cachedRoster` shows nobody else in it — the peer left — so a real
+    /// unnamed group, or one whose roster has not been read yet, keeps MDK's placeholder.
+    nonisolated static func departedDirectPeer(
+        of presented: PresentedChatRowFfi,
+        remembered: (String) -> RememberedDirectPeer?,
+        cachedRoster: (String) -> [GroupMemberDetailsFfi]? = { _ in nil }
+    ) -> RememberedDirectPeer? {
+        let groupIdHex = presented.row.groupIdHex
+        let qualifies =
+            presentsNoPeerForDirectChat(presented)
+            || (presentsNoPeerForUnnamedGroup(presented) && rosterHasNoOtherMembers(cachedRoster(groupIdHex)))
+        guard qualifies else { return nil }
+        return remembered(groupIdHex).flatMap { $0.accountIdHex.isEmpty ? nil : $0 }
+    }
+
     /// Builds the row from MarmotKit's selected presentation without any group/profile fan-out.
     /// Device-local nicknames are the only presentation overlay applied by the host, plus the
     /// names that turn the preview's canonical `@npub1…` mentions back into people — the core
     /// hands the preview over in wire form, exactly as it was sent.
+    ///
+    /// `departedPeer` names a direct chat MDK presents without a peer (see
+    /// `departedDirectPeer(of:remembered:cachedRoster:)`); `nickname` is then that peer's.
     init(
         presented: PresentedChatRowFfi,
         activeAccountIdHex: String,
@@ -500,14 +565,24 @@ extension ChatItem {
         lastSenderNickname: String? = nil,
         avatarBytes: AvatarBytesFfi? = nil,
         isBlockedDirectPeer: Bool = false,
-        mentionNames: MarkdownMentionNames = [:]
+        mentionNames: MarkdownMentionNames = [:],
+        departedPeer: RememberedDirectPeer? = nil
     ) {
+        // Re-checked rather than trusted: a caller can pass a remembered peer for any row, and on a
+        // group (or a row MDK already names) one remembered person would mislabel it.
+        let departedPeer = Self.presentsNoPeerForUnnamedConversation(presented) ? departedPeer : nil
         let selectedTitle: String
         switch presented.presentation.title {
         case .literal(let text):
             selectedTitle = PeerDisplayText.sanitize(text) ?? DisplayText.short(presented.row.groupIdHex)
         case .unnamedGroup:
-            selectedTitle = L10n.string("Unnamed group")
+            if let departedPeer {
+                selectedTitle =
+                    PeerDisplayText.sanitize(departedPeer.displayName)
+                    ?? DisplayText.short(departedPeer.accountIdHex)
+            } else {
+                selectedTitle = L10n.string("Unnamed group")
+            }
         case .unavailableConversation:
             selectedTitle =
                 PeerDisplayText.sanitize(presented.row.title)
@@ -525,15 +600,17 @@ extension ChatItem {
         switch presented.presentation.avatar {
         case .remoteImage(let url, _):
             pictureURL = showsNamedRowsPeerPicture ? nil : url
-        case .encryptedGroupImage, .placeholder:
+        case .encryptedGroupImage:
             pictureURL = nil
+        case .placeholder:
+            pictureURL = departedPeer?.pictureURL?.nilIfBlank
         }
         let avatarBytes = showsNamedRowsPeerPicture ? nil : avatarBytes
 
         // MDK's own placeholder seed and cache key are never used: they are account-scoped and
         // change with a photo, while the header seeds from `init(row:…)`. A blank `peerId` names
         // nobody, so it must not become a seed or a direct peer.
-        let peer = presented.presentation.peerId?.nilIfBlank.map {
+        let peer = (presented.presentation.peerId?.nilIfBlank ?? departedPeer?.accountIdHex).map {
             ChatPeerProfile(
                 accountIdHex: $0,
                 displayName: nickname ?? selectedTitle,

@@ -27,6 +27,18 @@ final class ChatListViewModel {
     @ObservationIgnored private var windowSubscription: ChatListWindowSubscription?
     @ObservationIgnored private var latestSnapshot: PresentedChatListSnapshotFfi?
     @ObservationIgnored private var snapshotObserver: (@MainActor (PresentedChatListSnapshotFfi) async -> Void)?
+    /// Group id → the peer a direct chat this account left was with. MDK presents such a chat
+    /// with no `peerId` and titles it `.unnamedGroup`, so `chatItems(for:nicknames:)` names it from this
+    /// instead. Defaults to nobody; the shell (`whitenoise_macApp`) installs a closure reading
+    /// `WorkspaceState.rememberedDirectPeersByAccount`, an observed property — a row built through
+    /// it re-renders when the backfill or a snapshot records that chat's peer.
+    @ObservationIgnored var rememberedDirectPeer: @MainActor (String) -> RememberedDirectPeer? = { _ in nil }
+    /// Group id → the roster the workspace has read for it, or nil when none is cached. An unnamed
+    /// `.group` row takes its remembered peer only when this shows nobody else left in it — a
+    /// direct chat the other person left — so a real unnamed group is never named after one
+    /// person. Installed by the shell over `WorkspaceState.groupMemberDetailsCache`, which is
+    /// observed: the row re-renders named once that roster lands.
+    @ObservationIgnored var cachedRoster: @MainActor (String) -> [GroupMemberDetailsFfi]? = { _ in nil }
 
     init(
         account: AccountItem,
@@ -158,7 +170,13 @@ final class ChatListViewModel {
         nicknames: ContactNicknames,
         mentionNames: MarkdownMentionNames = [:]
     ) -> ChatItem {
-        let peerNickname = presented.presentation.peerId.flatMap {
+        let departedPeer = ChatItem.departedDirectPeer(
+            of: presented,
+            remembered: rememberedDirectPeer,
+            cachedRoster: cachedRoster
+        )
+        let peerId = presented.presentation.peerId?.nilIfBlank ?? departedPeer?.accountIdHex
+        let peerNickname = peerId.flatMap {
             nicknames.nickname(forContactAccountIdHex: $0)
         }
         let senderNickname: String?
@@ -173,10 +191,11 @@ final class ChatListViewModel {
             nickname: peerNickname,
             lastSenderNickname: senderNickname,
             avatarBytes: presented.avatarAsset?.reference.flatMap { avatarBytesByReference[$0] },
-            isBlockedDirectPeer: presented.presentation.peerId.map {
+            isBlockedDirectPeer: peerId.map {
                 blockedUsersModel?.isBlocked(accountID: $0) == true
             } ?? false,
-            mentionNames: mentionNames
+            mentionNames: mentionNames,
+            departedPeer: departedPeer
         )
     }
 

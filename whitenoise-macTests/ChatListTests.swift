@@ -3519,6 +3519,588 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(state.cachedMentionNames(groupIdHex: "group-1") == ["npub1alyce": "Alice"])
     }
 
+    /// MDK presents a peer only while this account is a member, so a direct chat it left keeps
+    /// `conversationKind == .direct` but comes back titled `.unnamedGroup` with no peer.
+    private static func leftDirectChatRow(groupIdHex: String, peerIdHex: String) -> PresentedChatRowFfi {
+        var row = chatListRow(
+            groupIdHex: groupIdHex,
+            title: groupIdHex,
+            preview: "Bye",
+            sender: peerIdHex,
+            timelineAt: 1,
+            selfMembership: .left
+        )
+        row.conversationKind = .direct
+        var presented = presentedChatRow(row)
+        presented.presentation = ConversationPresentationFfi(
+            title: .unnamedGroup(memberCount: 2),
+            avatar: .placeholder(stableSeed: "seed", source: .groupFallback),
+            titleSource: .groupFallback,
+            avatarSource: .groupFallback,
+            peerId: nil,
+            resolution: .cached
+        )
+        return presented
+    }
+
+    @MainActor
+    @Test func aDirectChatThisAccountLeftIsTitledAfterItsRememberedPeer() throws {
+        let alice = String(repeating: "a1", count: 32)
+        let presented = Self.leftDirectChatRow(groupIdHex: "dm", peerIdHex: alice)
+        let remembered = RememberedDirectPeer(
+            accountIdHex: alice,
+            displayName: "Alice",
+            pictureURL: "https://example.com/alice.png"
+        )
+        let departed = try #require(ChatItem.departedDirectPeer(of: presented) { _ in remembered })
+
+        let chat = ChatItem(presented: presented, activeAccountIdHex: "me", departedPeer: departed)
+        #expect(chat.title == "Alice")
+        #expect(chat.isDirect)
+        #expect(chat.directPeerAccountIdHex == alice)
+        #expect(chat.avatarSeed == alice)
+        #expect(chat.pictureURL == "https://example.com/alice.png")
+
+        let nicknamed = ChatItem(
+            presented: presented,
+            activeAccountIdHex: "me",
+            nickname: "Ali",
+            departedPeer: departed
+        )
+        #expect(nicknamed.title == "Ali")
+        #expect(nicknamed.publishedTitle == "Alice")
+
+        // With nothing remembered the row keeps MDK's placeholder rather than inventing a name.
+        let unknown = ChatItem(presented: presented, activeAccountIdHex: "me")
+        #expect(unknown.title == L10n.string("Unnamed group"))
+    }
+
+    @MainActor
+    @Test func aRememberedPeerNeverTitlesAnUnnamedGroupOrARowMDKAlreadyNames() {
+        let alice = String(repeating: "a1", count: 32)
+        let remembered = RememberedDirectPeer(accountIdHex: alice, displayName: "Alice", pictureURL: nil)
+
+        // Three people and no name: a group, which one remembered person would mislabel. The row
+        // alone cannot tell it from a direct chat the peer left, so without a roster showing
+        // nobody else left it takes no peer — neither unread nor with others still in it.
+        var group = Self.leftDirectChatRow(groupIdHex: "group", peerIdHex: alice)
+        group.row.conversationKind = .group
+        group.row.selfMembership = .member
+        group.presentation.title = .unnamedGroup(memberCount: 3)
+        #expect(ChatItem.departedDirectPeer(of: group) { _ in remembered } == nil)
+        let others = [
+            soleRemainingSelfMember(accountIdHex: "me"),
+            Self.otherMember(String(repeating: "b2", count: 32)),
+            Self.otherMember(String(repeating: "c3", count: 32)),
+        ]
+        #expect(
+            ChatItem.departedDirectPeer(of: group, remembered: { _ in remembered }, cachedRoster: { _ in others })
+                == nil
+        )
+
+        // A named two-person conversation is a group by name, even handed a remembered peer.
+        var named = Self.leftDirectChatRow(groupIdHex: "named", peerIdHex: alice)
+        named.row.groupName = "Book club"
+        #expect(ChatItem.departedDirectPeer(of: named) { _ in remembered } == nil)
+        let namedChat = ChatItem(presented: named, activeAccountIdHex: "me", departedPeer: remembered)
+        #expect(namedChat.directPeerAccountIdHex == nil)
+
+        // A live direct chat MDK already names keeps MDK's title.
+        var live = Self.leftDirectChatRow(groupIdHex: "live", peerIdHex: alice)
+        live.presentation.title = .literal(text: "Alice Now")
+        live.presentation.peerId = alice
+        #expect(ChatItem.departedDirectPeer(of: live) { _ in remembered } == nil)
+    }
+
+    /// The reported bug: the open chat's header named the peer (enrichment reads the roster MDK
+    /// kept) while the sidebar row — built from MDK's prepared presentation — said "Unnamed group".
+    @MainActor
+    @Test func leavingADirectChatKeepsItsPeerAsTheChatListTitle() async throws {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let alice = String(repeating: "a1", count: 32)
+        let state = WorkspaceState(accounts: [accountItem], clientFactory: { FakeMarmotRuntime(accounts: [account]) })
+        state.activeAccountId = accountItem.id
+
+        var liveRow = chatListRow(groupIdHex: "dm", title: "dm", preview: "Hi", sender: alice, timelineAt: 1)
+        liveRow.conversationKind = .direct
+        var live = Self.presentedChatRow(liveRow)
+        live.presentation = ConversationPresentationFfi(
+            title: .literal(text: "Alice"),
+            avatar: .remoteImage(url: "https://example.com/alice.png", cacheKey: "k"),
+            titleSource: .peerProfile,
+            avatarSource: .peerProfile,
+            peerId: alice,
+            resolution: .cached
+        )
+        let version = PresentationVersionFfi(accountStoreEpoch: Data(repeating: 1, count: 16), revision: 1)
+        await state.applyPresentedChatListSnapshot(
+            PresentedChatListSnapshotFfi(rows: [live], presentationVersion: version),
+            account: accountItem
+        )
+        let recorded = state.rememberedDirectPeer(groupIdHex: "dm", accountId: accountItem.id)
+        #expect(recorded?.accountIdHex == alice)
+        #expect(recorded?.displayName == "Alice")
+
+        let left = Self.leftDirectChatRow(groupIdHex: "dm", peerIdHex: alice)
+        await state.applyPresentedChatListSnapshot(
+            PresentedChatListSnapshotFfi(rows: [left], presentationVersion: version),
+            account: accountItem
+        )
+        #expect(state.chatItem(accountId: accountItem.id, chatId: "dm")?.title == "Alice")
+
+        // The sidebar draws the same row through the chat-list model, with the shell's lookup.
+        let model = ChatListViewModel(account: accountItem, runtime: FakeMarmotRuntime(accounts: [account]))
+        #expect(model.chatItems(for: [left], nicknames: .none).first?.title == L10n.string("Unnamed group"))
+        model.rememberedDirectPeer = { state.rememberedDirectPeer(groupIdHex: $0, accountId: accountItem.id) }
+        let row = try #require(model.chatItems(for: [left], nicknames: .none).first)
+        #expect(row.title == "Alice")
+        #expect(row.directPeerAccountIdHex == alice)
+    }
+
+    /// The row's `senderDisplayName` is the newest message's sender's. When that is this account,
+    /// the peer comes from paging back, and the name must not be ours.
+    @MainActor
+    @Test func aPeerRecoveredByPagingBackIsNotNamedAfterOurOwnLastMessage() async throws {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let alice = String(repeating: "a1", count: 32)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(alice)
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "from-alice",
+                    groupIdHex: "dm",
+                    sender: alice,
+                    plaintext: "Hi",
+                    kind: 9,
+                    recordedAt: 1_700_000_100
+                ),
+                appMessage(
+                    id: "from-self",
+                    direction: "sent",
+                    groupIdHex: "dm",
+                    sender: account.accountIdHex,
+                    plaintext: "Bye",
+                    kind: 9,
+                    recordedAt: 1_700_000_200
+                ),
+            ],
+            groupIdHex: "dm"
+        )
+        let state = WorkspaceState(accounts: [accountItem], clientFactory: { runtime })
+        state.activeAccountId = accountItem.id
+        var row = chatListRow(
+            groupIdHex: "dm", title: "dm", preview: "Bye", sender: account.accountIdHex, timelineAt: 2)
+        row.lastMessage?.senderDisplayName = "Desktop Me"
+
+        let peer = await state.recoveredDirectPeerProfile(from: row, activeAccount: accountItem, client: runtime)
+
+        #expect(peer?.accountIdHex == alice)
+        #expect(peer?.displayName != "Desktop Me")
+        #expect(state.rememberedDirectPeer(groupIdHex: "dm", accountId: accountItem.id)?.displayName == nil)
+    }
+
+    /// A transcript read that throws says nothing about who spoke, so it must leave the chat
+    /// eligible for another attempt instead of marking it a note-to-self.
+    @MainActor
+    @Test func aFailedTranscriptReadDoesNotMarkTheChatUnrecoverable() async {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.timelineMessagesHandler = { _ in throw FakeMarmotRuntimeError.unused }
+        let state = WorkspaceState(accounts: [accountItem], clientFactory: { runtime })
+        state.activeAccountId = accountItem.id
+        let row = chatListRow(
+            groupIdHex: "dm", title: "dm", preview: "Bye", sender: account.accountIdHex, timelineAt: 2)
+
+        let failed = await state.recoveredDirectPeerProfile(from: row, activeAccount: accountItem, client: runtime)
+        #expect(failed == nil)
+        #expect(!state.unrecoverableDirectPeerGroupIds.contains("dm"))
+
+        // The same chat read successfully with nobody else in it is the note-to-self case.
+        runtime.timelineMessagesHandler = nil
+        let empty = await state.recoveredDirectPeerProfile(from: row, activeAccount: accountItem, client: runtime)
+        #expect(empty == nil)
+        #expect(state.unrecoverableDirectPeerGroupIds.contains("dm"))
+    }
+
+    /// The snapshot records the peer from their profile; roster enrichment that cannot resolve that
+    /// profile must not overwrite it with the roster's name and no picture, or the two flap.
+    @MainActor
+    @Test func rosterEnrichmentWithoutAProfileKeepsThePeerTheSnapshotRecorded() async {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let alice = String(repeating: "a1", count: 32)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(alice)
+        let state = WorkspaceState(accounts: [accountItem], clientFactory: { runtime })
+        state.activeAccountId = accountItem.id
+        let fromProfile = RememberedDirectPeer(
+            accountIdHex: alice,
+            displayName: "Alice Profile",
+            pictureURL: "https://example.com/alice.png"
+        )
+        state.rememberDirectPeer(fromProfile, groupIdHex: "dm", accountId: accountItem.id)
+        let members = [
+            soleRemainingSelfMember(accountIdHex: account.accountIdHex),
+            GroupMemberDetailsFfi(
+                memberIdHex: alice,
+                account: "",
+                local: false,
+                isAdmin: false,
+                isSelf: false,
+                npub: "npub1alice",
+                displayName: "alice-roster"
+            ),
+        ]
+
+        let peer = await state.directPeerProfile(
+            from: members,
+            groupIdHex: "dm",
+            activeAccount: accountItem,
+            client: runtime
+        )
+
+        #expect(peer?.accountIdHex == alice)
+        #expect(state.rememberedDirectPeer(groupIdHex: "dm", accountId: accountItem.id) == fromProfile)
+    }
+
+    /// A peer with no profile name is titled by MDK's fallback. Recording it is what keeps a left
+    /// chat with them from falling back to truncated hex — but it must never displace a real name.
+    @MainActor
+    @Test func mdksFallbackTitleIsRecordedOnlyWhenNothingBetterIsKnown() throws {
+        let alice = String(repeating: "a1", count: 32)
+        var row = chatListRow(groupIdHex: "dm", title: "dm", preview: "Hi", sender: alice, timelineAt: 1)
+        row.conversationKind = .direct
+        func presented(title: String, source: PresentationSourceFfi) -> PresentedChatRowFfi {
+            var presented = Self.presentedChatRow(row)
+            presented.presentation = ConversationPresentationFfi(
+                title: .literal(text: title),
+                avatar: .placeholder(stableSeed: "seed", source: .peerFallback),
+                titleSource: source,
+                avatarSource: .peerFallback,
+                peerId: alice,
+                resolution: .cached
+            )
+            return presented
+        }
+
+        let fallback = try #require(
+            RememberedDirectPeer(presented: presented(title: "Quiet Marmot", source: .peerFallback), recorded: nil)
+        )
+        #expect(fallback.displayName == "Quiet Marmot")
+
+        let named = try #require(
+            RememberedDirectPeer(presented: presented(title: "Alice", source: .peerProfile), recorded: fallback)
+        )
+        #expect(named.displayName == "Alice")
+
+        let kept = try #require(
+            RememberedDirectPeer(presented: presented(title: "Quiet Marmot", source: .peerFallback), recorded: named)
+        )
+        #expect(kept.displayName == "Alice")
+
+        // Once the account leaves, the recorded fallback names the row instead of the peer's hex.
+        let left = Self.leftDirectChatRow(groupIdHex: "dm", peerIdHex: alice)
+        let chat = ChatItem(presented: left, activeAccountIdHex: "me", departedPeer: fallback)
+        #expect(chat.title == "Quiet Marmot")
+    }
+
+    /// A live direct chat presented with its peer's profile, as MDK sends it while this account
+    /// is a member.
+    private static func liveDirectChatRow(groupIdHex: String, peerIdHex: String, name: String) -> PresentedChatRowFfi {
+        var row = chatListRow(
+            groupIdHex: groupIdHex, title: groupIdHex, preview: "Hi", sender: peerIdHex, timelineAt: 1)
+        row.conversationKind = .direct
+        var presented = presentedChatRow(row)
+        presented.presentation = ConversationPresentationFfi(
+            title: .literal(text: name),
+            avatar: .placeholder(stableSeed: "seed", source: .peerProfile),
+            titleSource: .peerProfile,
+            avatarSource: .peerFallback,
+            peerId: peerIdHex,
+            resolution: .cached
+        )
+        return presented
+    }
+
+    /// Every direct chat in a snapshot is recorded, but the record is one encrypted file per
+    /// account: one write for the snapshot, and none when nothing changed.
+    @MainActor
+    @Test func aSnapshotRecordsEveryDirectPeerWithOneWrite() async {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let store = CountingDirectPeerMemoryStore()
+        let state = WorkspaceState(
+            accounts: [accountItem],
+            directPeerMemoryStore: store,
+            clientFactory: { FakeMarmotRuntime(accounts: [account]) }
+        )
+        state.activeAccountId = accountItem.id
+        let rows = ["alice", "bob", "carol"].map { name in
+            Self.liveDirectChatRow(
+                groupIdHex: "dm-\(name)",
+                peerIdHex: String(repeating: String(name.prefix(2)), count: 32),
+                name: name.capitalized
+            )
+        }
+        let snapshot = PresentedChatListSnapshotFfi(
+            rows: rows,
+            presentationVersion: PresentationVersionFfi(accountStoreEpoch: Data(repeating: 1, count: 16), revision: 1)
+        )
+
+        await state.applyPresentedChatListSnapshot(snapshot, account: accountItem)
+        #expect(store.writeCount == 1)
+        #expect(store.peersByAccount[accountItem.id]?.count == 3)
+        #expect(state.rememberedDirectPeer(groupIdHex: "dm-bob", accountId: accountItem.id)?.displayName == "Bob")
+
+        await state.applyPresentedChatListSnapshot(snapshot, account: accountItem)
+        #expect(store.writeCount == 1)
+    }
+
+    /// A backfill whose roster read throws records nothing, so only a delay keeps every snapshot
+    /// from re-running it; once the delay passes it is retried.
+    @MainActor
+    @Test func aFailedPeerBackfillWaitsOutItsDelayBeforeRetrying() async throws {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let alice = String(repeating: "a1", count: 32)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.groupDetailsFailureGroupIds.insert("dm")
+        let clock = MutableClock(now: Date(timeIntervalSince1970: 1_700_000_000))
+        let state = WorkspaceState(
+            accounts: [accountItem],
+            nowProvider: { clock.now },
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = accountItem.id
+        state.client = runtime
+        let snapshot = PresentedChatListSnapshotFfi(
+            rows: [Self.leftDirectChatRow(groupIdHex: "dm", peerIdHex: alice)],
+            presentationVersion: PresentationVersionFfi(accountStoreEpoch: Data(repeating: 1, count: 16), revision: 1)
+        )
+        func applyAndSettle() async {
+            await state.applyPresentedChatListSnapshot(snapshot, account: accountItem)
+            await state.chatListRowEnrichment.task(forGroup: "dm")?.value
+        }
+
+        await applyAndSettle()
+        #expect(runtime.groupDetailsCallCounts["dm"] == 1)
+        #expect(state.rememberedDirectPeer(groupIdHex: "dm", accountId: accountItem.id) == nil)
+
+        await applyAndSettle()
+        #expect(runtime.groupDetailsCallCounts["dm"] == 1)
+
+        clock.now = clock.now.addingTimeInterval(ChatListRowEnrichmentTracker.backfillRetryDelay)
+        await applyAndSettle()
+        #expect(runtime.groupDetailsCallCounts["dm"] == 2)
+    }
+
+    /// A direct chat left before its peer was ever recorded: the backfill reads the roster MDK
+    /// kept, records the peer, and the sidebar row — which reads that record through the shell's
+    /// closure — is invalidated and re-renders named.
+    @MainActor
+    @Test func theBackfillRecordsALeftChatsPeerAndReRendersTheSidebarRow() async throws {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(accounts: [accountItem], clientFactory: { runtime })
+        state.activeAccountId = accountItem.id
+        state.client = runtime
+        let left = Self.leftDirectChatRow(groupIdHex: "direct-group", peerIdHex: aliceId)
+        let model = ChatListViewModel(account: accountItem, runtime: FakeMarmotRuntime(accounts: [account]))
+        model.rememberedDirectPeer = { state.rememberedDirectPeer(groupIdHex: $0, accountId: accountItem.id) }
+
+        var rowInvalidated = false
+        withObservationTracking {
+            _ = model.chatItems(for: [left], nicknames: .none)
+        } onChange: {
+            rowInvalidated = true
+        }
+        #expect(model.chatItems(for: [left], nicknames: .none).first?.title == L10n.string("Unnamed group"))
+
+        await state.applyPresentedChatListSnapshot(
+            PresentedChatListSnapshotFfi(
+                rows: [left],
+                presentationVersion: PresentationVersionFfi(
+                    accountStoreEpoch: Data(repeating: 1, count: 16), revision: 1)
+            ),
+            account: accountItem
+        )
+        let backfill = try #require(state.chatListRowEnrichment.task(forGroup: "direct-group"))
+        await backfill.value
+
+        let recorded = state.rememberedDirectPeer(groupIdHex: "direct-group", accountId: accountItem.id)
+        #expect(recorded?.accountIdHex == aliceId)
+        #expect(rowInvalidated)
+        let row = try #require(model.chatItems(for: [left], nicknames: .none).first)
+        #expect(row.title == "Alice Actual")
+        #expect(row.directPeerAccountIdHex == aliceId)
+    }
+
+    private static func otherMember(_ memberIdHex: String) -> GroupMemberDetailsFfi {
+        GroupMemberDetailsFfi(
+            memberIdHex: memberIdHex,
+            account: "",
+            local: false,
+            isAdmin: false,
+            isSelf: false,
+            npub: "npub1\(memberIdHex.prefix(8))",
+            displayName: nil
+        )
+    }
+
+    /// A direct chat the *other* person left. The roster is down to this account, so MDK's
+    /// `conversation_kind` reports `.group` — exactly what a real unnamed group reports too.
+    private static func peerLeftDirectChatRow(groupIdHex: String, peerIdHex: String) -> PresentedChatRowFfi {
+        var presented = leftDirectChatRow(groupIdHex: groupIdHex, peerIdHex: peerIdHex)
+        presented.row.selfMembership = .member
+        presented.row.conversationKind = .group
+        presented.presentation.title = .unnamedGroup(memberCount: 1)
+        return presented
+    }
+
+    @MainActor
+    @Test func aDirectChatThePeerLeftTakesItsRememberedPeerOnlyOnceTheRosterIsEmpty() throws {
+        let alice = String(repeating: "a1", count: 32)
+        let remembered = RememberedDirectPeer(accountIdHex: alice, displayName: "Alice", pictureURL: nil)
+        let presented = Self.peerLeftDirectChatRow(groupIdHex: "dm", peerIdHex: alice)
+
+        // No roster read yet: it could still be a real unnamed group.
+        #expect(ChatItem.departedDirectPeer(of: presented) { _ in remembered } == nil)
+
+        let departed = try #require(
+            ChatItem.departedDirectPeer(
+                of: presented,
+                remembered: { _ in remembered },
+                cachedRoster: { _ in [soleRemainingSelfMember(accountIdHex: "me")] }
+            )
+        )
+        let chat = ChatItem(presented: presented, activeAccountIdHex: "me", departedPeer: departed)
+        #expect(chat.title == "Alice")
+        #expect(chat.isDirect)
+        #expect(chat.directPeerAccountIdHex == alice)
+        #expect(chat.rememberedDirectPeerTitle == "Alice")
+    }
+
+    /// The reported bug: once the *other* person left a direct chat, the chat list, the open chat
+    /// and its info all said "Unnamed group" instead of their name.
+    @MainActor
+    @Test func aDirectChatThePeerLeftKeepsTheirNameInTheChatListAndHeader() async throws {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let alice = String(repeating: "a1", count: 32)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(alice)
+        runtime.installGroupDetails(
+            GroupDetailsFfi(
+                group: directGroup(),
+                members: [soleRemainingSelfMember(accountIdHex: account.accountIdHex)]
+            )
+        )
+        let state = WorkspaceState(accounts: [accountItem], clientFactory: { runtime })
+        state.activeAccountId = accountItem.id
+        state.client = runtime
+        let version = PresentationVersionFfi(accountStoreEpoch: Data(repeating: 1, count: 16), revision: 1)
+
+        // While Alice is in it, the snapshot records her.
+        await state.applyPresentedChatListSnapshot(
+            PresentedChatListSnapshotFfi(
+                rows: [Self.liveDirectChatRow(groupIdHex: "direct-group", peerIdHex: alice, name: "Alice")],
+                presentationVersion: version
+            ),
+            account: accountItem
+        )
+        let recorded = state.rememberedDirectPeer(groupIdHex: "direct-group", accountId: accountItem.id)
+        #expect(recorded?.displayName == "Alice")
+
+        // She leaves: MDK now presents an unnamed `.group` with nobody to name it after.
+        let peerLeft = Self.peerLeftDirectChatRow(groupIdHex: "direct-group", peerIdHex: alice)
+        let snapshot = PresentedChatListSnapshotFfi(rows: [peerLeft], presentationVersion: version)
+        await state.applyPresentedChatListSnapshot(snapshot, account: accountItem)
+        let rosterRead = try #require(state.chatListRowEnrichment.task(forGroup: "direct-group"))
+        await rosterRead.value
+
+        // The open chat's header and its info read the workspace's item.
+        let chat = try #require(state.chatItem(accountId: accountItem.id, chatId: "direct-group"))
+        #expect(chat.title == "Alice")
+        #expect(chat.rememberedDirectPeerTitle == "Alice")
+
+        // A later snapshot rebuilds the item from MDK's presentation and still names her.
+        await state.applyPresentedChatListSnapshot(snapshot, account: accountItem)
+        #expect(state.chatItem(accountId: accountItem.id, chatId: "direct-group")?.title == "Alice")
+
+        // The sidebar draws the row through the chat-list model with the shell's lookups.
+        let model = ChatListViewModel(account: accountItem, runtime: FakeMarmotRuntime(accounts: [account]))
+        model.rememberedDirectPeer = { state.rememberedDirectPeer(groupIdHex: $0, accountId: accountItem.id) }
+        #expect(model.chatItems(for: [peerLeft], nicknames: .none).first?.title == L10n.string("Unnamed group"))
+        model.cachedRoster = { state.groupMemberDetailsCache[$0] }
+        let row = try #require(model.chatItems(for: [peerLeft], nicknames: .none).first)
+        #expect(row.title == "Alice")
+        #expect(row.directPeerAccountIdHex == alice)
+    }
+
+    /// A direct chat that grew into a real unnamed group is the same row shape as one the peer
+    /// left. Its roster says otherwise, so it keeps the placeholder and the stale peer is dropped.
+    @MainActor
+    @Test func anUnnamedGroupWithOthersInItIsNotNamedAfterARememberedPeer() async throws {
+        let account = desktopAccount()
+        let accountItem = AccountItem(summary: account)
+        let alice = String(repeating: "a1", count: 32)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            GroupDetailsFfi(
+                group: directGroup(),
+                members: [
+                    soleRemainingSelfMember(accountIdHex: account.accountIdHex),
+                    Self.otherMember(alice),
+                    Self.otherMember(String(repeating: "b2", count: 32)),
+                ]
+            )
+        )
+        let state = WorkspaceState(accounts: [accountItem], clientFactory: { runtime })
+        state.activeAccountId = accountItem.id
+        state.client = runtime
+        state.rememberDirectPeer(
+            RememberedDirectPeer(accountIdHex: alice, displayName: "Alice", pictureURL: nil),
+            groupIdHex: "direct-group",
+            accountId: accountItem.id
+        )
+        var grown = Self.peerLeftDirectChatRow(groupIdHex: "direct-group", peerIdHex: alice)
+        grown.presentation.title = .unnamedGroup(memberCount: 3)
+        let snapshot = PresentedChatListSnapshotFfi(
+            rows: [grown],
+            presentationVersion: PresentationVersionFfi(accountStoreEpoch: Data(repeating: 1, count: 16), revision: 1)
+        )
+
+        await state.applyPresentedChatListSnapshot(snapshot, account: accountItem)
+        let rosterRead = try #require(state.chatListRowEnrichment.task(forGroup: "direct-group"))
+        await rosterRead.value
+        #expect(state.rememberedDirectPeer(groupIdHex: "direct-group", accountId: accountItem.id) == nil)
+
+        await state.applyPresentedChatListSnapshot(snapshot, account: accountItem)
+        let chat = try #require(state.chatItem(accountId: accountItem.id, chatId: "direct-group"))
+        #expect(chat.title == L10n.string("Unnamed group"))
+        #expect(chat.directPeerAccountIdHex == nil)
+    }
+
     private static func presentedChatRow(
         _ row: ChatListRowFfi,
         preview: SelectedChatPreviewFfi = .message
@@ -3550,4 +4132,21 @@ struct ChatListTests: WorkspaceTestSupport {
             avatarAsset: nil
         )
     }
+}
+
+/// Counts writes so a test can tell one batched write from one write per peer.
+nonisolated private final class CountingDirectPeerMemoryStore: DirectPeerMemoryStoring {
+    private(set) var writeCount = 0
+    private(set) var peersByAccount: [String: [String: RememberedDirectPeer]] = [:]
+
+    func loadAll() throws -> [String: [String: RememberedDirectPeer]] { peersByAccount }
+
+    func write(_ peers: [String: RememberedDirectPeer], forAccountId accountId: String) throws {
+        writeCount += 1
+        peersByAccount[accountId] = peers
+    }
+
+    func remove(forAccountId accountId: String) throws { peersByAccount[accountId] = nil }
+
+    func removeAll() throws { peersByAccount = [:] }
 }

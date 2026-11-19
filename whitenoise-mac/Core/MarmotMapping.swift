@@ -123,6 +123,41 @@ extension ConversationWindowSnapshotFfi {
     }
 }
 
+nonisolated extension RememberedDirectPeer {
+    /// The peer a prepared chat-list row presents, or nil when it presents none — a group, a
+    /// named conversation, or a direct chat this account has left.
+    ///
+    /// A name and picture from the peer's own profile always win. MDK's fallback title for a peer
+    /// with no profile name is kept only as a last resort — when nothing is recorded for that same
+    /// peer — so a chat with a profile-less peer still has more than truncated hex to go by once
+    /// this account leaves it, and never overwrites a real name recorded earlier.
+    init?(presented: PresentedChatRowFfi, recorded: RememberedDirectPeer?) {
+        let presentation = presented.presentation
+        guard presented.row.conversationKind == .direct,
+            PeerDisplayText.sanitize(presented.row.groupName) == nil,
+            let peerId = presentation.peerId?.nilIfBlank
+        else { return nil }
+        var displayName: String?
+        var fallbackName: String?
+        if case .literal(let text) = presentation.title {
+            switch presentation.titleSource {
+            case .peerProfile: displayName = PeerDisplayText.sanitize(text)
+            case .peerFallback: fallbackName = PeerDisplayText.sanitize(text)
+            case .group, .groupFallback, .unknownFallback: break
+            }
+        }
+        var pictureURL: String?
+        if presentation.avatarSource == .peerProfile, case .remoteImage(let url, _) = presentation.avatar {
+            pictureURL = url.nilIfBlank
+        }
+        if let recorded, recorded.accountIdHex == peerId {
+            displayName = displayName ?? recorded.displayName
+            pictureURL = pictureURL ?? recorded.pictureURL
+        }
+        self.init(accountIdHex: peerId, displayName: displayName ?? fallbackName, pictureURL: pictureURL)
+    }
+}
+
 extension PresentedChatRowFfi {
     /// Whether the line this row previews carries a canonical `@npub1…` mention, so it needs the
     /// group's mention names to read as a person rather than as bech32.
