@@ -2024,7 +2024,8 @@
             let found =
                 resolvablePublicEvents[reference]
                 ?? PublicEventPreviewFfi(reference: reference, state: .missing, eventJson: nil, fetchedAt: nil)
-            cachedPublicEvents[reference] = found.state == .present ? found : nil
+            // One lock for the read-modify-write, so concurrent lookups cannot drop each other's entry.
+            recordedStateLock.withLock { _cachedPublicEvents[reference] = found.state == .present ? found : nil }
             return found
         }
 

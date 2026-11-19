@@ -127,7 +127,7 @@ struct NostrEventPreviewTests {
 
     @Test func anyOtherKindOnlyPointsAtTheEvent() throws {
         let list = try #require(NostrEventPreview.parse(eventJson: Self.eventJson(kind: 30000)))
-        #expect(list.body == .other(kind: 30000))
+        #expect(list.body == .other)
         #expect(NostrEventPreview.parse(eventJson: "not json") == nil)
         #expect(
             NostrEventPreview.parse(eventJson: #"{"pubkey":"x","created_at":1,"kind":1,"tags":[],"content":""}"#) == nil
@@ -182,8 +182,13 @@ struct NostrEventPreviewTests {
 
         store.load(Self.note)
 
-        #expect(await waitFor { Self.noteText(store, Self.note) == "hi" })
-        #expect(await waitFor { runtime.userProfileCallCount > 0 })
+        // A second lookup only starts once the first load, author read included, has finished.
+        #expect(
+            await waitFor {
+                store.load(Self.note)
+                return runtime.resolvedPublicEventReferences.count == 2
+            })
+        #expect(runtime.userProfileCallCount > 0)
         #expect(store.author(Self.author) == nil)
         #expect(runtime.refreshedProfileIds.isEmpty)
     }
@@ -269,23 +274,49 @@ struct NostrEventPreviewTests {
         #expect(await waitFor { Self.noteText(store, Self.note) == "kept" })
     }
 
-    /// Previews switched off while a load was waiting on the cache: the relays are not asked.
+    /// Previews switched off while a load was waiting on the cache: the relays are not asked. The
+    /// switch is read at the fetch, after the cached card is drawn, never captured when the load
+    /// started.
     @MainActor
     @Test func noRelayIsAskedOnceThePreviewsAreOff() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "cached")
-        var askedToFetch = false
-        let store = NostrEventPreviewStore(
+        var cardWhenAsked: String??
+        var store: NostrEventPreviewStore!
+        store = NostrEventPreviewStore(
             accountRef: "account", runtime: runtime,
             mayFetch: {
-                askedToFetch = true
+                cardWhenAsked = Self.noteText(store, Self.note)
                 return false
             })
 
         store.load(Self.note)
 
-        #expect(await waitFor { askedToFetch })
-        #expect(Self.noteText(store, Self.note) == "cached")
+        #expect(await waitFor { cardWhenAsked != nil })
+        #expect(cardWhenAsked == .some("cached"))
         #expect(runtime.resolvedPublicEventReferences.isEmpty)
+    }
+
+    /// A visible sender linking a blocked author's post must not bring that author back into the
+    /// transcript, and the card follows a later unblock.
+    @MainActor
+    @Test func aBlockedAuthorsPostDrawsNoCard() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "hidden")
+        var blocked: Set<String> = [Self.author]
+        let store = NostrEventPreviewStore(
+            accountRef: "account", runtime: runtime, mayFetch: { true }, isBlocked: { blocked.contains($0) })
+
+        store.load(Self.note)
+        #expect(
+            await waitFor {
+                store.load(Self.note)
+                return runtime.resolvedPublicEventReferences.count == 2
+            })
+        #expect(store.preview(for: Self.note) == nil)
+        #expect(store.author(Self.author) == nil)
+
+        blocked = []
+        #expect(Self.noteText(store, Self.note) == "hidden")
     }
 }

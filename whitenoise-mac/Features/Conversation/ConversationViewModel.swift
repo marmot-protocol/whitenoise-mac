@@ -133,6 +133,7 @@ final class ConversationViewModel {
         productAnalytics: ProductAnalyticsRecorder? = nil,
         stickers: StickerLibrary? = nil,
         emojiSets: EmojiSetLibrary? = nil,
+        isBlocked: @escaping @MainActor (_ accountIdHex: String) -> Bool = { _ in false },
         dictationEngine: DictationEngine = .live
     ) {
         self.account = account
@@ -148,7 +149,8 @@ final class ConversationViewModel {
             runtime: runtime
         )
         self.customEmojiImages = customEmojiImages
-        self.nostrEventPreviews = NostrEventPreviewStore(accountRef: account.accountRef, runtime: runtime)
+        self.nostrEventPreviews = NostrEventPreviewStore(
+            accountRef: account.accountRef, runtime: runtime, isBlocked: isBlocked)
         self.customEmojiSender = ConversationCustomEmojiSender(
             accountRef: account.accountRef, groupIdHex: groupIdHex, runtime: runtime, images: customEmojiImages)
         self.search = ConversationSearchViewModel(

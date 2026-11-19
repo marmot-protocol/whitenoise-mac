@@ -200,7 +200,8 @@ final class AccountScope {
             runtime: runtime,
             productAnalytics: productAnalytics,
             stickers: stickers,
-            emojiSets: emojiSets
+            emojiSets: emojiSets,
+            isBlocked: { [blockedUsers = self.blockedUsers] in blockedUsers.isBlocked(accountID: $0) }
         )
         let cancellation = addCancellation { [model] in model.stop() }
         conversations[groupIdHex] = (model, cancellation)

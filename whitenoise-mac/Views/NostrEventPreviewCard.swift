@@ -254,7 +254,7 @@ private struct NostrEventAuthorLine: View {
                 showsImageSlot: true
             )
             NostrEventPreviewCardContent(
-                preview: NostrEventPreview(authorIdHex: authorIdHex, createdAt: date, body: .other(kind: 30000)),
+                preview: NostrEventPreview(authorIdHex: authorIdHex, createdAt: date, body: .other),
                 author: nil,
                 image: nil,
                 showsImageSlot: true

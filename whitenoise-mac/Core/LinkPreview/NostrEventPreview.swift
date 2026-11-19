@@ -24,7 +24,7 @@ nonisolated struct NostrEventPreview: Equatable, Sendable {
         case article(title: String?, summary: String?, imageURL: URL?)
         /// Any other kind — a list, a reaction, a kind this app does not draw. The card only
         /// names the author and opens the event on njump.me.
-        case other(kind: UInt16)
+        case other
     }
 
     let authorIdHex: String
@@ -72,7 +72,7 @@ nonisolated struct NostrEventPreview: Equatable, Sendable {
                 )
             )
         default:
-            return NostrEventPreview(authorIdHex: author, createdAt: createdAt, body: .other(kind: event.kind))
+            return NostrEventPreview(authorIdHex: author, createdAt: createdAt, body: .other)
         }
     }
 

@@ -26,20 +26,27 @@ final class NostrEventPreviewStore {
     @ObservationIgnored private let accountRef: String
     @ObservationIgnored private let runtime: any MarmotRuntime
     @ObservationIgnored private let mayFetch: @MainActor () -> Bool
+    @ObservationIgnored private let isBlocked: @MainActor (_ accountIdHex: String) -> Bool
     @ObservationIgnored private var loads: [String: Task<Void, Never>] = [:]
 
     init(
         accountRef: String,
         runtime: any MarmotRuntime,
-        mayFetch: @escaping @MainActor () -> Bool = { LinkPreviewPreference.shared.showsPreviews }
+        mayFetch: @escaping @MainActor () -> Bool = { LinkPreviewPreference.shared.showsPreviews },
+        isBlocked: @escaping @MainActor (_ accountIdHex: String) -> Bool = { _ in false }
     ) {
         self.accountRef = accountRef
         self.runtime = runtime
         self.mayFetch = mayFetch
+        self.isBlocked = isBlocked
     }
 
+    /// The event to draw for `reference`, or nil. A blocked author's post never draws, the same way
+    /// the transcript strips a blocked author's quoted text: a visible sender linking it must not
+    /// bring it back. Read live, so blocking or unblocking redraws the card.
     func preview(for reference: String) -> NostrEventPreview? {
-        previews[reference]
+        guard let preview = previews[reference], !isBlocked(preview.authorIdHex) else { return nil }
+        return preview
     }
 
     func author(_ accountIdHex: String) -> Author? {
@@ -91,6 +98,7 @@ final class NostrEventPreviewStore {
             return
         }
         if previews[reference] != preview { previews[reference] = preview }
+        guard !isBlocked(preview.authorIdHex) else { return }
         await loadAuthor(preview.authorIdHex)
     }
 
