@@ -18,8 +18,9 @@ struct NostrEventPreviewCard: View {
 
     @Environment(\.openURL) private var openURL
     @Environment(\.displayScale) private var displayScale
-    @State private var image: NSImage?
-    @State private var imageFailed = false
+    /// The cover loaded for one image URL. An article is replaceable, so a refresh can name a new
+    /// one; state for another URL is never drawn.
+    @State private var cover: Cover?
     @State private var isVisible = false
 
     var body: some View {
@@ -35,8 +36,8 @@ struct NostrEventPreviewCard: View {
                     NostrEventPreviewCardContent(
                         preview: preview,
                         author: store.author(preview.authorIdHex),
-                        image: image,
-                        showsImageSlot: !imageFailed
+                        image: cover(for: preview)?.image,
+                        showsImageSlot: cover(for: preview)?.failed != true
                     )
                 }
                 .buttonStyle(.plain)
@@ -61,14 +62,25 @@ struct NostrEventPreviewCard: View {
         return imageURL
     }
 
+    private func cover(for preview: NostrEventPreview) -> Cover? {
+        guard let cover, cover.url == articleImageURL(of: preview) else { return nil }
+        return cover
+    }
+
     private func loadImage(_ url: URL?) async {
-        guard let url, image == nil, !imageFailed else { return }
+        guard let url, cover?.url != url else { return }
         let maxPixelSize = (LinkPreviewCard.maximumWidth * displayScale).rounded(.up)
         if let loaded = await RemoteImageLoader.shared.image(for: url, maxPixelSize: maxPixelSize) {
-            image = loaded.nsImage
+            cover = Cover(url: url, image: loaded.nsImage, failed: false)
         } else if !Task.isCancelled {
-            imageFailed = true
+            cover = Cover(url: url, image: nil, failed: true)
         }
+    }
+
+    private struct Cover {
+        let url: URL
+        let image: NSImage?
+        let failed: Bool
     }
 }
 

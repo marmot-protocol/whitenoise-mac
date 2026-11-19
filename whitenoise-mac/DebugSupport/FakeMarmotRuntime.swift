@@ -165,11 +165,14 @@
         private(set) var reactionAttachmentRequests: [String] = []
         /// `cachedPublicEventPreviews`: what MDK already holds, keyed by reference.
         var cachedPublicEvents: [String: PublicEventPreviewFfi] = [:]
-        /// `resolvePublicEventPreview`: what a relay fetch finds, keyed by reference. A miss
-        /// returns the cached state, or `missing`.
+        /// `resolvePublicEventPreview`: what a relay fetch finds, keyed by reference, else `missing`.
+        /// Neither dictionary is written by the fake, so concurrent reads need no lock.
         var resolvablePublicEvents: [String: PublicEventPreviewFfi] = [:]
         var resolvePublicEventError: Error?
-        private(set) var resolvedPublicEventReferences: [String] = []
+        var resolvedPublicEventReferences: [String] {
+            recordedStateLock.withLock { _resolvedPublicEventReferences }
+        }
+        private var _resolvedPublicEventReferences: [String] = []
         /// Every stored sticker pack; `installed` marks the account's installed ones.
         var stickerPackStore: [StickerPackFfi] = []
         var stickerPacksError: Error?
@@ -1994,13 +1997,9 @@
         }
 
         func resolvePublicEventPreview(accountRef: String, reference: String) async throws -> PublicEventPreviewFfi {
-            resolvedPublicEventReferences.append(reference)
+            recordedStateLock.withLock { _resolvedPublicEventReferences.append(reference) }
             if let resolvePublicEventError { throw resolvePublicEventError }
-            if let found = resolvablePublicEvents[reference] {
-                cachedPublicEvents[reference] = found
-                return found
-            }
-            return cachedPublicEvents[reference]
+            return resolvablePublicEvents[reference]
                 ?? PublicEventPreviewFfi(reference: reference, state: .missing, eventJson: nil, fetchedAt: nil)
         }
 

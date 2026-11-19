@@ -124,82 +124,122 @@ struct NostrEventPreviewTests {
 
     // MARK: - Store
 
+    private static func present(_ reference: String, content: String) -> PublicEventPreviewFfi {
+        PublicEventPreviewFfi(
+            reference: reference, state: .present, eventJson: eventJson(kind: 1, content: content), fetchedAt: 1)
+    }
+
     @MainActor
-    @Test func theStoreDrawsTheCachedEventThenTheRefreshedOneAndItsAuthor() async throws {
+    private static func noteText(_ store: NostrEventPreviewStore, _ reference: String) -> String? {
+        guard case .loaded(let preview) = store.entry(for: reference), case .note(let text) = preview.body else {
+            return nil
+        }
+        return text
+    }
+
+    @MainActor
+    @Test func theStoreDrawsTheCachedEventThenTheRefreshedOneAndItsLocalAuthor() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.cachedPublicEvents[Self.note] = PublicEventPreviewFfi(
-            reference: Self.note, state: .present, eventJson: Self.eventJson(kind: 1, content: "old"), fetchedAt: 1)
-        runtime.resolvablePublicEvents[Self.note] = PublicEventPreviewFfi(
-            reference: Self.note, state: .present, eventJson: Self.eventJson(kind: 1, content: "new"), fetchedAt: 2)
+        runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "old")
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "new")
         runtime.installProfile(
             accountIdHex: Self.author,
             profile: UserProfileMetadataFfi(
                 name: "alice", displayName: "Alice", about: nil, picture: "https://cdn.example.com/a.png", nip05: nil,
                 lud16: nil))
-        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime)
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
 
         store.load(Self.note)
         store.load(Self.note)
 
-        #expect(
-            await waitFor {
-                guard case .loaded(let preview) = store.entry(for: Self.note) else { return false }
-                return preview.body == .note(text: "new")
-            })
+        #expect(await waitFor { Self.noteText(store, Self.note) == "new" })
         #expect(runtime.resolvedPublicEventReferences == [Self.note])
         #expect(await waitFor { store.author(Self.author) != nil })
         #expect(
             store.author(Self.author)
                 == .init(name: "Alice", pictureURL: URL(string: "https://cdn.example.com/a.png")))
+    }
+
+    /// Asking relays for an author's profile would tell them whose post the viewer opened.
+    @MainActor
+    @Test func anUnknownAuthorIsNeverLookedUpOnRelays() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountIdsMissingProfiles.insert(Self.author)
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "hi")
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
+
+        store.load(Self.note)
+
+        #expect(await waitFor { Self.noteText(store, Self.note) == "hi" })
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(store.author(Self.author) == nil)
         #expect(runtime.refreshedProfileIds.isEmpty)
     }
 
     @MainActor
-    @Test func aDeletedOrMissingEventDrawsNoCard() async {
+    @Test func aDeletionRetractsTheCardForGood() async {
         let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.cachedPublicEvents[Self.note] = PublicEventPreviewFfi(
-            reference: Self.note, state: .present, eventJson: Self.eventJson(kind: 1), fetchedAt: 1)
+        runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "gone soon")
         runtime.resolvablePublicEvents[Self.note] = PublicEventPreviewFfi(
             reference: Self.note, state: .deleted, eventJson: nil, fetchedAt: nil)
-        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime)
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
 
         store.load(Self.note)
-        store.load(Self.naddr)
-
         #expect(await waitFor { store.entry(for: Self.note) == .unavailable })
-        #expect(await waitFor { store.entry(for: Self.naddr) == .unavailable })
+        store.load(Self.note)
+
+        #expect(runtime.resolvedPublicEventReferences == [Self.note])
+    }
+
+    /// A relay that timed out the first time the row was shown must not hide the card for the rest
+    /// of the conversation, and a shown card is refreshed again when it comes back on screen.
+    @MainActor
+    @Test func aMissOrAShownCardIsAskedForAgainNextTime() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
+
+        store.load(Self.note)
+        #expect(await waitFor { runtime.resolvedPublicEventReferences.count == 1 })
+        #expect(await waitFor { store.entry(for: Self.note) == nil })
+
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "found")
+        store.load(Self.note)
+        #expect(await waitFor { Self.noteText(store, Self.note) == "found" })
+
+        // The card coming back on screen, once the load that found it has finished.
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "edited")
+        #expect(
+            await waitFor {
+                store.load(Self.note)
+                return runtime.resolvedPublicEventReferences.count >= 3
+            })
+        #expect(await waitFor { Self.noteText(store, Self.note) == "edited" })
     }
 
     @MainActor
     @Test func aFailedRefreshKeepsTheCachedEvent() async {
         let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.cachedPublicEvents[Self.note] = PublicEventPreviewFfi(
-            reference: Self.note, state: .present, eventJson: Self.eventJson(kind: 1, content: "kept"), fetchedAt: 1)
+        runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "kept")
         runtime.resolvePublicEventError = MarmotKitError.StorageClosed(details: "closed")
-        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime)
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
 
         store.load(Self.note)
 
         #expect(await waitFor { !runtime.resolvedPublicEventReferences.isEmpty })
-        #expect(
-            await waitFor {
-                guard case .loaded(let preview) = store.entry(for: Self.note) else { return false }
-                return preview.body == .note(text: "kept")
-            })
+        #expect(await waitFor { Self.noteText(store, Self.note) == "kept" })
     }
 
+    /// Previews switched off while a load was waiting on the cache: the relays are not asked.
     @MainActor
-    @Test func anUnknownAuthorIsLookedUpOnRelaysOnce() async {
+    @Test func noRelayIsAskedOnceThePreviewsAreOff() async {
         let runtime = FakeMarmotRuntime(accounts: [])
-        runtime.accountIdsMissingProfiles.insert(Self.author)
-        runtime.resolvablePublicEvents[Self.note] = PublicEventPreviewFfi(
-            reference: Self.note, state: .present, eventJson: Self.eventJson(kind: 1), fetchedAt: 1)
-        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, profileRelays: ["wss://relay.test"])
+        runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "cached")
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { false })
 
         store.load(Self.note)
 
-        #expect(await waitFor { store.author(Self.author) != nil })
-        #expect(store.author(Self.author) == .init(name: nil, pictureURL: nil))
-        #expect(runtime.refreshedProfileIds == [Self.author])
+        #expect(await waitFor { Self.noteText(store, Self.note) == "cached" })
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(runtime.resolvedPublicEventReferences.isEmpty)
     }
 }
