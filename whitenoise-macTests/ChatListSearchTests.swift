@@ -33,6 +33,62 @@ struct ChatListSearchTests {
         #expect(ChatListFilter.unread.chatListView == .unread)
         #expect(ChatListFilter.archived.chatListView == .archived)
         #expect(ChatListFilter.left.chatListView == .left)
+        #expect(ChatListFilter.invites.chatListView == .chats)
+    }
+
+    /// MDK has no Invites view, so the tab is the inbox narrowed to `PendingInvite`; Select All
+    /// and bulk actions read that query instead of the whole inbox.
+    @MainActor
+    @Test func theInvitesTabIsTheInboxNarrowedToPendingInvites() {
+        #expect(ChatListFilter.invites.chatListCondition == .pendingInvite)
+        #expect(
+            ChatListFilter.invites.unfilteredQuery
+                == ChatListViewQueryFfi(view: .chats, filter: [.condition(condition: .pendingInvite)]))
+        for filter in [ChatListFilter.active, .unread, .archived, .left] {
+            #expect(filter.chatListCondition == nil)
+            #expect(filter.unfilteredQuery == ChatListSearchQuery.unfiltered(filter.chatListView))
+        }
+    }
+
+    @Test func aSearchInTheInvitesTabStillRequiresAPendingInvite() {
+        let query = ChatListSearchQuery.matches(text: " club ", view: .chats, condition: .pendingInvite)
+        #expect(
+            query
+                == ChatListViewQueryFfi(
+                    view: .chats,
+                    filter: [
+                        .all(children: [1, 2]), .condition(condition: .pendingInvite), .any(children: [3, 4]),
+                        .text(text: "club"), .messageText(text: "club"),
+                    ]
+                ))
+        #expect(ChatListSearchQuery.matches(text: " ", view: .chats, condition: .pendingInvite) == nil)
+    }
+
+    /// An invite accepted from the results stops meeting the condition, so it leaves the window.
+    @Test func theInvitesResultsWindowKeepsTheCondition() {
+        let window = ChatListSearchQuery.window(showing: ["a", "b"], view: .chats, condition: .pendingInvite)
+        #expect(
+            window.filter == [
+                .all(children: [1, 2]), .condition(condition: .pendingInvite), .groupIds(groupIds: ["a", "b"]),
+            ])
+    }
+
+    @MainActor
+    @Test func invitesSelectAllCountsOnlyPendingInvites() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        for (groupIdHex, pending) in [("invite", true), ("chat", false)] {
+            var group = messageGroup()
+            group.groupIdHex = groupIdHex
+            group.name = "Chat \(groupIdHex)"
+            group.pendingConfirmation = pending
+            runtime.installGroupDetailsRecord(GroupDetailsFfi(group: group, members: []))
+        }
+        let selection = ChatListSelectionViewModel(accountRef: "account", runtime: runtime, refreshDelay: .zero)
+        selection.updateVisibleChats(["invite"], query: ChatListFilter.invites.unfilteredQuery, isWindowed: true)
+        selection.begin(with: "invite")
+        await selection.viewIdsTask?.value
+
+        #expect(selection.selectableIds == ["invite"])
     }
 
     /// The text appears twice, and MDK allows 1024 bytes across both nodes.

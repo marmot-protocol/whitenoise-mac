@@ -70,10 +70,11 @@ final class ChatListSearchViewModel {
         self.retryDelay = retryDelay
     }
 
-    /// Runs `text` over `view`. Blank text ends the search; the same query again does nothing,
-    /// unless the last run failed, so the user can try again without editing the text.
-    func search(_ text: String, view: ChatListViewFfi) {
-        let query = ChatListSearchQuery.matches(text: text, view: view)
+    /// Runs `text` over `view`, narrowed to `condition` when the drawer's tab has one. Blank text
+    /// ends the search; the same query again does nothing, unless the last run failed, so the user
+    /// can try again without editing the text.
+    func search(_ text: String, view: ChatListViewFfi, condition: ChatListConditionFfi? = nil) {
+        let query = ChatListSearchQuery.matches(text: text, view: view, condition: condition)
         guard query != matchesQuery || phase == .failed else { return }
         cancel()
         matchesQuery = query
@@ -99,7 +100,7 @@ final class ChatListSearchViewModel {
                     try await runtime.chatListQueryIds(accountRef: accountRef, query: query)
                 }
                 try Task.checkCancellation()
-                try await self?.show(ids, for: query, runtime: runtime)
+                try await self?.show(ids, for: query, condition: condition, runtime: runtime)
             } catch is CancellationError {
                 return
             } catch {
@@ -214,14 +215,19 @@ final class ChatListSearchViewModel {
         windowSnapshot = nil
     }
 
-    private func show(_ ids: [String], for query: ChatListViewQueryFfi, runtime: any MarmotRuntime) async throws {
+    private func show(
+        _ ids: [String],
+        for query: ChatListViewQueryFfi,
+        condition: ChatListConditionFfi?,
+        runtime: any MarmotRuntime
+    ) async throws {
         guard matchesQuery == query else { return }
         matchIds = ids
         guard !ids.isEmpty else {
             phase = .ready
             return
         }
-        let windowQuery = ChatListSearchQuery.window(showing: ids, view: query.view)
+        let windowQuery = ChatListSearchQuery.window(showing: ids, view: query.view, condition: condition)
         let subscription = try await openWindow(windowQuery, runtime: runtime)
         try Task.checkCancellation()
         guard matchesQuery == query, let initial = runtime.chatListWindowSnapshot(subscription: subscription) else {

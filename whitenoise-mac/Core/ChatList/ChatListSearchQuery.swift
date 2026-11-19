@@ -13,9 +13,11 @@ nonisolated enum ChatListSearchQuery {
     /// The search window's first page; MDK accepts 1–100.
     static let windowRows: UInt32 = 100
 
-    /// A view with no filter: what `chatListIds` and `revalidateChatListIds` read.
-    static func unfiltered(_ view: ChatListViewFfi) -> ChatListViewQueryFfi {
-        ChatListViewQueryFfi(view: view, filter: [])
+    /// A view with no filter: what `chatListIds` and `revalidateChatListIds` read. With a
+    /// `condition`, the part of the view that meets it (a tab MDK has no view of its own for),
+    /// which `chatListQueryIds` and `revalidateChatListQueryIds` read instead.
+    static func unfiltered(_ view: ChatListViewFfi, condition: ChatListConditionFfi? = nil) -> ChatListViewQueryFfi {
+        ChatListViewQueryFfi(view: view, filter: condition.map { [.condition(condition: $0)] } ?? [])
     }
 
     /// The query whose ids are the search's matches: chats in `view` whose title, group name,
@@ -26,20 +28,40 @@ nonisolated enum ChatListSearchQuery {
     /// chat is not found by a nickname set only on this device. That regression is accepted. Do
     /// not "fix" it by filtering in the host again: a host filter would disagree with the ids
     /// Select All counts and bulk actions revalidate against.
-    static func matches(text: String, view: ChatListViewFfi) -> ChatListViewQueryFfi? {
+    ///
+    /// With a `condition`, a chat must also meet it: `All[condition, Any[Text, MessageText]]`.
+    static func matches(
+        text: String,
+        view: ChatListViewFfi,
+        condition: ChatListConditionFfi? = nil
+    ) -> ChatListViewQueryFfi? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let needle = truncated(trimmed, toUTF8Bytes: maxTextBytes)
+        let textNodes: [ChatListFilterNodeFfi] = [.text(text: needle), .messageText(text: needle)]
+        guard let condition else {
+            return ChatListViewQueryFfi(view: view, filter: [.any(children: [1, 2])] + textNodes)
+        }
         return ChatListViewQueryFfi(
             view: view,
-            filter: [.any(children: [1, 2]), .text(text: needle), .messageText(text: needle)]
+            filter: [.all(children: [1, 2]), .condition(condition: condition), .any(children: [3, 4])] + textNodes
         )
     }
 
     /// The window that draws the matches. A window refuses `MessageText`, so it lists the ids
-    /// the matching query returned instead, capped at `maxShownMatches`.
-    static func window(showing ids: [String], view: ChatListViewFfi) -> ChatListViewQueryFfi {
-        ChatListViewQueryFfi(view: view, filter: [.groupIds(groupIds: Array(ids.prefix(maxShownMatches)))])
+    /// the matching query returned instead, capped at `maxShownMatches`. With a `condition`, a
+    /// listed chat that stops meeting it (an invite accepted from the results) leaves the window.
+    static func window(
+        showing ids: [String],
+        view: ChatListViewFfi,
+        condition: ChatListConditionFfi? = nil
+    ) -> ChatListViewQueryFfi {
+        let listed = ChatListFilterNodeFfi.groupIds(groupIds: Array(ids.prefix(maxShownMatches)))
+        guard let condition else { return ChatListViewQueryFfi(view: view, filter: [listed]) }
+        return ChatListViewQueryFfi(
+            view: view,
+            filter: [.all(children: [1, 2]), .condition(condition: condition), listed]
+        )
     }
 
     /// `text` cut to at most `limit` UTF-8 bytes on a character boundary.
@@ -94,11 +116,25 @@ extension ChatListFilter {
     /// revalidation.
     var chatListView: ChatListViewFfi {
         switch self {
-        case .active: .chats
+        case .active, .invites: .chats
         case .unread: .unread
         case .archived: .archived
         case .left: .left
         }
+    }
+
+    /// What narrows `chatListView` to this tab, for a tab MDK has no view of its own for.
+    var chatListCondition: ChatListConditionFfi? {
+        switch self {
+        case .invites: .pendingInvite
+        case .active, .unread, .archived, .left: nil
+        }
+    }
+
+    /// The tab's whole list as an MDK query: what Select All counts and bulk actions revalidate
+    /// against when nothing is searched.
+    var unfilteredQuery: ChatListViewQueryFfi {
+        ChatListSearchQuery.unfiltered(chatListView, condition: chatListCondition)
     }
 }
 

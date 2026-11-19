@@ -118,6 +118,17 @@ final class ChatListViewModel {
             }
     }
 
+    /// The Invites tab: what MDK's `.chats` view narrowed to `PendingInvite` holds, the query that
+    /// tab's Select All and bulk actions read. Drawn from the whole list, not the inbox window, so
+    /// an invite paged out of the inbox is still listed.
+    func pendingInvites(
+        nicknames: ContactNicknames,
+        mentionNames: (String) -> MarkdownMentionNames = { _ in [:] }
+    ) -> [ChatItem] {
+        chats(view: .chats, nicknames: nicknames, useWindow: false, mentionNames: mentionNames)
+            .filter(\.pendingConfirmation)
+    }
+
     /// Every chat this account has archived, left ones included. The Left tab lists archived chats
     /// beside active ones and offers Unarchive for them, so it cannot read the flag off the
     /// Archived tab, which leaves left chats out.

@@ -3167,19 +3167,32 @@
         private func fakeChatListQueryIds(_ query: ChatListViewQueryFfi) -> [String] {
             if let scripted = chatListQueryIdsByQuery[query] { return scripted }
             if query.filter.isEmpty { return fakeChatListIds(view: query.view) }
-            guard answersTextFiltersFromTitles else { return [] }
             let needles = query.filter.compactMap { node -> String? in
                 if case .text(let text) = node { return text }
                 return nil
             }
-            guard !needles.isEmpty else { return [] }
+            let conditions = query.filter.compactMap { node -> ChatListConditionFfi? in
+                if case .condition(let condition) = node { return condition }
+                return nil
+            }
+            guard !needles.isEmpty || !conditions.isEmpty else { return [] }
+            guard needles.isEmpty || answersTextFiltersFromTitles else { return [] }
             let inView = Set(fakeChatListIds(view: query.view))
             return chatListRows(includeArchived: true)
                 .filter { row in
                     inView.contains(row.groupIdHex)
-                        && needles.contains { row.title.localizedCaseInsensitiveContains($0) }
+                        && conditions.allSatisfy { Self.fakeRow(row, meets: $0) }
+                        && (needles.isEmpty || needles.contains { row.title.localizedCaseInsensitiveContains($0) })
                 }
                 .map(\.groupIdHex)
+        }
+
+        /// The conditions the fake answers; any other never matches.
+        private static func fakeRow(_ row: ChatListRowFfi, meets condition: ChatListConditionFfi) -> Bool {
+            switch condition {
+            case .pendingInvite: row.pendingConfirmation
+            default: false
+            }
         }
 
         private func fakeChatListIds(view: ChatListViewFfi) -> [String] {
