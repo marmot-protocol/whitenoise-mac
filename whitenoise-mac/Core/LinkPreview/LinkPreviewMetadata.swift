@@ -75,7 +75,9 @@ nonisolated struct LinkPreviewMetadata: Equatable, Sendable {
         return LinkPreviewMetadata(title: title, imageURL: imageURL)
     }
 
-    private static func texts(in blocks: [MarkdownDisplayBlock]) -> [AttributedString] {
+    /// The text of every block that renders links, in reading order. Code renders as text, so it
+    /// has none.
+    static func texts(in blocks: [MarkdownDisplayBlock]) -> [AttributedString] {
         blocks.flatMap { block -> [AttributedString] in
             switch block {
             case .paragraph(let text), .heading(_, let text):

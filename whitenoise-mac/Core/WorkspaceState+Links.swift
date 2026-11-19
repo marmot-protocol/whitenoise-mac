@@ -17,6 +17,13 @@ extension WorkspaceState {
         guard MarkdownLinkPolicy.isAllowed(url) else { return .discarded }
 
         if MarkdownLinkPolicy.isInternalNostrURL(url) {
+            // A note, event or article has no in-app view: it opens on njump.me, on the user's
+            // click alone, through the same system dispatch a web link in the message uses.
+            if let reference = MarkdownLinkPolicy.nostrReference(from: url),
+                let viewerURL = MarkdownLinkPolicy.eventViewerURL(for: reference)
+            {
+                return .systemAction(viewerURL)
+            }
             Task { await handleNostrMessageLink(url) }
             return .handled
         }

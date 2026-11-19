@@ -13,8 +13,12 @@ import Foundation
 /// links are handled internally by `WorkspaceState` — every other `marmot://` form is dropped.
 nonisolated enum MarkdownLinkPolicy {
     private static let resolvableProfilePrefixes = ["npub1", "nprofile1"]
+    /// References to one public event, which open on njump.me and may be previewed in a card.
+    private static let eventReferencePrefixes = ["note1", "nevent1", "naddr1"]
     private static let recognizedNostrReferencePrefixes =
-        resolvableProfilePrefixes + ["note1", "nevent1", "naddr1", "nrelay1"]
+        resolvableProfilePrefixes + eventReferencePrefixes + ["nrelay1"]
+    /// The public web viewer an event reference opens in: the app has no in-app view of a note.
+    private static let eventViewerBaseURL = "https://njump.me/"
     /// Bech32 data alphabet — `1`, `b`, `i`, and `o` are excluded by the encoding.
     private static let bech32DataAlphabet = Set("023456789acdefghjklmnpqrstuvwxyz")
 
@@ -84,6 +88,24 @@ nonisolated enum MarkdownLinkPolicy {
         }
         let payload = normalized.dropFirst(prefix.count)
         return !payload.isEmpty && payload.allSatisfy(bech32DataAlphabet.contains)
+    }
+
+    /// The bare, lowercased `note`, `nevent` or `naddr` reference in `reference` (with or without
+    /// `nostr:`), or nil for anything else. Like a profile reference, the payload must stay inside
+    /// the bech32 alphabet, so the result is safe to put in a URL path.
+    static func eventReference(_ reference: String) -> String? {
+        var normalized = reference.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.hasPrefix("nostr:") { normalized.removeFirst("nostr:".count) }
+        guard let prefix = eventReferencePrefixes.first(where: normalized.hasPrefix) else { return nil }
+        let payload = normalized.dropFirst(prefix.count)
+        guard !payload.isEmpty, payload.allSatisfy(bech32DataAlphabet.contains) else { return nil }
+        return normalized
+    }
+
+    /// Where an event reference opens: its page on njump.me.
+    static func eventViewerURL(for reference: String) -> URL? {
+        guard let reference = eventReference(reference) else { return nil }
+        return URL(string: eventViewerBaseURL + reference)
     }
 
     /// True when `value` carries a nostr reference marker anywhere in it. Such strings must never

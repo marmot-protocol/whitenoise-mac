@@ -61,6 +61,8 @@ final class ConversationViewModel {
     let groupIdHex: String
     /// Images for this conversation's NIP-30 custom emoji, in message text and reactions.
     let customEmojiImages: CustomEmojiImageStore
+    /// The public Nostr events this conversation's messages link, for their preview cards.
+    let nostrEventPreviews: NostrEventPreviewStore
     /// The account's sticker packs and images; nil only where no account scope built this model.
     let stickers: StickerLibrary?
     /// The account's emoji sets, whose installed emoji the pickers offer.
@@ -131,6 +133,7 @@ final class ConversationViewModel {
         productAnalytics: ProductAnalyticsRecorder? = nil,
         stickers: StickerLibrary? = nil,
         emojiSets: EmojiSetLibrary? = nil,
+        isBlocked: @escaping @MainActor (_ accountIdHex: String) -> Bool = { _ in false },
         dictationEngine: DictationEngine = .live
     ) {
         self.account = account
@@ -146,6 +149,8 @@ final class ConversationViewModel {
             runtime: runtime
         )
         self.customEmojiImages = customEmojiImages
+        self.nostrEventPreviews = NostrEventPreviewStore(
+            accountRef: account.accountRef, runtime: runtime, isBlocked: isBlocked)
         self.customEmojiSender = ConversationCustomEmojiSender(
             accountRef: account.accountRef, groupIdHex: groupIdHex, runtime: runtime, images: customEmojiImages)
         self.search = ConversationSearchViewModel(
@@ -201,12 +206,14 @@ final class ConversationViewModel {
         }
     }
 
-    /// The conversation is going away: its window, and the custom emoji images still loading.
+    /// The conversation is going away: its window, and the custom emoji images and event previews
+    /// still loading.
     func stop() {
         stopWindow()
         reactionDetails?.cancel()
         reactionDetails = nil
         customEmojiImages.cancelAll()
+        nostrEventPreviews.cancelAll()
         customEmojiSender.stop()
         search.end()
         dictation.cancel()

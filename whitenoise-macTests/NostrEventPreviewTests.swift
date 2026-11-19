@@ -1,0 +1,322 @@
+import Foundation
+import MarmotKit
+import Testing
+
+@testable import whitenoise_mac
+
+struct NostrEventPreviewTests {
+    private static let author = String(repeating: "ab", count: 32)
+    private static let note = "note1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+    private static let naddr =
+        "naddr1qvzqqqr4gupzqmjxss3dld622uu8q25gywum9qtg4w4cv4064jmg20xsac2aam5nqqxnzd3cxqmrzv3exgmr2wfesqgnr8m"
+
+    private static func eventJson(
+        kind: Int, content: String = "", tags: [[String]] = [], createdAt: Int = 1_700_000_000
+    )
+        -> String
+    {
+        let object: [String: Any] = [
+            "id": String(repeating: "cd", count: 32),
+            "pubkey": author,
+            "created_at": createdAt,
+            "kind": kind,
+            "tags": tags,
+            "content": content,
+            "sig": String(repeating: "ef", count: 64),
+        ]
+        return String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+    }
+
+    private func document(_ blocks: [MarkdownDisplayBlock]) -> MarkdownDisplayDocument {
+        MarkdownDisplayDocument(
+            blocks: blocks.enumerated().map { MarkdownDisplayBlockNode(id: $0.offset, block: $0.element) },
+            truncated: false
+        )
+    }
+
+    private func linked(_ text: String, _ url: String) -> AttributedString {
+        var run = AttributedString(text)
+        run.link = URL(string: url)
+        return run
+    }
+
+    // MARK: - References and njump
+
+    @Test func onlyEventReferencesInTheBech32AlphabetBuildAnNjumpURL() {
+        #expect(
+            MarkdownLinkPolicy.eventViewerURL(for: "nostr:\(Self.note)")
+                == URL(string: "https://njump.me/\(Self.note)"))
+        #expect(
+            MarkdownLinkPolicy.eventViewerURL(for: Self.naddr.uppercased())
+                == URL(string: "https://njump.me/\(Self.naddr)"))
+        // Profiles open in-app, relays have nothing to show, and nothing outside the bech32
+        // alphabet may reach the URL path.
+        for rejected in [
+            "npub1qqqqqqqq", "nrelay1qqqqqqqq", "note1", "note1abc/../../evil", "note1abc?x=1", "nevent1abc@x.com",
+            "note1bio",
+        ] {
+            #expect(MarkdownLinkPolicy.eventViewerURL(for: rejected) == nil, "\(rejected)")
+        }
+    }
+
+    /// An inline event link leaves through the same system dispatch as a web link, aimed at njump.me,
+    /// instead of the old "not supported" status.
+    @MainActor
+    @Test func anInlineEventLinkOpensOnNjump() {
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+
+        let result = state.handleMessageLinkOpen(URL(string: "nostr:\(Self.note)")!)
+
+        #expect(String(describing: result).contains("https://njump.me/\(Self.note)"))
+        #expect(state.backgroundStatus == nil)
+    }
+
+    @Test func previewReferenceIsTheFirstLinkedEventOutsideCode() {
+        var text = AttributedString("see ")
+        text.append(linked("@bob", "nostr:npub1qqqqqqqq"))
+        text.append(linked(" a site", "https://example.com"))
+        text.append(linked(" a note", "nostr:\(Self.note)"))
+        text.append(linked(" an article", "nostr:\(Self.naddr)"))
+
+        #expect(NostrEventPreview.previewReference(in: document([.paragraph(text)])) == Self.note)
+        #expect(NostrEventPreview.previewReference(in: document([.codeBlock("nostr:\(Self.note)")])) == nil)
+        #expect(NostrEventPreview.previewReference(in: nil) == nil)
+    }
+
+    // MARK: - Parsing
+
+    @Test func aTextNoteKeepsItsLinesAndShortensReferences() throws {
+        let content = "gm\u{202E}\n\n\n\nhello nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqq\u{0007} world"
+        let preview = try #require(NostrEventPreview.parse(eventJson: Self.eventJson(kind: 1, content: content)))
+
+        #expect(preview.authorIdHex == Self.author)
+        #expect(preview.createdAt == Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(preview.body == .note(text: "gm\n\nhello npub1qqqqq...qqqq world"))
+    }
+
+    @Test func aLongNoteIsCut() throws {
+        let preview = try #require(
+            NostrEventPreview.parse(eventJson: Self.eventJson(kind: 1, content: String(repeating: "a", count: 2_000))))
+        guard case .note(let text) = preview.body else {
+            Issue.record("not a note")
+            return
+        }
+        #expect(text.count == NostrEventPreview.maximumNoteLength + 1)
+        #expect(text.hasSuffix("…"))
+    }
+
+    @Test func anArticleReadsItsTagsAndRejectsAnUnsafeImage() throws {
+        let tags = [
+            ["d", "intro"], ["title", "  Hello\n  Marmot "], ["summary", "Short\u{202E} summary"],
+            ["image", "https://cdn.example.com/cover.png"], ["published_at", "1600000000"],
+        ]
+        let preview = try #require(
+            NostrEventPreview.parse(eventJson: Self.eventJson(kind: 30023, content: "# Body", tags: tags)))
+        #expect(
+            preview.body
+                == .article(
+                    title: "Hello Marmot", summary: "Short summary",
+                    imageURL: URL(string: "https://cdn.example.com/cover.png")))
+        #expect(preview.createdAt == Date(timeIntervalSince1970: 1_600_000_000))
+
+        let local = try #require(
+            NostrEventPreview.parse(
+                eventJson: Self.eventJson(kind: 30023, tags: [["image", "https://127.0.0.1/cover.png"]])))
+        #expect(local.body == .article(title: nil, summary: nil, imageURL: nil))
+    }
+
+    @Test func anyOtherKindOnlyPointsAtTheEvent() throws {
+        let list = try #require(NostrEventPreview.parse(eventJson: Self.eventJson(kind: 30000)))
+        #expect(list.body == .other)
+        #expect(NostrEventPreview.parse(eventJson: "not json") == nil)
+        #expect(
+            NostrEventPreview.parse(eventJson: #"{"pubkey":"x","created_at":1,"kind":1,"tags":[],"content":""}"#) == nil
+        )
+    }
+
+    // MARK: - Store
+
+    private static func present(_ reference: String, content: String) -> PublicEventPreviewFfi {
+        PublicEventPreviewFfi(
+            reference: reference, state: .present, eventJson: eventJson(kind: 1, content: content), fetchedAt: 1)
+    }
+
+    @MainActor
+    private static func noteText(_ store: NostrEventPreviewStore, _ reference: String) -> String? {
+        guard case .note(let text) = store.preview(for: reference)?.body else {
+            return nil
+        }
+        return text
+    }
+
+    @MainActor
+    @Test func theStoreDrawsTheCachedEventThenTheRefreshedOneAndItsLocalAuthor() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "old")
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "new")
+        runtime.installProfile(
+            accountIdHex: Self.author,
+            profile: UserProfileMetadataFfi(
+                name: "alice", displayName: "Alice", about: nil, picture: "https://cdn.example.com/a.png", nip05: nil,
+                lud16: nil))
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
+
+        store.load(Self.note)
+        store.load(Self.note)
+
+        #expect(await waitFor { Self.noteText(store, Self.note) == "new" })
+        #expect(runtime.resolvedPublicEventReferences == [Self.note])
+        #expect(await waitFor { store.author(Self.author) != nil })
+        #expect(
+            store.author(Self.author)
+                == .init(name: "Alice", pictureURL: URL(string: "https://cdn.example.com/a.png")))
+    }
+
+    /// Asking relays for an author's profile would tell them whose post the viewer opened.
+    @MainActor
+    @Test func anUnknownAuthorIsNeverLookedUpOnRelays() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountIdsMissingProfiles.insert(Self.author)
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "hi")
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
+
+        store.load(Self.note)
+
+        // A second lookup only starts once the first load, author read included, has finished.
+        #expect(
+            await waitFor {
+                store.load(Self.note)
+                return runtime.resolvedPublicEventReferences.count == 2
+            })
+        #expect(runtime.userProfileCallCount > 0)
+        #expect(store.author(Self.author) == nil)
+        #expect(runtime.refreshedProfileIds.isEmpty)
+    }
+
+    /// Whatever MDK holds decides the card: a deletion or an event it no longer has retracts it, and
+    /// a newer version at the same address brings it back. Each lookup is held until the card it
+    /// starts from has been seen, so every step is a transition, not a starting state.
+    @MainActor
+    @Test func theCardFollowsWhatMDKHolds() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
+
+        // Cached, then deleted by its author.
+        runtime.cachedPublicEvents[Self.naddr] = Self.present(Self.naddr, content: "v1")
+        runtime.resolvablePublicEvents[Self.naddr] = PublicEventPreviewFfi(
+            reference: Self.naddr, state: .deleted, eventJson: nil, fetchedAt: nil)
+        runtime.resolvePublicEventGate.isEnabled = true
+        store.load(Self.naddr)
+        await runtime.resolvePublicEventGate.waitUntilReached()
+        #expect(Self.noteText(store, Self.naddr) == "v1")
+        runtime.resolvePublicEventGate.release()
+        #expect(await waitFor { store.preview(for: Self.naddr) == nil })
+
+        // A newer version at the same address. MDK holds nothing now, so only the lookup finds it.
+        runtime.resolvablePublicEvents[Self.naddr] = Self.present(Self.naddr, content: "v2")
+        #expect(
+            await waitFor {
+                store.load(Self.naddr)
+                return Self.noteText(store, Self.naddr) == "v2"
+            })
+
+        // MDK no longer holds it: the cached v2 shows until the lookup says so.
+        let gate = AsyncFfiGate()
+        gate.isEnabled = true
+        runtime.resolvePublicEventGate = gate
+        runtime.resolvablePublicEvents[Self.naddr] = PublicEventPreviewFfi(
+            reference: Self.naddr, state: .missing, eventJson: nil, fetchedAt: nil)
+        #expect(
+            await waitFor {
+                store.load(Self.naddr)
+                return gate.didReach
+            })
+        #expect(Self.noteText(store, Self.naddr) == "v2")
+        gate.release()
+        #expect(await waitFor { store.preview(for: Self.naddr) == nil })
+    }
+
+    /// A relay that timed out the first time the row was shown must not hide the card for the rest
+    /// of the conversation, and a shown card is refreshed again when it comes back on screen.
+    @MainActor
+    @Test func aMissOrAShownCardIsAskedForAgainNextTime() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
+
+        store.load(Self.note)
+        #expect(await waitFor { runtime.resolvedPublicEventReferences.count == 1 })
+
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "found")
+        #expect(
+            await waitFor {
+                store.load(Self.note)
+                return Self.noteText(store, Self.note) == "found"
+            })
+
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "edited")
+        #expect(
+            await waitFor {
+                store.load(Self.note)
+                return Self.noteText(store, Self.note) == "edited"
+            })
+    }
+
+    @MainActor
+    @Test func aFailedRefreshKeepsTheCachedEvent() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "kept")
+        runtime.resolvePublicEventError = MarmotKitError.StorageClosed(details: "closed")
+        let store = NostrEventPreviewStore(accountRef: "account", runtime: runtime, mayFetch: { true })
+
+        store.load(Self.note)
+
+        #expect(await waitFor { !runtime.resolvedPublicEventReferences.isEmpty })
+        #expect(await waitFor { Self.noteText(store, Self.note) == "kept" })
+    }
+
+    /// Previews switched off while a load was waiting on the cache: the relays are not asked. The
+    /// switch is read at the fetch, after the cached card is drawn, never captured when the load
+    /// started.
+    @MainActor
+    @Test func noRelayIsAskedOnceThePreviewsAreOff() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.cachedPublicEvents[Self.note] = Self.present(Self.note, content: "cached")
+        var cardWhenAsked: String??
+        var store: NostrEventPreviewStore!
+        store = NostrEventPreviewStore(
+            accountRef: "account", runtime: runtime,
+            mayFetch: {
+                cardWhenAsked = Self.noteText(store, Self.note)
+                return false
+            })
+
+        store.load(Self.note)
+
+        #expect(await waitFor { cardWhenAsked != nil })
+        #expect(cardWhenAsked == .some("cached"))
+        #expect(runtime.resolvedPublicEventReferences.isEmpty)
+    }
+
+    /// A visible sender linking a blocked author's post must not bring that author back into the
+    /// transcript, and the card follows a later unblock.
+    @MainActor
+    @Test func aBlockedAuthorsPostDrawsNoCard() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.resolvablePublicEvents[Self.note] = Self.present(Self.note, content: "hidden")
+        var blocked: Set<String> = [Self.author]
+        let store = NostrEventPreviewStore(
+            accountRef: "account", runtime: runtime, mayFetch: { true }, isBlocked: { blocked.contains($0) })
+
+        store.load(Self.note)
+        #expect(
+            await waitFor {
+                store.load(Self.note)
+                return runtime.resolvedPublicEventReferences.count == 2
+            })
+        #expect(store.preview(for: Self.note) == nil)
+        #expect(store.author(Self.author) == nil)
+
+        blocked = []
+        #expect(Self.noteText(store, Self.note) == "hidden")
+    }
+}

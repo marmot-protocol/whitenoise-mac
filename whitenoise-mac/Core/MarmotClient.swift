@@ -147,6 +147,13 @@ nonisolated protocol MarmotRuntime: Sendable {
     func reactionAttachment(
         accountRef: String, groupIdHex: String, reactionMessageIdHex: String
     ) async throws -> AttachmentEntryFfi?
+    /// Verified public events a message references (`note`, `nevent`, `naddr`), as MDK holds them
+    /// now: no network, at most 16 references, one result each in input order. A cold call may
+    /// open the account's encrypted cache, so call it off the main actor.
+    func cachedPublicEventPreviews(accountRef: String, references: [String]) throws -> [PublicEventPreviewFfi]
+    /// Fetches one referenced public event from relays when it is missing or stale, then returns
+    /// its local state. Queries the reference's relay hints, so only on the viewer's opt-in.
+    func resolvePublicEventPreview(accountRef: String, reference: String) async throws -> PublicEventPreviewFfi
     /// Sonar sticker packs (kind 30031) from MDK's encrypted local projection. A synchronous
     /// storage read: call it off the main actor.
     func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws
@@ -962,6 +969,14 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
     ) async throws -> AttachmentEntryFfi? {
         try await marmot.reactionAttachment(
             accountRef: accountRef, groupIdHex: groupIdHex, reactionMessageIdHex: reactionMessageIdHex)
+    }
+
+    func cachedPublicEventPreviews(accountRef: String, references: [String]) throws -> [PublicEventPreviewFfi] {
+        try marmot.cachedPublicEventPreviews(accountRef: accountRef, references: references)
+    }
+
+    func resolvePublicEventPreview(accountRef: String, reference: String) async throws -> PublicEventPreviewFfi {
+        try await marmot.resolvePublicEventPreview(accountRef: accountRef, reference: reference)
     }
 
     func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws

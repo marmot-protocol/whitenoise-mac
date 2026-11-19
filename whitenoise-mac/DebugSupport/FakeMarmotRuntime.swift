@@ -163,6 +163,33 @@
         /// `reactionAttachment`, keyed by reaction message id.
         var reactionAttachments: [String: AttachmentEntryFfi] = [:]
         private(set) var reactionAttachmentRequests: [String] = []
+        /// `cachedPublicEventPreviews`: what MDK already holds, keyed by reference. Under the
+        /// recorder lock, like the other event-preview state: the FFI queue reads it while a test
+        /// may be changing it.
+        var cachedPublicEvents: [String: PublicEventPreviewFfi] {
+            get { recordedStateLock.withLock { _cachedPublicEvents } }
+            set { recordedStateLock.withLock { _cachedPublicEvents = newValue } }
+        }
+        private var _cachedPublicEvents: [String: PublicEventPreviewFfi] = [:]
+        /// Parks the next `resolvePublicEventPreview` while armed. One-shot, like every `AsyncFfiGate`:
+        /// assign a fresh one to hold a later call.
+        var resolvePublicEventGate: AsyncFfiGate {
+            get { recordedStateLock.withLock { _resolvePublicEventGate } }
+            set { recordedStateLock.withLock { _resolvePublicEventGate = newValue } }
+        }
+        private var _resolvePublicEventGate = AsyncFfiGate()
+        /// `resolvePublicEventPreview`: what a relay fetch finds, keyed by reference, else `missing`.
+        /// Like MDK, the answer replaces what `cachedPublicEventPreviews` returns next.
+        var resolvablePublicEvents: [String: PublicEventPreviewFfi] {
+            get { recordedStateLock.withLock { _resolvablePublicEvents } }
+            set { recordedStateLock.withLock { _resolvablePublicEvents = newValue } }
+        }
+        private var _resolvablePublicEvents: [String: PublicEventPreviewFfi] = [:]
+        var resolvePublicEventError: Error?
+        var resolvedPublicEventReferences: [String] {
+            recordedStateLock.withLock { _resolvedPublicEventReferences }
+        }
+        private var _resolvedPublicEventReferences: [String] = []
         /// Every stored sticker pack; `installed` marks the account's installed ones.
         var stickerPackStore: [StickerPackFfi] = []
         var stickerPacksError: Error?
@@ -598,7 +625,11 @@
         /// Number of times `userProfile` was queried — used to assert settings-load coalescing
         /// (issue #4 regression): overlapping `loadSettingsData()` calls for the same account must
         /// not duplicate the per-account profile fetch.
-        private(set) var userProfileCallCount = 0
+        /// Read from the FFI queue by concurrent callers, so it counts under the recorder lock.
+        var userProfileCallCount: Int {
+            recordedStateLock.withLock { _userProfileCallCount }
+        }
+        private var _userProfileCallCount = 0
         private(set) var accountRelayListsCallCount = 0
         /// Per-group call count for `groupDetails`, used to assert chat-list enrichment runs
         /// through the incremental per-row path (issue #40 regression).
@@ -1028,7 +1059,7 @@
         }
 
         func userProfile(accountIdHex: String) throws -> UserProfileMetadataFfi? {
-            userProfileCallCount += 1
+            recordedStateLock.withLock { _userProfileCallCount += 1 }
             recordSyncCall("userProfile")
             // Test-only hook fired inside the off-main profile-resolution batch, used to
             // simulate a slow batch advancing the wall clock so the post-FFI cache stamp can
@@ -1982,6 +2013,27 @@
         ) async throws -> AttachmentEntryFfi? {
             reactionAttachmentRequests.append(reactionMessageIdHex)
             return reactionAttachments[reactionMessageIdHex]
+        }
+
+        func cachedPublicEventPreviews(accountRef: String, references: [String]) throws
+            -> [PublicEventPreviewFfi]
+        {
+            references.map { reference in
+                cachedPublicEvents[reference]
+                    ?? PublicEventPreviewFfi(reference: reference, state: .missing, eventJson: nil, fetchedAt: nil)
+            }
+        }
+
+        func resolvePublicEventPreview(accountRef: String, reference: String) async throws -> PublicEventPreviewFfi {
+            recordedStateLock.withLock { _resolvedPublicEventReferences.append(reference) }
+            await resolvePublicEventGate.passIfArmed()
+            if let resolvePublicEventError { throw resolvePublicEventError }
+            let found =
+                resolvablePublicEvents[reference]
+                ?? PublicEventPreviewFfi(reference: reference, state: .missing, eventJson: nil, fetchedAt: nil)
+            // One lock for the read-modify-write, so concurrent lookups cannot drop each other's entry.
+            recordedStateLock.withLock { _cachedPublicEvents[reference] = found.state == .present ? found : nil }
+            return found
         }
 
         func stickerPacks(accountRef: String, installedOnly: Bool, search: String?, limit: UInt32?) throws
