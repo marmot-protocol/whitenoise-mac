@@ -12,7 +12,9 @@ struct NostrEventPreviewCardTests {
     nonisolated private static let author = String(repeating: "ab", count: 32)
     nonisolated private static let note = "note1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
 
-    nonisolated private static func event(kind: Int, content: String = "", tags: [[String]] = []) -> PublicEventPreviewFfi {
+    nonisolated private static func event(
+        kind: Int, content: String = "", tags: [[String]] = []
+    ) -> PublicEventPreviewFfi {
         let object: [String: Any] = [
             "id": String(repeating: "cd", count: 32), "pubkey": author, "created_at": 1_700_000_000,
             "kind": kind, "tags": tags, "content": content, "sig": String(repeating: "ef", count: 64),
