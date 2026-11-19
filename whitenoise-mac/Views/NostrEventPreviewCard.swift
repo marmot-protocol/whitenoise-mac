@@ -79,6 +79,9 @@ struct NostrEventPreviewCard: View {
         guard let url, cover?.url != url else { return }
         let maxPixelSize = (LinkPreviewCard.maximumWidth * displayScale).rounded(.up)
         if let loaded = await RemoteImageLoader.shared.image(for: url, maxPixelSize: maxPixelSize) {
+            // A cached image comes back even to a cancelled task; one whose URL was replaced must not
+            // overwrite the current cover.
+            guard !Task.isCancelled else { return }
             cover = Cover(url: url, image: loaded.nsImage, failed: false)
         } else if !Task.isCancelled {
             cover = Cover(url: url, image: nil, failed: true)
