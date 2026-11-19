@@ -69,6 +69,27 @@ struct ChatListSelectionTests {
         #expect(ChatListSelection.leaveTargets([member, ending]).map(\.id) == ["member", "ending"])
     }
 
+    /// Delete is offered only when it is right for every selected chat — the iOS rule — so a mixed
+    /// selection never drops a chat the user still belongs to.
+    @Test func bulkDeleteIsOfferedOnlyWhenEverySelectedChatIsAlreadyLeft() {
+        let left = selectionChat("left", selfMembership: .left)
+        let removed = selectionChat("removed", selfMembership: .removed)
+        let member = selectionChat("member")
+        let ended = ChatItem(
+            id: "ended", title: "Ended", subtitle: "", preview: "", updatedAt: nil, avatarSeed: "ended",
+            pictureURL: nil, unreadCount: 0, lifecycle: .ended
+        )
+        let ending = ChatItem(
+            id: "ending", title: "Ending", subtitle: "", preview: "", updatedAt: nil, avatarSeed: "ending",
+            pictureURL: nil, unreadCount: 0, lifecycle: .ending
+        )
+
+        #expect(ChatListSelection.canDeleteLocally([left, removed, ended]))
+        #expect(!ChatListSelection.canDeleteLocally([]))
+        #expect(!ChatListSelection.canDeleteLocally([left, member]))
+        #expect(!ChatListSelection.canDeleteLocally([left, ending]))
+    }
+
     @Test func muteDurationsMatchTheRowMenu() {
         #expect(
             ChatMuteDuration.allCases.map(\.titleKey) == [
@@ -134,9 +155,9 @@ struct ChatListSelectionTests {
     @MainActor
     @Test func bulkArchiveArchivesEveryChatThenEndsSelection() async throws {
         let runtime = selectionRuntime(groupIds: ["a", "b", "c"])
-        var changes: [Set<String>] = []
-        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime) { departed in
-            changes.append(departed)
+        var changes: [ChatListBatchChanges] = []
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime) { change in
+            changes.append(change)
         }
         model.updateVisibleChats(["a", "b", "c"])
         model.begin(with: "a")
@@ -147,7 +168,7 @@ struct ChatListSelectionTests {
         await task.value
 
         #expect(runtime.setGroupArchivedCallCount == 2)
-        #expect(changes == [[]])
+        #expect(changes == [.none])
         #expect(!model.isActive)
         #expect(!model.isBusy)
         #expect(model.alert == nil)
@@ -191,8 +212,9 @@ struct ChatListSelectionTests {
     @Test func bulkLeaveAsksOnceThenLeavesEveryChat() async throws {
         let runtime = selectionRuntime(groupIds: ["a", "b"])
         var departedChats = Set<String>()
-        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime) { departed in
-            departedChats.formUnion(departed)
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime) { change in
+            departedChats.formUnion(change.departedGroupIds)
+            #expect(change.deletedGroupIds.isEmpty)
         }
         let chats = [selectionChat("a"), selectionChat("b")]
         model.updateVisibleChats(chats.map(\.id))
@@ -619,7 +641,168 @@ struct ChatListSelectionTests {
     }
 }
 
+// MARK: - Bulk delete
+
+extension ChatListSelectionTests {
+    @MainActor
+    @Test func bulkDeleteAsksOnceThenDeletesEveryLeftChat() async throws {
+        let runtime = leftChatsRuntime(groupIds: ["a", "b", "c"])
+        var changes: [ChatListBatchChanges] = []
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime) { change in
+            changes.append(change)
+        }
+        let chats = ["a", "b", "c"].map { selectionChat($0, selfMembership: .left) }
+        model.updateVisibleChats(chats.map(\.id), query: ChatListSearchQuery.unfiltered(.left))
+        model.begin(with: "c")
+        model.toggle("a")
+
+        #expect(model.requestDelete(chats))
+
+        // Asking deletes nothing; the confirmation carries the selection in list order.
+        let confirmation = try #require(model.pendingDelete)
+        #expect(confirmation.groupIds == ["a", "c"])
+        #expect(runtime.deleteGroupLocalCallCount == 0)
+
+        let task = try #require(model.confirmDelete(confirmation))
+        #expect(model.operation == .deleting)
+        #expect(model.pendingDelete == nil)
+        await task.value
+
+        #expect(runtime.locallyDeletedGroupIds == ["a", "c"])
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(changes == [ChatListBatchChanges(deletedGroupIds: ["a", "c"])])
+        #expect(runtime.revalidateChatListIdsCalls.last?.view == .left)
+        #expect(!model.isActive)
+        #expect(!model.isBusy)
+        #expect(model.alert == nil)
+    }
+
+    @MainActor
+    @Test func aSelectionWithAChatStillJoinedIsNeverAskedToDelete() async throws {
+        let runtime = leftChatsRuntime(groupIds: ["a"])
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        let chats = [selectionChat("a", selfMembership: .left), selectionChat("b")]
+        model.updateVisibleChats(chats.map(\.id))
+        model.begin(with: "a")
+        model.toggle("b")
+
+        #expect(!model.requestDelete(chats))
+        #expect(model.pendingDelete == nil)
+        #expect(runtime.deleteGroupLocalCallCount == 0)
+    }
+
+    /// A selected chat the bar could not resolve to a row was never checked, so it is not deleted
+    /// on the strength of the others.
+    @MainActor
+    @Test func aSelectedChatWithNoRowIsNeverAskedToDelete() async throws {
+        let runtime = leftChatsRuntime(groupIds: ["a", "b"])
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        model.updateVisibleChats(["a", "b"], query: ChatListSearchQuery.unfiltered(.left))
+        model.begin(with: "a")
+        model.toggle("b")
+
+        #expect(!model.requestDelete([selectionChat("a", selfMembership: .left)]))
+        #expect(model.pendingDelete == nil)
+        #expect(model.selectedIds == ["a", "b"])
+    }
+
+    @MainActor
+    @Test func failedDeletesStaySelectedAndAreReportedTogether() async throws {
+        let runtime = leftChatsRuntime(groupIds: ["a", "b", "c"])
+        runtime.deleteGroupLocalFailingIds = ["b", "c"]
+        var changes: [ChatListBatchChanges] = []
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime) { change in
+            changes.append(change)
+        }
+        let chats = ["a", "b", "c"].map { selectionChat($0, selfMembership: .left) }
+        model.updateVisibleChats(chats.map(\.id), query: ChatListSearchQuery.unfiltered(.left))
+        model.begin(with: "a")
+        model.toggleAll()
+        #expect(model.requestDelete(chats))
+        let confirmation = try #require(model.pendingDelete)
+
+        await model.confirmDelete(confirmation)?.value
+
+        // The chat that went is reported, so an open conversation on it still closes.
+        #expect(changes == [ChatListBatchChanges(deletedGroupIds: ["a"])])
+        #expect(model.isActive)
+        #expect(model.selectedIds == ["b", "c"])
+        #expect(model.alert?.title == L10n.string("Couldn't delete chat"))
+        #expect(model.alert?.message == L10n.plural("%lld chats remain. Try again.", Int64(2)))
+    }
+
+    /// A chat can leave the Left view between the confirmation and the click — re-added to its
+    /// group — and must then not be deleted.
+    @MainActor
+    @Test func confirmingADeleteSkipsChatsThatLeftTheViewSinceTheConfirmation() async throws {
+        let runtime = leftChatsRuntime(groupIds: ["a", "b"])
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        let chats = ["a", "b"].map { selectionChat($0, selfMembership: .left) }
+        model.updateVisibleChats(chats.map(\.id), query: ChatListSearchQuery.unfiltered(.left))
+        model.begin(with: "a")
+        model.toggle("b")
+        #expect(model.requestDelete(chats))
+        let confirmation = try #require(model.pendingDelete)
+
+        runtime.chatListIdsByView[.left] = ["b"]
+        await model.confirmDelete(confirmation)?.value
+
+        #expect(runtime.locallyDeletedGroupIds == ["b"])
+        #expect(!model.isActive)
+    }
+
+    /// Revalidation answers from the view, which may still list a chat re-added to its group while
+    /// the dialog was open; the chat's current row is what stops the delete.
+    @MainActor
+    @Test func confirmingADeleteSkipsChatsRejoinedSinceTheConfirmation() async throws {
+        let runtime = leftChatsRuntime(groupIds: ["a", "b"])
+        var changes: [ChatListBatchChanges] = []
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime) { change in
+            changes.append(change)
+        }
+        let chats = ["a", "b"].map { selectionChat($0, selfMembership: .left) }
+        model.updateVisibleChats(chats.map(\.id), query: ChatListSearchQuery.unfiltered(.left))
+        model.begin(with: "a")
+        model.toggle("b")
+        #expect(model.requestDelete(chats))
+        let confirmation = try #require(model.pendingDelete)
+
+        // `leftChatsRuntime` pins the Left view's ids, so "a" still passes revalidation.
+        var rejoined = messageGroup(selfMembership: .member)
+        rejoined.groupIdHex = "a"
+        runtime.installGroupDetailsRecord(GroupDetailsFfi(group: rejoined, members: []))
+        await model.confirmDelete(confirmation)?.value
+
+        #expect(runtime.locallyDeletedGroupIds == ["b"])
+        #expect(changes == [ChatListBatchChanges(deletedGroupIds: ["b"])])
+        #expect(model.alert == nil)
+        #expect(!model.isActive)
+    }
+
+    @MainActor
+    @Test func endingSelectionForgetsAPendingDelete() async throws {
+        let runtime = leftChatsRuntime(groupIds: ["a"])
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        model.updateVisibleChats(["a"], query: ChatListSearchQuery.unfiltered(.left))
+        model.begin(with: "a")
+        #expect(model.requestDelete([selectionChat("a", selfMembership: .left)]))
+
+        model.end()
+
+        #expect(model.pendingDelete == nil)
+        #expect(runtime.deleteGroupLocalCallCount == 0)
+    }
+}
+
 // MARK: - Fixtures
+
+/// Groups this account has left, listed in MDK's Left view.
+@MainActor
+private func leftChatsRuntime(groupIds: [String]) -> FakeMarmotRuntime {
+    let runtime = selectionRuntime(groupIds: groupIds, selfMembership: .left)
+    runtime.chatListIdsByView[.left] = groupIds
+    return runtime
+}
 
 private struct ChatListSelectionTestError: Error {}
 
@@ -650,11 +833,12 @@ private func selectionChat(
 private func selectionRuntime(
     groupIds: [String],
     soleAdminIds: Set<String> = [],
-    stepDownIds: Set<String> = []
+    stepDownIds: Set<String> = [],
+    selfMembership: SelfMembershipFfi = .member
 ) -> FakeMarmotRuntime {
     let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
     for groupIdHex in groupIds {
-        var group = messageGroup()
+        var group = messageGroup(selfMembership: selfMembership)
         group.groupIdHex = groupIdHex
         let isSoleAdmin = soleAdminIds.contains(groupIdHex)
         let stepsDown = isSoleAdmin || stepDownIds.contains(groupIdHex)

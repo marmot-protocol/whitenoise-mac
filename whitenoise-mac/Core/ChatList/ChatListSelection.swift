@@ -73,6 +73,24 @@ nonisolated enum ChatListSelection {
     static func leaveTargets(_ chats: [ChatItem], endingGroupIds: Set<String> = []) -> [ChatItem] {
         chats.filter { ChatDestructiveActions.action(for: $0) == .leave && !endingGroupIds.contains($0.id) }
     }
+
+    /// Whether the selection can be deleted from this device in one go: only when every selected
+    /// chat is one whose row would offer Delete itself — membership ended, or the group ended — so
+    /// a mixed selection never exposes a delete that is wrong for some of its chats. The same rule
+    /// as iOS's `ChatListSelection.canDeleteLocally`.
+    static func canDeleteLocally(_ chats: [ChatItem]) -> Bool {
+        !chats.isEmpty && chats.allSatisfy { ChatDestructiveActions.action(for: $0) == .deleteLocally }
+    }
+
+    /// The same rule for one chat as MDK has it now, for a delete that runs after its confirmation:
+    /// a chat re-added to its group while the dialog was open no longer qualifies.
+    static func canDeleteLocally(_ row: ChatListRowFfi) -> Bool {
+        ChatDestructiveActions.action(
+            membership: ChatSelfMembership(row.selfMembership),
+            leaveRequestPending: row.leaveRequestPending,
+            lifecycle: GroupLifecycle(lifecycleState: row.lifecycleState, disbanding: row.disbanding)
+        ) == .deleteLocally
+    }
 }
 
 /// What the chat list is showing, as the selection needs it: the MDK query behind it (a view, plus
