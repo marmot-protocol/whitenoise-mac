@@ -105,6 +105,14 @@ final class CustomEmojiImageStore {
         return CustomEmojiBuiltinImages.image(for: shortcode)
     }
 
+    /// The image for a reaction this device is still sending: the one it is uploading, when this
+    /// chat already drew it, else the built-in it is. Nothing is fetched for it.
+    func pendingReactionImage(for emoji: CustomEmojiSendable) -> NSImage? {
+        if let image = images[emoji.plaintextSha256] { return image }
+        guard case .builtin(let builtin) = emoji.artwork else { return nil }
+        return CustomEmojiBuiltinImages.image(for: builtin.shortcode)
+    }
+
     /// Names the image this device attached to its own reaction, under the ids MDK returned for
     /// it. Right after the send MDK may not link the kind-7 to its image yet, and a miss is only
     /// looked up again after `unresolvedReactionRetryInterval`.
@@ -122,6 +130,12 @@ final class CustomEmojiImageStore {
     func load(_ reference: MediaAttachmentReferenceFfi) {
         let key = Self.key(for: reference)
         guard images[key] == nil, !unavailable.contains(key), loading[key] == nil else { return }
+        // A built-in's bytes ship in the bundle, and the digest proves the attachment is exactly
+        // them: draw it now rather than after a disk read and a Blossom round trip.
+        if let builtin = CustomEmojiBuiltinImages.image(plaintextSha256: key) {
+            images[key] = builtin
+            return
+        }
         loading[key] = Task { [weak self] in
             await self?.fetch(reference, key: key)
         }

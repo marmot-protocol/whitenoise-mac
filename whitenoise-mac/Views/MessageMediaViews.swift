@@ -359,9 +359,9 @@ struct MessageBubble: View {
                 bubbleContent
             }
 
-            if message.supportsChatActions && !message.reactions.isEmpty {
+            if message.supportsChatActions && !displayedReactions.isEmpty {
                 MessageReactionChips(
-                    reactions: message.reactions,
+                    reactions: displayedReactions,
                     omittedKinds: message.omittedReactionKinds,
                     emojiImages: reactionEmojiImages
                 ) { emoji in
@@ -679,10 +679,28 @@ struct MessageBubble: View {
         )
     }
 
+    /// Custom emoji reactions this device is still sending to this message.
+    private var pendingCustomReactions: [CustomEmojiSendable] {
+        conversationModel.customEmojiSender.pendingReactions(on: message.id)
+    }
+
+    /// The window's reactions plus the custom emoji reactions still being sent, so a pick shows at
+    /// once instead of after its image uploads.
+    private var displayedReactions: [MessageReaction] {
+        PendingCustomEmojiReactions.merge(message.reactions, pending: pendingCustomReactions)
+    }
+
+    /// A pending reaction's image stands in until the window's own reaction resolves its artwork,
+    /// so the chip never falls back to its literal `:shortcode:` in between.
     private var reactionEmojiImages: [String: NSImage] {
-        message.reactions.reduce(into: [:]) { images, reaction in
-            images[reaction.emoji] = customEmojiImages.reactionImage(for: reaction)
+        var images: [String: NSImage] = [:]
+        for emoji in pendingCustomReactions {
+            images[emoji.token] = customEmojiImages.pendingReactionImage(for: emoji)
         }
+        for reaction in message.reactions {
+            if let image = customEmojiImages.reactionImage(for: reaction) { images[reaction.emoji] = image }
+        }
+        return images
     }
 
     /// The pill rides the caption bubble when there is one and the media card when there is not.

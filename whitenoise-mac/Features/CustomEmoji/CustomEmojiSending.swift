@@ -97,6 +97,14 @@ enum CustomEmojiBuiltinImages {
         decoded[shortcode] = image
         return image
     }
+
+    /// The bundled image whose bytes have this plaintext digest, whatever shortcode names it. An
+    /// attachment carrying a built-in's exact bytes needs no download: they are already here.
+    static func image(plaintextSha256: String) -> NSImage? {
+        let digest = plaintextSha256.lowercased()
+        guard let builtin = CustomEmojiBuiltins.all.first(where: { $0.plaintextSha256 == digest }) else { return nil }
+        return image(for: builtin.shortcode)
+    }
 }
 
 nonisolated enum CustomEmojiDigest {

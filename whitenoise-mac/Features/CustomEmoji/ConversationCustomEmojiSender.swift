@@ -27,6 +27,14 @@ final class ConversationCustomEmojiSender {
 
     var isSending: Bool { state == .sending }
 
+    /// Custom emoji reactions still uploading or sending, by target message id, in pick order.
+    /// The message draws them as the account's own until the conversation window carries them.
+    private(set) var pendingReactions: [String: [CustomEmojiSendable]] = [:]
+
+    func pendingReactions(on targetMessageId: String) -> [CustomEmojiSendable] {
+        pendingReactions[targetMessageId] ?? []
+    }
+
     /// How many uploaded references stay cached.
     static let uploadLimit = 64
 
@@ -72,8 +80,15 @@ final class ConversationCustomEmojiSender {
         }
     }
 
-    /// Reacts with one custom emoji, showing a failure in the same notice.
+    /// Reacts with one custom emoji, showing a failure in the same notice. The reaction draws on
+    /// its message from the pick until the send settles; a second pick of the same emoji while it
+    /// is in flight is dropped. On success the sent reaction's image is already recorded, so the
+    /// window's row takes over with no gap.
     func react(with emoji: CustomEmojiSendable, to targetMessageId: String) async {
+        guard !isStopped, !pendingReactions(on: targetMessageId).contains(where: { $0.token == emoji.token })
+        else { return }
+        pendingReactions[targetMessageId, default: []].append(emoji)
+        defer { removePendingReaction(emoji, on: targetMessageId) }
         do {
             try await sendReaction(emoji, to: targetMessageId)
             if case .failed = state { state = .idle }
@@ -97,6 +112,7 @@ final class ConversationCustomEmojiSender {
 
     func stop() {
         isStopped = true
+        pendingReactions.removeAll()
         for task in inFlight.values { task.cancel() }
         inFlight.removeAll()
     }
@@ -151,6 +167,12 @@ final class ConversationCustomEmojiSender {
             }
             self.images?.recordOwnReaction(messageIds: summary.messageIds, reference: reference)
         }
+    }
+
+    private func removePendingReaction(_ emoji: CustomEmojiSendable, on targetMessageId: String) {
+        guard var pending = pendingReactions[targetMessageId] else { return }
+        pending.removeAll { $0.token == emoji.token }
+        pendingReactions[targetMessageId] = pending.isEmpty ? nil : pending
     }
 
     private func retryingOnceWhenStale(_ attempt: () async throws -> Void) async throws {

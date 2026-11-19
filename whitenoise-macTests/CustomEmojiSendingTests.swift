@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MarmotKit
 import Testing
@@ -42,6 +43,20 @@ struct CustomEmojiSendingTests {
             eventIdHex: String(repeating: "e", count: 64), createdAt: 0, title: "Set", description: nil,
             imageUrl: nil, emoji: shortcodes.map { EmojiSetEmojiFfi(shortcode: $0, url: "https://x.invalid/\($0)") },
             skipped: [], skippedCount: 0, installed: nil)
+    }
+
+    private static func png() throws -> Data {
+        let bitmap = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8, bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        return try #require(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    private static func builtinSendable(_ token: String) throws -> CustomEmojiSendable {
+        try #require(
+            CustomEmojiSendCatalog.sendable(
+                forReaction: token, in: CustomEmojiSendCatalog.sendables(installed: [], chat: [])))
     }
 
     // MARK: - Built-ins
@@ -273,18 +288,107 @@ struct CustomEmojiSendingTests {
         #expect(runtime.downloadMediaCallCount == 0)
     }
 
+    /// Someone else's `:marmot:` carries the same bytes the app bundles, so it draws at once
+    /// instead of after a disk read and a media-server download.
+    @MainActor
+    @Test func anAttachmentWithABuiltinsBytesDrawsWithoutADownload() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let images = CustomEmojiImageStore(
+            accountId: "account", accountRef: "account", groupIdHex: Self.group, runtime: runtime,
+            diskCache: .makeIsolated())
+        let marmot = try #require(CustomEmojiBuiltins.builtin("marmot"))
+        // Named otherwise on purpose: the digest, not the shortcode, says it is the built-in.
+        let reference = Self.reference("renamed", plaintext: marmot.data)
+
+        images.load(reference)
+
+        #expect(images.image(for: reference) != nil)
+        #expect(!images.isUnavailable(reference))
+        await Task.yield()
+        #expect(runtime.downloadMediaCallCount == 0)
+    }
+
+    /// A custom reaction draws on its message from the pick, not once its image has uploaded,
+    /// and gives way to the window's own reaction when the send settles.
+    @MainActor
+    @Test func aCustomReactionShowsWhileItsImageIsStillUploading() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let images = CustomEmojiImageStore(
+            accountId: "account", accountRef: "account", groupIdHex: Self.group, runtime: runtime,
+            diskCache: .makeIsolated())
+        let sender = ConversationCustomEmojiSender(
+            accountRef: "account", groupIdHex: Self.group, runtime: runtime, images: images)
+        let marmot = try Self.builtinSendable(":marmot:")
+        await runtime.uploadReleaseGate.hold("marmot.png")
+
+        let send = Task { await sender.react(with: marmot, to: "target") }
+        #expect(await waitFor { runtime.uploadMediaCallCount == 1 })
+
+        #expect(sender.pendingReactions(on: "target") == [marmot])
+        #expect(images.pendingReactionImage(for: marmot) != nil)
+        let shown = PendingCustomEmojiReactions.merge([], pending: sender.pendingReactions(on: "target"))
+        #expect(shown == [MessageReaction(emoji: ":marmot:", count: 1, isOwn: true)])
+        #expect(runtime.mediaReactions.isEmpty)
+
+        // A second pick while the first is in flight sends nothing more.
+        await sender.react(with: marmot, to: "target")
+        #expect(runtime.uploadMediaCallCount == 1)
+
+        await runtime.uploadReleaseGate.release("marmot.png")
+        await send.value
+
+        #expect(sender.pendingReactions(on: "target").isEmpty)
+        #expect(runtime.mediaReactions.count == 1)
+        let sent = MessageReaction(emoji: ":marmot:", count: 1, isOwn: true, reactionMessageIdHex: "media-reaction-1")
+        #expect(images.reactionImage(for: sent) != nil)
+    }
+
+    @MainActor
+    @Test func aFailedCustomReactionStopsShowing() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.reactWithMediaError = MarmotKitError.StorageClosed(details: "closed")
+        let sender = ConversationCustomEmojiSender(accountRef: "account", groupIdHex: Self.group, runtime: runtime)
+
+        await sender.react(with: try Self.builtinSendable(":wn:"), to: "target")
+
+        #expect(sender.pendingReactions(on: "target").isEmpty)
+        #expect(sender.errorMessage != nil)
+    }
+
+    @Test func aPendingReactionCountsInOnceAndNeverTwice() throws {
+        let marmot = try Self.builtinSendable(":marmot:")
+        let wn = try Self.builtinSendable(":wn:")
+        let others = MessageReaction(
+            emoji: ":marmot:", count: 2, isOwn: false, senders: ["a", "b"], reactionMessageIdHex: "r1")
+        let thumbs = MessageReaction(emoji: "👍", count: 1, isOwn: false)
+
+        let merged = PendingCustomEmojiReactions.merge([thumbs, others], pending: [marmot, wn])
+        #expect(
+            merged == [
+                thumbs,
+                MessageReaction(
+                    emoji: ":marmot:", count: 3, isOwn: true, senders: ["a", "b"], reactionMessageIdHex: "r1"),
+                MessageReaction(emoji: ":wn:", count: 1, isOwn: true),
+            ])
+
+        // Once the window lists the account's own reaction, the pending one adds nothing.
+        let own = MessageReaction(emoji: ":wn:", count: 1, isOwn: true, reactionMessageIdHex: "r2")
+        #expect(PendingCustomEmojiReactions.merge([own], pending: [wn]) == [own])
+    }
+
     @MainActor
     @Test func adoptedBytesReplaceAFailedDownloadsFallback() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let images = CustomEmojiImageStore(
             accountId: "account", accountRef: "account", groupIdHex: Self.group, runtime: runtime,
             diskCache: .makeIsolated())
-        let wn = try #require(CustomEmojiBuiltins.builtin("wn"))
-        let reference = Self.reference("wn", plaintext: wn.data)
+        // Not a built-in's bytes: those draw from the bundle and never reach a download.
+        let png = try Self.png()
+        let reference = Self.reference("party", plaintext: png)
 
         images.load(reference)
         #expect(await waitFor { images.isUnavailable(reference) })
-        await images.adopt(wn.data, plaintextSha256: wn.plaintextSha256)
+        await images.adopt(png, plaintextSha256: CustomEmojiDigest.hex(png))
 
         #expect(images.image(for: reference) != nil)
         #expect(!images.isUnavailable(reference))
