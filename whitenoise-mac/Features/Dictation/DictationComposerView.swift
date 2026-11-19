@@ -5,10 +5,14 @@ import SwiftUI
 /// nothing typed can race the words arriving.
 ///
 /// Escape cancels and Return finishes — the message field is gone while this shows, so neither
-/// key has anything else to do.
+/// key has anything else to do. The one exception is a field still on screen that binds the same
+/// keys: while the in-chat search strip is open, Return steps to the next match and Escape closes
+/// it, so `claimsReturnAndEscape` is false and the bar answers only to clicks. A window-level
+/// shortcut would otherwise win over the focused field.
 struct DictationComposerView: View {
     let state: ComposerDictationController.State
     let transcript: DictationTranscript
+    var claimsReturnAndEscape = true
     let onCancel: () -> Void
     let onFinish: () -> Void
 
@@ -28,7 +32,7 @@ struct DictationComposerView: View {
                     }
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
+            .keyboardShortcut(claimsReturnAndEscape ? .cancelAction : nil)
             .help(L10n.string("Cancel dictation"))
             .accessibilityLabel(L10n.string("Cancel dictation"))
             .accessibilityIdentifier("composer.dictation.cancel")
@@ -48,7 +52,7 @@ struct DictationComposerView: View {
                 .background(WNColor.fillPrimary, in: .circle)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(claimsReturnAndEscape ? .defaultAction : nil)
             .disabled(state == .finishing)
             .help(L10n.string("Finish dictation"))
             .accessibilityLabel(L10n.string("Finish dictation"))
@@ -100,6 +104,7 @@ private struct DictationTranscriptText: View {
         DictationComposerView(
             state: .listening,
             transcript: DictationTranscript(finalized: "See you at the station ", volatile: "around six"),
+            claimsReturnAndEscape: false,
             onCancel: {},
             onFinish: {}
         )
