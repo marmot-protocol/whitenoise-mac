@@ -13230,7 +13230,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Liittymisesi aikaiset viestit voivat olla puutteellisia."
+            "value" : "Osa liittymisesi aikoihin lähetetyistä viesteistä saattaa puuttua."
           }
         },
         "fr" : {
@@ -13295,7 +13295,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Poissaolosi aikaiset viestit voivat olla puutteellisia."
+            "value" : "Osa poissaolosi aikana lähetetyistä viesteistä saattaa puuttua."
           }
         },
         "fr" : {
@@ -23548,7 +23548,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tällä henkilöllä ei ole yhteensopivaa kutsuavainta saatavilla. Pyydä häntä avaamaan White Noise ja yritä uudelleen."
+            "value" : "Tällä henkilöllä ei ole yhteensopivaa kutsuavainta saatavilla. Pyydä häntä avaamaan White Noise ja yritä sitten uudelleen."
           }
         },
         "fr" : {
@@ -23944,7 +23944,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tämän henkilön kutsuavainta ei voi käyttää. Pyydä häntä avaamaan White Noise ja yrittämään uudelleen."
+            "value" : "Tämän henkilön kutsuavainta ei voi käyttää. Pyydä häntä avaamaan White Noise ja yritä sitten uudelleen."
           }
         },
         "fr" : {
@@ -31483,7 +31483,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ poisti ylläpitäjän"
+            "value" : "%@ poisti yhdeltä jäseneltä ylläpitäjän oikeudet"
           }
         },
         "fr" : {
@@ -39399,7 +39399,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ylläpitäjä poistettu"
+            "value" : "Ylläpitäjän oikeudet poistettu"
           }
         },
         "fr" : {
@@ -50078,7 +50078,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sallii push-ilmoitukset. Ilman push-ilmoituksia toimitus voi viivästyä, kunnes White Noise on käynnissä."
+            "value" : "Näyttää tällä Macilla ilmoitukset uusista viesteistä. Ilman push-ilmoituksia ilmoitukset saattavat tulla vasta, kun White Noise on käynnissä."
           }
         },
         "fr" : {
@@ -57140,7 +57140,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vie transkripti"
+            "value" : "Vie keskusteluhistoria"
           }
         },
         "fr" : {
@@ -57270,7 +57270,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vietiin %d transkriptitapahtuma tiedostoon %@."
+            "value" : "Vietiin %d tapahtuma keskusteluhistoriasta tiedostoon %@."
           }
         },
         "fr" : {
@@ -57335,7 +57335,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vietiin %d transkriptitapahtumaa tiedostoon %@."
+            "value" : "Vietiin %d tapahtumaa keskusteluhistoriasta tiedostoon %@."
           }
         },
         "fr" : {
@@ -57986,7 +57986,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Viimeistele nykyisen transkriptin vienti ennen tämän linkin avaamista."
+            "value" : "Viimeistele nykyisen keskusteluhistorian vienti ennen tämän linkin avaamista."
           }
         },
         "fr" : {
@@ -66005,6 +66005,12 @@
             "value" : "Cancelar dictado"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peruuta sanelu"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -66069,6 +66075,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Haz clic en el botón de onda junto al campo de mensaje y habla; tus palabras aparecen en el campo para que las revises y las envíes. macOS convierte tu voz en texto en este Mac y descarga su modelo de voz de Apple. El audio no se guarda ni se envía."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Napsauta viestikentän vieressä olevaa aaltomuotopainiketta ja puhu. Sanasi tulevat kenttään, jossa voit tarkistaa ja lähettää ne. macOS muuntaa puheesi tekstiksi tällä Macilla ja lataa puhemallinsa Applelta. Ääntä ei tallenneta eikä lähetetä."
           }
         },
         "fr" : {
@@ -66137,6 +66149,12 @@
             "value" : "No se pudo descargar"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lataus epäonnistui"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -66201,6 +66219,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dictar"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sanele"
           }
         },
         "fr" : {
@@ -66269,6 +66293,12 @@
             "value" : "Dictar mensajes"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sanele viestejä"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -66333,6 +66363,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dictado"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sanelu"
           }
         },
         "fr" : {
@@ -66401,6 +66437,12 @@
             "value" : "No se pudo iniciar el dictado."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sanelua ei voitu aloittaa."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -66465,6 +66507,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "El dictado no está disponible en tu idioma."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sanelu ei ole saatavilla kielelläsi."
           }
         },
         "fr" : {
@@ -66533,6 +66581,12 @@
             "value" : "El dictado se detuvo antes de tiempo. Revisa el mensaje antes de enviarlo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sanelu päättyi ennenaikaisesti. Tarkista viesti ennen lähettämistä."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -66599,6 +66653,12 @@
             "value" : "Descargar modelo de voz"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lataa puhemalli"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -66663,6 +66723,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Descargando…"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ladataan…"
           }
         },
         "fr" : {
@@ -66862,6 +66928,12 @@
             "value" : "Terminar dictado"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lopeta sanelu"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -67056,6 +67128,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Preparando el dictado"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Valmistellaan sanelua"
           }
         },
         "fr" : {
@@ -69102,6 +69180,12 @@
             "value" : "Escuchando…"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kuunnellaan…"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -70813,6 +70897,12 @@
             "value" : "macOS está descargando el modelo de voz para tu idioma. Vuelve a intentarlo en un momento."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS lataa kielesi puhemallia. Yritä hetken kuluttua uudelleen."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -71070,7 +71160,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tee toisesta jäsenestä ylläpitäjä ennen kuin poistat viimeisen ylläpitäjän."
+            "value" : "Tee toisesta jäsenestä ylläpitäjä ennen kuin poistat viimeisen ylläpitäjän oikeudet."
           }
         },
         "fr" : {
@@ -73367,6 +73457,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se necesita acceso al micrófono para dictar mensajes."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viestien saneluun tarvitaan mikrofonin käyttöoikeus."
           }
         },
         "fr" : {
@@ -78546,6 +78642,12 @@
             "value" : "No disponible en tu idioma"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ei saatavilla kielelläsi"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -78740,6 +78842,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No descargado"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ei ladattu"
           }
         },
         "fr" : {
@@ -87389,6 +87497,12 @@
             "value" : "Listo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Valmis"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -89244,7 +89358,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Poista ylläpitäjä"
+            "value" : "Poista ylläpitäjän oikeudet"
           }
         },
         "fr" : {
@@ -90676,7 +90790,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Poistetaan ylläpitäjää…"
+            "value" : "Poistetaan ylläpitäjän oikeuksia…"
           }
         },
         "fr" : {
@@ -97288,6 +97402,12 @@
             "value" : "Modelo de voz"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puhemalli"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -101346,7 +101466,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vihainen murmeli"
+            "value" : "Vihainen marmot"
           }
         },
         "fr" : {
@@ -101412,7 +101532,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Klassinen murmeli"
+            "value" : "Klassinen marmot"
           }
         },
         "fr" : {
@@ -101478,7 +101598,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Itkevä murmeli"
+            "value" : "Itkevä marmot"
           }
         },
         "fr" : {
@@ -101544,7 +101664,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Naurava murmeli"
+            "value" : "Naurava marmot"
           }
         },
         "fr" : {
@@ -101610,7 +101730,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Liekehtivä murmeli"
+            "value" : "Liekehtivä marmot"
           }
         },
         "fr" : {
@@ -101676,7 +101796,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Murmeli peukku pystyssä"
+            "value" : "Peukuttava marmot"
           }
         },
         "fr" : {
@@ -101742,7 +101862,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Murmeli ja sydän"
+            "value" : "Marmot ja sydän"
           }
         },
         "fr" : {
@@ -102433,7 +102553,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Juhliva murmeli"
+            "value" : "Juhliva marmot"
           }
         },
         "fr" : {
@@ -102634,7 +102754,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Virnistävä murmeli"
+            "value" : "Virnistävä marmot"
           }
         },
         "fr" : {
@@ -104397,7 +104517,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yllättynyt murmeli"
+            "value" : "Yllättynyt marmot"
           }
         },
         "fr" : {
@@ -106972,7 +107092,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vilkuttava murmeli"
+            "value" : "Vilkuttava marmot"
           }
         },
         "fr" : {
@@ -110275,7 +110395,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transkriptin vienti pysähtyi ennenaikaisesti: aikajana ilmoitti lisää historiaa, mutta sivutuskohdistin ei edennyt, joten vanhempia viestejä ei voitu ladata."
+            "value" : "Keskusteluhistorian vienti pysähtyi ennenaikaisesti: aikajana ilmoitti lisää historiaa, mutta sivutuskohdistin ei edennyt, joten vanhempia viestejä ei voitu ladata."
           }
         },
         "fr" : {
@@ -110535,7 +110655,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ota audit-lokitus käyttöön tai poista se käytöstä ja tyhjennä nämä tiedostot kohdassa Yksityisyys ja turvallisuus."
+            "value" : "Ota audit-lokitus käyttöön tai poista se käytöstä ja tyhjennä nämä tiedostot kohdassa Yksityisyys ja suojaus."
           }
         },
         "fr" : {
@@ -116376,7 +116496,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Poistit ylläpitäjän"
+            "value" : "Poistit yhdeltä jäseneltä ylläpitäjän oikeudet"
           }
         },
         "fr" : {
@@ -117026,7 +117146,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ poisti sinulta ylläpitäjän roolin"
+            "value" : "%@ poisti sinulta ylläpitäjän oikeudet"
           }
         },
         "fr" : {
@@ -118539,7 +118659,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Allekirjoitussovelluksesi hylkäsi pyynnön."
+            "value" : "Allekirjoittajasi hylkäsi pyynnön."
           }
         },
         "fr" : {
@@ -118610,7 +118730,7 @@
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Allekirjoitussovelluksesi ei ole käytettävissä."
+            "value" : "Allekirjoittajasi ei ole käytettävissä."
           }
         },
         "fr" : {
