@@ -17,6 +17,12 @@
             "value" : "Termina de vincular tu nuevo dispositivo antes de mover este Mac. Si lo mueves ahora, puede que no se una a tus chats."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viimeistele uuden laitteesi linkitys ennen kuin siirrät tämän Macin. Jos siirrät sen nyt, laite ei ehkä pääse keskusteluihisi."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -67397,6 +67403,12 @@
             "value" : "El último cambio en este grupo todavía no se ha completado. Inténtalo de nuevo en un momento."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämän ryhmän edellinen muutos ei ole vielä mennyt läpi. Yritä hetken kuluttua uudelleen."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -67460,6 +67472,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se ha enviado. White Noise no puede usar ninguno de los relays de este chat."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ei lähetetty. White Noise ei voi käyttää yhtään tämän keskustelun releistä."
           }
         },
         "fr" : {
@@ -67527,6 +67545,12 @@
             "value" : "Esa reacción ya no está."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reaktio on jo poistettu."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -67590,6 +67614,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este cambio no llegó a ninguno de los relays del grupo, así que no se aplicó."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muutos ei tavoittanut yhtään ryhmän releistä, joten sitä ei tehty."
           }
         },
         "fr" : {
@@ -67657,6 +67687,12 @@
             "value" : "Los relays del grupo rechazaron este cambio, así que no se aplicó."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ryhmän releet hylkäsivät muutoksen, joten sitä ei tehty."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -67720,6 +67756,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "¿Guardar estos relays de todos modos?"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tallennetaanko releet silti?"
           }
         },
         "fr" : {
@@ -67787,6 +67829,12 @@
             "value" : "Guardar de todos modos"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tallenna silti"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -67850,6 +67898,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Algunos relays no respondieron, así que White Noise no pudo comprobar si tienen ajustes de relays más recientes. Si guardas ahora, podrías reemplazar ajustes que hiciste en otro lugar."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaikki releet eivät vastanneet, joten White Noise ei voinut tarkistaa niistä uudempia releiden asetuksia. Jos tallennat nyt, muualla tekemäsi asetukset voivat korvautua."
           }
         },
         "fr" : {
@@ -121297,6 +121351,12 @@
             "value" : "%2$@ añadió %1$@."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$@ lisäsi laitteen %1$@."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -121355,6 +121415,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ sigue en tu lista de dispositivos anterior. Vincúlalo desde ese dispositivo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ on yhä vanhassa laitelistassasi. Linkitä se kyseiseltä laitteelta."
           }
         },
         "fr" : {
@@ -121417,6 +121483,12 @@
             "value" : "Falta en la lista de este Mac un dispositivo que ya se vinculó aquí. Abre ambos dispositivos para comprobar el vínculo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aiemmin tähän linkitetty laite puuttuu tämän Macin laitelistasta. Avaa molemmat laitteet ja tarkista linkitys."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -121475,6 +121547,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un dispositivo con sesión en tu perfil pide vincularse. Obteniendo el código…"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profiiliisi kirjautunut laite pyytää linkitystä. Haetaan koodia…"
           }
         },
         "fr" : {
@@ -121537,6 +121615,12 @@
             "value" : "Un paquete de claves que este Mac no creó apareció en su lugar %@. Se ha sustituido."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämän Macin paikalle ilmestyi %@ avainpaketti, jota tämä Mac ei tehnyt. Se korvattiin."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -121595,6 +121679,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ya hay una vinculación en curso."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitys on jo käynnissä."
           }
         },
         "fr" : {
@@ -121657,6 +121747,12 @@
             "value" : "Un dispositivo nuevo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uusi laite"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -121715,6 +121811,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apareció un nuevo inicio de sesión en tu perfil %@."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profiiliisi ilmestyi uusi kirjautuminen %@."
           }
         },
         "fr" : {
@@ -121777,6 +121879,12 @@
             "value" : "Un inicio de sesión se marcó como no tuyo %@."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kirjautuminen merkittiin muuksi kuin sinuksi %@."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -121835,6 +121943,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Añadir a todos mis chats"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lisää kaikkiin keskusteluihini"
           }
         },
         "fr" : {
@@ -121897,6 +122011,12 @@
             "value" : "Otro de tus dispositivos lo está vinculando."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toinen laitteistasi linkittää sitä."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -121955,6 +122075,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "App"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sovellus"
           }
         },
         "fr" : {
@@ -122017,6 +122143,12 @@
             "value" : "Pidiendo a tus otros dispositivos que vinculen este Mac…"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pyydetään muita laitteitasi linkittämään tämä Mac…"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -122075,6 +122207,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Traer el historial de chats"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tuo keskusteluhistoria"
           }
         },
         "fr" : {
@@ -122137,6 +122275,12 @@
             "value" : "Cancelar vinculación"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peru linkitys"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -122195,6 +122339,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chats que aún tienen un dispositivo que quitaste: %lld. Un administrador del chat puede quitarlo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keskustelut, joissa poistamasi laite on yhä mukana: %lld. Keskustelun ylläpitäjä voi poistaa sen."
           }
         },
         "fr" : {
@@ -122257,6 +122407,12 @@
             "value" : "Chats que no pueden añadir tus dispositivos vinculados: %lld. Un administrador del chat puede activarlo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keskustelut, joihin linkitettyjä laitteitasi ei voi lisätä: %lld. Keskustelun ylläpitäjä voi ottaa tämän käyttöön."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -122315,6 +122471,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Comprobar ahora"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarkista nyt"
           }
         },
         "fr" : {
@@ -122377,6 +122539,12 @@
             "value" : "Comprueba que tu otro dispositivo muestra los mismos emoji, en el mismo orden."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varmista, että toinen laitteesi näyttää samat emojit samassa järjestyksessä."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -122435,6 +122603,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Elige Vincular dispositivo en tu otro dispositivo para terminar."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viimeistele valitsemalla toisella laitteellasi Linkitä laite."
           }
         },
         "fr" : {
@@ -122497,6 +122671,12 @@
             "value" : "Compara los emoji"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertaa emojeja"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -122555,6 +122735,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se pudo pasar a la lista de tu otro dispositivo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siirto toisen laitteesi listaan ei onnistunut"
           }
         },
         "fr" : {
@@ -122617,6 +122803,12 @@
             "value" : "Dispositivo vinculado"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laite linkitetty"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -122675,6 +122867,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nombre del dispositivo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteen nimi"
           }
         },
         "fr" : {
@@ -122737,6 +122935,12 @@
             "value" : "La vinculación de dispositivos no está disponible en esta compilación."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteiden linkitys ei ole käytettävissä tässä versiossa."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -122795,6 +122999,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La vinculación de dispositivos tuvo un problema. Inténtalo de nuevo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteiden linkityksessä tapahtui virhe. Yritä uudelleen."
           }
         },
         "fr" : {
@@ -122857,6 +123067,12 @@
             "value" : "Dispositivos"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteet"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -122915,6 +123131,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "¿Todavía tienes este dispositivo?"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onko tämä laite yhä sinulla?"
           }
         },
         "fr" : {
@@ -122977,6 +123199,12 @@
             "value" : "Escribe un nombre para el dispositivo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anna laitteelle nimi."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123035,6 +123263,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ya no tengo esos dispositivos"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minulla ei ole niitä laitteita"
           }
         },
         "fr" : {
@@ -123097,6 +123331,12 @@
             "value" : "Inactivo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ei aktiivinen"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123155,6 +123395,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se quita automáticamente tras 90 días sin actividad."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sitä ei poisteta automaattisesti 90 päivän käyttämättömyyden jälkeen."
           }
         },
         "fr" : {
@@ -123217,6 +123463,12 @@
             "value" : "Se marca como rechazado en todos tus dispositivos y no se puede vincular. Puede que otra persona tenga tu clave privada."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se on merkitty hylätyksi kaikilla laitteillasi, eikä sitä voi linkittää. Jollakulla muulla voi olla yksityinen avaimesi."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123275,6 +123527,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se quita de tus chats y deja de recibir sus mensajes. Un chat que no pueda quitarlo lo conserva hasta que un administrador del chat lo haga. Para volver a usarlo, inicia sesión en él y vincúlalo de nuevo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se poistetaan keskusteluistasi, eikä se enää saa niiden viestejä. Keskustelu, joka ei voi poistaa sitä, pitää sen, kunnes keskustelun ylläpitäjä poistaa sen. Jos haluat käyttää sitä uudelleen, kirjaudu sillä sisään ja linkitä se uudelleen."
           }
         },
         "fr" : {
@@ -123337,6 +123595,12 @@
             "value" : "Uniéndote a la lista de tu otro dispositivo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liitytään toisen laitteesi listaan"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123395,6 +123659,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Conservar"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pidä"
           }
         },
         "fr" : {
@@ -123457,6 +123727,12 @@
             "value" : "Conservar mientras esté inactivo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pidä, vaikka se ei ole aktiivinen"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123515,6 +123791,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Actualización del paquete de claves atrasada"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avainpaketin päivitys myöhässä"
           }
         },
         "fr" : {
@@ -123577,6 +123859,12 @@
             "value" : "Última actividad %@"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viimeksi aktiivinen %@"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123635,6 +123923,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vincular dispositivo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitä laite"
           }
         },
         "fr" : {
@@ -123697,6 +123991,12 @@
             "value" : "Vincular este Mac a otro dispositivo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitä tämä Mac toiseen laitteeseen"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123755,6 +124055,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vincular un dispositivo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitä laite"
           }
         },
         "fr" : {
@@ -123817,6 +124123,12 @@
             "value" : "¿Vincular un dispositivo nuevo?"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitetäänkö uusi laite?"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123875,6 +124187,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vincular a otro dispositivo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitä toiseen laitteeseen"
           }
         },
         "fr" : {
@@ -123937,6 +124255,12 @@
             "value" : "Vinculado"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitetty"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123995,6 +124319,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vinculado por"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkittäjä"
           }
         },
         "fr" : {
@@ -124057,6 +124387,12 @@
             "value" : "Vinculado en otro de tus dispositivos."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitetty toisella laitteellasi."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -124115,6 +124451,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vinculación detenida"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitys pysähtyi"
           }
         },
         "fr" : {
@@ -124177,6 +124519,12 @@
             "value" : "La vinculación no terminó. Inténtalo de nuevo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitys ei valmistunut. Yritä uudelleen."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -124235,6 +124583,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se agotó el tiempo de vinculación. Inténtalo de nuevo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkityksen aikaraja ylittyi. Yritä uudelleen."
           }
         },
         "fr" : {
@@ -124297,6 +124651,12 @@
             "value" : "La vinculación se canceló en el otro dispositivo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitys peruttiin toisella laitteella."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -124355,6 +124715,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se canceló la vinculación."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitys peruttiin."
           }
         },
         "fr" : {
@@ -124417,6 +124783,12 @@
             "value" : "Vinculando…"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitetään…"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -124475,6 +124847,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Varios dispositivos piden vincularse a la vez, así que no se puede vincular ninguno. Inténtalo de nuevo desde un solo dispositivo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Useampi laite pyytää linkitystä yhtä aikaa, joten yhtäkään ei voi linkittää. Yritä uudelleen yhdeltä laitteelta."
           }
         },
         "fr" : {
@@ -124537,6 +124915,12 @@
             "value" : "Movido a otra lista de dispositivos"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siirretty toiseen laitelistaan"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -124595,6 +124979,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Movido a la lista de tu otro dispositivo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siirretty toisen laitteesi listaan"
           }
         },
         "fr" : {
@@ -124657,6 +125047,12 @@
             "value" : "Moviendo este Mac"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämän Macin siirtäminen"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -124715,6 +125111,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No hay inicios de sesión desconocidos."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ei tunnistamattomia kirjautumisia."
           }
         },
         "fr" : {
@@ -124777,6 +125179,12 @@
             "value" : "Sin actividad desde hace 30 días"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ei nähty 30 päivään"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -124835,6 +125243,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vincúlalo solo si ambas pantallas muestran los mismos emoji, en el mismo orden."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitä se vain, jos molemmat näytöt näyttävät samat emojit samassa järjestyksessä."
           }
         },
         "fr" : {
@@ -124897,6 +125311,12 @@
             "value" : "Abre White Noise en tu otro dispositivo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avaa White Noise toisella laitteellasi"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -124955,6 +125375,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rechazado en otro de tus dispositivos."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hylätty toisella laitteellasi."
           }
         },
         "fr" : {
@@ -125017,6 +125443,12 @@
             "value" : "Quitar dispositivo…"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poista laite…"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -125075,6 +125507,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Quitando…"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poistetaan…"
           }
         },
         "fr" : {
@@ -125137,6 +125575,12 @@
             "value" : "Restablecer"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nollaa"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -125195,6 +125639,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Restablecer lista de dispositivos…"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nollaa laitelista…"
           }
         },
         "fr" : {
@@ -125257,6 +125707,12 @@
             "value" : "Restablece la copia de tu lista de dispositivos en este Mac y luego vuelve a vincularlo. Tus chats y mensajes se quedan en este Mac."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nollaa tämän Macin kopio laitelistastasi ja linkitä se sitten uudelleen. Keskustelusi ja viestisi pysyvät tällä Macilla."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -125315,6 +125771,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "¿Restablecer la lista de dispositivos de este Mac?"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nollataanko tämän Macin laitelista?"
           }
         },
         "fr" : {
@@ -125377,6 +125839,12 @@
             "value" : "Revisar"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarkastele"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -125435,6 +125903,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mostrar"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Näytä"
           }
         },
         "fr" : {
@@ -125497,6 +125971,12 @@
             "value" : "Inicios de sesión"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kirjautumiset"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -125555,6 +126035,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Inicios de sesión en tu perfil que ninguno de tus dispositivos reconoce."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profiiliisi tehdyt kirjautumiset, joita mikään laitteistasi ei tunnista."
           }
         },
         "fr" : {
@@ -125617,6 +126103,12 @@
             "value" : "Inició sesión antes que este Mac. Visto por última vez %@."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kirjautui ennen tätä Macia. Nähty viimeksi %@."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -125675,6 +126167,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cerrando sesión"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kirjautuu ulos"
           }
         },
         "fr" : {
@@ -125737,6 +126235,12 @@
             "value" : "Puede que otra persona tenga tu clave privada"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jollakulla muulla voi olla yksityinen avaimesi"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -125795,6 +126299,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ese dispositivo ya está vinculado."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laite on jo linkitetty."
           }
         },
         "fr" : {
@@ -125857,6 +126367,12 @@
             "value" : "Ese dispositivo ya no está en tu lista de dispositivos."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laite ei ole enää laitelistassasi."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -125915,6 +126431,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ese dispositivo aún se está vinculando. Inténtalo de nuevo cuando termine."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitetta linkitetään vielä. Yritä uudelleen, kun se on valmis."
           }
         },
         "fr" : {
@@ -125977,6 +126499,12 @@
             "value" : "La versión de White Noise de ese dispositivo no se puede vincular. Actualízala e inténtalo de nuevo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteen White Noise -versiota ei voi linkittää. Päivitä se ja yritä uudelleen."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126035,6 +126563,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esa solicitud de vinculación ha caducado."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkityspyyntö on vanhentunut."
           }
         },
         "fr" : {
@@ -126097,6 +126631,12 @@
             "value" : "Ese nombre es demasiado largo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nimi on liian pitkä."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126155,6 +126695,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Los dispositivos no pudieron verificarse entre sí, así que no se vincularon. Inténtalo de nuevo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteet eivät pystyneet varmentamaan toisiaan, joten niitä ei linkitetty. Yritä uudelleen."
           }
         },
         "fr" : {
@@ -126217,6 +126763,12 @@
             "value" : "Los emoji no coincidían, así que los dispositivos no se vincularon."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emojit eivät täsmänneet, joten laitteita ei linkitetty."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126275,6 +126827,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "El dispositivo nuevo está vinculado a tu perfil."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uusi laite on linkitetty profiiliisi."
           }
         },
         "fr" : {
@@ -126337,6 +126895,12 @@
             "value" : "No hay ninguna vinculación en curso."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitystä ei ole käynnissä."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126395,6 +126959,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No coinciden"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne eivät täsmää"
           }
         },
         "fr" : {
@@ -126457,6 +127027,12 @@
             "value" : "Coinciden"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne täsmäävät"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126515,6 +127091,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este Mac"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä Mac"
           }
         },
         "fr" : {
@@ -126577,6 +127159,12 @@
             "value" : "Este Mac no puede ponerse al día con tus otros dispositivos"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä Mac ei pysy muiden laitteidesi tahdissa"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126635,6 +127223,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este Mac está vinculado"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä Mac on linkitetty"
           }
         },
         "fr" : {
@@ -126697,6 +127291,12 @@
             "value" : "Este Mac olvida su copia de tu lista de dispositivos y deja de estar vinculado. Tus chats, mensajes y ajustes se conservan. Después, vuelve a vincularlo a otro dispositivo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä Mac unohtaa kopionsa laitelistastasi eikä ole enää linkitetty. Keskustelusi, viestisi ja asetuksesi säilyvät. Linkitä se sen jälkeen uudelleen toiseen laitteeseen."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126755,6 +127355,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este Mac aún no ha publicado su paquete de claves. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä Mac ei ole vielä julkaissut avainpakettiaan. Yritä hetken kuluttua uudelleen."
           }
         },
         "fr" : {
@@ -126817,6 +127423,12 @@
             "value" : "Este Mac ya está vinculado a tus otros dispositivos."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä Mac on jo linkitetty muihin laitteisiisi."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126875,6 +127487,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este Mac ya está vinculado. Si lo vinculas a un dispositivo de otra lista, pasará a esa lista."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä Mac on jo linkitetty. Jos linkität sen toisen listan laitteeseen, se siirtyy siihen listaan."
           }
         },
         "fr" : {
@@ -126937,6 +127555,12 @@
             "value" : "Este Mac aún no está vinculado a ningún otro dispositivo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tätä Macia ei ole vielä linkitetty muihin laitteisiin."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -126995,6 +127619,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No fui yo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se en ollut minä"
           }
         },
         "fr" : {
@@ -127057,6 +127687,12 @@
             "value" : "No fui yo…"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se en ollut minä…"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -127115,6 +127751,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esta solicitud no se puede vincular ahora mismo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tätä pyyntöä ei voi linkittää juuri nyt."
           }
         },
         "fr" : {
@@ -127177,6 +127819,12 @@
             "value" : "Este inicio de sesión se rechazó en uno de tus dispositivos."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä kirjautuminen hylättiin yhdellä laitteistasi."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -127235,6 +127883,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "¿No fuiste tú?"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etkö se ollut sinä?"
           }
         },
         "fr" : {
@@ -127297,6 +127951,12 @@
             "value" : "Para añadir un dispositivo nuevo, inicia sesión en este perfil en él y elige allí Vincular a otro dispositivo. Aquí se te pedirá que lo apruebes."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jos haluat lisätä uuden laitteen, kirjaudu sillä tähän profiiliin ja valitse siellä Linkitä toiseen laitteeseen. Sinua pyydetään hyväksymään se täällä."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -127355,6 +128015,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Para quitar este Mac, cierra sesión."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jos haluat poistaa tämän Macin, kirjaudu sen sijaan ulos."
           }
         },
         "fr" : {
@@ -127417,6 +128083,12 @@
             "value" : "Demasiadas solicitudes de vinculación. Inténtalo de nuevo %@."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liian monta linkityspyyntöä. Yritä uudelleen %@."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -127475,6 +128147,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "App desconocida"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tuntematon sovellus"
           }
         },
         "fr" : {
@@ -127537,6 +128215,12 @@
             "value" : "Dispositivo sin nombre"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nimetön laite"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -127595,6 +128279,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esperando a tu otro dispositivo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odotetaan toista laitettasi"
           }
         },
         "fr" : {
@@ -127657,6 +128347,12 @@
             "value" : "Esperando a que se una el dispositivo nuevo. Puedes cerrar esto; la vinculación continúa."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odotetaan, että uusi laite liittyy. Voit sulkea tämän, linkitys jatkuu."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -127715,6 +128411,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esperando para unirse a la lista de tu otro dispositivo"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odotetaan liittymistä toisen laitteesi listaan"
           }
         },
         "fr" : {
@@ -127777,6 +128479,12 @@
             "value" : "¿Fuiste tú?"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Olitko se sinä?"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -127835,6 +128543,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "White Noise aún no ha terminado de comprobar tus inicios de sesión. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "White Noise ei ole vielä tarkistanut kirjautumisiasi. Yritä hetken kuluttua uudelleen."
           }
         },
         "fr" : {
@@ -127897,6 +128611,12 @@
             "value" : "Empezaste de cero en este Mac. Aquí solo estarán los chats a los que te inviten a partir de ahora."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aloitit tällä Macilla alusta. Täällä ovat vain keskustelut, joihin sinut kutsutaan tästä eteenpäin."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -127955,6 +128675,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tus dispositivos"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteesi"
           }
         },
         "fr" : {
@@ -128017,6 +128743,12 @@
             "value" : "Tus chats aparecerán aquí a medida que tus otros dispositivos añadan este Mac a ellos."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keskustelusi näkyvät täällä sitä mukaa, kun muut laitteesi lisäävät tämän Macin niihin."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -128075,6 +128807,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se pudo leer tu lista de dispositivos. Inténtalo de nuevo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitelistaasi ei voitu lukea. Yritä uudelleen."
           }
         },
         "fr" : {
@@ -128137,6 +128875,12 @@
             "value" : "Tus dispositivos aún están sincronizando un cambio anterior. Inténtalo de nuevo en un momento."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteesi synkronoivat vielä aiempaa muutosta. Yritä hetken kuluttua uudelleen."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -128195,6 +128939,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tus dispositivos no pudieron sincronizar el nuevo paquete de claves de este Mac. Pasados 30 días, puede que no se pueda añadir este Mac a chats."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laitteesi eivät pystyneet synkronoimaan tämän Macin uutta avainpakettia. 30 päivän kuluttua tätä Macia ei ehkä voi enää lisätä keskusteluihin."
           }
         },
         "fr" : {
@@ -128257,6 +129007,12 @@
             "value" : "Tu otro dispositivo está añadiendo este Mac. Puede tardar un minuto."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toinen laitteesi lisää tätä Macia. Tämä voi kestää minuutin."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -128315,6 +129071,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tus otros dispositivos lo añaden a los chats en los que estás."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muut laitteesi lisäävät sen keskusteluihin, joissa olet."
           }
         },
         "fr" : {
@@ -128377,6 +129139,12 @@
             "value" : "Tus otros dispositivos le envían el historial al añadirlo a un chat."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muut laitteesi lähettävät sille historian, kun ne lisäävät sen keskusteluun."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -128435,6 +129203,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Has vinculado 20 dispositivos. Quita uno para vincular otro."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Olet linkittänyt 20 laitetta. Poista yksi, jotta voit linkittää uuden."
           }
         },
         "fr" : {
@@ -128497,6 +129271,12 @@
             "value" : "otro dispositivo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "toinen laite"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -128555,6 +129335,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "p. ej., iPhone"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "esim. iPhone"
           }
         },
         "fr" : {
@@ -128617,6 +129403,12 @@
             "value" : "Así, los dispositivos vinculados de cada miembro podrán unirse a este chat sin un administrador. No se puede desactivar."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunkin jäsenen omat linkitetyt laitteet voivat sitten liittyä tähän keskusteluun ilman ylläpitäjää. Tätä ei voi poistaa käytöstä."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -128675,6 +129467,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Más tarde"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Myöhemmin"
           }
         },
         "fr" : {
@@ -128737,6 +129535,12 @@
             "value" : "Este Mac se ha desvinculado"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämän Macin linkitys poistettiin"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -128795,6 +129599,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Activar"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ota käyttöön"
           }
         },
         "fr" : {
@@ -128857,6 +129667,12 @@
             "value" : "¿Activar los dispositivos vinculados en este chat?"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otetaanko linkitetyt laitteet käyttöön tässä keskustelussa?"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -128915,6 +129731,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "¿Tienes sesión en otro dispositivo?"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kirjautunut toisella laitteella?"
           }
         },
         "fr" : {
@@ -128977,6 +129799,12 @@
             "value" : "Añadir un dispositivo nuevo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lisää uusi laite"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129035,6 +129863,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Añadir un dispositivo nuevo…"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lisää uusi laite…"
           }
         },
         "fr" : {
@@ -129097,6 +129931,12 @@
             "value" : "Vincular este dispositivo…"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitä tämä laite…"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129155,6 +129995,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La vinculación empieza en el dispositivo nuevo. Mantén White Noise abierto aquí mientras tanto."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitys alkaa uudella laitteella. Pidä White Noise täällä auki sillä aikaa."
           }
         },
         "fr" : {
@@ -129217,6 +130063,12 @@
             "value" : "En el dispositivo nuevo, inicia sesión en este perfil con su clave privada."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kirjaudu uudella laitteella tähän profiiliin sen yksityisellä avaimella."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129275,6 +130127,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abre allí Ajustes → Dispositivos y elige Vincular a otro dispositivo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avaa siellä Asetukset → Laitteet ja valitse Linkitä toiseen laitteeseen."
           }
         },
         "fr" : {
@@ -129337,6 +130195,12 @@
             "value" : "Abre White Noise en un dispositivo que ya tenga sesión iniciada en este perfil. Debe estar en línea y con la vinculación de dispositivos activada. La solicitud aparecerá allí y caduca a los 10 minutos."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avaa White Noise laitteella, joka on jo kirjautunut tähän profiiliin. Sen täytyy olla verkossa ja laitteiden linkityksen päällä. Pyyntö näkyy siellä ja vanhenee 10 minuutin kuluttua."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129395,6 +130259,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La solicitud aparecerá aquí. Comprueba que ambas pantallas muestran los mismos emoji."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pyyntö näkyy täällä. Varmista, että molemmat näytöt näyttävät samat emojit."
           }
         },
         "fr" : {
@@ -129457,6 +130327,12 @@
             "value" : "Esperando una solicitud…"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odotetaan pyyntöä…"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129515,6 +130391,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este perfil también tiene la sesión iniciada en otro dispositivo. Vincula este Mac a él para mantenerlos sincronizados."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämä profiili on kirjautunut myös toisella laitteella. Linkitä tämä Mac siihen, niin ne pysyvät synkronoituina."
           }
         },
         "fr" : {
@@ -129577,6 +130459,12 @@
             "value" : "Vincular este Mac"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitä tämä Mac"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129635,6 +130523,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cuando termine la configuración, podrás vincular este Mac a tu otro dispositivo."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kun käyttöönotto on valmis, voit linkittää tämän Macin toiseen laitteeseesi."
           }
         },
         "fr" : {
@@ -129697,6 +130591,12 @@
             "value" : "Emoji para comparar"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verrattavat emojit"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129755,6 +130655,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld de %2$lld"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld/%2$lld"
           }
         },
         "fr" : {
@@ -129817,6 +130723,12 @@
             "value" : "Activar dispositivos vinculados"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ota linkitetyt laitteet käyttöön"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129875,6 +130787,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Los dispositivos vinculados están listos"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linkitetyt laitteet ovat valmiina"
           }
         },
         "fr" : {
@@ -129937,6 +130855,12 @@
             "value" : "Permite que los dispositivos vinculados de cada miembro se unan a este chat sin un administrador."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antaa kunkin jäsenen omien linkitettyjen laitteiden liittyä tähän keskusteluun ilman ylläpitäjää."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -129995,6 +130919,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Otro de tus dispositivos vinculados quitó este Mac, así que ya no recibe actualizaciones de este perfil. Puedes eliminar todo lo que este perfil guardó en este Mac."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toinen linkitetyistä laitteistasi poisti tämän Macin, joten se ei enää saa päivityksiä tälle profiilille. Voit poistaa kaiken, mitä tämä profiili säilytti tällä Macilla."
           }
         },
         "fr" : {
@@ -130057,6 +130987,12 @@
             "value" : "Eliminar todo"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poista kaikki"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -130115,6 +131051,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Otro de tus dispositivos vinculados quitó este Mac de %@, así que ya no recibe actualizaciones de ese perfil. Puedes eliminar todo lo que guardó en este Mac."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toinen linkitetyistä laitteistasi poisti tämän Macin profiilista %@, joten se ei enää saa päivityksiä sille profiilille. Voit poistaa kaiken, mitä se säilytti tällä Macilla."
           }
         },
         "fr" : {
@@ -130177,6 +131119,12 @@
             "value" : "Nombre de este Mac"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tämän Macin nimi"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -130235,6 +131183,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sesión cerrada"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kirjauduit ulos"
           }
         },
         "fr" : {
@@ -130297,6 +131251,12 @@
             "value" : "Tus otros dispositivos conservan tus chats y terminarán de quitar este de ellos. Puede tardar unos 30 segundos."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muut laitteesi säilyttävät keskustelusi ja viimeistelevät tämän laitteen poistamisen niistä. Tämä voi kestää noin 30 sekuntia."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -130355,6 +131315,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se pudo contactar con tus otros dispositivos. Puede que sigan mostrando este dispositivo hasta que lo quites desde uno de ellos."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muita laitteitasi ei tavoitettu. Ne saattavat yhä näyttää tämän laitteen, kunnes poistat sen jollakin niistä."
           }
         },
         "fr" : {
@@ -130417,6 +131383,12 @@
             "value" : "Los mensajes de arriba se restauraron desde una copia de seguridad"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yllä olevat viestit palautettiin varmuuskopiosta"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -130475,6 +131447,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Los mensajes de arriba vinieron de %@"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yllä olevat viestit tulivat laitteelta %@"
           }
         },
         "fr" : {
@@ -130537,6 +131515,12 @@
             "value" : "No se pudieron eliminar algunos datos de este perfil de este dispositivo."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Osaa tämän profiilin tiedoista ei voitu poistaa tältä laitteelta."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -130595,6 +131579,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se pudieron eliminar algunos paquetes de claves de los relés."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Joitakin avainpaketteja ei voitu poistaa releiltä."
           }
         },
         "fr" : {
@@ -130657,6 +131647,12 @@
             "value" : "Trayendo mensajes anteriores de tu otro dispositivo…"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tuodaan aiempia viestejä toiselta laitteeltasi…"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -130715,6 +131711,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seguimos intentando traer mensajes anteriores de tu otro dispositivo…"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yritetään yhä tuoda aiempia viestejä toiselta laitteeltasi…"
           }
         },
         "fr" : {
@@ -130777,6 +131779,12 @@
             "value" : "Ponle nombre a este Mac"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nimeä tämä Mac"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -130835,6 +131843,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chats que este dispositivo no pudo abandonar: %lld."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keskustelut, joista tämä laite ei voinut poistua: %lld."
           }
         },
         "fr" : {
@@ -130897,6 +131911,12 @@
             "value" : "Chats que terminarán tus otros dispositivos: %lld."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keskustelut, jotka jätettiin muiden laitteidesi viimeisteltäviksi: %lld."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -130952,6 +131972,12 @@
           }
         },
         "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac"
+          }
+        },
+        "fi" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mac"
@@ -131017,6 +132043,12 @@
             "value" : "Un dispositivo quiere vincular %@."
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laite haluaa linkittää profiilin %@."
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -131077,6 +132109,12 @@
             "value" : "Otros perfiles"
           }
         },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muut profiilit"
+          }
+        },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
@@ -131135,6 +132173,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Revisar cambia a ese perfil para comparar los emoji."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarkastele-painike vaihtaa siihen profiiliin, jotta voit verrata emojeja."
           }
         },
         "fr" : {
