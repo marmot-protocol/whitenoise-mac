@@ -265,6 +265,9 @@
         private(set) var proposedOnboardingProfiles: [UserProfileMetadataFfi] = []
         /// Thrown by `runOnboarding` in place of a checkpoint: storage failing, the account closed.
         var runOnboardingError: Error?
+        /// Applied to the checkpoint by each `runOnboarding` before it is answered — what a core
+        /// changes on a run beyond the revision, such as an observation timestamp.
+        var onboardingRunChange: ((inout OnboardingSnapshotFfi) -> Void)?
         /// Armed, parks `runOnboarding` until released — a check MarmotKit is still working on.
         let onboardingRunGate = AsyncFfiGate()
         var usageSettings = UsageDiagnosticsSettingsFfi(
@@ -2365,6 +2368,7 @@
             runOnboardingCallCount += 1
             await onboardingRunGate.passIfArmed()
             if let runOnboardingError { throw runOnboardingError }
+            if let onboardingRunChange, onboardingState != nil { onboardingRunChange(&onboardingState!) }
             return try advanceOnboarding()
         }
 

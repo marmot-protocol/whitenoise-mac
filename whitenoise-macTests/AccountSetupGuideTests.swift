@@ -257,10 +257,10 @@ import Testing
         #expect(plan.offersNoAction)
         #expect(
             AccountSetupNoActionLines.messageKeys(.relays, in: signer) == [
-                AccountSetupNoActionLines.signerKey, AccountSetupNoActionLines.unsupportedKey,
+                AccountSetupNoActionLines.signerKey, AccountSetupWayForward.cannotContinueKey,
             ]
         )
-        let unsupported = AccountSetupNoActionLines.unsupportedKey
+        let unsupported = AccountSetupWayForward.cannotContinueKey
         let secureMessaging = F.snapshot(steps: [F.step(.keyPackage, .retryableFailure)])
         #expect(AccountSetupNoActionLines.messageKeys(.keyPackage, in: secureMessaging) == [unsupported])
         let follows = F.snapshot(steps: [F.step(.follows, .needsInput, actions: [.editFollows])])
@@ -387,7 +387,7 @@ import Testing
         ]
         keys += problems.map(\.messageKey)
         keys += [AccountSetupFailure.settingsChanged.errorDescription].compactMap { $0 }
-        keys += [AccountSetupNoActionLines.unsupportedKey, AccountSetupNoActionLines.signerKey]
+        keys += [AccountSetupWayForward.cannotContinueKey, AccountSetupNoActionLines.signerKey]
 
         let german = try #require(Bundle.main.path(forResource: "de", ofType: "lproj").flatMap(Bundle.init(path:)))
         for key in Set(keys) {

@@ -70,9 +70,14 @@ private struct AccountSetupRelayOverview: View {
                 isLoading: model.isBusy && active == nil
             ) {
                 ForEach(plan.messageKeys, id: \.self) { Text(L10n.string($0, locale: locale)) }
-                if plan.proposal == nil, !AccountSetupFindingLines.problems(in: plan.findings).isEmpty {
+                // Kept whether the step failed or carries a proposal: they say which relays went
+                // wrong and what the step lets the user do about it.
+                let findings = AccountSetupRelayFindings.lines(
+                    step: step, findings: plan.findings, actions: plan.actions
+                )
+                if !findings.isEmpty {
                     Divider()
-                    AccountSetupFindingLines(findings: plan.findings)
+                    AccountSetupRelayFindingLines(lines: findings)
                 }
             }
 
@@ -85,6 +90,9 @@ private struct AccountSetupRelayOverview: View {
         } actions: {
             AccountSetupRelayActions(plan: plan, model: model, active: $active) { action in
                 await perform(action, plan: plan)
+            }
+            if AccountSetupNoActionLines.offersCancelSignIn(step, in: model.settledSnapshot) {
+                AccountSetupCancelSignInButton(model: model, active: $active)
             }
         }
     }
@@ -105,6 +113,29 @@ private struct AccountSetupRelayOverview: View {
                 guard model.error == nil else { return }
             }
             edit(plan.proposal)
+        }
+    }
+}
+
+/// A relay step's findings, one line each: what is wrong with the list, each relay by host, and
+/// the advice. A host the line does not name prints under it, small and selectable.
+struct AccountSetupRelayFindingLines: View {
+    @Environment(\.locale) private var locale
+    let lines: [AccountSetupRelayFindings.Line]
+
+    var body: some View {
+        ForEach(lines, id: \.self) { line in
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: line.text(locale: locale))
+                if !line.embedsHost, let host = line.host {
+                    Text(verbatim: host)
+                        .wnFont(.medium10)
+                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
         }
     }
 }
@@ -368,6 +399,43 @@ struct AccountSetupRelayDraftEditor: View {
             actions: [.useRecommendedRelays, .editRelays, .editDiscoveryRelays, .retry], checkedAt: nil
         )
     ])
+    AccountSetupStepScreen(model: model, step: .relays)
+}
+
+#Preview("Inbox: relays refused") {
+    let finding: (OnboardingIssueFfi, String?) -> OnboardingFindingFfi = { issue, endpoint in
+        OnboardingFindingFfi(
+            issue: issue, endpoint: endpoint, context: .declaredRoute, purpose: .directoryQuery,
+            outcome: .failure, declaredCapability: .inbox, actions: [], observedRevision: 1
+        )
+    }
+    let model = OnboardingCoordinator.preview(steps: [
+        OnboardingStepStateFfi(
+            step: .inboxRelays, status: .retryableFailure,
+            findings: [
+                finding(.noUsableRoute, nil),
+                finding(.authenticationRequired, "wss://auth.example.com"),
+                finding(.unreachable, "wss://down.example.com"),
+            ],
+            actions: [.retry, .editDiscoveryRelays, .cancelOnboarding], checkedAt: nil
+        )
+    ])
+    AccountSetupStepScreen(model: model, step: .inboxRelays)
+}
+
+#Preview("Relays: interrupted, cancel only") {
+    let model = OnboardingCoordinator.preview(
+        steps: [
+            OnboardingStepStateFfi(
+                step: .relays, status: .needsInput, findings: [], actions: [.cancelOnboarding], checkedAt: nil
+            )
+        ],
+        proposal: OnboardingRepairProposalFfi(
+            step: .relays, revision: 1, previousEventId: nil,
+            readRelays: ["wss://relay.example.com"], writeRelays: ["wss://relay.example.com"],
+            profile: nil, follows: nil, relayRepair: nil
+        )
+    )
     AccountSetupStepScreen(model: model, step: .relays)
 }
 

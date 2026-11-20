@@ -44,9 +44,12 @@ struct AccountSetupProfilePlan: Equatable {
         return canEdit ? "Add your profile" : "Couldn’t load your profile"
     }
 
-    /// The lines under the title, in order.
+    /// The lines under the title, in order. A screen with nothing to press asks for no retry: it
+    /// can only cancel the sign-in, which `AccountSetupNoActionLines` says under it.
     var messageKeys: [String] {
-        if isInterrupted { return ["We couldn’t finish sharing your changes. Try again to complete the update."] }
+        if isInterrupted {
+            return offersNoAction ? [] : ["We couldn’t finish sharing your changes. Try again to complete the update."]
+        }
         if profile != nil {
             return [
                 "These changes haven’t been shared yet. Check the details below, then save to update your public profile."
@@ -60,6 +63,7 @@ struct AccountSetupProfilePlan: Equatable {
             case .malformed: "We found profile information, but couldn’t read it."
             default: "We couldn’t get your profile details."
             }
+        if !canRetry { return [lookup] }
         return [
             lookup,
             canSkip ? "Try again, or continue signing in without changing your profile." : "Try again to continue.",
@@ -193,6 +197,11 @@ struct AccountSetupRelayPlan: Equatable {
 
     /// The explanation under the status title, in order.
     var messageKeys: [String] {
+        // Nothing here can save or retry, so describe the listed addresses without a publishing
+        // promise; `AccountSetupNoActionLines` says the sign-in can only be cancelled.
+        if isInterrupted, offersNoAction {
+            return ["The addresses below are an update that didn’t finish publishing."]
+        }
         if isInterrupted {
             return [
                 isInbox
@@ -220,7 +229,7 @@ struct AccountSetupRelayPlan: Equatable {
         }
         if canSearchDefaults {
             keys.append("Search these relays for your existing settings. This won’t publish changes to your profile.")
-        } else if let publication = publicationKey {
+        } else if !offersNoAction, let publication = publicationKey {
             keys.append(publication)
         }
         return keys

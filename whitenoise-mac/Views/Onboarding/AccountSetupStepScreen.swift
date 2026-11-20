@@ -279,8 +279,10 @@ struct AccountSetupErrorLine: View {
 }
 
 /// What a step screen says when MarmotKit offers no action the Mac supports — only, say,
-/// reconnecting a signer or editing follows, as after an npub sign-in, which cannot sign. Without
-/// it the screen is a callout over a lone Close, under a checklist row that says "Fix to continue".
+/// reconnecting a signer or editing follows, as after an npub sign-in, which cannot sign, or an
+/// approved update that was interrupted and offers only `cancelOnboarding`. Without it the screen
+/// is a callout with nothing under it, beneath a checklist row that says "Fix to continue". The
+/// screen pairs it with `AccountSetupCancelSignInButton`, the one way forward left.
 struct AccountSetupNoActionLines: View {
     @Environment(\.locale) private var locale
     let step: OnboardingStepFfi
@@ -299,7 +301,6 @@ struct AccountSetupNoActionLines: View {
         }
     }
 
-    static let unsupportedKey = "This step can’t be finished on this Mac yet. Cancel sign-in and try again."
     static let signerKey = "Couldn’t access your private key"
 
     /// The lines, as catalog keys, or none while the step offers something to press — or is not
@@ -309,7 +310,13 @@ struct AccountSetupNoActionLines: View {
             [.needsInput, .retryableFailure, .waitingForSigner].contains(state.status),
             offersNoAction(step, in: snapshot)
         else { return [] }
-        return state.status == .waitingForSigner ? [signerKey, unsupportedKey] : [unsupportedKey]
+        let cannotContinue = AccountSetupWayForward.cannotContinueKey
+        return state.status == .waitingForSigner ? [signerKey, cannotContinue] : [cannotContinue]
+    }
+
+    /// Whether the screen offers Cancel Sign-In: exactly when it says it cannot continue.
+    static func offersCancelSignIn(_ step: OnboardingStepFfi, in snapshot: OnboardingSnapshotFfi?) -> Bool {
+        !messageKeys(step, in: snapshot).isEmpty
     }
 
     /// Whether `step`'s screen would draw no action button: the same conditions each screen
@@ -328,6 +335,53 @@ struct AccountSetupNoActionLines: View {
         case .follows:
             return !actions.contains(.retry) && !actions.contains(.continueWithout) && !actions.contains(.cancelRepair)
         }
+    }
+}
+
+/// Cancels the whole sign-in from a step screen that has no other way forward, after asking.
+/// Changes MarmotKit already published stay published; the user signs in again from the start.
+struct AccountSetupCancelSignInButton: View {
+    let model: OnboardingCoordinator
+    @Binding var active: String?
+    @State private var confirms = false
+
+    var body: some View {
+        AccountSetupStepButton(titleKey: "Cancel Sign-In", tier: .secondary, model: model, active: $active) {
+            confirms = true
+        }
+        .disabled(!model.canStartSessionCommand)
+        .confirmsCancelSignIn(model: model, isPresented: $confirms)
+    }
+}
+
+/// The one question before a sign-in is cancelled, whichever control asked: a step screen's
+/// Cancel Sign-In and the checklist's header exit cancel the same thing, so they ask the same way.
+struct AccountSetupCancelSignInConfirmation: ViewModifier {
+    @Environment(\.locale) private var locale
+    let model: OnboardingCoordinator
+    @Binding var isPresented: Bool
+
+    func body(content: Content) -> some View {
+        content.alert(L10n.string("Cancel sign-in?", locale: locale), isPresented: $isPresented) {
+            Button(L10n.string("Cancel Sign-In", locale: locale), role: .destructive) {
+                Task { await model.cancel() }
+            }
+            Button(L10n.string("Keep Signing In", locale: locale), role: .cancel) {}
+        } message: {
+            Text(
+                L10n.string(
+                    "You’ll need to sign in again to continue. Changes that were already published are kept.",
+                    locale: locale
+                )
+            )
+        }
+    }
+}
+
+extension View {
+    /// Asks before `model` cancels the sign-in. See `AccountSetupCancelSignInConfirmation`.
+    func confirmsCancelSignIn(model: OnboardingCoordinator, isPresented: Binding<Bool>) -> some View {
+        modifier(AccountSetupCancelSignInConfirmation(model: model, isPresented: isPresented))
     }
 }
 
@@ -378,6 +432,9 @@ struct AccountSetupDeviceStep: View {
         let notice = model.settledSnapshot?.singleDeviceNotice
         let hasFailure = failureFindings != nil
         let showsNotice = notice != nil && (!hasFailure || step?.actions.contains(.continueAnyway) == true)
+        let offersCancelSignIn = AccountSetupNoActionLines.offersCancelSignIn(
+            .singleDevice, in: model.settledSnapshot
+        )
 
         AccountSetupStepLayout(step: .singleDevice) {
             AccountSetupCallout(
@@ -387,7 +444,8 @@ struct AccountSetupDeviceStep: View {
                 isLoading: model.isBusy && active == nil
             ) {
                 if let failureFindings {
-                    AccountSetupFindingLines(findings: failureFindings, isFailure: true)
+                    // Without a retry the generic line would ask for one the screen can't offer.
+                    AccountSetupFindingLines(findings: failureFindings, isFailure: !offersCancelSignIn)
                 }
                 if showsNotice, let notice {
                     Text(L10n.string(AccountSetupGuide.deviceNoticeKey(notice.discovery), locale: locale))
@@ -411,6 +469,9 @@ struct AccountSetupDeviceStep: View {
                     }
                 }
             }
+            if offersCancelSignIn {
+                AccountSetupCancelSignInButton(model: model, active: $active)
+            }
         }
     }
 }
@@ -429,6 +490,7 @@ struct AccountSetupSecureMessagingStep: View {
 
     var body: some View {
         let failed = step.map { $0.status == .retryableFailure || $0.status == .waitingForSigner } ?? false
+        let offersCancelSignIn = AccountSetupNoActionLines.offersCancelSignIn(.keyPackage, in: model.settledSnapshot)
 
         AccountSetupStepLayout(step: .keyPackage) {
             AccountSetupCallout(
@@ -440,7 +502,7 @@ struct AccountSetupSecureMessagingStep: View {
                 if model.isBusy {
                     Text(L10n.string("Preparing secure messaging…", locale: locale))
                 } else if failed, let step {
-                    AccountSetupFindingLines(findings: step.findings, isFailure: true)
+                    AccountSetupFindingLines(findings: step.findings, isFailure: !offersCancelSignIn)
                 }
                 Divider()
                 Text(L10n.string(AccountSetupGuide.descriptionKey(.keyPackage), locale: locale))
@@ -452,6 +514,9 @@ struct AccountSetupSecureMessagingStep: View {
                 AccountSetupStepButton(titleKey: "Try Again", model: model, active: $active) {
                     await model.retry(.keyPackage)
                 }
+            }
+            if offersCancelSignIn {
+                AccountSetupCancelSignInButton(model: model, active: $active)
             }
         }
     }
@@ -503,6 +568,9 @@ struct AccountSetupFollowsStep: View {
                     }
                 }
             }
+            if AccountSetupNoActionLines.offersCancelSignIn(.follows, in: model.settledSnapshot) {
+                AccountSetupCancelSignInButton(model: model, active: $active)
+            }
         }
     }
 }
@@ -526,6 +594,15 @@ struct AccountSetupFollowsStep: View {
         OnboardingStepStateFfi(
             step: .keyPackage, status: .retryableFailure,
             findings: [.preview(issue: .publicationFailed, endpoint: nil)], actions: [.retry], checkedAt: nil
+        )
+    ])
+    AccountSetupStepScreen(model: model, step: .keyPackage)
+}
+
+#Preview("Secure messaging: cancel only") {
+    let model = OnboardingCoordinator.preview(steps: [
+        OnboardingStepStateFfi(
+            step: .keyPackage, status: .retryableFailure, findings: [], actions: [.cancelOnboarding], checkedAt: nil
         )
     ])
     AccountSetupStepScreen(model: model, step: .keyPackage)

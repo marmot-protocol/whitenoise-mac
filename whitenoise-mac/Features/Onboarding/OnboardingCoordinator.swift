@@ -39,11 +39,37 @@ final class OnboardingCoordinator {
     /// Nil only for a preview, which renders a fixed snapshot and runs nothing.
     @ObservationIgnored private let runtime: (any MarmotRuntime)?
     @ObservationIgnored private var observationTask: Task<Void, Never>?
-    @ObservationIgnored private var operationTask: Task<Void, Never>?
+    /// Observed, unlike the other tasks, because `needsCheckAgain` reads it: the automatic
+    /// command clears it after its own `isBusy` has already settled.
+    private var operationTask: Task<Void, Never>?
     /// The revision an automatic follows action last ran against, so a core that answers it with
     /// the same snapshot stops the loop instead of spinning on it. Not a staleness token: it never
     /// guards a write, it only refuses to repeat one automatic command on an unchanged snapshot.
     @ObservationIgnored private var lastAutomaticRevision: UInt64?
+    /// The progress the last automatic run of a pending check started from. A run answered with
+    /// the same progress made none, so it is not repeated — MarmotKit moves the revision on with
+    /// every run, so the revision cannot tell — and the pane offers Check Again instead of a
+    /// spinner that never stops. Like `lastAutomaticRevision`, it never guards a write. Observed,
+    /// because `needsCheckAgain` reads it.
+    ///
+    /// Compared as `RunProgress`, never as whole step values. In MDK 0.17.0 a run that leaves a
+    /// step `pending` would compare equal either way — `OnboardingCheckpoint::set` clears
+    /// `checked_at` for `pending` and `checking`, and sets both with no findings or actions — but
+    /// a finding's `observedRevision` and a finished step's `checkedAt` are observation
+    /// timestamps, not progress, and a core that restamped either on each run would turn this
+    /// guard back into the loop it exists to stop.
+    private var lastAutomaticRunProgress: [RunProgress]?
+
+    /// What a run is judged to have changed: each step's status and offered actions.
+    struct RunProgress: Equatable {
+        let step: OnboardingStepFfi
+        let status: OnboardingStatusFfi
+        let actions: [OnboardingActionFfi]
+
+        static func of(_ steps: [OnboardingStepStateFfi]) -> [RunProgress] {
+            steps.map { RunProgress(step: $0.step, status: $0.status, actions: $0.actions) }
+        }
+    }
 
     init(accountRef: String, runtime: any MarmotRuntime) {
         self.accountRef = accountRef
@@ -85,6 +111,7 @@ final class OnboardingCoordinator {
     func start() {
         stop()
         reviewingStep = nil
+        lastAutomaticRunProgress = nil
         observationTask = Task { [weak self] in await self?.restoreAndObserve() }
     }
 
@@ -149,6 +176,26 @@ final class OnboardingCoordinator {
 
     var currentStep: OnboardingStepStateFfi? {
         snapshot?.steps.first { !AccountSetupGuide.isComplete($0.status) }
+    }
+
+    /// Whether the checklist offers Check Again: nothing is running, nothing failed, and the
+    /// current step is still waiting or checking. MarmotKit's run returns once a step needs
+    /// attention, so a step it left `.checking` will not move again without another run, and a
+    /// `.pending` one the automatic run already tried without progress would only repeat it.
+    ///
+    /// `.checking` counts as stalled at once because MarmotKit never moves a step there on its
+    /// own. In MDK 0.17.0 only the check loop (`run_onboarding_locked`) and a repair approval
+    /// write `checking`, and both run only inside a call this coordinator makes — `runOnboarding`,
+    /// `retryOnboardingStep`, `setOnboardingDiscoveryRelays`, `continueOnboardingWithout`,
+    /// `approveOnboardingRepair`, `acknowledgeOnboardingSingleDevice` — each awaited under
+    /// `isBusy`. The `checking` snapshots the subscription delivers meanwhile are older than the
+    /// call's own answer, which `install` keeps. So `.checking` with nothing in flight is a check
+    /// that was cut off, as when the app quit mid-check, and waiting would not finish it.
+    var needsCheckAgain: Bool {
+        guard isObserving, !isBusy, operationTask == nil, error == nil,
+            let step = AccountSetupWayForward.stalledStep(snapshot)
+        else { return false }
+        return step.status == .checking || lastAutomaticRunProgress == snapshot.map { RunProgress.of($0.steps) }
     }
 
     func run() async { await update { try await $0.runOnboarding(accountRef: $1) } }
@@ -397,6 +444,10 @@ final class OnboardingCoordinator {
         // Not after an error: a run that throws rather than returning a failed step would
         // otherwise be retried at once, forever. Try Again (`start()`) clears it.
         if error == nil, currentStep?.status == .pending {
+            // A run that changed nothing waits for Check Again instead of running forever.
+            let progress = RunProgress.of(snapshot.steps)
+            guard lastAutomaticRunProgress != progress else { return }
+            lastAutomaticRunProgress = progress
             operation = { await $0.run() }
         } else if error == nil, let followsAction = Self.automaticFollowsAction(snapshot),
             lastAutomaticRevision != snapshot.revision
