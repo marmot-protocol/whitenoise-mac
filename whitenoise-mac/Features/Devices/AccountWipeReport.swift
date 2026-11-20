@@ -32,6 +32,9 @@ nonisolated struct AccountWipeReport: Identifiable, Equatable {
                     format: L10n.string("Chats this device couldn’t leave: %lld."),
                     Int64(outcome.groupLeaveFailures.count)))
         }
+        if !outcome.keyPackageFailures.isEmpty {
+            lines.append(L10n.string("Some key packages couldn’t be removed from relays."))
+        }
         if !outcome.localCleanup.completed {
             lines.append(L10n.string("Some of this profile’s data couldn’t be removed from this device."))
         }

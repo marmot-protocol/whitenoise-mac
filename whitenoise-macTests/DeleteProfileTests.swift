@@ -276,6 +276,13 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         let report = try? #require(AccountWipeReport(outcome: handedOff))
         #expect(report?.lines.count == 2)
         #expect(report?.lines.first?.contains("4") == true)
+
+        // Offline, with everything else clean: the relays still list the profile's key packages.
+        var keyPackagesLeft = clean
+        keyPackagesLeft.keyPackageFailures = [RelayFailureFfi(eventIdHex: "ab", reason: "offline")]
+        #expect(
+            AccountWipeReport(outcome: keyPackagesLeft)?.lines
+                == [L10n.string("Some key packages couldn’t be removed from relays.")])
     }
 
     /// The deletion went through, the app continued into the backup identity (the only one left),

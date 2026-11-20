@@ -358,6 +358,8 @@ final class DeviceLinkingViewModel {
             _ = try await runtime.rotateKeyPackage(accountRef: accountRef)
             return snapshot
         }
+        // The reset may have gone through even if the KeyPackage didn't: read what it left.
+        await refresh(.link)
         await refresh(.devices)
     }
 
@@ -474,6 +476,7 @@ final class DeviceLinkingViewModel {
     }
 
     private func refresh(_ part: Part) async {
+        guard isAvailable else { return }
         let refresher: CoalescingRead
         if let existing = refreshers[part] {
             refresher = existing
@@ -575,10 +578,14 @@ final class DeviceLinkingViewModel {
 
 /// Serializes one read: a request made while a read is in flight runs once more after it, so the
 /// last value installed is always from the newest read.
+///
+/// One task owns the loop and clears itself in the same main-actor step that finds nothing left to
+/// read. Callers only wait on it: a caller that waited on a finished read and looped would never
+/// suspend, and the main actor would spin before the read's own caller could clear it.
 @MainActor
 private final class CoalescingRead {
     private let read: @MainActor () async -> Void
-    private var task: Task<Void, Never>?
+    private var drain: Task<Void, Never>?
     private var requested = false
 
     init(read: @escaping @MainActor () async -> Void) {
@@ -587,22 +594,24 @@ private final class CoalescingRead {
 
     func run() async {
         requested = true
-        while requested {
-            if let task {
-                await task.value
-                continue
-            }
-            requested = false
-            let next = Task { [read] in await read() }
-            task = next
-            await next.value
-            task = nil
+        if let drain {
+            await drain.value
+            return
         }
+        let next = Task { [weak self] in
+            while let self, self.requested {
+                self.requested = false
+                await self.read()
+            }
+            self?.drain = nil
+        }
+        drain = next
+        await next.value
     }
 
+    /// Stops the loop. The model drops a cancelled reader, so none is started on it again.
     func cancel() {
-        task?.cancel()
-        task = nil
         requested = false
+        drain?.cancel()
     }
 }

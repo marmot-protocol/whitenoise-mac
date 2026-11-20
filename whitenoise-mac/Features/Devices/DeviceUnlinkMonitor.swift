@@ -29,13 +29,19 @@ final class DeviceUnlinkMonitor {
     @ObservationIgnored private var raised: Set<String> = []
 
     /// Runs until cancelled, so the shell ties it to the runtime's lifetime with `.task(id:)`.
-    func observe(_ runtime: any MarmotRuntime) async {
+    /// `onUnlinked` gets the account id as each event arrives, before the user answers the notice:
+    /// MDK has signed the account out, so the shell stops showing it right away.
+    func observe(
+        _ runtime: any MarmotRuntime, onUnlinked: @escaping @MainActor (String) async -> Void = { _ in }
+    ) async {
         guard runtime.deviceGroupsEnabled else { return }
         let subscription = runtime.subscribeEvents()
         while !Task.isCancelled {
             guard let event = try? await runtime.nextEvent(subscription: subscription) else { return }
             if case .deviceUnlinked(let accountIdHex, let accountLabel) = event {
-                receive(Notice(accountIdHex: accountIdHex.lowercased(), accountLabel: accountLabel))
+                let id = accountIdHex.lowercased()
+                receive(Notice(accountIdHex: id, accountLabel: accountLabel))
+                await onUnlinked(id)
             }
         }
     }

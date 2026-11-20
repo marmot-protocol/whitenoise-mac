@@ -123261,62 +123261,62 @@
         }
       }
     },
-    "It’s removed from your chats and stops getting messages. To use it again, sign in on it and link it again." : {
+    "It’s removed from your chats and stops getting their messages. A chat that can’t remove it keeps it until a chat admin does. To use it again, sign in on it and link it again." : {
       "comment" : "Device linking: Settings → Devices and the link sheets.",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Es wird aus deinen Chats entfernt und erhält keine Nachrichten mehr. Um es wieder zu nutzen, melde dich darauf an und verknüpfe es erneut."
+            "value" : "Es wird aus deinen Chats entfernt und erhält ihre Nachrichten nicht mehr. Ein Chat, der es nicht entfernen kann, behält es, bis ein Chat-Admin es entfernt. Um es wieder zu nutzen, melde dich darauf an und verknüpfe es erneut."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se quita de tus chats y deja de recibir mensajes. Para volver a usarlo, inicia sesión en él y vincúlalo de nuevo."
+            "value" : "Se quita de tus chats y deja de recibir sus mensajes. Un chat que no pueda quitarlo lo conserva hasta que un administrador del chat lo haga. Para volver a usarlo, inicia sesión en él y vincúlalo de nuevo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Il est retiré de vos discussions et ne reçoit plus de messages. Pour l’utiliser à nouveau, connectez-vous dessus et associez-le à nouveau."
+            "value" : "Il est retiré de vos discussions et ne reçoit plus leurs messages. Une discussion qui ne peut pas le retirer le garde jusqu’à ce qu’un administrateur de la discussion le fasse. Pour le réutiliser, connectez-vous dessus et associez-le à nouveau."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Viene rimosso dalle tue chat e smette di ricevere messaggi. Per usarlo di nuovo, accedi su di esso e collegalo di nuovo."
+            "value" : "Viene rimosso dalle tue chat e non riceve più i loro messaggi. Una chat che non può rimuoverlo lo mantiene finché non lo fa un amministratore della chat. Per usarlo di nuovo, accedi su di esso e collegalo di nuovo."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ele é removido das suas conversas e para de receber mensagens. Para usá-lo de novo, entre nele e vincule-o novamente."
+            "value" : "Ele é removido das suas conversas e deixa de receber as mensagens delas. Uma conversa que não puder removê-lo o mantém até que um administrador da conversa o faça. Para usá-lo de novo, entre nele e vincule-o novamente."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Оно будет удалено из ваших чатов и перестанет получать сообщения. Чтобы снова им пользоваться, войдите на нём и привяжите его заново."
+            "value" : "Оно удаляется из ваших чатов и перестаёт получать их сообщения. Чат, который не может его удалить, сохраняет его, пока это не сделает администратор чата. Чтобы снова использовать его, войдите на нём и привяжите его заново."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sohbetlerinizden kaldırılır ve mesaj almayı bırakır. Yeniden kullanmak için onda oturum açın ve yeniden bağlayın."
+            "value" : "Sohbetlerinizden kaldırılır ve onların mesajlarını artık almaz. Onu kaldıramayan bir sohbet, bir sohbet yöneticisi kaldırana kadar onu tutar. Yeniden kullanmak için cihazda oturum açın ve tekrar bağlayın."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "它会从你的聊天中移除并不再接收消息。如需再次使用，请在它上面登录并重新关联。"
+            "value" : "它会从你的聊天中移除，不再收到这些聊天的消息。无法移除它的聊天会保留它，直到聊天管理员将其移除。要再次使用它，请在它上面登录并重新关联。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "它會從你的聊天中移除並不再接收訊息。如需再次使用，請在它上面登入並重新連結。"
+            "value" : "它會從你的聊天中移除，不再收到這些聊天的訊息。無法移除它的聊天會保留它，直到聊天管理員將其移除。要再次使用它，請在它上面登入並重新連結。"
           }
         }
       }
@@ -130577,6 +130577,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此個人資料的部分資料無法從此裝置中移除。"
+          }
+        }
+      }
+    },
+    "Some key packages couldn’t be removed from relays." : {
+      "comment" : "Signed Out alert after a wipe: some relays still hold this profile's key packages.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Schlüsselpakete konnten nicht von Relays entfernt werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudieron eliminar algunos paquetes de claves de los relés."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Certains paquets de clés n’ont pas pu être supprimés des relais."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non è stato possibile rimuovere alcuni pacchetti di chiavi dai relay."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível remover alguns pacotes de chaves dos relays."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось удалить некоторые пакеты ключей с ретрансляторов."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bazı anahtar paketleri aktarıcılardan kaldırılamadı."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法从中继移除部分密钥包。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法從中繼移除部分金鑰套件。"
           }
         }
       }

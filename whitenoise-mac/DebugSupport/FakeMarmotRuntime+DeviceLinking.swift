@@ -25,6 +25,8 @@
         var error: Error?
         /// Thrown by the next mutating call only, then cleared.
         var nextActionError: Error?
+        /// Thrown by `rotateKeyPackage` alone, after the reset before it went through.
+        var keyPackageRotationError: Error?
 
         private(set) var snapshotReadCount = 0
         private(set) var deviceReadCount = 0
@@ -239,6 +241,7 @@
 
         func rotateKeyPackage(accountRef: String) async throws -> UInt64 {
             try deviceLinking.act()
+            if let error = deviceLinking.keyPackageRotationError { throw error }
             deviceLinking.recordKeyPackageRotation()
             return 1
         }

@@ -305,9 +305,17 @@ private struct NameThisMacField: View {
         let current = model.thisDevice?.label ?? ""
         HStack(alignment: .bottom, spacing: 8) {
             DeviceLabelField(title: L10n.string("Name This Mac"), label: $label)
-            Button(L10n.string("Save")) { model.nameThisDevice(label) }
-                .buttonStyle(.wnSecondary)
-                .disabled(!DeviceLinkPresentation.isValidLabel(label) || label == current)
+            Button(L10n.string("Save")) {
+                // A roster entry with a name already (iOS's "New Device") is renamed outright; with no
+                // entry yet the name is held until the roster lists this device.
+                if let me = model.thisDevice {
+                    Task { await model.rename(slotIdHex: me.slotIdHex, label: label) }
+                } else {
+                    model.nameThisDevice(label)
+                }
+            }
+            .buttonStyle(.wnSecondary)
+            .disabled(!DeviceLinkPresentation.isValidLabel(label) || label == current)
         }
         .onAppear {
             // iOS names a device it approves "New Device"; that default is not a name to keep.

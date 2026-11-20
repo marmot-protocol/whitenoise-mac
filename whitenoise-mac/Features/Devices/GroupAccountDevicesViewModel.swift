@@ -67,6 +67,8 @@ final class GroupAccountDevicesViewModel {
             ) {
                 try await runtime.enableAccountDevices(accountRef: accountRef, groupIdHex: groupIdHex)
             }
+            // Recorded now: a re-read that fails would otherwise leave Turn On offered again.
+            activation = .alreadyEnabled
             await load()
             return true
         } catch is GroupChangeAdvisoryDeclined {

@@ -56,6 +56,8 @@ struct DeviceLinkingTests: WorkspaceTestSupport {
         await model.refreshAll()
 
         #expect(!model.isAvailable)
+        #expect(runtime.deviceLinking.snapshotReadCount == 0)
+        #expect(runtime.deviceLinking.deviceReadCount == 0)
         #expect(runtime.eventHub.subscriberCount == 0)
         #expect(runtime.deviceLinking.snapshot.newDevice == nil)
     }
@@ -95,6 +97,33 @@ struct DeviceLinkingTests: WorkspaceTestSupport {
 
         #expect(runtime.deviceLinking.snapshotReadCount == 2)
         #expect(runtime.deviceLinking.deviceReadCount == 1)
+    }
+
+    /// Removing a device re-reads the roster while its `LinkedDevicesChanged` asks for the same
+    /// read. Overlapping requests for one read used to spin the main actor at 100% CPU: a waiter
+    /// looped on a read that had finished but that only the read's own caller could clear.
+    @Test func overlappingReadsOfOnePartAllFinish() async {
+        let runtime = makeRuntime()
+        let slot = String(repeating: "b", count: 64)
+        runtime.deviceLinking.devices = [Self.device("a", thisDevice: true), Self.device("b")]
+        let model = makeModel(runtime)
+        model.start()
+        defer { model.stop() }
+        await Self.waitUntil { model.devices.count == 2 }
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await model.remove(slotIdHex: slot) }
+            for _ in 0..<8 {
+                group.addTask {
+                    runtime.eventHub.emit(
+                        .linkedDevicesChanged(accountIdHex: Self.account.accountIdHex, accountLabel: "jeff"))
+                    await model.refreshAll()
+                }
+            }
+        }
+
+        #expect(runtime.deviceLinking.removedSlots == [slot])
+        #expect(model.device(slotIdHex: slot)?.removalPending == true)
     }
 
     @Test func linkedDevicesChangedReReadsTheDeviceList() async {
@@ -396,6 +425,21 @@ struct DeviceLinkingTests: WorkspaceTestSupport {
         #expect(!model.snapshot.deviceGroupStalled)
     }
 
+    /// The reset can go through and the KeyPackage fail: the repair state still leaves the screen.
+    @Test func aResetWhoseKeyPackageFailsStillShowsTheReset() async {
+        let runtime = makeRuntime()
+        runtime.deviceLinking.snapshot.deviceGroupStalled = true
+        runtime.deviceLinking.keyPackageRotationError = FakeMarmotRuntimeError.unused
+        let model = makeModel(runtime)
+        await model.refreshAll()
+
+        await model.resetForRepair()
+
+        #expect(runtime.deviceLinking.resetCount == 1)
+        #expect(model.actionError != nil)
+        #expect(!model.snapshot.deviceGroupStalled)
+    }
+
     @Test func answeringASignInReReadsTheList() async {
         let runtime = makeRuntime()
         let slot = String(repeating: "c", count: 64)
@@ -486,6 +530,18 @@ struct GroupAccountDevicesTests {
         #expect(model.error == nil)
     }
 
+    /// Turned on is turned on: a re-read that fails afterwards doesn't offer Turn On again.
+    @Test func aChatTurnedOnStaysOnWhenTheReReadFails() async {
+        let (runtime, model, _) = Self.setUp(.eligible)
+        await model.load()
+        runtime.accountDevicesActivationError = FakeMarmotRuntimeError.unused
+
+        let enabled = await model.enable()
+
+        #expect(enabled)
+        #expect(model.activation == .alreadyEnabled)
+    }
+
     /// MDK checks again when the commit is built; its reason replaces the stale answer on screen.
     @Test func aRefusalShowsMDKsReason() async {
         let (runtime, model, groupIdHex) = Self.setUp(.eligible)
@@ -560,6 +616,44 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(monitor.notice?.accountIdHex == "bb")
         monitor.dismiss()
         #expect(monitor.notice == nil)
+    }
+
+    /// The shell signs the account out as the event arrives, before the notice is answered.
+    @Test func theEventHandsTheAccountToTheShellAsItArrives() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        let monitor = DeviceUnlinkMonitor()
+        var unlinked: [String] = []
+        let observing = Task { await monitor.observe(runtime) { unlinked.append($0) } }
+        defer { observing.cancel() }
+        await Self.waitUntil { runtime.eventHub.subscriberCount == 1 }
+
+        runtime.eventHub.emit(.deviceUnlinked(accountIdHex: "AA", accountLabel: "jeff"))
+        await Self.waitUntil { !unlinked.isEmpty }
+
+        #expect(unlinked == ["aa"])
+        #expect(monitor.notice?.accountIdHex == "aa")
+    }
+
+    /// MDK has already signed an unlinked account out, so leaving it does only the app's half: the
+    /// last signed-in profile's chats stop showing, without asking MDK to sign out again.
+    @Test func leavingAnAccountMDKAlreadySignedOutTearsItDownWithoutSigningOutAgain() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let active = try #require(state.activeAccount)
+        state.selectChat(try #require(state.activeChats.first { $0.id == "group" }))
+
+        runtime.unlinkFromAnotherDevice(accountRef: account.label)
+        await state.signOutAccount(active)
+
+        #expect(runtime.signOutCallCount == 0)
+        #expect(state.activeAccountId == nil)
+        #expect(state.phase == .onboarding)
+        #expect(state.activeChats.isEmpty)
+        #expect(state.accounts.first?.unlinked == true)
     }
 
     /// A profile left with Later stays here signed out, and signed-out profiles show nowhere else, so
@@ -746,6 +840,22 @@ struct ThisDeviceNameTests {
         #expect(!model.thisDeviceNeedsName)
     }
 
+    /// iOS names a device it approves "New Device"; saving a name over it renames it outright.
+    @Test func savingANameOverAnExistingOneRenamesIt() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        var me = DeviceLinkingTests.makeDevice("a", thisDevice: true)
+        me.label = "New Device"
+        runtime.deviceLinking.devices = [me]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        await model.refreshAll()
+
+        await model.rename(slotIdHex: me.slotIdHex, label: " Studio Mac ")
+
+        #expect(runtime.deviceLinking.renames.map(\.label) == ["Studio Mac"])
+        #expect(model.thisDevice?.label == "Studio Mac")
+    }
+
     @Test func aNameSomeoneElseGaveFirstStands() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.deviceGroupsEnabled = true
@@ -825,6 +935,53 @@ struct ProfileLinkRequestsMonitorTests: WorkspaceTestSupport {
         await Self.waitUntil { monitor.pending.isEmpty }
 
         #expect(monitor.pending.isEmpty)
+    }
+
+    /// A profile signed in while the app runs may have had its only `DeviceLinkChanged` before it
+    /// was listed; the shell restarts the monitor when the signed-in set changes, which reads it.
+    /// A profile signed out meanwhile loses its request and its alert.
+    @Test func eachStartReadsEveryProfileAndDropsSignedOutOnes() async {
+        let runtime = makeRuntime()
+        let monitor = ProfileLinkRequestsMonitor()
+        var accounts = [Self.other]
+        var observing = Task { await monitor.observe(runtime, accounts: { accounts }) }
+        await Self.waitUntil { !monitor.pending.isEmpty }
+        monitor.presentIfNeeded(activeAccountIdHex: Self.active.accountIdHex, accounts: accounts)
+        #expect(monitor.alert != nil)
+        observing.cancel()
+
+        let third = AccountItem.samples[2]
+        accounts = [third]
+        observing = Task { await monitor.observe(runtime, accounts: { accounts }) }
+        defer { observing.cancel() }
+        await Self.waitUntil { monitor.pending[third.accountIdHex.lowercased()] != nil }
+
+        #expect(Array(monitor.pending.keys) == [third.accountIdHex.lowercased()])
+        #expect(monitor.alert == nil)
+    }
+
+    /// Not Now on one profile's alert leaves the next profile's request to be raised.
+    @Test func afterNotNowTheNextProfilesRequestIsRaised() async {
+        let runtime = makeRuntime()
+        let monitor = ProfileLinkRequestsMonitor()
+        let third = AccountItem.samples[2]
+        let accounts = [Self.active, Self.other, third]
+        let observing = Task { await monitor.observe(runtime, accounts: { accounts }) }
+        defer { observing.cancel() }
+        await Self.waitUntil { monitor.pending.count == 3 }
+        monitor.presentIfNeeded(activeAccountIdHex: Self.active.accountIdHex, accounts: accounts)
+        let first = monitor.alert?.accountIdHex
+
+        runtime.deviceLinking.snapshot.prompts = [
+            DeviceLinkPromptFfi(promptId: "p2", slotIdHex: nil, requestedAt: 0, state: .preparing)
+        ]
+        runtime.eventHub.emit(.deviceLinkChanged(accountIdHex: third.accountIdHex, accountLabel: "x"))
+        await Self.waitUntil { monitor.pending[third.accountIdHex.lowercased()] == ["p2"] }
+        monitor.putOffAlert()
+        monitor.presentIfNeeded(activeAccountIdHex: Self.active.accountIdHex, accounts: accounts)
+
+        #expect(first == Self.other.accountIdHex.lowercased())
+        #expect(monitor.alert?.accountIdHex == third.accountIdHex.lowercased())
     }
 
     @Test func withoutDeviceGroupsItReadsNothing() async {

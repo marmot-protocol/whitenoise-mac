@@ -276,6 +276,9 @@
         private(set) var proposedOnboardingProfiles: [UserProfileMetadataFfi] = []
         /// Thrown by `runOnboarding` in place of a checkpoint: storage failing, the account closed.
         var runOnboardingError: Error?
+        private(set) var acknowledgeSingleDeviceCallCount = 0
+        /// Thrown by `acknowledgeOnboardingSingleDevice` in place of a checkpoint.
+        var acknowledgeSingleDeviceError: Error?
         /// Armed, parks `runOnboarding` until released — a check MarmotKit is still working on.
         let onboardingRunGate = AsyncFfiGate()
         var usageSettings = UsageDiagnosticsSettingsFfi(
@@ -2403,7 +2406,15 @@
         func acknowledgeOnboardingSingleDevice(accountRef: String, revision: UInt64) async throws
             -> OnboardingSnapshotFfi
         {
-            try advanceOnboarding(expectedRevision: revision)
+            acknowledgeSingleDeviceCallCount += 1
+            if let acknowledgeSingleDeviceError { throw acknowledgeSingleDeviceError }
+            _ = try advanceOnboarding(expectedRevision: revision)
+            // As MDK does: the acknowledgement passes the step.
+            if let index = onboardingState?.steps.firstIndex(where: { $0.step == .singleDevice }) {
+                onboardingState?.steps[index].status = .passed
+            }
+            guard let onboardingState else { throw FakeMarmotRuntimeError.unused }
+            return onboardingState
         }
 
         func cancelOnboardingRepair(accountRef: String) async throws -> OnboardingSnapshotFfi {
@@ -2769,8 +2780,12 @@
         func accountDevicesActivation(accountRef: String, groupIdHex: String) async throws
             -> AccountDevicesActivationFfi
         {
-            accountDevicesActivations[groupIdHex] ?? .notAdmin
+            if let accountDevicesActivationError { throw accountDevicesActivationError }
+            return accountDevicesActivations[groupIdHex] ?? .notAdmin
         }
+
+        /// Thrown by `accountDevicesActivation`: a read that fails after the change went through.
+        var accountDevicesActivationError: Error?
 
         /// Refused like MDK when the activation is not `eligible`; otherwise a group change that passes
         /// the advisory gate like every other.
@@ -4442,6 +4457,16 @@
             -> AccountAttentionSnapshotFfi?
         {
             try await subscription.next()
+        }
+
+        /// Another device removed this one: MDK signs the account out here, then says so once.
+        func unlinkFromAnotherDevice(accountRef: String) {
+            guard let index = storedAccounts.firstIndex(where: { $0.label == accountRef }) else { return }
+            storedAccounts[index].signedOut = true
+            storedAccounts[index].unlinked = true
+            storedAccounts[index].running = false
+            eventHub.emit(
+                .deviceUnlinked(accountIdHex: storedAccounts[index].accountIdHex, accountLabel: accountRef))
         }
 
         func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi {

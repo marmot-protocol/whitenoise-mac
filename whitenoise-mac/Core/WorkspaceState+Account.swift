@@ -643,6 +643,8 @@ extension WorkspaceState {
         let selectedGroupId = wasActive ? selectedChat?.id : nil
         suppressMediaDiskStores(forAccountId: removedAccountId)
         defer { resumeMediaDiskStores(forAccountId: removedAccountId) }
+        // Outside the `do`: a wipe that went through is still reported if a later step fails.
+        var outcome: WipeOutcomeFfi?
         do {
             if wasActive {
                 stopTimelineListener()
@@ -650,7 +652,6 @@ extension WorkspaceState {
                 cancelChatListReload()
                 stopChatListListener()
             }
-            var outcome: WipeOutcomeFfi?
             if account.signedOut {
                 try await client.removeAccount(accountRef: account.accountRef)
             } else {
@@ -743,7 +744,7 @@ extension WorkspaceState {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
             lastError = UserFacingError.message(for: error)
-            return nil
+            return outcome
         }
     }
 
@@ -830,7 +831,14 @@ extension WorkspaceState {
                 cancelChatListReload()
                 stopChatListListener()
             }
-            _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
+            // Another device's unlink signs the account out in MDK before the app hears of it;
+            // then only the app's side of signing out is left.
+            let alreadySignedOut =
+                (try? await accountItemsFromRuntime(client: client))?
+                .first(where: { $0.id == account.id })?.signedOut == true
+            if !alreadySignedOut {
+                _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
+            }
             clearComposerDrafts(forAccountId: account.id)
             clearMediaReferenceResolutionCache(forAccountId: account.id)
             accounts = try await accountItemsFromRuntime(client: client)

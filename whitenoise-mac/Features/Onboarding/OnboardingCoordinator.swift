@@ -92,6 +92,9 @@ final class OnboardingCoordinator {
     func start() {
         stop()
         reviewingStep = nil
+        // A new session may send an automatic command once more on the same revision: Try Again
+        // after an automatic acknowledgement threw would otherwise find it already spent.
+        lastAutomaticRevision = nil
         observationTask = Task { [weak self] in await self?.restoreAndObserve() }
     }
 

@@ -495,7 +495,7 @@ struct LinkedDeviceSheet: View {
                 } message: {
                     Text(
                         L10n.string(
-                            "It’s removed from your chats and stops getting messages. To use it again, sign in on it and link it again."
+                            "It’s removed from your chats and stops getting their messages. A chat that can’t remove it keeps it until a chat admin does. To use it again, sign in on it and link it again."
                         ))
                 }
             } else {

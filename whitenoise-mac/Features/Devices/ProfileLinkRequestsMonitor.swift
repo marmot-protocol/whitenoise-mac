@@ -28,11 +28,15 @@ final class ProfileLinkRequestsMonitor {
     /// Prompts the user put off with Not Now this launch; they are not raised again.
     @ObservationIgnored private var putOff: Set<String> = []
 
-    /// Runs until cancelled. `accounts` is read on every refresh, so the shell restarts this only
-    /// when the runtime changes; a profile signed in later is read on its first event.
+    /// Runs until cancelled. The shell restarts it when the runtime or the set of signed-in profiles
+    /// changes: a profile signed in meanwhile may have had its one `DeviceLinkChanged` before it was
+    /// listed, so every start reads each profile again, and drops what a signed-out profile had.
     func observe(_ runtime: any MarmotRuntime, accounts: @escaping @MainActor () -> [AccountItem]) async {
         guard runtime.deviceGroupsEnabled else { return }
         let subscription = runtime.subscribeEvents()
+        let signedIn = Set(accounts().filter { !$0.signedOut }.map { $0.accountIdHex.lowercased() })
+        pending = pending.filter { signedIn.contains($0.key) }
+        if let alert, !signedIn.contains(alert.accountIdHex) { self.alert = nil }
         for account in accounts() {
             await refresh(account, runtime: runtime)
         }

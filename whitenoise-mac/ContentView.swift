@@ -50,33 +50,45 @@ struct ContentView: View {
                     Task { session.reportWipe(await workspace.removeAccount(account)) }
                 },
                 onLater: { notice in
-                    // MDK already signed the account out. Switch away properly while another account
-                    // is signed in, then re-read the accounts so the rail shows it signed out.
-                    if workspace.activeAccount?.accountIdHex.lowercased() == notice.accountIdHex,
-                        let next = workspace.signedInAccounts.first(where: {
-                            $0.accountIdHex.lowercased() != notice.accountIdHex
-                        })
-                    {
-                        workspace.selectAccount(next)
+                    // The account was signed out here when the event arrived; this only retries that
+                    // if another account change held it off then.
+                    if let account = account(forUnlinked: notice), !account.signedOut {
+                        Task { await workspace.signOutAccount(account) }
                     }
-                    Task { await workspace.refreshAccountProfiles() }
                 }
             )
             .accountWipeReportAlert(session)
             .profileLinkRequestAlert(session.linkRequests) { request in
                 reviewLinkRequest(request)
             }
-            .task(id: workspace.client?.storageRootPath) {
+            .task(
+                id: LinkRequestsObserveKey(
+                    runtime: runtimeIdentity, signedIn: workspace.signedInAccounts.map(\.accountIdHex))
+            ) {
                 guard let client = workspace.client else { return }
                 await session.linkRequests.observe(client, accounts: { workspace.signedInAccounts })
             }
-            .task(id: LinkRequestAlertKey(pending: session.linkRequests.pending, active: workspace.activeAccountId)) {
+            // Also re-run once an alert closes, so a second profile's request gets its turn.
+            .task(
+                id: LinkRequestAlertKey(
+                    pending: session.linkRequests.pending, active: workspace.activeAccountId,
+                    showing: session.linkRequests.alert != nil)
+            ) {
                 session.linkRequests.presentIfNeeded(
                     activeAccountIdHex: workspace.activeAccount?.accountIdHex, accounts: workspace.signedInAccounts)
             }
-            .task(id: workspace.client?.storageRootPath) {
+            .task(id: runtimeIdentity) {
                 guard let client = workspace.client else { return }
-                await session.deviceUnlinks.observe(client)
+                await session.deviceUnlinks.observe(client) { accountIdHex in
+                    // MDK already signed it out: re-read it and leave it now, as Sign Out does, so the
+                    // removed profile's chats stop showing while the notice waits for an answer.
+                    guard
+                        let account = workspace.accounts.first(where: {
+                            $0.accountIdHex.lowercased() == accountIdHex && !$0.signedOut
+                        })
+                    else { return }
+                    await workspace.signOutAccount(account)
+                }
             }
             // A profile unlinked in an earlier launch (or left with Later) is still here, signed out
             // and shown nowhere else, so its notice comes back once a launch.
@@ -228,6 +240,12 @@ struct ContentView: View {
         workspace.selectAccount(account)
     }
 
+    /// Which runtime is installed. Delete All Local Data replaces the runtime at the same storage
+    /// root, so the root path alone would leave the monitors on the old one.
+    private var runtimeIdentity: ObjectIdentifier? {
+        workspace.client.map { ObjectIdentifier($0 as AnyObject) }
+    }
+
     private func account(forUnlinked notice: DeviceUnlinkMonitor.Notice) -> AccountItem? {
         workspace.accounts.first { $0.accountIdHex.lowercased() == notice.accountIdHex }
     }
@@ -257,4 +275,10 @@ struct ContentView: View {
 private struct LinkRequestAlertKey: Equatable {
     let pending: [String: [String]]
     let active: String?
+    let showing: Bool
+}
+
+private struct LinkRequestsObserveKey: Equatable {
+    let runtime: ObjectIdentifier?
+    let signedIn: [String]
 }
