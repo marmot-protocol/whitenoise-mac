@@ -577,9 +577,10 @@ nonisolated extension MessageItem {
         let presentation = MessageItem.presentation(for: record.kind)
         let plaintext = editedPlaintext ?? record.plaintext
         let projectedIsEdited = isEdited || record.edit != nil
-        // A poll card sits on its author's side like a bubble does, so it needs the direction too.
+        // A poll card and an unsupported-event card sit on their author's side like a bubble does,
+        // so they need the direction too.
         let isOutgoing =
-            (presentation.isChatBubble || presentation == .poll)
+            (presentation.isChatBubble || presentation == .poll || presentation == .unsupported)
             && (record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound")
         let poll = record.deleted || presentation != .poll ? nil : record.poll.map(MessagePoll.init(projection:))
         let mediaAttachments = MessageMediaParser.attachments(
@@ -665,6 +666,16 @@ nonisolated extension MessageItem {
             customEmojiTags: presentation.isChatBubble && !record.deleted ? CustomEmojiTag.parse(record.tags) : [],
             presentation: presentation,
             poll: poll,
+            unsupportedEvent: record.deleted || presentation != .unsupported
+                ? nil
+                : UnsupportedEvent(
+                    id: record.messageIdHex,
+                    pubkey: record.sender,
+                    createdAt: record.timelineAt,
+                    kind: record.kind,
+                    tags: record.tags.map(\.values),
+                    content: record.plaintext
+                ),
             groupSystemType: presentation == .groupSystem
                 ? record.groupSystem?.systemType ?? MessageItem.tagValue("system", in: record.tags)
                 : nil
