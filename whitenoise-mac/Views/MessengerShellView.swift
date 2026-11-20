@@ -1052,6 +1052,8 @@ private struct ConversationView: View {
             DictationComposerView(
                 state: model.dictation.state,
                 transcript: model.dictation.transcript,
+                // The search strip's field binds Return (next match) and Escape (close).
+                claimsReturnAndEscape: !model.search.isActive,
                 onCancel: model.dictation.cancel,
                 onFinish: model.dictation.stop
             )
