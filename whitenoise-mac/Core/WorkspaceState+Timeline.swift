@@ -987,6 +987,8 @@ extension WorkspaceState {
                 groupIdHex: selectedChat.id,
                 targetMessageId: message.id
             )
+        } catch MarmotKitError.ReactionNotFound {
+            // Already gone (another device, or a second click); the window catches up on its own.
         } catch {
             lastError = UserFacingError.message(for: error)
         }

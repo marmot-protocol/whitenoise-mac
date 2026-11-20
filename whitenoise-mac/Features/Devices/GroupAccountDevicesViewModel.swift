@@ -11,7 +11,7 @@ import Observation
 /// `GroupChangeAdvisoryRetry` with the account's shared prompter, which `ContentView` hosts: group
 /// details is a pane, not a sheet.
 ///
-/// Inert unless the runtime opened with experimental device groups. Owned per group by `AccountScope`.
+/// Inert unless the runtime reports `deviceGroupsEnabled`. Owned per group by `AccountScope`.
 @MainActor
 @Observable
 final class GroupAccountDevicesViewModel {

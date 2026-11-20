@@ -570,10 +570,12 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.isImprovementsPromptPresented)
     }
 
-    /// Launch is not a first entry: an identity already on this Mac is restored by `bootstrap()`,
-    /// which reaches `activateReadyState()` like the sign-up paths do and must stay silent.
+    /// Launch asks while the receipt is pending, as iOS does: a MarmotKit update that widens the
+    /// diagnostics scope resets every answer, and a Mac that had said yes would otherwise stop
+    /// sharing unasked. An answered receipt keeps launch silent.
     @MainActor
-    @Test func relaunchingIntoAnExistingIdentityDoesNotOfferTheImprovementsPrompt() async throws {
+    @Test(arguments: [UsageDiagnosticsDecisionFfi.acceptanceRequired, .declined, .granted])
+    func relaunchingAsksOnlyWhileTheAnswerIsPending(_ decision: UsageDiagnosticsDecisionFfi) async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: Self.improvementsPromptAccountIdHex,
@@ -584,13 +586,15 @@ struct AccountTests: WorkspaceTestSupport {
             unlinked: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.usageSettings.decision = decision
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
 
         #expect(state.phase == .ready)
-        #expect(!state.isImprovementsPromptPresented)
-        #expect(runtime.usageSettings.decision == .acceptanceRequired)
+        #expect(state.isImprovementsPromptPresented == (decision == .acceptanceRequired))
+        // Asking writes nothing; only the sheet's answer (or closing it) does.
+        #expect(runtime.usageSettings.decision == decision)
     }
 
     /// "Erase App Data" takes down a prompt that is up, and removes the per-identity "offered"

@@ -24,8 +24,8 @@ enum DeviceLinkSheet: Hashable, Identifiable {
 /// (none of which carries ids, so each is a whole re-read), and installs the snapshot each linking
 /// call returns. The device group's own events never reach the host.
 ///
-/// Linking works only in a runtime opened with experimental device groups (`DeviceGroupsMode`);
-/// `isAvailable` is false otherwise and the model reads nothing. Owned by `AccountScope`, so it
+/// Linking works only when the runtime reports `deviceGroupsEnabled` (every MarmotKit open since
+/// 0.18.0); `isAvailable` is false otherwise and the model reads nothing. Owned by `AccountScope`, so it
 /// lives exactly as long as the account and an account switch discards it.
 @MainActor
 @Observable

@@ -145,7 +145,7 @@
         var blockUserError: Error?
         var unblockUserError: Error?
         var quarantinedGroupRecords: [AppQuarantinedGroupFfi] = []
-        /// Whether the fake reports an experimental device-group open (`deviceGroupsEnabled`).
+        /// Whether the fake reports device linking as available (`deviceGroupsEnabled`).
         var deviceGroupsEnabled = false
         /// Device linking's state and calls; see `FakeMarmotRuntime+DeviceLinking.swift`.
         let deviceLinking = FakeDeviceLinkingState()
@@ -528,6 +528,8 @@
         var replyToMessageError: Error?
         private(set) var reactToMessageCallCount = 0
         private(set) var unreactFromMessageCallCount = 0
+        /// Thrown by `unreactFromMessage` after it is counted.
+        var unreactFromMessageError: Error?
         private(set) var deleteMessageCallCount = 0
         private(set) var editMessageCallCount = 0
         var uploadMediaCallCount: Int {
@@ -4245,6 +4247,7 @@
             unreactFromMessageCallCount += 1
             unreactedMessage = UnreactedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
             await messageActionGate.passIfArmed()
+            if let unreactFromMessageError { throw unreactFromMessageError }
             return SendSummaryFfi(published: 1, messageIds: ["unreact"])
         }
 

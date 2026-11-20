@@ -3684,7 +3684,7 @@ enum SettingsPage: Equatable {
     case profile
     case identityKeys
     /// The account's linked devices, link requests and unrecognized sign-ins. Listed in the drawer
-    /// only when the runtime opened with experimental device groups (`DeviceGroupsMode`).
+    /// only when the runtime reports `deviceGroupsEnabled`.
     case devices
     case relays
     case keyPackages

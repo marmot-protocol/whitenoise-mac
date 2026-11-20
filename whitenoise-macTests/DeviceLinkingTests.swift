@@ -4,7 +4,7 @@ import Testing
 
 @testable import whitenoise_mac
 
-/// Device linking over MDK's experimental device groups: the account's model mirrors MDK's reads,
+/// Device linking over MDK's device groups: the account's model mirrors MDK's reads,
 /// re-reads them on the events MDK names, presents a request that wants an answer, and routes the
 /// user's answers back. Linking is inert unless the runtime opened with device groups.
 @MainActor
@@ -58,23 +58,6 @@ struct DeviceLinkingTests: WorkspaceTestSupport {
         #expect(!model.isAvailable)
         #expect(runtime.eventHub.subscriberCount == 0)
         #expect(runtime.deviceLinking.snapshot.newDevice == nil)
-    }
-
-    @Test func productionNeverOpensWithExperimentalDeviceGroups() {
-        #expect(!DeviceGroupsMode.shouldTryExperimental(flavor: .production))
-        #expect(DeviceGroupsMode.shouldTryExperimental(flavor: .development))
-        #expect(DeviceGroupsMode.shouldTryExperimental(flavor: .staging))
-    }
-
-    /// Only the capability refusal falls back to the ordinary constructor; any other failure of the
-    /// experimental open is the open failing, and retrying it ordinarily would hide that.
-    @Test func onlyTheCapabilityRefusalFallsBack() {
-        #expect(
-            DeviceGroupsMode.isCapabilityMissing(MarmotKitError.Runtime(details: DeviceGroupsMode.unavailableDetails)))
-        #expect(
-            !DeviceGroupsMode.isCapabilityMissing(
-                MarmotKitError.Runtime(details: "experimental_device_groups_required")))
-        #expect(!DeviceGroupsMode.isCapabilityMissing(FakeMarmotRuntimeError.unused))
     }
 
     // MARK: Reads and events

@@ -37,6 +37,3 @@ coverage/
 reviews/
 
 trees/
-
-# Experimental device-group MarmotKit (`scripts/dev-device-groups.sh use`); never committed.
-Vendored/MarmotKit/MarmotKitFFI-dev-device-groups.xcframework/

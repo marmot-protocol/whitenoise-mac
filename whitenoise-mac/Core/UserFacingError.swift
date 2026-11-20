@@ -169,6 +169,12 @@ nonisolated enum UserFacingError {
             L10n.string("Group not changed. Try again once this chat has synced.")
         case .GroupCommitUndelivered:
             L10n.string("Group not changed. Try again once the last change has reached every relay.")
+        case .GroupCommitPending:
+            L10n.string("The last change to this group hasn’t gone through yet. Try again in a moment.")
+        case .NoUsableRelay:
+            L10n.string("Not sent. White Noise can’t use any of this chat’s relays.")
+        case .ReactionNotFound:
+            L10n.string("That reaction is already gone.")
         case .GroupRecoveryUnsettled:
             L10n.string("This chat is still settling. Try rejoining again in a moment.")
         case .GroupRecoverySourceMismatch:

@@ -23,7 +23,7 @@ final class AccountScope {
     let onboarding: OnboardingCoordinator
     let historyNotices: HistoryNoticesViewModel
     /// Linking this account's devices, its device list, unrecognized sign-ins and the compromise
-    /// warning. Inert unless the runtime opened with experimental device groups.
+    /// warning. Inert unless the runtime reports `deviceGroupsEnabled`.
     let deviceLinking: DeviceLinkingViewModel
     /// Which groups, and whether the inbox, are still catching up after time offline.
     let recoveryStatus: AccountRecoveryStatusViewModel

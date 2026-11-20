@@ -7,8 +7,8 @@ import Security
 // calls run off the main thread (see FFIExecutor.run) instead of blocking the UI.
 nonisolated protocol MarmotRuntime: Sendable {
     var storageRootPath: String { get }
-    /// Whether this runtime opened with MDK's experimental device groups, the only mode in which
-    /// device linking works (`DeviceGroupsMode`). Every linking call is refused otherwise.
+    /// Whether device linking is available on this runtime. Always true for `MarmotClient`: since
+    /// MarmotKit 0.18.0 every open has device groups on. Test doubles can turn it off.
     var deviceGroupsEnabled: Bool { get }
 
     func start() async throws
@@ -147,7 +147,7 @@ nonisolated protocol MarmotRuntime: Sendable {
     /// Cancels a leave that became blocked (this account is now the last admin), on this device only.
     func cancelLeave(accountRef: String, groupIdHex: String) async throws
 
-    // Device linking (experimental device groups; see `DeviceGroupsMode`).
+    // Device linking.
     func deviceLinkSnapshot(accountRef: String) async throws -> DeviceLinkSnapshotFfi
     func startDeviceLink(accountRef: String) async throws -> DeviceLinkSnapshotFfi
     func confirmDeviceLinkMatch(accountRef: String) async throws -> DeviceLinkSnapshotFfi
@@ -571,7 +571,7 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     let marmot: Marmot
     let rootPath: String
-    let deviceGroupsEnabled: Bool
+    let deviceGroupsEnabled = true
     var storageRootPath: String { rootPath }
 
     convenience init() throws {
@@ -599,9 +599,7 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             // A staging build keeps the same deployment under its own keychain service.
             deployment: AppFlavor.current.marmotDeployment()
         )
-        let opened = try DeviceGroupsMode.open(rootPath: rootPath, relayUrls: relayUrls, options: options)
-        self.marmot = opened.marmot
-        self.deviceGroupsEnabled = opened.deviceGroupsEnabled
+        self.marmot = try Marmot.newWithConfiguration(rootPath: rootPath, relayUrls: relayUrls, options: options)
         // Installed after construction rather than through `MarmotOptions`: MDK rejects an
         // invalid destination whole, and a bad build setting must hide the report-to-White-Noise
         // options, never stop the runtime from opening.

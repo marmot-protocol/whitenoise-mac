@@ -46,7 +46,7 @@ final class OnboardingCoordinator {
     @ObservationIgnored private var lastAutomaticRevision: UInt64?
 
     /// Whether finishing setup leads into device linking, so the single-device step can say so. Only
-    /// a runtime opened with experimental device groups links; the step itself never offers a Link
+    /// a runtime with `deviceGroupsEnabled` links; the step itself never offers a Link
     /// action, as MDK asks.
     var offersLinkingAfterSetup: Bool {
         runtime?.deviceGroupsEnabled == true

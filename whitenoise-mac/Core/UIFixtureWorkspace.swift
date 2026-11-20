@@ -60,6 +60,8 @@
             )
             runtime.installGroups(makeGroups())
             runtime.answersTextFiltersFromTitles = true
+            // Answered, so launch doesn't put the diagnostics prompt over the transcript.
+            runtime.usageSettings.decision = .declined
 
             let messages = Array(makeMessages().suffix(WorkspaceState.timelineWindowLimit))
             runtime.conversationWindowInitialSnapshots[heavyChatId] = conversationSnapshot(messages: messages)

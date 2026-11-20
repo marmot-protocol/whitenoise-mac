@@ -188,17 +188,10 @@ build.
   cross-checks every stamp, re-hashes the vendored `MarmotKit.swift` and
   `PrivacyInfo.xcprivacy`, and verifies the Swift package resource declaration
   — so never hand-edit generated release artifacts, re-run the sync instead.
-- Device linking (Settings → Devices and the link sheets, `Features/Devices/`) runs only on MDK's
-  experimental device groups: a native library built with `dev-device-groups`, opened through
-  `newWithExperimentalDeviceGroups`. Published releases are built without it, so `DeviceGroupsMode`
-  tries that constructor in Debug and staging only, falls back to the ordinary one on
-  `experimental_device_groups_unavailable` alone, and the Devices page stays hidden while
-  `MarmotRuntime.deviceGroupsEnabled` is false. Production never opens with it.
-  `just dev-device-groups build` then `use` compiles the pinned mdk commit with the feature and points
-  the package at it; `just sanity` fails while switched, so `restore` before committing. An account
-  that has joined a device group can't be opened by the published library again
-  (`experimental_device_groups_required`); `just reset-dev` / `reset-staging` after switching back.
-  `White Noise Dev` and `White Noise Staging` keep separate roots and keychain services, so the two
+- Device linking (Settings → Devices and the link sheets, `Features/Devices/`) runs on MDK's device
+  groups, which every MarmotKit open has on since 0.18.0 (`newWithConfiguration`; there is no off
+  switch). `MarmotRuntime.deviceGroupsEnabled` is always true for `MarmotClient` and exists so
+  tests can run the fake without linking. `White Noise Dev` and `White Noise Staging` keep separate roots and keychain services, so the two
   can sign in to one account on one Mac and link to each other.
 - A dated nightly installs the same way (`just sync-bindings 0.14.0-nightly.20261022`). Nightlies
   are for testing only and upstream deletes them after 30 days; pin a formal release before
@@ -297,15 +290,17 @@ build.
   (plus the directory cache from schema 1 to 2), and 0.15.0 through 117–153, 160–180, 200 and 201
   (schema 116 → 201). 0.16.0 leaves account databases alone but moves `shared.sqlite3` from
   schema 3 to 4, which 0.15.0 refuses. 0.17.0 moves account databases through 202–207 (schema
-  201 → 207), which 0.16.0 refuses. An older app must not
+  201 → 207), which 0.16.0 refuses. 0.18.0 moves account databases through 208–216 (schema
+  207 → 216), `shared.sqlite3` from 4 to 5 and the directory cache from 2 to 3, which 0.17.0
+  refuses. An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every
   database once to a raw SQLCipher key, which 0.13.0 cannot open at all, so the only way back is a
   copy of the account directory taken before the upgrade; see
   `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md`,
   `docs/MarmotKit-0.12.0-migration.md`, `docs/MarmotKit-0.14.0-migration.md`,
-  `docs/MarmotKit-0.15.0-migration.md`, `docs/MarmotKit-0.16.0-migration.md` and
-  `docs/MarmotKit-0.17.0-migration.md`.
+  `docs/MarmotKit-0.15.0-migration.md`, `docs/MarmotKit-0.16.0-migration.md`,
+  `docs/MarmotKit-0.17.0-migration.md` and `docs/MarmotKit-0.18.0-migration.md`.
 - Start a direct chat with `startDirectConversation` (both accounts founding admins, retry-safe),
   not `createGroup` plus a promotion. The one exception is an explicitly requested *additional*
   direct chat with someone, which that call would answer with the existing one.

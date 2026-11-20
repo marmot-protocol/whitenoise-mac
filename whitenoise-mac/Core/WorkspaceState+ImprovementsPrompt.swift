@@ -2,8 +2,9 @@
 //  WorkspaceState+ImprovementsPrompt.swift
 //  whitenoise-mac
 //
-//  The one-time "Help Improve White Noise" choice, offered over Chats the first time an identity
-//  reaches it on a Mac whose diagnostics choice has never been made.
+//  The "Help Improve White Noise" choice, offered over Chats whenever an identity reaches them
+//  while this Mac's diagnostics answer is pending: never given, or reset by MarmotKit because what
+//  diagnostics covers changed.
 //
 //  The choice is device-wide — MarmotKit keeps one usage consent receipt for every account on this
 //  Mac — so it is asked once per Mac, not once per identity. Signing up a second account must not
@@ -17,18 +18,18 @@ import Foundation
 import MarmotKit
 
 extension WorkspaceState {
-    /// Offer the choice, unless this Mac has already answered it.
+    /// Offer the choice, unless this Mac's answer is current.
     ///
-    /// Called from every path that takes a *newly entered* identity into Chats, once
-    /// `activateReadyState()` has returned — the first moment Chats is on screen behind it. The
-    /// prototype presents this over Chats, not as a step inside the onboarding panes, precisely so
-    /// the account is already usable if it is dismissed without a decision.
+    /// Called from every path that takes an identity into Chats, once `activateReadyState()` has
+    /// returned — the first moment Chats is on screen behind it. The prototype presents this over
+    /// Chats, not as a step inside the onboarding panes, precisely so the account is already usable
+    /// if it is dismissed without a decision.
     ///
     /// Those paths are `completeSignUp()` and `cancelSignUp()` (the sign-up pane's two exits once
-    /// an identity exists), `login()`, `signUp()`, and the shell's leave-onboarding task.
-    ///
-    /// `bootstrap()` reaches `activateReadyState()` too and is deliberately *not* hooked: it
-    /// restores an existing session at launch, which is not a first entry.
+    /// an identity exists), `login()`, `signUp()`, the shell's leave-onboarding task, and
+    /// `bootstrap()` restoring a session at launch. Launch asks as iOS does: MarmotKit resets the
+    /// receipt to pending when the policy or registry revision changes (0.18.0 did), and the sheet
+    /// then says why (`DiagnosticsSettingsViewModel.promptExplanation`).
     ///
     /// `enteredAccountIdHex` is the identity that entered the session, read *before*
     /// `activateReadyState()` — see the switch note below for why it cannot be read here.

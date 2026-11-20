@@ -9929,6 +9929,39 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.reactedMessage == nil)
     }
 
+    /// MDK answers `ReactionNotFound` when the reaction is already gone (removed on another device,
+    /// or by a second click): the removal is done, not failed. Any other refusal still says so.
+    @MainActor
+    @Test func removingAReactionThatIsAlreadyGoneIsNotAnError() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true, externalSigning: false, signedOut: false, running: true, unlinked: false)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(), selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice", displayName: "Alice", about: nil, picture: nil, nip05: nil, lud16: nil))
+        let state = WorkspaceState(clientFactory: { runtime })
+        let ownReaction = MessageReaction(emoji: "👍", count: 1, isOwn: true)
+        let message = MessageItem(
+            id: "parent", senderName: "Alice", body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000), isOutgoing: false, reactions: [ownReaction])
+        await state.bootstrap()
+        state.lastError = nil
+
+        runtime.unreactFromMessageError = MarmotKitError.ReactionNotFound
+        await state.removeReaction(ownReaction, from: message)
+        #expect(runtime.unreactFromMessageCallCount == 1)
+        #expect(state.lastError == nil)
+
+        runtime.unreactFromMessageError = MarmotKitError.NoUsableRelay
+        await state.removeReaction(ownReaction, from: message)
+        #expect(state.lastError == UserFacingError.message(for: MarmotKitError.NoUsableRelay))
+    }
+
     /// `unreactFromMessage` retracts every reaction the viewer holds on the target, so holding two
     /// emojis still costs exactly one message-wide call — the viewer's copy says so.
     @MainActor
