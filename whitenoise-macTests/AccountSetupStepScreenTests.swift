@@ -24,14 +24,20 @@ import Testing
         _ steps: [OnboardingStepStateFfi],
         proposal: OnboardingRepairProposalFfi? = nil,
         notice: OnboardingSingleDeviceNoticeFfi? = nil,
+        locale: Locale? = nil,
         sourceLocation: SourceLocation = #_sourceLocation
     ) {
         let model = OnboardingCoordinator.preview(steps: steps, proposal: proposal, singleDeviceNotice: notice)
         let screen = F.hostedSize(
             AccountSetupStepScreen(model: model, step: step)
+                .transformEnvironment(\.locale) { if let locale { $0 = locale } }
                 .frame(width: windowSize.width, height: windowSize.height)
         )
-        #expect(screen == windowSize, "\(step) with \(steps.map(\.actions))", sourceLocation: sourceLocation)
+        #expect(
+            screen == windowSize,
+            "\(step) with \(steps.map(\.actions)) in \(locale?.identifier ?? "the host language")",
+            sourceLocation: sourceLocation
+        )
     }
 
     @Test func profileScreens() {
@@ -104,6 +110,10 @@ import Testing
             )
         }
         Self.expectScreenFits(
+            .singleDevice, [F.step(.singleDevice, .needsInput, actions: [.continueAnyway])],
+            notice: F.notice(.otherInstallationPossible, publishedAt: [1_700_000_000])
+        )
+        Self.expectScreenFits(
             .singleDevice,
             [
                 F.step(
@@ -113,6 +123,27 @@ import Testing
             ],
             notice: F.notice(.unknown)
         )
+    }
+
+    /// The tallest variant — a dated finding and two paragraphs — runs about a third longer in
+    /// French and German than in English. It still fits the smallest window without scrolling
+    /// (341pt of column in a 550pt viewport when this was written).
+    @Test func theTallestDeviceScreenFitsInFrenchAndGerman() throws {
+        let steps = [F.step(.singleDevice, .needsInput, actions: [.continueAnyway])]
+        let notice = F.notice(.otherInstallationPossible, publishedAt: [1_700_000_000])
+        let model = OnboardingCoordinator.preview(steps: steps, singleDeviceNotice: notice)
+        for language in ["fr", "de"] {
+            let locale = Locale(identifier: language)
+            Self.expectScreenFits(.singleDevice, steps, notice: notice, locale: locale)
+            let geometry = try #require(
+                F.scrollGeometry(
+                    AccountSetupStepScreen(model: model, step: .singleDevice).environment(\.locale, locale),
+                    size: Self.windowSize
+                ),
+                "\(language): no scroll view"
+            )
+            #expect(geometry.documentHeight <= geometry.viewportHeight, "\(language): \(geometry)")
+        }
     }
 
     @Test func secureMessagingAndFollowsScreens() {

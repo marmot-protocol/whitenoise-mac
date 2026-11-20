@@ -338,7 +338,10 @@ import Testing
         ]
         keys += states.map(\.subtitleKey)
         let discoveries: [OnboardingDeviceDiscoveryFfi] = [.noneFound, .otherInstallationPossible, .unknown]
-        keys += discoveries.flatMap { [AccountSetupGuide.deviceNoticeKey($0), AccountSetupGuide.deviceActionKey($0)] }
+        let notices =
+            discoveries.map { AccountSetupDeviceNotice(F.notice($0, publishedAt: [1])) }
+            + discoveries.map { AccountSetupDeviceNotice(F.notice($0)) } + [AccountSetupDeviceNotice(nil)]
+        keys += notices.flatMap { [$0.actionKey] + [$0.findingKey].compactMap { $0 } + $0.explanationKeys }
         let phases: [(OnboardingSnapshotFfi?, Bool)] = [
             (F.snapshot(steps: [F.step(.profile, .checking)]), false),
             (F.snapshot(steps: [F.step(.profile, .needsInput)]), false),

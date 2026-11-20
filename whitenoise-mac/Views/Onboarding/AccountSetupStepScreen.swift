@@ -377,7 +377,8 @@ struct AccountSetupDeviceStep: View {
     var body: some View {
         let notice = model.settledSnapshot?.singleDeviceNotice
         let hasFailure = failureFindings != nil
-        let showsNotice = notice != nil && (!hasFailure || step?.actions.contains(.continueAnyway) == true)
+        let showsNotice = !hasFailure || step?.actions.contains(.continueAnyway) == true
+        let presentation = AccountSetupDeviceNotice(showsNotice ? notice : nil)
 
         AccountSetupStepLayout(step: .singleDevice) {
             AccountSetupCallout(
@@ -389,11 +390,9 @@ struct AccountSetupDeviceStep: View {
                 if let failureFindings {
                     AccountSetupFindingLines(findings: failureFindings, isFailure: true)
                 }
-                if showsNotice, let notice {
-                    Text(L10n.string(AccountSetupGuide.deviceNoticeKey(notice.discovery), locale: locale))
-                }
-                if hasFailure || showsNotice { Divider() }
-                Text(L10n.string(AccountSetupGuide.descriptionKey(.singleDevice), locale: locale))
+                if let finding = presentation.finding(locale: locale) { Text(verbatim: finding) }
+                if hasFailure || presentation.findingKey != nil, !presentation.explanationKeys.isEmpty { Divider() }
+                ForEach(presentation.explanationKeys, id: \.self) { Text(L10n.string($0, locale: locale)) }
             }
             AccountSetupNoActionLines(step: .singleDevice, snapshot: model.settledSnapshot)
             AccountSetupErrorLine(message: model.error)
@@ -401,7 +400,7 @@ struct AccountSetupDeviceStep: View {
             if let step {
                 if step.actions.contains(.continueAnyway) {
                     AccountSetupStepButton(
-                        titleKey: AccountSetupGuide.deviceActionKey(notice?.discovery),
+                        titleKey: AccountSetupDeviceNotice(notice).actionKey,
                         model: model,
                         active: $active
                     ) { await model.acknowledgeSingleDevice() }
@@ -515,7 +514,14 @@ struct AccountSetupFollowsStep: View {
             )
         ],
         singleDeviceNotice: OnboardingSingleDeviceNoticeFfi(
-            discovery: .otherInstallationPossible, otherPackages: [], discoveryComplete: true, acknowledgedAt: nil
+            discovery: .otherInstallationPossible,
+            otherPackages: [
+                OnboardingDevicePackageFfi(
+                    slotId: "slot-0", keyPackageRefHex: nil, eventIdHex: String(repeating: "a", count: 64),
+                    publishedAt: 1_760_000_000, expiresAt: nil, usable: true
+                )
+            ],
+            discoveryComplete: true, acknowledgedAt: nil
         )
     )
     AccountSetupStepScreen(model: model, step: .singleDevice)
