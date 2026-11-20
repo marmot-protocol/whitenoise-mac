@@ -2960,6 +2960,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let presentation: MessagePresentation
     /// MDK's tally for a `.poll` row; nil for every other presentation and for a malformed poll.
     let poll: MessagePoll?
+    /// The event behind an `.unsupported` row, which the transcript draws as a card; nil for every
+    /// other presentation and for a deleted row.
+    let unsupportedEvent: UnsupportedEvent?
     /// The kind-1210 `system_type` (`member_added`, `admin_removed`, …); nil for every other kind.
     let groupSystemType: String?
     let timeLabel: String
@@ -3170,6 +3173,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         customEmojiTags: [CustomEmojiTag] = [],
         presentation: MessagePresentation = .chat,
         poll: MessagePoll? = nil,
+        unsupportedEvent: UnsupportedEvent? = nil,
         groupSystemType: String? = nil
     ) {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3244,6 +3248,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.hasBubbleContent = replyContext != nil || !trimmedBody.isEmpty
         self.presentation = presentation
         self.poll = presentation == .poll ? poll : nil
+        self.unsupportedEvent = presentation == .unsupported ? unsupportedEvent : nil
         self.groupSystemType = groupSystemType
         let timeLabel = DisplayText.messageTimestamp(for: sentAt)
         self.timeLabel = timeLabel
@@ -3327,7 +3332,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             sticker: sticker,
             customEmojiTags: customEmojiTags,
             presentation: presentation,
-            poll: poll
+            poll: poll,
+            unsupportedEvent: unsupportedEvent
         )
     }
 
@@ -3631,6 +3637,7 @@ extension MessageItem {
             && lhs.customEmojiTags == rhs.customEmojiTags
             && lhs.presentation == rhs.presentation
             && lhs.poll == rhs.poll
+            && lhs.unsupportedEvent == rhs.unsupportedEvent
             && lhs.groupSystemType == rhs.groupSystemType
             && lhs.timeLabel == rhs.timeLabel
             && lhs.statusLabel == rhs.statusLabel
