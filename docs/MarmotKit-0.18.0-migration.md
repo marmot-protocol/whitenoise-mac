@@ -46,7 +46,8 @@ false); the app already takes that flag from MDK.
 - **`GroupEventKindFfi.GroupChangeNotDelivered`**: a direct group change whose call answered
   `CompletionUnknown` was given up, and nothing sends it again. `RefusedIntentNoticesViewModel`
   shows it with the same toast as a refused queued change, with copy for the `not_delivered` and
-  `refused` reasons.
+  `refused` reasons. The event only notifies: a change given up while its account wasn't active,
+  or while the app wasn't running, is never shown (see "Not adopted yet").
 - **`OnboardingActionFfi.RemoveUnusableRelays`**: advice that readiness never depends on; the app
   doesn't offer it yet.
 - **New record fields.** `AppMessageRecordFfi.invalidated` has no default, so the fake's fixture
@@ -79,7 +80,9 @@ false); the app already takes that flag from MDK.
 
 - `groupPendingCommit` (show a change still going out).
 - `groupChangesNotDelivered` / `acknowledgeChangeNotDelivered`: reading the given-up changes on
-  start, for one that happened while its account wasn't the active one, and clearing them.
+  account start and clearing them once shown. The binding asks hosts to read them on start, since
+  the events only notify; until the app does, a leave, removal or rename given up while its account
+  wasn't active stays undone with no notice. A known limitation, left for a follow-up.
 - Link `chatProgress` (a joining banner while a new device receives its chats).
 - Onboarding `RemoveUnusableRelays`.
 - Direct-follow availability, file-backed draft attachments, `unreactFromMessageMatching`,
