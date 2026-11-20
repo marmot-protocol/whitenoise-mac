@@ -151,6 +151,116 @@ struct StickerTests {
         #expect(runtime.syncStickerPacksCallCount == 2)
     }
 
+    // MARK: - Default packs
+
+    private static func defaultPacks() -> [StickerPackFfi] {
+        StickerDefaultPacks.coordinates.map { pack($0, title: "Default") }
+    }
+
+    private static func isolatedLedger() throws -> StickerDefaultPackLedger {
+        StickerDefaultPackLedger(defaults: try #require(UserDefaults(suiteName: UUID().uuidString)))
+    }
+
+    @Test func defaultPackInstallsAskWhiteNoiseRelaysWhateverTheAccountUses() throws {
+        for coordinate in StickerDefaultPacks.coordinates {
+            let link = try #require(URLComponents(string: StickerDefaultPacks.installInput(for: coordinate)))
+            let items = link.queryItems ?? []
+            #expect(link.scheme == "https")
+            #expect(items.filter { $0.name == "a" }.map(\.value) == [coordinate])
+            #expect(Set(items.filter { $0.name == "relay" }.compactMap(\.value)) == Set(MarmotClient.seedRelays))
+        }
+    }
+
+    @MainActor
+    @Test func defaultPacksInstallOnceAfterTheFirstSync() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.stickerPackStore = Self.defaultPacks()
+        let library = StickerLibrary(
+            accountRef: "account", runtime: runtime, defaultPackLedger: try Self.isolatedLedger())
+
+        // Before a sync, packs on the account's own relay list could still be on their way.
+        await library.installDefaultPacksIfNeeded()
+        #expect(runtime.installStickerPackInputs.isEmpty)
+
+        try await library.sync()
+        await library.installDefaultPacksIfNeeded()
+        #expect(
+            runtime.installStickerPackInputs
+                == StickerDefaultPacks.coordinates.map { StickerDefaultPacks.installInput(for: $0) })
+        #expect(StickerDefaultPacks.coordinates.allSatisfy { library.isInstalled($0) })
+        #expect(!library.isInstallingDefaults)
+
+        await library.installDefaultPacksIfNeeded()
+        #expect(runtime.installStickerPackInputs.count == StickerDefaultPacks.coordinates.count)
+    }
+
+    @MainActor
+    @Test func aRemovedDefaultPackStaysRemoved() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.stickerPackStore = Self.defaultPacks()
+        let ledger = try Self.isolatedLedger()
+        let library = StickerLibrary(accountRef: "account", runtime: runtime, defaultPackLedger: ledger)
+        try await library.sync()
+        await library.installDefaultPacksIfNeeded()
+
+        let removed = try #require(library.installed.first)
+        try await library.uninstall(removed)
+        let relaunched = StickerLibrary(accountRef: "account", runtime: runtime, defaultPackLedger: ledger)
+        try await relaunched.sync()
+        await relaunched.installDefaultPacksIfNeeded()
+
+        #expect(!relaunched.isInstalled(removed.coordinate))
+        #expect(runtime.installStickerPackInputs.count == StickerDefaultPacks.coordinates.count)
+    }
+
+    @MainActor
+    @Test func aDefaultPackThatFailedToInstallIsTriedAgainNextTime() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.stickerPackStore = Self.defaultPacks()
+        let failing = try #require(StickerDefaultPacks.coordinates.first)
+        runtime.failingStickerInstalls = [failing]
+        let ledger = try Self.isolatedLedger()
+        let library = StickerLibrary(accountRef: "account", runtime: runtime, defaultPackLedger: ledger)
+        try await library.sync()
+        await library.installDefaultPacksIfNeeded()
+        #expect(!library.isInstalled(failing))
+        #expect(!ledger.offered(accountRef: "account").contains(failing))
+
+        runtime.failingStickerInstalls = []
+        await library.installDefaultPacksIfNeeded()
+        #expect(library.isInstalled(failing))
+        #expect(ledger.offered(accountRef: "account") == Set(StickerDefaultPacks.coordinates))
+    }
+
+    @MainActor
+    @Test func aDefaultPackAlreadyOnTheAccountIsRecordedNotReinstalled() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        var packs = Self.defaultPacks()
+        packs[0].installed = true
+        runtime.stickerPackStore = packs
+        let ledger = try Self.isolatedLedger()
+        let library = StickerLibrary(accountRef: "account", runtime: runtime, defaultPackLedger: ledger)
+        try await library.sync()
+        await library.installDefaultPacksIfNeeded()
+
+        #expect(runtime.installStickerPackInputs == [StickerDefaultPacks.installInput(for: packs[1].coordinate)])
+        #expect(ledger.offered(accountRef: "account") == Set(StickerDefaultPacks.coordinates))
+        #expect(ledger.offered(accountRef: "other").isEmpty)
+    }
+
+    @Test func eraseAppDataForgetsEveryAccountsDefaultPacks() throws {
+        let defaults = try #require(UserDefaults(suiteName: UUID().uuidString))
+        let ledger = StickerDefaultPackLedger(defaults: defaults)
+        ledger.record(Set(StickerDefaultPacks.coordinates), accountRef: "one")
+        ledger.record(Set(StickerDefaultPacks.coordinates), accountRef: "two")
+        defaults.set(true, forKey: "unrelated")
+
+        ledger.reset()
+        #expect(ledger.offered(accountRef: "one").isEmpty)
+        #expect(ledger.offered(accountRef: "two").isEmpty)
+        #expect(defaults.bool(forKey: "unrelated"))
+    }
+
     @MainActor
     @Test func sendingAStickerSendsItsImmutableReference() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])

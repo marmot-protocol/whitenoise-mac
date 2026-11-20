@@ -53,6 +53,30 @@ struct CustomEmojiTests {
         #expect(CustomEmojiText.soleEmoji(in: ":party:", shortcodes: []) == nil)
     }
 
+    @MainActor
+    @Test func aLoneCustomEmojiDrawsAtStickerSizeFromAnImageDecodedForIt() {
+        #expect(CustomEmojiSticker.height == 112)
+        #expect(CustomEmojiImageStore.maxPixelSize >= CustomEmojiSticker.height * 2)
+        // A wide image keeps its aspect, up to three emoji widths.
+        let wide = NSImage(size: NSSize(width: 400, height: 100))
+        #expect(CustomEmojiSticker.width(for: wide) == CustomEmojiSticker.height * 3)
+        #expect(CustomEmojiSticker.width(for: nil) == CustomEmojiSticker.height)
+    }
+
+    @Test func builtinBytesScaleAsPixelArtUnderAnyShortcode() throws {
+        let marmot = try #require(CustomEmojiBuiltins.builtin("marmot"))
+        let classic = try #require(CustomEmojiBuiltins.builtin("marmot_classic"))
+        #expect(CustomEmojiBuiltins.isBuiltinArtwork(plaintextSha256: marmot.plaintextSha256))
+        #expect(CustomEmojiBuiltins.isBuiltinArtwork(plaintextSha256: classic.plaintextSha256.uppercased()))
+        #expect(!CustomEmojiBuiltins.isBuiltinArtwork(plaintextSha256: String(repeating: "a", count: 64)))
+    }
+
+    @Test func aLoneCustomEmojiReadsAsItsBuiltinNameOrItsShortcode() {
+        let english = Locale(identifier: "en")
+        #expect(CustomEmojiBuiltins.spokenName(for: "marmot", locale: english) == "Marmot")
+        #expect(CustomEmojiBuiltins.spokenName(for: "party", locale: english) == ":party:")
+    }
+
     @Test func reactionShortcodeRequiresTheWholeContent() {
         #expect(CustomEmojiText.reactionShortcode(":party:") == "party")
         #expect(CustomEmojiText.reactionShortcode("👍") == nil)

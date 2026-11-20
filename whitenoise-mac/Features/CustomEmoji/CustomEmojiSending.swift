@@ -82,6 +82,18 @@ nonisolated enum CustomEmojiBuiltins {
     static func builtin(_ shortcode: String) -> CustomEmojiBuiltin? {
         all.first { $0.shortcode == shortcode }
     }
+
+    /// Whether these are the bytes of a built-in, whatever shortcode they arrived under: an older
+    /// client's `:marmot:` is today's `:marmot_classic:` image. Every built-in is pixel art.
+    static func isBuiltinArtwork(plaintextSha256: String) -> Bool {
+        let digest = plaintextSha256.lowercased()
+        return all.contains { $0.plaintextSha256 == digest }
+    }
+
+    /// What VoiceOver reads for `shortcode`: a built-in's name, or else the literal `:shortcode:`.
+    static func spokenName(for shortcode: String, locale: Locale) -> String {
+        builtin(shortcode)?.spokenName(locale: locale) ?? ":\(shortcode):"
+    }
 }
 
 /// Decoded built-in images, decoded once.

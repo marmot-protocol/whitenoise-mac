@@ -823,7 +823,8 @@ struct MessageBubble: View {
                 stickerContent(
                     CustomEmojiSticker(
                         shortcode: customStickerEmoji.shortcode,
-                        image: customEmojiImages.image(for: customStickerEmoji.attachment.reference)
+                        image: customEmojiImages.image(for: customStickerEmoji.attachment.reference),
+                        plaintextSha256: customStickerEmoji.attachment.reference.plaintextSha256
                     )
                 )
             } else {

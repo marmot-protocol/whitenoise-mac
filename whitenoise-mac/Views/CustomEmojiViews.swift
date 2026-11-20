@@ -162,12 +162,17 @@ struct ReactionEmojiGlyph: View {
 }
 
 /// A message that is only one custom emoji, drawn large without a bubble like a lone Unicode
-/// emoji. Holds its size while the image loads.
+/// emoji, at the size White Noise for iOS draws it. Holds its size while the image loads.
 struct CustomEmojiSticker: View {
     let shortcode: String
     let image: NSImage?
+    /// The image's digest. A built-in's own bytes are pixel art, so they scale up without
+    /// smoothing; any other image is smoothed.
+    var plaintextSha256: String? = nil
 
-    static let height: CGFloat = 64
+    @Environment(\.locale) private var locale
+
+    static let height: CGFloat = 112
 
     /// The image's own aspect at `height`, capped at three emoji widths like the inline glyph.
     static func width(for image: NSImage?) -> CGFloat {
@@ -175,11 +180,16 @@ struct CustomEmojiSticker: View {
         return min(height * size.width / size.height, height * 3)
     }
 
+    private var isPixelArt: Bool {
+        plaintextSha256.map(CustomEmojiBuiltins.isBuiltinArtwork(plaintextSha256:)) ?? false
+    }
+
     var body: some View {
         Group {
             if let image {
                 Image(nsImage: image)
                     .resizable()
+                    .interpolation(isPixelArt ? .none : .high)
                     .scaledToFit()
             } else {
                 ProgressView()
@@ -188,12 +198,17 @@ struct CustomEmojiSticker: View {
         }
         .frame(width: Self.width(for: image), height: Self.height)
         .accessibilityElement()
-        .accessibilityLabel(Text(verbatim: ":\(shortcode):"))
+        .accessibilityLabel(Text(verbatim: CustomEmojiBuiltins.spokenName(for: shortcode, locale: locale)))
     }
 }
 
 #Preview("Custom emoji sticker") {
     HStack(spacing: 24) {
+        CustomEmojiSticker(
+            shortcode: "marmot",
+            image: CustomEmojiBuiltinImages.image(for: "marmot"),
+            plaintextSha256: CustomEmojiBuiltins.builtin("marmot")?.plaintextSha256
+        )
         CustomEmojiSticker(
             shortcode: "star",
             image: NSImage(systemSymbolName: "star.fill", accessibilityDescription: nil)
