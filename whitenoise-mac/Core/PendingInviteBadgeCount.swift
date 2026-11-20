@@ -24,7 +24,8 @@ import MarmotKit
 /// unarchived and the local account's membership is neither `left` nor `removed`. Both
 /// exclusions matter for the badge as much as for the core's total: an archived invite has been
 /// put away deliberately, and an ended membership supersedes a pending invite outright — the
-/// sidebar row draws "Left"/"Removed" in place of the invite badge for exactly that reason
+/// sidebar row says "You left this group" / "You were removed from this group" in place of the
+/// invite badge and invite line for exactly that reason
 /// (`ChatRowStatus`), so a badge counting it would point at a row that never mentions an invite.
 nonisolated enum PendingInviteBadgeCount {
     /// Whether one row adds itself to the badge.

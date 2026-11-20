@@ -607,11 +607,11 @@ struct ChatListTests: WorkspaceTestSupport {
 
     @MainActor
     @Test func selfMembershipPresentationLabelsDescribeEndedStates() async throws {
-        #expect(ChatSelfMembership.member.sidebarBadgeLabel == nil)
+        #expect(ChatSelfMembership.member.statusLabel == nil)
         #expect(ChatSelfMembership.member.endedDescription == nil)
-        #expect(ChatSelfMembership.left.sidebarBadgeLabel == "Left")
+        #expect(ChatSelfMembership.left.statusLabel == "Left")
         #expect(ChatSelfMembership.left.endedDescription == "You left this group")
-        #expect(ChatSelfMembership.removed.sidebarBadgeLabel == "Removed")
+        #expect(ChatSelfMembership.removed.statusLabel == "Removed")
         #expect(ChatSelfMembership.removed.endedDescription == "You were removed from this group")
     }
 

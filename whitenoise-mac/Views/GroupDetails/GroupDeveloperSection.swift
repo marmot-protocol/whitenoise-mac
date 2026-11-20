@@ -85,7 +85,7 @@ struct GroupDeveloperSection: View {
                 copyable: false)
             GroupDiagnosticsValueRow(
                 title: L10n.string("Self membership"),
-                value: snapshot.selfMembership.sidebarBadgeLabel ?? L10n.string("Member"),
+                value: snapshot.selfMembership.statusLabel ?? L10n.string("Member"),
                 copyable: false)
         }
     }

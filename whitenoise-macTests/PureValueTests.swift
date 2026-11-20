@@ -5798,7 +5798,7 @@ struct PureValueTests {
 
     /// A removal takes the preview line outright — the chat is closed to the reader, so the row
     /// reports that instead of whatever was said before it, in the same words the chat's own
-    /// composer notice uses. The "Removed" capsule beside the title goes away with it.
+    /// composer notice uses. No capsule beside the title says it as well.
     @Test func removalTakesThePreviewLineFromTheLastMessage() {
         let removed = invitePreviewChat(
             isDirect: false,
@@ -5811,22 +5811,50 @@ struct PureValueTests {
             removed.previewNotice(locale: Locale(identifier: "en"))
                 == "You were removed from this group"
         )
-        #expect(ChatSelfMembership.removed.reportsInChatRowPreviewLine)
     }
 
-    /// Leaving is the reader's own doing and stays a capsule, so its rows keep showing the last
-    /// message — the one thing a row can say that the reader does not already know.
-    @Test func leavingKeepsItsCapsuleAndItsLastMessage() {
+    /// Leaving takes the preview line the same way a removal does, instead of a "Left" capsule
+    /// beside the title: the row reads like the chat's own last word on it.
+    @Test func leavingTakesThePreviewLineFromTheLastMessage() {
         let left = invitePreviewChat(
             isDirect: false,
             preview: "Alice: see you Monday",
             pendingConfirmation: false,
             membership: .left
         )
+        let deviceRemoved = invitePreviewChat(
+            isDirect: false,
+            preview: "Alice: see you Monday",
+            pendingConfirmation: false,
+            membership: .deviceRemoved
+        )
+        let member = invitePreviewChat(
+            isDirect: false,
+            preview: "Alice: see you Monday",
+            pendingConfirmation: false,
+            membership: .member
+        )
 
-        #expect(left.previewNotice(locale: Locale(identifier: "en")) == nil)
-        #expect(ChatSelfMembership.left.reportsInChatRowPreviewLine == false)
-        #expect(ChatSelfMembership.member.reportsInChatRowPreviewLine == false)
+        #expect(left.previewNotice(locale: Locale(identifier: "en")) == "You left this group")
+        #expect(
+            deviceRemoved.previewNotice(locale: Locale(identifier: "en"))
+                == "This device is no longer in this chat"
+        )
+        #expect(member.previewNotice(locale: Locale(identifier: "en")) == nil)
+    }
+
+    /// A departure outranks the group ending: the reader's own leave or removal is the more
+    /// specific fact about why the chat is closed to them.
+    @Test func leavingOutranksAnEndedGroupOnThePreviewLine() {
+        let left = invitePreviewChat(
+            isDirect: false,
+            preview: "Alice: see you Monday",
+            pendingConfirmation: false,
+            membership: .left,
+            lifecycle: .ended
+        )
+
+        #expect(left.previewNotice(locale: Locale(identifier: "en")) == "You left this group")
     }
 
     /// Everything the line said before still reaches it: a chat with no last message keeps the
@@ -6396,7 +6424,8 @@ private func invitePreviewChat(
     preview: String,
     pendingConfirmation: Bool = true,
     leaveRequestPending: Bool = false,
-    membership: ChatSelfMembership = .member
+    membership: ChatSelfMembership = .member,
+    lifecycle: GroupLifecycle = .active
 ) -> ChatItem {
     ChatItem(
         id: "group",
@@ -6410,7 +6439,8 @@ private func invitePreviewChat(
         isDirect: isDirect,
         leaveRequestPending: leaveRequestPending,
         pendingConfirmation: pendingConfirmation,
-        selfMembership: membership
+        selfMembership: membership,
+        lifecycle: lifecycle
     )
 }
 

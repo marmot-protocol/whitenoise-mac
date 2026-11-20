@@ -3,7 +3,7 @@
 //  whitenoise-mac
 //
 //  How a group that is being ended, or has ended, reads outside its inspector: in place of the
-//  composer, and as a capsule on its sidebar row.
+//  composer, and (while it is ending) as a capsule on its sidebar row.
 //
 
 import SwiftUI
@@ -32,8 +32,8 @@ struct GroupLifecycleComposerNotice: View {
     }
 }
 
-/// "Ending" / "Ended" capsule on a sidebar row, in the same shape as the leave and membership
-/// capsules beside it.
+/// "Ending" capsule on a sidebar row, in the same shape as the leave capsule. An ended group wears
+/// none: its row's preview line says "Group ended" instead.
 struct GroupLifecycleBadge: View {
     let lifecycle: GroupLifecycle
 
@@ -60,9 +60,6 @@ struct GroupLifecycleBadge: View {
 }
 
 #Preview("Sidebar badge") {
-    HStack {
-        GroupLifecycleBadge(lifecycle: .ending)
-        GroupLifecycleBadge(lifecycle: .ended)
-    }
-    .padding()
+    GroupLifecycleBadge(lifecycle: .ending)
+        .padding()
 }

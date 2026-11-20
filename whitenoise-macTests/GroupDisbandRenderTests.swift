@@ -42,10 +42,11 @@ import Testing
                 GroupLifecycleComposerNotice(lifecycle: lifecycle)
                     .frame(width: 480),
                 in: appearance)
-            let badge = try Self.drawnHeight(GroupLifecycleBadge(lifecycle: lifecycle), in: appearance)
             #expect(notice > 0)
-            #expect(badge > 0)
         }
+        // Only an ending group wears a capsule; an ended one reports itself on the preview line.
+        let badge = try Self.drawnHeight(GroupLifecycleBadge(lifecycle: .ending), in: appearance)
+        #expect(badge > 0)
     }
 
     /// An admin held back by members on old clients still sees End Group, with the reason under it;
