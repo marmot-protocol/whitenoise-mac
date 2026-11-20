@@ -739,7 +739,9 @@ nonisolated extension MessageItem {
 
     fileprivate static func presentation(for kind: UInt64) -> MessagePresentation {
         switch kind {
-        case MarmotTimelineKind.chat:
+        // A NIP-22 comment is a text message answering another one. Since 0.18.0 MDK projects its
+        // parent as the reply target and quote, so it reads as a chat reply.
+        case MarmotTimelineKind.chat, MarmotTimelineKind.comment:
             return .chat
         case MarmotTimelineKind.agentStreamStart:
             return .agentStreamStart
@@ -1536,6 +1538,7 @@ nonisolated extension MessagePoll {
 
 private nonisolated enum MarmotTimelineKind {
     static let chat: UInt64 = 9
+    static let comment: UInt64 = 1111
     static let messageEdit: UInt64 = 1009
     static let agentStreamStart: UInt64 = 1200
     static let agentActivity: UInt64 = 1201
