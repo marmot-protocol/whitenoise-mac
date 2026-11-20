@@ -2249,10 +2249,11 @@ struct SettingsTests: WorkspaceTestSupport {
                 trigger: .groupInvite
             ))
 
-        // Neither invite names its sender: an unnamed one points at the app instead of an npub.
+        // Neither invite names its sender: an unnamed one says an invite arrived instead of
+        // printing an npub, and never asks the reader to open an app that is already open.
         #expect(
             notificationCenter.postedRequests.map { [$0.identifier, $0.title, $0.body] } == [
-                ["direct-invite", L10n.string("Group invite"), L10n.string("Open White Noise to view the invite")],
+                ["direct-invite", L10n.string("Group invite"), L10n.string("You have been invited to a secure chat")],
                 [
                     "group-invite", L10n.string("Group invite"),
                     String(
