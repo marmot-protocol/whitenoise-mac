@@ -1163,6 +1163,27 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(display.truncated)
     }
 
+    @Test func aTypedNewlineStaysALineBreakInTheBubble() throws {
+        // CommonMark parses a single newline as a soft break, which it would join with a space.
+        let document = MarkdownDocumentFfi(
+            blocks: [
+                .paragraph(inlines: [
+                    .text(content: "First line"), .softBreak, .strong(children: [.text(content: "second")]),
+                    .hardBreak, .text(content: "third"),
+                ])
+            ],
+            truncated: false
+        )
+
+        let display = MarkdownDisplayDocument(document: document)
+
+        guard case .paragraph(let text) = display.blocks.first?.block else {
+            Issue.record("expected a paragraph block")
+            return
+        }
+        #expect(String(text.characters) == "First line\nsecond\nthird")
+    }
+
     @MainActor
     @Test func deeplyNestedMarkdownInlinesCollapseInsteadOfRecursing() async throws {
         // Inline emphasis/strong/strikethrough/link/image-alt recurse proportionally to

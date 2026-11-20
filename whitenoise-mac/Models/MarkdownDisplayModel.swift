@@ -378,8 +378,10 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         switch inline {
         case .text(let content):
             return styled(content, intent: intent, link: link)
+        // A typed newline is a line break in a chat message, as every chat app draws it. CommonMark
+        // would join the lines with a space, which collapses a message written over several lines.
         case .softBreak:
-            return styled(" ", intent: intent, link: link)
+            return styled("\n", intent: intent, link: link)
         case .hardBreak:
             return styled("\n", intent: intent, link: link)
         case .code(let content):
