@@ -140,7 +140,9 @@ private struct UnsupportedEventHeader: View {
 /// The event as JSON in a code block: the whole event, unaltered, wrapped to the card's width.
 /// An event can be as large as a relay accepts (megabytes), which a SwiftUI `Text` lays out all at
 /// once, so this is a read-only text view: TextKit lays out only what scrolls into view, and the
-/// reader can select and scroll to the end. It grows with its text up to `maxHeight`, then scrolls.
+/// reader can scroll to the end. It grows with its text up to `maxHeight`, then scrolls. Not
+/// selectable: the text view's own ⌘C would skip the concealed pasteboard type that Copy JSON (and
+/// every message copy) uses to keep decrypted content out of clipboard history.
 struct UnsupportedEventJSONView: NSViewRepresentable {
     let json: String
 
@@ -161,12 +163,12 @@ struct UnsupportedEventJSONView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         if let textView = scrollView.documentView as? NSTextView {
             textView.isEditable = false
-            textView.isSelectable = true
+            textView.isSelectable = false
             textView.drawsBackground = false
             textView.isRichText = false
             textView.textContainerInset = Self.inset
             textView.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
-            textView.textColor = NSColor(MarkdownCodeBlockPalette.content)
+            textView.textColor = MarkdownCodeBlockPalette.nsContent
             textView.layoutManager?.allowsNonContiguousLayout = true
         }
         return scrollView

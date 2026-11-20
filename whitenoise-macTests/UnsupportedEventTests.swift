@@ -112,6 +112,19 @@ struct UnsupportedEventTests {
         let textView = try #require(Self.textViews(in: expanded).first)
         #expect(textView.string == huge.json)
         #expect(!textView.isEditable)
+        // Selection would let ⌘C copy decrypted content without the concealed pasteboard type.
+        #expect(!textView.isSelectable)
+        // The end of the event starts out of view and is reachable by scrolling the block.
+        let layoutManager = try #require(textView.layoutManager)
+        let container = try #require(textView.textContainer)
+        let lastGlyph = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: (huge.json as NSString).length - 1, length: 1),
+            actualCharacterRange: nil)
+        let lastRect = layoutManager.boundingRect(forGlyphRange: lastGlyph, in: container)
+            .offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+        #expect(!textView.visibleRect.intersects(lastRect))
+        textView.scrollToEndOfDocument(nil)
+        #expect(textView.visibleRect.intersects(lastRect))
         // A huge event scrolls inside the block instead of stretching the row; a small one fits.
         let smallHeight = Self.hosted(small, expanded: true).fittingSize.height
         #expect(smallHeight > Self.hosted(small, expanded: false).fittingSize.height)
