@@ -150,27 +150,10 @@ struct AccountSetupGuide: Equatable {
         case .relays:
             "Read relays find public information. Write relays publish your public information. A relay can do both."
         case .inboxRelays: "Inbox relays receive invitations to new chats and groups."
-        // MDK 0.15's suggested copy: say what signing in alone restores, not that multi-device use
-        // is unsupported.
-        case .singleDevice:
-            "Signing in alone does not restore your existing chats or messages. If you use another device, keep its app and data until you’ve checked your chats here."
+        // Each sign-in is a separate installation; never say this device is added, linked or synced.
+        // `AccountSetupDeviceNotice` words the step once MDK has checked for other apps.
+        case .singleDevice: AccountSetupDeviceNotice.uncheckedExplanationKey
         case .keyPackage: "Secure messaging must be ready before you can open Chats."
-        }
-    }
-
-    /// The single-device step's consent button: plain Continue when nothing else was found.
-    static func deviceActionKey(_ discovery: OnboardingDeviceDiscoveryFfi?) -> String {
-        discovery == .noneFound ? "Continue" : "Continue anyway"
-    }
-
-    static func deviceNoticeKey(_ discovery: OnboardingDeviceDiscoveryFfi) -> String {
-        switch discovery {
-        case .otherInstallationPossible:
-            "Other sign-in records were found. They may belong to another installation or an earlier one."
-        case .noneFound:
-            "No other installation was found on the sources we checked. This does not guarantee that the profile is unused elsewhere."
-        case .unknown:
-            "Other sign-ins could not be checked."
         }
     }
 

@@ -56,9 +56,20 @@ enum OnboardingFixtures {
         )
     }
 
-    static func notice(_ discovery: OnboardingDeviceDiscoveryFfi) -> OnboardingSingleDeviceNoticeFfi {
-        OnboardingSingleDeviceNoticeFfi(
-            discovery: discovery, otherPackages: [], discoveryComplete: true, acknowledgedAt: nil
+    /// A device notice whose other installations published key packages at `publishedAt` (Unix seconds).
+    static func notice(
+        _ discovery: OnboardingDeviceDiscoveryFfi, publishedAt: [UInt64] = []
+    ) -> OnboardingSingleDeviceNoticeFfi {
+        let packages = publishedAt.enumerated().map { index, publishedAt in
+            OnboardingDevicePackageFfi(
+                slotId: "slot-\(index)", keyPackageRefHex: nil,
+                eventIdHex: String(repeating: "\(index % 10)", count: 64),
+                publishedAt: publishedAt, expiresAt: nil, usable: true
+            )
+        }
+        return OnboardingSingleDeviceNoticeFfi(
+            discovery: discovery, otherPackages: packages, discoveryComplete: discovery != .unknown,
+            acknowledgedAt: nil
         )
     }
 
