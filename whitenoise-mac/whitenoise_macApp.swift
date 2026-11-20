@@ -49,7 +49,13 @@ struct whitenoise_macApp: App {
                         workspace.startConnectivityMonitoring()
                     }
                     await workspace.bootstrap()
+                    let restoredAccountIdHex = workspace.activeAccount?.accountIdHex
                     await synchronizeAccountScope()
+                    // A pending answer is asked for at launch too, as on iOS: a MarmotKit update
+                    // that widens what diagnostics covers puts a yes back to pending, and that Mac
+                    // would otherwise stop sharing unasked. Only now: the sheet draws the account
+                    // scope's diagnostics model, which `synchronizeAccountScope()` installs.
+                    await workspace.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: restoredAccountIdHex)
                 }
                 .task(id: workspace.activeAccountId) {
                     await synchronizeAccountScope()

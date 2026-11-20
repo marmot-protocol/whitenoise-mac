@@ -67571,6 +67571,331 @@
         }
       }
     },
+    "This change didn’t reach any of the group’s relays, so it wasn’t made." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Änderung hat keines der Relays der Gruppe erreicht und wurde deshalb nicht vorgenommen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This change didn’t reach any of the group’s relays, so it wasn’t made."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este cambio no llegó a ninguno de los relays del grupo, así que no se aplicó."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette modification n’a atteint aucun des relais du groupe, elle n’a donc pas été effectuée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa modifica non ha raggiunto nessuno dei relay del gruppo, quindi non è stata applicata."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta alteração não chegou a nenhum dos relays do grupo, por isso não foi feita."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это изменение не дошло ни до одного релея группы, поэтому оно не внесено."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu değişiklik grubun hiçbir rölesine ulaşmadı, bu yüzden yapılmadı."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此更改未送达群组的任何中继服务器，因此未生效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此變更未送達群組的任何中繼伺服器，因此未生效。"
+          }
+        }
+      }
+    },
+    "The group’s relays refused this change, so it wasn’t made." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Relays der Gruppe haben diese Änderung abgelehnt, daher wurde sie nicht vorgenommen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The group’s relays refused this change, so it wasn’t made."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los relays del grupo rechazaron este cambio, así que no se aplicó."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les relais du groupe ont refusé cette modification, elle n’a donc pas été effectuée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I relay del gruppo hanno rifiutato questa modifica, quindi non è stata applicata."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os relays do grupo recusaram esta alteração, por isso ela não foi feita."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Релеи группы отклонили это изменение, поэтому оно не внесено."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grubun röleleri bu değişikliği reddetti, bu yüzden yapılmadı."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群组的中继服务器拒绝了此更改，因此未生效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "群組的中繼伺服器拒絕了此變更，因此未生效。"
+          }
+        }
+      }
+    },
+    "Save these relays anyway?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Relays trotzdem speichern?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save these relays anyway?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Guardar estos relays de todos modos?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer ces relais quand même ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salvare comunque questi relay?"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salvar estes relays mesmo assim?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всё равно сохранить эти релеи?"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu röleler yine de kaydedilsin mi?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍要保存这些中继服务器吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍要儲存這些中繼伺服器嗎？"
+          }
+        }
+      }
+    },
+    "Save Anyway" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trotzdem speichern"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Anyway"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar de todos modos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer quand même"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salva comunque"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salvar mesmo assim"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всё равно сохранить"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yine de kaydet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍然保存"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍然儲存"
+          }
+        }
+      }
+    },
+    "Some relays didn’t answer, so White Noise couldn’t check them for newer relay settings. Saving now may replace settings you made elsewhere." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Relays haben nicht geantwortet, daher konnte White Noise dort nicht nach neueren Relay-Einstellungen suchen. Wenn du jetzt speicherst, werden möglicherweise Einstellungen ersetzt, die du anderswo vorgenommen hast."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some relays didn’t answer, so White Noise couldn’t check them for newer relay settings. Saving now may replace settings you made elsewhere."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algunos relays no respondieron, así que White Noise no pudo comprobar si tienen ajustes de relays más recientes. Si guardas ahora, podrías reemplazar ajustes que hiciste en otro lugar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Certains relais n’ont pas répondu, donc White Noise n’a pas pu y vérifier la présence de réglages de relais plus récents. Enregistrer maintenant pourrait remplacer des réglages faits ailleurs."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alcuni relay non hanno risposto, quindi White Noise non ha potuto verificare se contengono impostazioni dei relay più recenti. Salvando ora potresti sostituire impostazioni fatte altrove."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alguns relays não responderam, por isso o White Noise não conseguiu verificar se eles têm configurações de relays mais recentes. Salvar agora pode substituir configurações feitas em outro lugar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Некоторые релеи не ответили, поэтому White Noise не смог проверить, нет ли на них более новых настроек релеев. Сохранение сейчас может заменить настройки, сделанные в другом месте."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bazı röleler yanıt vermedi, bu yüzden White Noise bunlarda daha yeni röle ayarları olup olmadığını denetleyemedi. Şimdi kaydetmek başka yerde yaptığınız ayarların yerini alabilir."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分中继服务器没有响应，因此 White Noise 无法检查它们是否有更新的中继设置。现在保存可能会替换你在其他地方所做的设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分中繼伺服器沒有回應，因此 White Noise 無法檢查它們是否有較新的中繼設定。現在儲存可能會取代你在其他地方所做的設定。"
+          }
+        }
+      }
+    },
     "Group not changed. Try again once this chat has synced." : {
       "extractionState" : "manual",
       "localizations" : {

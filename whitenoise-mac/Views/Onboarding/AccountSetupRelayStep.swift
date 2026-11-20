@@ -54,6 +54,8 @@ private struct AccountSetupRelayOverview: View {
     let edit: (OnboardingRepairProposalFfi?) -> Void
     let search: () -> Void
     @State private var active: String?
+    /// Asking before saving a proposal built on an inconclusive check.
+    @State private var confirmsInconclusive = false
 
     private var defaultRelays: [String] {
         step == .inboxRelays ? MarmotClient.seedRelays : MarmotClient.accountRelays
@@ -87,11 +89,29 @@ private struct AccountSetupRelayOverview: View {
                 await perform(action, plan: plan)
             }
         }
+        .alert(L10n.string("Save these relays anyway?", locale: locale), isPresented: $confirmsInconclusive) {
+            Button(L10n.string("Save Anyway", locale: locale), role: .destructive) {
+                Task { await model.approveRepair(acceptingInconclusiveCheck: true) }
+            }
+            Button(L10n.string("Cancel", locale: locale), role: .cancel) {}
+        } message: {
+            Text(
+                L10n.string(
+                    "Some relays didn’t answer, so White Noise couldn’t check them for newer relay settings. Saving now may replace settings you made elsewhere.",
+                    locale: locale))
+        }
     }
 
     private func perform(_ action: AccountSetupRelayPlan.Action, plan: AccountSetupRelayPlan) async {
         switch action {
-        case .approve: await model.approveRepair()
+        case .approve:
+            // MDK asks for an at-your-own-risk confirmation before a proposal built on an
+            // inconclusive check is saved.
+            if plan.proposal?.inconclusive == true {
+                confirmsInconclusive = true
+            } else {
+                await model.approveRepair()
+            }
         case .useDefaults: await model.useRecommendedRelays(step: step)
         case .retry: await model.retry(step)
         case .discard: await model.cancelRepair()

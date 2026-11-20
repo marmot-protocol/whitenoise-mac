@@ -189,6 +189,34 @@ import Testing
         #expect(model.error == AccountSetupFailure.settingsChanged.errorDescription)
     }
 
+    /// A proposal built on an inconclusive check (a relay that may hold newer settings never
+    /// answered) is never saved without the user's at-your-own-risk confirmation, as MDK asks:
+    /// Use Default Relays stops at the proposal, and Approve needs the confirmed flag.
+    @Test func anInconclusiveProposalIsSavedOnlyOnceTheUserConfirms() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        var snapshot = F.snapshot(steps: [
+            F.step(.relays, .retryableFailure, actions: [.useRecommendedRelays, .approveRepair, .cancelRepair])
+        ])
+        // Run makes it revision 2, propose 3 (see the profile test above).
+        var proposal = F.proposal(.relays, revision: 3, reads: ["wss://relay.example"])
+        proposal.inconclusive = true
+        snapshot.proposal = proposal
+        runtime.onboardingState = snapshot
+        let model = OnboardingCoordinator(accountRef: "account", runtime: runtime)
+        await model.run()
+
+        await model.useRecommendedRelays(step: .relays)
+        #expect(model.error == nil)
+        #expect(model.snapshot?.revision == 3)
+
+        await model.approveRepair()
+        #expect(model.snapshot?.revision == 3)
+
+        await model.approveRepair(acceptingInconclusiveCheck: true)
+        #expect(model.error == nil)
+        #expect(model.snapshot?.revision == 4)
+    }
+
     // MARK: - Relay steps
 
     @Test func missingRelaysLeadWithTheDefaultsAndListThem() {

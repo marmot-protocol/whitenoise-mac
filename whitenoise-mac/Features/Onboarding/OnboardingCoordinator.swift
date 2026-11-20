@@ -194,8 +194,13 @@ final class OnboardingCoordinator {
         await update { try await $0.setOnboardingDiscoveryRelays(accountRef: $1, discoveryRelays: relays) }
     }
 
-    func approveRepair() async {
-        guard let revision = snapshot?.revision else { return }
+    /// Approves the proposal on screen. One built on an inconclusive check (a relay that may hold
+    /// newer settings never answered) needs `acceptingInconclusiveCheck`, which the view passes
+    /// only once the user has confirmed at their own risk, as MDK asks.
+    func approveRepair(acceptingInconclusiveCheck: Bool = false) async {
+        guard let snapshot else { return }
+        guard acceptingInconclusiveCheck || snapshot.proposal?.inconclusive != true else { return }
+        let revision = snapshot.revision
         await update { try await $0.approveOnboardingRepair(accountRef: $1, revision: revision) }
     }
 
@@ -235,7 +240,9 @@ final class OnboardingCoordinator {
     }
 
     /// Use Default Relays: proposes the recommended relays for `step` and approves the proposal in
-    /// one press. MDK merges the defaults with the checked record and keeps existing entries.
+    /// one press. MDK merges the defaults with the checked record and keeps existing entries. A
+    /// proposal built on an inconclusive check is left on screen instead, for the confirmation
+    /// `approveRepair(acceptingInconclusiveCheck:)` needs.
     func useRecommendedRelays(step: OnboardingStepFfi) async {
         await publish(step: step) { try await $0.proposeOnboardingRecommendedRelays(accountRef: $1, step: step) }
     }
@@ -258,6 +265,7 @@ final class OnboardingCoordinator {
                 proposal.revision == proposed.revision,
                 proposed.steps.first(where: { $0.step == step })?.actions.contains(.approveRepair) == true
             else { throw AccountSetupFailure.settingsChanged }
+            if proposal.inconclusive { return proposed }
             return try await runtime.approveOnboardingRepair(accountRef: accountRef, revision: proposed.revision)
         }
     }

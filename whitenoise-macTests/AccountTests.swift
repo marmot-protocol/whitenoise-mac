@@ -571,8 +571,9 @@ struct AccountTests: WorkspaceTestSupport {
     }
 
     /// Launch asks while the receipt is pending, as iOS does: a MarmotKit update that widens the
-    /// diagnostics scope resets every answer, and a Mac that had said yes would otherwise stop
-    /// sharing unasked. An answered receipt keeps launch silent.
+    /// diagnostics scope puts a yes back to pending, and that Mac would otherwise stop sharing
+    /// unasked. `bootstrap()` itself never raises the sheet (its account scope isn't installed
+    /// yet); the launch task asks for the restored identity afterwards. An answer keeps it silent.
     @MainActor
     @Test(arguments: [UsageDiagnosticsDecisionFfi.acceptanceRequired, .declined, .granted])
     func relaunchingAsksOnlyWhileTheAnswerIsPending(_ decision: UsageDiagnosticsDecisionFfi) async throws {
@@ -590,6 +591,8 @@ struct AccountTests: WorkspaceTestSupport {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
+        #expect(!state.isImprovementsPromptPresented)
+        await state.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: state.activeAccount?.accountIdHex)
 
         #expect(state.phase == .ready)
         #expect(state.isImprovementsPromptPresented == (decision == .acceptanceRequired))

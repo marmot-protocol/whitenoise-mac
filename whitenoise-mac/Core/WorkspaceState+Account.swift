@@ -76,17 +76,12 @@ extension WorkspaceState {
             accounts = try await accountItemsFromRuntime(client: runtime)
             restoreOrSelectFirstAccount()
             await migrateLegacyPinnedChats(runtime: runtime)
-            let restoredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
             runtime.recordHostPerformance(
                 operation: .splashReady,
                 durationMs: Self.elapsedMilliseconds(since: splashStartedAt),
                 outcome: .success
             )
-            // A pending receipt is asked about at launch too, as on iOS: a MarmotKit update that
-            // widens what diagnostics covers puts every Mac's answer back to pending, and one that
-            // had said yes would otherwise stop sharing without ever being asked.
-            await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: restoredAccountIdHex)
             await refreshAccountProfiles()
         } catch {
             performanceRuntime?.recordHostPerformance(

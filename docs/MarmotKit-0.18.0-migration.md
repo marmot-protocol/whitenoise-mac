@@ -43,8 +43,12 @@ false); the app already takes that flag from MDK.
     `Publish` before). The copy offers no retry, as MDK asks.
   - `ReactionNotFound`: a reaction removal found nothing to remove. `removeReaction` treats it as
     done and shows nothing; the copy exists only for exhaustiveness.
-- **`GroupEventKindFfi.GroupChangeNotDelivered`** and **`OnboardingActionFfi.RemoveUnusableRelays`**:
-  the app switches over neither exhaustively, so neither needs handling yet.
+- **`GroupEventKindFfi.GroupChangeNotDelivered`**: a direct group change whose call answered
+  `CompletionUnknown` was given up, and nothing sends it again. `RefusedIntentNoticesViewModel`
+  shows it with the same toast as a refused queued change, with copy for the `not_delivered` and
+  `refused` reasons.
+- **`OnboardingActionFfi.RemoveUnusableRelays`**: advice that readiness never depends on; the app
+  doesn't offer it yet.
 - **New record fields.** `AppMessageRecordFfi.invalidated` has no default, so the fake's fixture
   passes `false`. The others (`DeviceLinkSnapshotFfi.chatProgress`,
   `OnboardingDevicePackageFfi.client`, `OnboardingRelayTagChangeFfi.removalReason`,
@@ -54,10 +58,17 @@ false); the app already takes that flag from MDK.
 ## Behavior that changed with no API change
 
 - **Usage-diagnostics consent asks again.** The registry gains `mdk_onboarding_summary`, so its
-  revision changes and a 0.17.0 grant no longer covers it: every receipt reads
-  `acceptanceRequired`. The Mac used to ask only when an identity first entered Chats, so a Mac that
-  had said yes would have stopped sharing unasked. `bootstrap()` now asks too, as iOS does, and the
-  sheet explains that the scope changed (`DiagnosticsSettingsViewModel.promptExplanation`).
+  revision changes and a 0.17.0 grant no longer covers it: a Mac that had said yes reads
+  `acceptanceRequired` again (a decline stays declined). The Mac used to ask only when an identity first entered Chats, so a Mac that
+  had said yes would have stopped sharing unasked. The launch task now asks too, as iOS does, once
+  `bootstrap()` has returned and the account scope that draws the sheet is installed, and the sheet
+  explains that the scope changed (`DiagnosticsSettingsViewModel.promptExplanation`).
+- **Inconclusive relay checks.** A relay or inbox step whose check was inconclusive can now offer
+  Use Default Relays, and the proposal it builds is marked `inconclusive`: a relay that may hold
+  newer settings never answered. Use Default Relays no longer approves such a proposal in the
+  same press, and Approve asks "Save these relays anyway?" first; `OnboardingCoordinator
+  .approveRepair` refuses one without `acceptingInconclusiveCheck`.
+- **`NoUsableRelay` in the poll composer** shows the relay message, not "Try again".
 - Onboarding relay checks wait up to 8 s for an answer after a 5 s connect. The app puts no
   shorter watchdog in front of them.
 - NIP-22 (kind 1111) comments get their parent projected by MDK, and 0208 repairs retained ones.
@@ -66,10 +77,11 @@ false); the app already takes that flag from MDK.
 
 ## Not adopted yet
 
-- `groupPendingCommit` (show a change still going out) and `groupChangesNotDelivered` /
-  `acknowledgeChangeNotDelivered` (changes given up after their call returned).
+- `groupPendingCommit` (show a change still going out).
+- `groupChangesNotDelivered` / `acknowledgeChangeNotDelivered`: reading the given-up changes on
+  start, for one that happened while its account wasn't the active one, and clearing them.
 - Link `chatProgress` (a joining banner while a new device receives its chats).
-- Onboarding `RemoveUnusableRelays` and inconclusive-check repair.
+- Onboarding `RemoveUnusableRelays`.
 - Direct-follow availability, file-backed draft attachments, `unreactFromMessageMatching`,
   `startDirectConversationWithOptions` and `attachmentRemovals`.
 - Removing the `deviceGroupsEnabled` gating now that it is always true.

@@ -27,7 +27,7 @@ extension WorkspaceState {
     ///
     /// Those paths are `completeSignUp()` and `cancelSignUp()` (the sign-up pane's two exits once
     /// an identity exists), `login()`, `signUp()`, the shell's leave-onboarding task, and
-    /// `bootstrap()` restoring a session at launch. Launch asks as iOS does: MarmotKit resets the
+    /// the app's launch task once `bootstrap()` has restored a session and the account scope is in. Launch asks as iOS does: MarmotKit resets the
     /// receipt to pending when the policy or registry revision changes (0.18.0 did), and the sheet
     /// then says why (`DiagnosticsSettingsViewModel.promptExplanation`).
     ///
