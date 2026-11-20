@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import MarmotKit
+import SwiftUI
 import Testing
 
 @testable import whitenoise_mac
@@ -35,6 +37,8 @@ struct UnsupportedEventTests {
         #expect(Self.event(content: #"  {"status":"Delayed"}"#).summary == nil)
         #expect(Self.event(content: "[1, 2]").summary == nil)
         #expect(Self.event(tags: [["alt", "  "]], content: "").summary == nil)
+        // A tag that sanitizes to nothing doesn't hide the next usable one.
+        #expect(Self.event(tags: [["title", " \u{202E} "], ["subject", "Signal box log"]]).title == "Signal box log")
     }
 
     @Test func peerTextIsSanitizedAndBoundedOnTheCard() throws {
@@ -82,19 +86,37 @@ struct UnsupportedEventTests {
         #expect(try Self.decoded(json)["content"] as? String == content)
     }
 
-    @Test func aHugeEventIsCutShortOnScreenButCopiedWhole() {
-        let event = Self.event(content: String(repeating: "x", count: 50_000))
+    // MARK: Card
 
-        let shown = event.displayedJSON
-        #expect(shown.isTruncated)
-        #expect(
-            shown.text.filter { $0 != "\n" }
-                == String(event.json.prefix(UnsupportedEvent.displayLimit)).filter { $0 != "\n" })
-        // The content is one JSON line; on screen it's broken up so the block stays narrow.
-        #expect(shown.text.split(separator: "\n").allSatisfy { $0.count <= UnsupportedEvent.displayLineLimit })
-        #expect(event.json.contains(String(repeating: "x", count: 50_000)))
-        #expect(event.json.count > 50_000)
-        #expect(!Self.event(content: "short").displayedJSON.isTruncated)
+    @MainActor
+    private static func hosted(_ event: UnsupportedEvent, expanded: Bool) -> NSHostingView<UnsupportedEventCard> {
+        let host = NSHostingView(
+            rootView: UnsupportedEventCard(
+                event: event, isOutgoing: false, timeLabel: "11:51", onCopyJSON: { _ in }, isExpanded: expanded))
+        host.frame.size = host.fittingSize
+        host.layoutSubtreeIfNeeded()
+        return host
+    }
+
+    private static func textViews(in view: NSView) -> [NSTextView] {
+        ((view as? NSTextView).map { [$0] } ?? []) + view.subviews.flatMap(textViews(in:))
+    }
+
+    @MainActor
+    @Test func theExpandedCardShowsTheWholeEventHoweverLargeInABoundedBlock() throws {
+        let small = Self.event(tags: [["alt", "A thing"]], content: "short")
+        let huge = Self.event(content: String(repeating: "x", count: 50_000))
+
+        #expect(Self.textViews(in: Self.hosted(huge, expanded: false)).isEmpty)
+        let expanded = Self.hosted(huge, expanded: true)
+        let textView = try #require(Self.textViews(in: expanded).first)
+        #expect(textView.string == huge.json)
+        #expect(!textView.isEditable)
+        // A huge event scrolls inside the block instead of stretching the row; a small one fits.
+        let smallHeight = Self.hosted(small, expanded: true).fittingSize.height
+        #expect(smallHeight > Self.hosted(small, expanded: false).fittingSize.height)
+        #expect(smallHeight < expanded.fittingSize.height)
+        #expect(expanded.fittingSize.height < UnsupportedEventJSONView.maxHeight + 200)
     }
 
     // MARK: Mapping

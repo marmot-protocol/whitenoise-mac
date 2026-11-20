@@ -12,49 +12,29 @@ nonisolated struct UnsupportedEvent: Hashable, Sendable {
     /// shows it instead. Failing that, the content when it reads as text rather than data.
     let summary: String?
     /// The event as NIP-01 JSON (`id`, `pubkey`, `created_at`, `kind`, `tags`, `content`),
-    /// indented with one tag per line. What Copy JSON copies.
+    /// indented with one tag per line. The card shows all of it, and Copy JSON copies it.
     let json: String
 
-    /// The most of `json` the card draws. A peer chooses the content's length, and a text view
-    /// holding megabytes stalls the transcript; Copy JSON still copies all of it.
-    static let displayLimit = 16_000
     static let summaryLimit = 280
 
     init(id: String, pubkey: String, createdAt: UInt64, kind: UInt64, tags: [[String]], content: String) {
         self.kind = kind
-        title = Self.firstTagValue(["title", "subject"], in: tags).flatMap(Self.line)
+        title = Self.firstLine(tagged: ["title", "subject"], in: tags)
         summary =
-            Self.firstTagValue(["alt"], in: tags).flatMap(Self.line)
+            Self.firstLine(tagged: ["alt"], in: tags)
             ?? (Self.looksLikeData(content) ? nil : Self.line(content))
         json = Self.eventJSON(id: id, pubkey: pubkey, createdAt: createdAt, kind: kind, tags: tags, content: content)
     }
 
-    /// `json` as the card draws it: cut to `displayLimit`, and any line longer than
-    /// `displayLineLimit` broken into pieces of that length. Content is one escaped line however
-    /// long the message, and the block scrolls sideways rather than wrapping, so this bounds its
-    /// width. Ids and ordinary tags fit on one line.
-    var displayedJSON: (text: String, isTruncated: Bool) {
-        let isTruncated = json.count > Self.displayLimit
-        let cut = isTruncated ? String(json.prefix(Self.displayLimit)) : json
-        var lines: [Substring] = []
-        for line in cut.split(separator: "\n", omittingEmptySubsequences: false) {
-            var start = line.startIndex
-            repeat {
-                let end = line.index(start, offsetBy: Self.displayLineLimit, limitedBy: line.endIndex) ?? line.endIndex
-                lines.append(line[start..<end])
-                start = end
-            } while start < line.endIndex
-        }
-        return (lines.joined(separator: "\n"), isTruncated)
-    }
-
-    static let displayLineLimit = 100
-
     // MARK: Text
 
-    private static func firstTagValue(_ names: [String], in tags: [[String]]) -> String? {
+    /// The first of `names`' tags whose value still has text once sanitized, so a blank `title`
+    /// doesn't hide a usable `subject`.
+    private static func firstLine(tagged names: [String], in tags: [[String]]) -> String? {
         for name in names {
-            if let value = tags.first(where: { $0.first == name && $0.count > 1 })?[1] { return value }
+            for tag in tags where tag.first == name && tag.count > 1 {
+                if let line = line(tag[1]) { return line }
+            }
         }
         return nil
     }

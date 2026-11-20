@@ -144,16 +144,19 @@ struct ConversationMessageRow: View {
                 onViewVotes: poll.participants > 0 ? viewVotes(for: poll) : nil
             )
         } else if let event = message.unsupportedEvent {
-            UnsupportedEventRow(
-                event: event,
-                isOutgoing: message.isOutgoing,
-                senderName: MessageBubble.showsSenderIdentity(for: message, in: workspace.selectedChat)
-                    ? message.senderName : nil,
-                timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
-                onCopyJSON: { [workspace] json in workspace.copyText(json) }
-            )
-            // A reused transcript cell must not carry one card's expansion over to another event.
-            .id(message.id)
+            VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
+                UnsupportedEventRow(
+                    event: event,
+                    isOutgoing: message.isOutgoing,
+                    senderName: MessageBubble.showsSenderIdentity(for: message, in: workspace.selectedChat)
+                        ? message.senderName : nil,
+                    timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
+                    onCopyJSON: { [workspace] json in workspace.copyText(json) }
+                )
+                if showsDebugMetadata {
+                    MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
+                }
+            }
         } else {
             TimelineNoticeRow(
                 message: message,

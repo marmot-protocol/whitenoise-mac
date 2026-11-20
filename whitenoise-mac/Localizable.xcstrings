@@ -113497,79 +113497,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "拷贝 JSON"
+            "value" : "复制 JSON"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "拷貝 JSON"
-          }
-        }
-      }
-    },
-    "Showing the start of this event. Copy JSON copies all of it." : {
-      "comment" : "Note under a long unsupported event's JSON, which is cut short on screen.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Es wird der Anfang dieses Ereignisses angezeigt. „JSON kopieren“ kopiert alles."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se muestra el comienzo de este evento. Copiar JSON lo copia completo."
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Näytetään tapahtuman alku. Kopioi JSON kopioi sen kokonaan."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seul le début de cet événement est affiché. Copier le JSON le copie en entier."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Viene mostrato l’inizio di questo evento. Copia JSON lo copia per intero."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A mostrar o início deste evento. Copiar JSON copia-o por inteiro."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показано начало события. «Копировать JSON» копирует его целиком."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu etkinliğin başı gösteriliyor. JSON’u kopyala tamamını kopyalar."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅显示此事件的开头。“拷贝 JSON”会拷贝全部内容。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "僅顯示此事件的開頭。「拷貝 JSON」會拷貝全部內容。"
           }
         }
       }

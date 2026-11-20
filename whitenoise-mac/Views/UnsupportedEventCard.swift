@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A row for an event of a kind White Noise can't draw, so the reader at least knows something
@@ -58,7 +59,9 @@ struct UnsupportedEventCard: View {
             }
 
             if isExpanded {
-                UnsupportedEventJSONBlock(event: event)
+                UnsupportedEventJSONView(json: event.json)
+                    .background(
+                        MarkdownCodeBlockPalette.fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
             HStack(spacing: 12) {
@@ -90,7 +93,7 @@ struct UnsupportedEventCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(width: isExpanded ? 460 : 380, alignment: .leading)
+        .frame(width: 380, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
@@ -134,40 +137,57 @@ private struct UnsupportedEventHeader: View {
     }
 }
 
-/// The event as JSON in a code block. Lines keep their shape and scroll sideways, since ids and
-/// tags are long; a tall event also scrolls inside a fixed height rather than stretching the row.
-private struct UnsupportedEventJSONBlock: View {
-    let event: UnsupportedEvent
+/// The event as JSON in a code block: the whole event, unaltered, wrapped to the card's width.
+/// An event can be as large as a relay accepts (megabytes), which a SwiftUI `Text` lays out all at
+/// once, so this is a read-only text view: TextKit lays out only what scrolls into view, and the
+/// reader can select and scroll to the end. It grows with its text up to `maxHeight`, then scrolls.
+struct UnsupportedEventJSONView: NSViewRepresentable {
+    let json: String
 
-    var body: some View {
-        let shown = event.displayedJSON
-        let text = Text(verbatim: shown.isTruncated ? shown.text + "\n…" : shown.text)
-            .font(.system(.caption, design: .monospaced))
-            .foregroundStyle(MarkdownCodeBlockPalette.content)
-            .fixedSize()
-            .padding(10)
-        VStack(alignment: .leading, spacing: 4) {
-            Group {
-                if Self.isTall(shown.text) {
-                    ScrollView([.horizontal, .vertical]) { text }
-                        .frame(height: 280)
-                } else {
-                    ScrollView(.horizontal) { text }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MarkdownCodeBlockPalette.fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            if shown.isTruncated {
-                Text(L10n.string("Showing the start of this event. Copy JSON copies all of it."))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
+    static let maxHeight: CGFloat = 280
+    /// Past this many characters the block takes `maxHeight` without measuring the text, which
+    /// would lay all of it out. Far more than fills `maxHeight` at any card width.
+    static let measuredLimit = 4_000
+    private static let inset = NSSize(width: 8, height: 8)
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.drawsBackground = false
+        // Window-derived insets would push the text under the block's top edge; the measurement
+        // below counts only the text container's own inset.
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsetsZero
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        if let textView = scrollView.documentView as? NSTextView {
+            textView.isEditable = false
+            textView.isSelectable = true
+            textView.drawsBackground = false
+            textView.isRichText = false
+            textView.textContainerInset = Self.inset
+            textView.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+            textView.textColor = NSColor(MarkdownCodeBlockPalette.content)
+            textView.layoutManager?.allowsNonContiguousLayout = true
         }
+        return scrollView
     }
 
-    static func isTall(_ text: String) -> Bool {
-        text.reduce(into: 0) { count, character in if character == "\n" { count += 1 } } > 22
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView, textView.string != json else { return }
+        textView.string = json
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView scrollView: NSScrollView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0 else { return nil }
+        guard json.count <= Self.measuredLimit,
+            let textView = scrollView.documentView as? NSTextView,
+            let layoutManager = textView.layoutManager, let container = textView.textContainer
+        else { return CGSize(width: width, height: Self.maxHeight) }
+        if textView.string != json { textView.string = json }
+        container.size = NSSize(width: width - Self.inset.width * 2, height: .greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: container)
+        let textHeight = layoutManager.usedRect(for: container).height + Self.inset.height * 2
+        return CGSize(width: width, height: min(ceil(textHeight), Self.maxHeight))
     }
 }
 
