@@ -73,8 +73,9 @@ nonisolated struct UnsupportedEvent: Hashable, Sendable {
     }
 
     /// A JSON string literal. Beyond what JSON requires, it also escapes format scalars (bidi
-    /// overrides, zero-width characters) and line separators, so peer text can't make the block
-    /// read differently from what it holds.
+    /// overrides, zero-width characters), every other default-ignorable scalar (the invisible ones,
+    /// such as U+034F, a nonspacing mark rather than a format scalar) and line separators, so peer
+    /// text can't make the block read differently from what it holds.
     static func quoted(_ value: String) -> String {
         var out = "\""
         for scalar in value.unicodeScalars {
@@ -85,15 +86,22 @@ nonisolated struct UnsupportedEvent: Hashable, Sendable {
             case "\r": out += "\\r"
             case "\t": out += "\\t"
             default:
-                switch scalar.properties.generalCategory {
-                case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate, .unassigned:
+                if Self.isEscapedAsCode(scalar) {
                     // UTF-16 code units, so a scalar past the BMP becomes a surrogate pair.
                     for unit in String(scalar).utf16 { out += String(format: "\\u%04x", unit) }
-                default:
+                } else {
                     out.unicodeScalars.append(scalar)
                 }
             }
         }
         return out + "\""
+    }
+
+    private static func isEscapedAsCode(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar.properties.isDefaultIgnorableCodePoint { return true }
+        switch scalar.properties.generalCategory {
+        case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate, .unassigned: return true
+        default: return false
+        }
     }
 }

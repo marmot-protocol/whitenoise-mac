@@ -147,8 +147,10 @@ struct UnsupportedEventJSONView: NSViewRepresentable {
     let json: String
 
     static let maxHeight: CGFloat = 280
-    /// Past this many characters the block takes `maxHeight` without measuring the text, which
-    /// would lay all of it out. Far more than fills `maxHeight` at any card width.
+    /// Past this many UTF-8 bytes the block takes `maxHeight` without measuring the text, which
+    /// would lay all of it out. Far more than fills `maxHeight` at any card width. Bytes, not
+    /// characters: combining marks stack without adding characters, so a character count can't
+    /// bound the work.
     static let measuredLimit = 4_000
     private static let inset = NSSize(width: 8, height: 8)
 
@@ -181,7 +183,7 @@ struct UnsupportedEventJSONView: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView scrollView: NSScrollView, context: Context) -> CGSize? {
         guard let width = proposal.width, width > 0 else { return nil }
-        guard json.count <= Self.measuredLimit,
+        guard json.utf8.count <= Self.measuredLimit,
             let textView = scrollView.documentView as? NSTextView,
             let layoutManager = textView.layoutManager, let container = textView.textContainer
         else { return CGSize(width: width, height: Self.maxHeight) }

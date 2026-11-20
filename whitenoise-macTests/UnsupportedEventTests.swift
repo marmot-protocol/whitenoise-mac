@@ -73,14 +73,16 @@ struct UnsupportedEventTests {
     }
 
     @Test func invisibleAndReorderingCharactersAreEscapedButSurvive() throws {
-        // A bidi override, a zero-width space, a line separator and a tag character past the BMP.
-        let content = "a\u{202E}b\u{200B}c\u{2028}d\u{E0041}e 👍"
+        // A bidi override, a zero-width space, a line separator, a tag character past the BMP and an
+        // invisible nonspacing mark (default-ignorable, not a format scalar).
+        let content = "a\u{202E}b\u{200B}c\u{2028}d\u{E0041}e\u{034F}f 👍"
         let json = Self.event(content: content).json
 
         #expect(json.contains("\\u202e"))
         #expect(json.contains("\\u200b"))
         #expect(json.contains("\\u2028"))
         #expect(json.contains("\\udb40\\udc41"))
+        #expect(json.contains("\\u034f"))
         #expect(json.contains("👍"))
         #expect(!json.unicodeScalars.contains { $0.properties.generalCategory == .format })
         #expect(try Self.decoded(json)["content"] as? String == content)
