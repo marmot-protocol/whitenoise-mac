@@ -328,12 +328,14 @@ extension WorkspaceState {
             } else {
                 // Matches iOS: the invite names the group it is for, never who sent it. A direct
                 // invite has no name, and its inviter is usually a bare key nobody has accepted
-                // yet, so it points at the app rather than printing an npub on the lock screen.
+                // yet, so it says what arrived — the chat list's own copy for an unnamed invite —
+                // rather than printing an npub on the lock screen. It does not tell the reader to
+                // open the app: the banner usually arrives while White Noise is already open.
                 title = L10n.string("Group invite")
                 body =
                     groupName.map {
                         String(format: L10n.string("Invitation to %@"), PeerDisplayText.templateFragment($0))
-                    } ?? L10n.string("Open White Noise to view the invite")
+                    } ?? L10n.string("You have been invited to a secure chat")
             }
         case .newMessage:
             switch previewMode {
