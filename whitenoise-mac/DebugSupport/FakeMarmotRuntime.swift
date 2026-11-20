@@ -198,6 +198,10 @@
         /// Packs `fetchStickerPack` resolves, keyed by the pasted input.
         var fetchableStickerPacks: [String: StickerPackFfi] = [:]
         var stickerPackActionError: Error?
+        /// Coordinates whose install throws `StickerNotFound`, as an unreachable relay would.
+        var failingStickerInstalls: Set<String> = []
+        /// Every `installStickerPack` input, as passed.
+        private(set) var installStickerPackInputs: [String] = []
         var stickerAssets: [String: Data] = [:]
         var fetchStickerAssetError: Error?
         private(set) var fetchStickerAssetRequests: [StickerRefFfi] = []
@@ -2067,8 +2071,13 @@
         }
 
         func installStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+            installStickerPackInputs.append(input)
             if let stickerPackActionError { throw stickerPackActionError }
-            guard let index = stickerPackStore.firstIndex(where: { $0.coordinate == input }) else {
+            // A Sonar link names its pack in `a`; anything else is the coordinate itself.
+            let coordinate =
+                URLComponents(string: input)?.queryItems?.first { $0.name == "a" }?.value ?? input
+            if failingStickerInstalls.contains(coordinate) { throw MarmotKitError.StickerNotFound }
+            guard let index = stickerPackStore.firstIndex(where: { $0.coordinate == coordinate }) else {
                 throw MarmotKitError.StickerNotFound
             }
             stickerPackStore[index].installed = true

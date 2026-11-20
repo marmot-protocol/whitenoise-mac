@@ -30,8 +30,9 @@ final class CustomEmojiImageStore {
     /// bundled image, as on iOS; any other stays its literal `:shortcode:`.
     private(set) var reactionsWithoutArtwork: Set<String> = []
 
-    /// Large enough for the bubble-free single-emoji treatment at 2x; inline text uses far less.
-    static let maxPixelSize: CGFloat = 160
+    /// Large enough for the bubble-free single-emoji treatment (`CustomEmojiSticker`, 112 pt) at
+    /// 2x; inline text uses far less.
+    static let maxPixelSize: CGFloat = 224
     /// How long a reaction id MDK had no artwork for is left alone before it is looked up again.
     /// The kind-7 and its media can project a moment apart, so a miss is not final, but a
     /// transcript full of them must not re-read on every scroll.

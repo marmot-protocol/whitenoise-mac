@@ -14,6 +14,7 @@ final class StickerLibrary {
     private(set) var installedCoordinates: Set<String> = []
     private(set) var hasLoadedInstalled = false
     private(set) var isSyncing = false
+    private(set) var isInstallingDefaults = false
 
     /// Decoded sticker images for this account.
     let assets: StickerAssetStore
@@ -24,10 +25,16 @@ final class StickerLibrary {
     @ObservationIgnored private var loadingInstalled: Task<Void, Never>?
     @ObservationIgnored private var syncing: Task<Void, Error>?
     @ObservationIgnored private var hasSynced = false
+    @ObservationIgnored private let defaultPackLedger: StickerDefaultPackLedger
+    @ObservationIgnored private var installingDefaults: Task<Void, Never>?
 
-    init(accountRef: String, runtime: (any MarmotRuntime)?) {
+    init(
+        accountRef: String, runtime: (any MarmotRuntime)?,
+        defaultPackLedger: StickerDefaultPackLedger = StickerDefaultPackLedger()
+    ) {
         self.accountRef = accountRef
         self.runtime = runtime
+        self.defaultPackLedger = defaultPackLedger
         self.assets = StickerAssetStore(accountRef: accountRef, runtime: runtime)
     }
 
@@ -86,6 +93,46 @@ final class StickerLibrary {
         await reloadInstalled()
     }
 
+    /// Installs White Noise's default packs the account hasn't had yet. Waits for a successful
+    /// `sync`, so packs already on the account's relay list count as installed. A pack that fails
+    /// to install (offline, say) is tried again next time; one that installed is recorded and never
+    /// reinstalled, so removing it sticks.
+    func installDefaultPacksIfNeeded() async {
+        guard hasSynced, let runtime else { return }
+        if let installingDefaults { return await installingDefaults.value }
+        await loadInstalledIfNeeded()
+        guard hasLoadedInstalled, !Task.isCancelled else { return }
+        let ledger = defaultPackLedger
+        let alreadyInstalled = Set(StickerDefaultPacks.coordinates).intersection(installedCoordinates)
+        ledger.record(alreadyInstalled, accountRef: accountRef)
+        let pending = StickerDefaultPacks.toInstall(
+            installed: installedCoordinates, offered: ledger.offered(accountRef: accountRef))
+        guard !pending.isEmpty else { return }
+
+        let task = Task { [accountRef] in
+            for coordinate in pending {
+                // `stop()` (an account switch) cancels the rest.
+                guard !Task.isCancelled else { return }
+                // Removed by the person while earlier installs ran.
+                guard !ledger.offered(accountRef: accountRef).contains(coordinate) else { continue }
+                let input = StickerDefaultPacks.installInput(for: coordinate)
+                guard (try? await runtime.installStickerPack(accountRef: accountRef, input: input)) != nil else {
+                    continue
+                }
+                ledger.record([coordinate], accountRef: accountRef)
+            }
+        }
+        installingDefaults = task
+        isInstallingDefaults = true
+        await task.value
+        if installingDefaults == task {
+            installingDefaults = nil
+            isInstallingDefaults = false
+        }
+        guard !task.isCancelled else { return }
+        await reloadInstalled()
+    }
+
     /// Stored packs not yet installed, optionally matching `search`.
     func discover(search: String?) async throws -> [StickerPackFfi] {
         let query = search?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -104,6 +151,10 @@ final class StickerLibrary {
 
     func uninstall(_ pack: StickerPackFfi) async throws {
         try await requireRuntime().uninstallStickerPack(accountRef: accountRef, input: pack.coordinate)
+        // A default removed before it was recorded must not be installed again.
+        if StickerDefaultPacks.coordinates.contains(pack.coordinate) {
+            defaultPackLedger.record([pack.coordinate], accountRef: accountRef)
+        }
         await reloadInstalled()
     }
 
@@ -140,6 +191,9 @@ final class StickerLibrary {
         syncing?.cancel()
         syncing = nil
         isSyncing = false
+        installingDefaults?.cancel()
+        installingDefaults = nil
+        isInstallingDefaults = false
         assets.cancelAll()
     }
 

@@ -111,3 +111,62 @@ nonisolated enum StickerPackPresentation {
         return searching ? .noMatches : .noneOnRelays
     }
 }
+
+/// White Noise's own packs, which every account starts with installed so the picker has stickers
+/// without a trip to the pack browser. They are published by the White Noise account that also
+/// publishes the `white-noise` emoji set. Kept identical to White Noise for iOS.
+nonisolated enum StickerDefaultPacks {
+    static let authorPubkeyHex = "75d737c3472471029c44876b330d2284288a42779b591a2ed4daa1c6c07efaf7"
+    static let coordinates = [
+        "30031:\(authorPubkeyHex):white-noise-originals",
+        "30031:\(authorPubkeyHex):marmot",
+    ]
+
+    /// The default packs live on White Noise's relays, which an imported account's own relay list
+    /// may not include. MDK fetches an install only from the account's relays plus the input's
+    /// hints, so each default install is a Sonar link naming those relays.
+    private static let sonarLinkBase = "https://sonarprivacy.xyz/stickers"
+
+    static func installInput(for coordinate: String, relays: [String] = MarmotClient.seedRelays) -> String {
+        guard var components = URLComponents(string: sonarLinkBase) else { return coordinate }
+        components.queryItems =
+            [URLQueryItem(name: "a", value: coordinate)] + relays.map { URLQueryItem(name: "relay", value: $0) }
+        return components.string ?? coordinate
+    }
+
+    /// Default packs this account still needs, in order. A pack that was installed for it once is
+    /// never offered again, so removing one sticks.
+    static func toInstall(installed: Set<String>, offered: Set<String>) -> [String] {
+        coordinates.filter { !installed.contains($0) && !offered.contains($0) }
+    }
+}
+
+/// Which default packs each account on this Mac has already had installed. MDK's installed list
+/// can't tell "never had it" from "removed it", so this is what keeps a removed default pack from
+/// coming back.
+nonisolated struct StickerDefaultPackLedger: @unchecked Sendable {
+    static let keyPrefix = "whitenoise.mac.stickers.defaultPacksOffered."
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func offered(accountRef: String) -> Set<String> {
+        Set(defaults.stringArray(forKey: Self.keyPrefix + accountRef) ?? [])
+    }
+
+    func record(_ coordinates: Set<String>, accountRef: String) {
+        guard !coordinates.isEmpty else { return }
+        let merged = offered(accountRef: accountRef).union(coordinates)
+        defaults.set(merged.sorted(), forKey: Self.keyPrefix + accountRef)
+    }
+
+    /// Forgets every account's record, for Erase App Data.
+    func reset() {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.keyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}

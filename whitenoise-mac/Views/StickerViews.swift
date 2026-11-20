@@ -202,7 +202,11 @@ private struct StickerPickerPage: View {
                 .accessibilityIdentifier("stickers.browse")
             }
 
-            if !library.hasLoadedInstalled {
+            // A new account's default packs land after the first sync, so wait for them rather
+            // than flashing "No Stickers".
+            if !library.hasLoadedInstalled
+                || (library.installed.isEmpty && (library.isSyncing || library.isInstallingDefaults))
+            {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let pack = currentPack {
@@ -240,6 +244,7 @@ private struct StickerPickerPage: View {
         .task {
             await library.loadInstalledIfNeeded()
             try? await library.sync()
+            await library.installDefaultPacksIfNeeded()
         }
     }
 
