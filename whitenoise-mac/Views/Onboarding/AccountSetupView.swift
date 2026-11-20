@@ -21,7 +21,9 @@ struct AccountSetupView: View {
     @State private var acknowledgesRecoveryRisk = false
 
     private var guide: AccountSetupGuide {
-        AccountSetupGuide(snapshot: model.snapshot, recoveryRequired: model.recoveryRequired)
+        AccountSetupGuide(
+            snapshot: model.snapshot, recoveryRequired: model.recoveryRequired, isStalled: model.needsCheckAgain
+        )
     }
 
     var body: some View {
@@ -35,6 +37,11 @@ struct AccountSetupView: View {
             }
         }
         .animation(.smooth(duration: 0.2), value: model.reviewingStep)
+        // Whichever step screen is open, a stalled run continues from Check Again on the
+        // checklist, not from that screen.
+        .onChange(of: model.needsCheckAgain, initial: true) { _, stalled in
+            if stalled { model.endReview() }
+        }
         .accessibilityIdentifier("onboarding.account-setup")
     }
 }
@@ -44,12 +51,14 @@ private struct AccountSetupChecklistPane: View {
     let model: OnboardingCoordinator
     let guide: AccountSetupGuide
     @Binding var acknowledgesRecoveryRisk: Bool
+    @State private var confirmsCancel = false
 
     var body: some View {
         OnboardingScaffold(
             // Hidden, not disabled, while a command runs or the cancellation finishes: the header
-            // row keeps its height either way, and there is nothing for the control to do.
-            exit: model.canStartSessionCommand ? .cancel { Task { await model.cancel() } } : nil,
+            // row keeps its height either way, and there is nothing for the control to do. It asks
+            // first, like a step screen's Cancel Sign-In: the two cancel the same sign-in.
+            exit: model.canStartSessionCommand ? .cancel { confirmsCancel = true } : nil,
             minimumEdgeSpacing: OnboardingLayout.signUpEdgePadding,
             maximumHeroToContentSpacing: OnboardingLayout.accountSetupHeroToContentSpacing,
             hero: { WhiteNoiseMarkView(width: OnboardingLayout.accountSetupMarkWidth) },
@@ -90,6 +99,7 @@ private struct AccountSetupChecklistPane: View {
         .controlSize(.large)
         .wnButtonShape(.capsule)
         .animation(.smooth(duration: 0.2), value: guide)
+        .confirmsCancelSignIn(model: model, isPresented: $confirmsCancel)
     }
 }
 
@@ -136,13 +146,13 @@ struct AccountSetupChecklist: View {
                     Button {
                         review(step.step)
                     } label: {
-                        AccountSetupChecklistRow(step: step, isReviewable: true)
+                        AccountSetupChecklistRow(step: step, state: guide.rowState(step), isReviewable: true)
                     }
                     .buttonStyle(.plain)
                     .disabled(!isEnabled)
                     .accessibilityHint(L10n.string("Show options for this check", locale: locale))
                 } else {
-                    AccountSetupChecklistRow(step: step, isReviewable: false)
+                    AccountSetupChecklistRow(step: step, state: guide.rowState(step), isReviewable: false)
                 }
             }
         }
@@ -153,9 +163,8 @@ struct AccountSetupChecklist: View {
 private struct AccountSetupChecklistRow: View {
     @Environment(\.locale) private var locale
     let step: OnboardingStepStateFfi
+    let state: AccountSetupGuide.CheckState
     let isReviewable: Bool
-
-    private var state: AccountSetupGuide.CheckState { AccountSetupGuide.checkState(step) }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -288,6 +297,12 @@ private struct AccountSetupPaneActions: View {
             }
             .disabled(model.isBusy)
             .accessibilityIdentifier("onboarding.review-step")
+        } else if guide.isStalled {
+            OnboardingActionButton(title: L10n.string(AccountSetupWayForward.checkAgainActionKey, locale: locale)) {
+                Task { await model.run() }
+            }
+            .disabled(model.isBusy)
+            .accessibilityIdentifier("onboarding.check-again")
         } else if model.error != nil, guide.phase != .cancelling {
             OnboardingActionButton(title: L10n.string("Try Again", locale: locale)) {
                 model.start()
@@ -328,6 +343,30 @@ private struct AccountSetupPaneActions: View {
         cancellationPending: false
     )
     let guide = AccountSetupGuide(snapshot: snapshot, recoveryRequired: false)
+    VStack(spacing: 16) {
+        AccountSetupHeader(guide: guide)
+        AccountSetupChecklist(guide: guide, review: { _ in })
+    }
+    .padding(40)
+    .frame(width: 440)
+}
+
+#Preview("Checks didn’t finish") {
+    let snapshot = OnboardingSnapshotFfi(
+        accountIdHex: "preview",
+        recoveryEpoch: nil,
+        revision: 1,
+        ready: false,
+        steps: [
+            OnboardingStepStateFfi(step: .profile, status: .passed, findings: [], actions: [], checkedAt: nil),
+            OnboardingStepStateFfi(step: .relays, status: .checking, findings: [], actions: [], checkedAt: nil),
+            OnboardingStepStateFfi(step: .keyPackage, status: .pending, findings: [], actions: [], checkedAt: nil),
+        ],
+        proposal: nil,
+        singleDeviceNotice: nil,
+        cancellationPending: false
+    )
+    let guide = AccountSetupGuide(snapshot: snapshot, recoveryRequired: false, isStalled: true)
     VStack(spacing: 16) {
         AccountSetupHeader(guide: guide)
         AccountSetupChecklist(guide: guide, review: { _ in })

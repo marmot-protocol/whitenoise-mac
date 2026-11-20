@@ -111,6 +111,9 @@ struct AccountSetupProfileStep: View {
                     active: $active
                 ) { await model.cancelRepair() }
             }
+            if AccountSetupNoActionLines.offersCancelSignIn(.profile, in: model.settledSnapshot) {
+                AccountSetupCancelSignInButton(model: model, active: $active)
+            }
         }
         .fileImporter(
             isPresented: $isFileImporterPresented,

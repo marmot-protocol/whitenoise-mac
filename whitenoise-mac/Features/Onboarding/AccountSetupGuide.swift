@@ -63,8 +63,11 @@ struct AccountSetupGuide: Equatable {
 
     let steps: [OnboardingStepStateFfi]
     let phase: Phase
+    /// A finished run left the current step waiting or checking, and the pane offers Check Again
+    /// (`OnboardingCoordinator.needsCheckAgain`). Only changes the copy and stops the row spinner.
+    let isStalled: Bool
 
-    init(snapshot: OnboardingSnapshotFfi?, recoveryRequired: Bool) {
+    init(snapshot: OnboardingSnapshotFfi?, recoveryRequired: Bool, isStalled: Bool = false) {
         steps = snapshot?.steps ?? []
         if recoveryRequired {
             phase = .recovery
@@ -77,6 +80,13 @@ struct AccountSetupGuide: Equatable {
         } else {
             phase = .working(nil)
         }
+        if case .working = phase { self.isStalled = isStalled } else { self.isStalled = false }
+    }
+
+    /// A row's state as the checklist draws it: a stalled check is not spinning.
+    func rowState(_ step: OnboardingStepStateFfi) -> CheckState {
+        let state = Self.checkState(step)
+        return isStalled && state == .checking ? .pending : state
     }
 
     /// The one step whose row opens its review screen, and which Review and Continue opens: the
@@ -104,7 +114,7 @@ struct AccountSetupGuide: Equatable {
         }
     }
 
-    static func isComplete(_ status: OnboardingStatusFfi) -> Bool {
+    nonisolated static func isComplete(_ status: OnboardingStatusFfi) -> Bool {
         status == .passed || status == .skipped
     }
 
@@ -116,7 +126,7 @@ struct AccountSetupGuide: Equatable {
         case .attention: "A little more to do"
         case .cancelling: "Closing sign-in"
         case .ready: "You’re ready to chat"
-        case .working: "Getting ready to chat"
+        case .working: isStalled ? AccountSetupWayForward.checkAgainTitleKey : "Getting ready to chat"
         }
     }
 
@@ -126,7 +136,8 @@ struct AccountSetupGuide: Equatable {
         case .cancelling: "Finishing cancellation. Your saved identity and completed changes will be kept."
         case .ready: "Open Chats to start messaging."
         case .attention: "Review the item below to continue."
-        case .working: "We’re checking your profile and connection."
+        case .working:
+            isStalled ? AccountSetupWayForward.checkAgainSubtitleKey : "We’re checking your profile and connection."
         }
     }
 
@@ -175,7 +186,7 @@ struct AccountSetupGuide: Equatable {
     }
 
     /// The line a finding prints under its step, or `nil` for one that is not a fault.
-    static func issueKey(_ issue: OnboardingIssueFfi) -> String? {
+    nonisolated static func issueKey(_ issue: OnboardingIssueFfi) -> String? {
         switch issue {
         case .missing: "No published settings were found."
         case .malformed: "The published settings could not be read."
