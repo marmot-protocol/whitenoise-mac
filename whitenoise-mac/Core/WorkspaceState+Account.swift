@@ -831,65 +831,15 @@ extension WorkspaceState {
                 cancelChatListReload()
                 stopChatListListener()
             }
-            // Another device's unlink signs the account out in MDK before the app hears of it;
-            // then only the app's side of signing out is left.
+            // Another device's unlink signs the account out in MDK before the app hears of it, so a
+            // Sign Out racing that event has only the app's side left (`AccountExit`).
             let alreadySignedOut =
                 (try? await accountItemsFromRuntime(client: client))?
                 .first(where: { $0.id == account.id })?.signedOut == true
             if !alreadySignedOut {
                 _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
             }
-            clearComposerDrafts(forAccountId: account.id)
-            clearMediaReferenceResolutionCache(forAccountId: account.id)
-            accounts = try await accountItemsFromRuntime(client: client)
-            removeChats(forAccountId: account.id)
-
-            // `activeAccountId` may have changed during the awaits above — e.g. the user
-            // selected another account while this sign-out was in flight (account switching
-            // is not gated by `isSigningOutAccount`). Decide recovery from post-await state,
-            // not the pre-await `wasActive` snapshot: if a still-signed-in account is active
-            // (an untouched background account, or the one the user just raced to), leave its
-            // freshly loaded session intact rather than tearing it down and reselecting.
-            let currentActiveAccount = activeAccountId.flatMap { id in
-                accounts.first { $0.id == id && !$0.signedOut }
-            }
-            guard currentActiveAccount == nil else { return }
-
-            resetActiveAccountUIState()
-            if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
-                // Exactly one profile left: a chooser with a single row is no choice, so continue
-                // straight into it, still on the settings page the sign-out left — as deleting
-                // the active profile does (`removeAccount`).
-                switchActiveAccount(remaining, finalSelection: settingsSelectionAfterAccountMutation)
-                await configureObservabilityRuntimeBestEffort()
-                await loadSettingsData()
-            } else if !signedInAccounts.isEmpty {
-                // Signing out of the profile the user was in, with two or more others still
-                // signed in, asks which one to continue with — exactly as deleting it does
-                // (`removeAccount`) — rather than silently moving into whichever identity
-                // `accounts` lists first. Settings stays selected behind `ProfileChooserView`, so
-                // the pick lands back on Settings.
-                activeAccountId = nil
-                invalidateNotificationSettingsOperations()
-                UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
-                notificationSettings = .defaults
-                selection = settingsSelectionAfterAccountMutation
-            } else {
-                // Signing out the last identity is a way out of the app, so it lands where a
-                // first launch does. It used to stay in `.ready` with no active account, which
-                // drew a list of this Mac's deactivated identities offering to reactivate one
-                // with a click — undoing the sign-out that had just been confirmed. Coming back
-                // is Sign In or Sign Up now; the core reactivates a matching signed-out account
-                // on login, so this identity's chats are still waiting behind its key.
-                activeAccountId = nil
-                invalidateNotificationSettingsOperations()
-                UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
-                selection = nil
-                authenticationMode = .landing
-                clearEnteredLoginIdentity()
-                phase = .onboarding
-                notificationSettings = .defaults
-            }
+            try await AccountExit.finishSigningOut(accountId: account.id, in: self, client: client)
         } catch {
             if wasActive, activeAccountId == account.id {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)

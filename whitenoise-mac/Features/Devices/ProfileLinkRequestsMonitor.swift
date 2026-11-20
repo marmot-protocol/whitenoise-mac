@@ -89,8 +89,11 @@ final class ProfileLinkRequestsMonitor {
 
     private func refresh(_ account: AccountItem, runtime: any MarmotRuntime) async {
         let id = account.accountIdHex.lowercased()
-        guard !account.signedOut,
-            let snapshot = try? await runtime.deviceLinkSnapshot(accountRef: account.accountRef)
+        // A replaced observer's read can finish after its successor pruned or re-read this profile,
+        // so a cancelled one writes nothing.
+        guard !account.signedOut, !Task.isCancelled,
+            let snapshot = try? await runtime.deviceLinkSnapshot(accountRef: account.accountRef),
+            !Task.isCancelled
         else { return }
         let prompts = snapshot.prompts.filter { DeviceLinkPresentation.needsAttention($0.state) }.map(\.promptId)
         pending[id] = prompts.isEmpty ? nil : prompts

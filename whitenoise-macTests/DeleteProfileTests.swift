@@ -187,6 +187,14 @@ struct DeleteProfileSettingsPageTests {
         #expect(DeleteProfileConsequence.all.count == 6)
         #expect(Set(DeleteProfileConsequence.all.map(\.id)).count == 6)
     }
+
+    /// With linked devices the groups aren't left: the other devices keep the chats, as Sign Out says.
+    @Test func withLinkedDevicesTheGroupsStayWithTheOtherDevices() {
+        let linked = DeleteProfileConsequence.list(handsOffToLinkedDevices: true)
+        #expect(linked.map(\.id) == DeleteProfileConsequence.all.map(\.id))
+        #expect(!linked.contains { $0.detail.contains("invitations") })
+        #expect(DeleteProfileConsequence.list(handsOffToLinkedDevices: false) == DeleteProfileConsequence.all)
+    }
 }
 
 /// The remover the shell hands the page's model: what it reports once the workspace's removal has

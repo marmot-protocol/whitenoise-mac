@@ -656,6 +656,49 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.accounts.first?.unlinked == true)
     }
 
+    /// Another account change can hold the account-change gate through the event and the Delete
+    /// press. The app still leaves the unlinked profile at once, and the delete runs when the other
+    /// change ends instead of being dropped.
+    @Test func anUnlinkDuringAnotherAccountChangeIsLeftAndDeletedAfterIt() async throws {
+        let desktop = desktopAccount()
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true, externalSigning: false, signedOut: false, running: true, unlinked: false)
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.installGroup(messageGroup())
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        #expect(state.activeAccountId == desktop.label)
+        let backupItem = try #require(state.accounts.first { $0.id == backup.label })
+
+        let otherChange = AsyncFfiGate()
+        otherChange.isEnabled = true
+        runtime.onSignOutAccountMidFlight = { _ in await otherChange.passIfArmed() }
+        let signingOutBackup = Task { await state.signOutAccount(backupItem) }
+        await otherChange.waitUntilReached()
+        #expect(state.isAccountMutationInProgress)
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+        #expect(state.activeAccountId == nil)
+        #expect(state.activeChats.isEmpty)
+
+        let deleting = Task {
+            await AccountExit.removeUnlinkedAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+        }
+        await Self.waitUntil(timeout: .milliseconds(200)) { false }
+        #expect(runtime.removedAccountRefs.isEmpty)
+
+        otherChange.release()
+        await signingOutBackup.value
+        _ = await deleting.value
+
+        #expect(runtime.removedAccountRefs == [desktop.label])
+        #expect(!state.accounts.contains { $0.id == desktop.label })
+    }
+
     /// A profile left with Later stays here signed out, and signed-out profiles show nowhere else, so
     /// the notice comes back once a launch. Signing in to it raises it again even after Later.
     @Test func anUnlinkedProfileStillHereIsRaisedOnceALaunchAndOnSignIn() {
@@ -823,6 +866,32 @@ struct ImportedHistoryTests {
     }
 }
 
+/// A linking call's reply can be older than the snapshot an event read already showed.
+@MainActor
+struct DeviceLinkActionReplyTests {
+    @Test func aLateReplyDoesNotPutBackAnOlderSnapshot() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        runtime.deviceLinking.snapshot.prompts = [
+            DeviceLinkPromptFfi(promptId: "p1", slotIdHex: nil, requestedAt: 0, state: .comparing(code: []))
+        ]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        await model.refreshAll()
+        #expect(model.prompt(id: "p1") != nil)
+
+        runtime.deviceLinking.linkReplyGate.isEnabled = true
+        let linking = Task {
+            await model.link(promptId: "p1", label: "Phone", addToAllChats: true, bringHistory: false)
+        }
+        await runtime.deviceLinking.linkReplyGate.waitUntilReached()
+        runtime.deviceLinking.snapshot.prompts = []
+        runtime.deviceLinking.linkReplyGate.release()
+        await linking.value
+
+        #expect(model.prompt(id: "p1") == nil)
+    }
+}
+
 /// Naming this device, so no device is ever listed unnamed.
 @MainActor
 struct ThisDeviceNameTests {
@@ -850,10 +919,26 @@ struct ThisDeviceNameTests {
         let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
         await model.refreshAll()
 
-        await model.rename(slotIdHex: me.slotIdHex, label: " Studio Mac ")
+        await model.saveThisDeviceName(" Studio Mac ")
 
         #expect(runtime.deviceLinking.renames.map(\.label) == ["Studio Mac"])
         #expect(model.thisDevice?.label == "Studio Mac")
+    }
+
+    /// Saved before the roster is read, the typed name still replaces "New Device" once it arrives.
+    @Test func aNameSavedBeforeTheRosterArrivesStillReplacesNewDevice() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        var me = DeviceLinkingTests.makeDevice("a", thisDevice: true)
+        me.label = "New Device"
+        runtime.deviceLinking.devices = [me]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        #expect(model.thisDevice == nil)
+
+        await model.saveThisDeviceName("Studio Mac")
+        await DeviceLinkingTests.waitUntil { model.thisDevice?.label == "Studio Mac" }
+
+        #expect(runtime.deviceLinking.renames.map(\.label) == ["Studio Mac"])
     }
 
     @Test func aNameSomeoneElseGaveFirstStands() async {
@@ -958,6 +1043,28 @@ struct ProfileLinkRequestsMonitorTests: WorkspaceTestSupport {
 
         #expect(Array(monitor.pending.keys) == [third.accountIdHex.lowercased()])
         #expect(monitor.alert == nil)
+    }
+
+    /// A replaced observer's read that finishes late writes nothing over its successor's.
+    @Test func aReplacedObserversLateReadIsDropped() async {
+        let runtime = makeRuntime()
+        let monitor = ProfileLinkRequestsMonitor()
+        var accounts = [Self.other]
+        runtime.deviceLinking.snapshotReadGate.isEnabled = true
+        let old = Task { await monitor.observe(runtime, accounts: { accounts }) }
+        await runtime.deviceLinking.snapshotReadGate.waitUntilReached()
+        old.cancel()
+
+        runtime.deviceLinking.snapshot.prompts = []
+        accounts = [AccountItem.samples[2]]
+        let reads = runtime.deviceLinking.snapshotReadCount
+        let observing = Task { await monitor.observe(runtime, accounts: { accounts }) }
+        defer { observing.cancel() }
+        await Self.waitUntil { runtime.deviceLinking.snapshotReadCount > reads }
+        runtime.deviceLinking.snapshotReadGate.release()
+        await old.value
+
+        #expect(monitor.pending.isEmpty)
     }
 
     /// Not Now on one profile's alert leaves the next profile's request to be raised.

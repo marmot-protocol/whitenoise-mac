@@ -27031,6 +27031,72 @@
         }
       }
     },
+    "You can sign in again with a saved secret key and keep the same Nostr identity. To get your chats back on this device, link it to one of your other devices." : {
+      "comment" : "Delete Profile page, “If you sign in again” consequence, shown when the profile has other linked devices that keep its chats.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du kannst dich mit einem gespeicherten geheimen Schlüssel erneut anmelden und dieselbe Nostr-Identität behalten. Um deine Chats auf diesem Gerät zurückzubekommen, verknüpfe es mit einem deiner anderen Geräte."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puedes volver a iniciar sesión con una llave secreta guardada y conservar la misma identidad de Nostr. Para recuperar tus chats en este dispositivo, vincúlalo con uno de tus otros dispositivos."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voit kirjautua uudelleen tallennetulla salaisella avaimella ja säilyttää saman Nostr-identiteetin. Saat keskustelusi takaisin tälle laitteelle linkittämällä sen johonkin muista laitteistasi."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous pouvez vous reconnecter avec une clé secrète sauvegardée et conserver la même identité Nostr. Pour retrouver vos discussions sur cet appareil, associez-le à l’un de vos autres appareils."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puoi accedere di nuovo con una chiave segreta salvata e mantenere la stessa identità Nostr. Per riavere le tue chat su questo dispositivo, collegalo a uno dei tuoi altri dispositivi."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você pode entrar novamente com uma chave secreta salva e manter a mesma identidade Nostr. Para recuperar suas conversas neste dispositivo, vincule-o a um dos seus outros dispositivos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вы можете войти снова с сохранённым секретным ключом и сохранить ту же идентичность Nostr. Чтобы вернуть чаты на это устройство, привяжите его к одному из других ваших устройств."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaydedilmiş bir gizli anahtarla tekrar giriş yapabilir ve aynı Nostr kimliğini kullanmaya devam edebilirsiniz. Sohbetlerinizi bu cihaza geri almak için onu diğer cihazlarınızdan birine bağlayın."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你可以使用已保存的私钥再次登录，并保留同一个 Nostr 身份。要在此设备上找回你的聊天，请将它关联到你的另一台设备。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你可以使用已儲存的私鑰再次登入，並保留同一個 Nostr 身分。要在此裝置上找回你的聊天，請將它連結到你的另一台裝置。"
+          }
+        }
+      }
+    },
     "You can’t report yourself." : {
       "extractionState" : "manual",
       "localizations" : {

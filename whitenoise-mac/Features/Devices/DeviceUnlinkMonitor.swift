@@ -27,6 +27,8 @@ final class DeviceUnlinkMonitor {
     @ObservationIgnored private var queue: [Notice] = []
     /// Accounts already raised this launch, so a launch reminder doesn't repeat one.
     @ObservationIgnored private var raised: Set<String> = []
+    /// The shell's teardown of each account whose event arrived, while it runs.
+    @ObservationIgnored private var leaving: [String: Task<Void, Never>] = [:]
 
     /// Runs until cancelled, so the shell ties it to the runtime's lifetime with `.task(id:)`.
     /// `onUnlinked` gets the account id as each event arrives, before the user answers the notice:
@@ -41,9 +43,18 @@ final class DeviceUnlinkMonitor {
             if case .deviceUnlinked(let accountIdHex, let accountLabel) = event {
                 let id = accountIdHex.lowercased()
                 receive(Notice(accountIdHex: id, accountLabel: accountLabel))
-                await onUnlinked(id)
+                let teardown = Task { await onUnlinked(id) }
+                leaving[id] = teardown
+                await teardown.value
+                if leaving[id] == teardown { leaving[id] = nil }
             }
         }
+    }
+
+    /// Returns once the shell has finished leaving the account, if it still is. Delete Everything
+    /// waits for this so it removes the account as MDK left it, not as it was before the event.
+    func finishLeaving(_ accountIdHex: String) async {
+        await leaving[accountIdHex]?.value
     }
 
     /// Raises the notice for each unlinked profile still on this Mac that hasn't had it this launch.

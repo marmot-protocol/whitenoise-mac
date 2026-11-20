@@ -82,7 +82,10 @@ struct SettingsPanelView: View {
                     DeleteProfileSettingsView(
                         model: model.deleteProfile,
                         account: account,
-                        isAccountMutationInProgress: workspace.isAccountMutationInProgress
+                        isAccountMutationInProgress: workspace.isAccountMutationInProgress,
+                        handsOffToLinkedDevices: session.accountScope.map {
+                            $0.account.id == account.id && !$0.deviceLinking.otherDevices.isEmpty
+                        } == true
                     )
                 }
             }

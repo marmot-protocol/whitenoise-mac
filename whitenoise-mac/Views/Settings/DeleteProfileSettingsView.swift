@@ -17,6 +17,9 @@ struct DeleteProfileSettingsView: View {
     let model: DeleteProfileViewModel
     let account: AccountItem
     let isAccountMutationInProgress: Bool
+    /// The profile has other linked devices, so deleting it here hands this device's removal to
+    /// them and they keep its chats.
+    var handsOffToLinkedDevices = false
 
     private var challenge: String {
         AccountWipeConfirmation.challenge(
@@ -36,7 +39,8 @@ struct DeleteProfileSettingsView: View {
             }
 
             SettingsSection {
-                ForEach(DeleteProfileConsequence.all) { consequence in
+                ForEach(DeleteProfileConsequence.list(handsOffToLinkedDevices: handsOffToLinkedDevices)) {
+                    consequence in
                     DeleteProfileConsequenceRow(consequence: consequence)
                 }
             }
@@ -86,6 +90,29 @@ struct DeleteProfileConsequence: Identifiable, Equatable {
     let detail: String
 
     var id: String { title }
+
+    /// What deleting does. With linked devices the profile's groups aren't left: the other devices
+    /// keep the chats and remove this one, as the Sign Out sheet's wipe says.
+    static func list(handsOffToLinkedDevices: Bool) -> [DeleteProfileConsequence] {
+        guard handsOffToLinkedDevices else { return all }
+        return all.map { consequence in
+            switch consequence.title {
+            case "Groups":
+                DeleteProfileConsequence(
+                    title: "Groups",
+                    detail:
+                        "Your other devices keep your chats and will finish removing this one from them. This can take about 30 seconds."
+                )
+            case "If you sign in again":
+                DeleteProfileConsequence(
+                    title: "If you sign in again",
+                    detail:
+                        "You can sign in again with a saved secret key and keep the same Nostr identity. To get your chats back on this device, link it to one of your other devices."
+                )
+            default: consequence
+            }
+        }
+    }
 
     static let all: [DeleteProfileConsequence] = [
         DeleteProfileConsequence(

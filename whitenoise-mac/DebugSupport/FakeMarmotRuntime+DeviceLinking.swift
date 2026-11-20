@@ -27,6 +27,10 @@
         var nextActionError: Error?
         /// Thrown by `rotateKeyPackage` alone, after the reset before it went through.
         var keyPackageRotationError: Error?
+        /// Parks a snapshot read after it has taken its snapshot, so its answer lands late.
+        let snapshotReadGate = AsyncFfiGate()
+        /// Parks `linkDevice`'s reply after the link went through, so the reply lands late.
+        let linkReplyGate = AsyncFfiGate()
 
         private(set) var snapshotReadCount = 0
         private(set) var deviceReadCount = 0
@@ -84,7 +88,9 @@
         func deviceLinkSnapshot(accountRef: String) async throws -> DeviceLinkSnapshotFfi {
             deviceLinking.countSnapshotRead()
             try deviceLinking.read()
-            return deviceLinking.snapshot
+            let snapshot = deviceLinking.snapshot
+            await deviceLinking.snapshotReadGate.passIfArmed()
+            return snapshot
         }
 
         func startDeviceLink(accountRef: String) async throws -> DeviceLinkSnapshotFfi {
@@ -111,7 +117,9 @@
             try deviceLinking.act()
             deviceLinking.recordLink((promptId, label, addToAllChats, bringHistory))
             deviceLinking.updatePrompt(promptId, to: .linking)
-            return deviceLinking.snapshot
+            let reply = deviceLinking.snapshot
+            await deviceLinking.linkReplyGate.passIfArmed()
+            return reply
         }
 
         func declineDeviceLink(accountRef: String, promptId: String) async throws -> DeviceLinkSnapshotFfi {

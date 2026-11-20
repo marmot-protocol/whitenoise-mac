@@ -69,6 +69,9 @@ final class DeviceLinkingViewModel {
     /// A name for this device the user gave while it had none, to write once the roster lists it:
     /// after the first link this device founds the device group, and only then has a slot to rename.
     @ObservationIgnored private var pendingThisDeviceLabel: String?
+    /// The held name was typed by the user, so it replaces whatever name the roster entry arrives
+    /// with. The name picked during linking yields to one given first.
+    @ObservationIgnored private var pendingThisDeviceLabelReplaces = false
     @ObservationIgnored private var thisDeviceLabelTask: Task<Void, Never>?
 
     private enum Part: CaseIterable {
@@ -233,9 +236,24 @@ final class DeviceLinkingViewModel {
     /// held and written once the roster lists this device, retrying `device_group_busy` a while.
     /// A name someone else gives this device first stands.
     func nameThisDevice(_ label: String) {
+        nameThisDevice(label, replacingName: false)
+    }
+
+    /// Name This Mac's Save: renames this device's roster entry, or holds the name until the roster
+    /// lists this device and then writes it over whatever name the entry has (iOS's "New Device").
+    func saveThisDeviceName(_ label: String) async {
+        if let me = thisDevice {
+            await rename(slotIdHex: me.slotIdHex, label: label)
+        } else {
+            nameThisDevice(label, replacingName: true)
+        }
+    }
+
+    private func nameThisDevice(_ label: String, replacingName: Bool) {
         let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isAvailable, DeviceLinkPresentation.isValidLabel(label) else { return }
         pendingThisDeviceLabel = label
+        pendingThisDeviceLabelReplaces = replacingName
         writePendingThisDeviceLabel()
     }
 
@@ -247,8 +265,9 @@ final class DeviceLinkingViewModel {
                 if attempt > 0 { try? await Task.sleep(for: .seconds(3)) }
                 await self.refresh(.devices)
                 guard let me = self.thisDevice else { continue }
-                // Named meanwhile, here or on another device: that name stands.
-                guard me.label.isEmpty || me.label == label else {
+                // Named meanwhile, here or on another device: that name stands, unless the user
+                // typed this one.
+                guard me.label.isEmpty || me.label == label || self.pendingThisDeviceLabelReplaces else {
                     self.pendingThisDeviceLabel = nil
                     break
                 }
@@ -415,6 +434,9 @@ final class DeviceLinkingViewModel {
     ) async -> Bool {
         guard let next = await run(action, body) else { return false }
         install(next)
+        // The call's own `DeviceLinkChanged` can be read before this reply lands, and the reply may
+        // be older than that read. Reading again after it leaves the newest snapshot showing.
+        await refresh(.link)
         return true
     }
 

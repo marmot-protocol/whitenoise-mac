@@ -46,14 +46,19 @@ struct ContentView: View {
                 session.deviceUnlinks,
                 accountName: { account(forUnlinked: $0)?.displayName },
                 onRemove: { notice in
-                    guard let account = account(forUnlinked: notice) else { return }
-                    Task { session.reportWipe(await workspace.removeAccount(account)) }
+                    Task {
+                        await session.deviceUnlinks.finishLeaving(notice.accountIdHex)
+                        session.reportWipe(
+                            await AccountExit.removeUnlinkedAccount(accountIdHex: notice.accountIdHex, in: workspace))
+                    }
                 },
                 onLater: { notice in
-                    // The account was signed out here when the event arrived; this only retries that
-                    // if another account change held it off then.
+                    // The app left the account when the event arrived; this only retries that if it
+                    // failed then.
                     if let account = account(forUnlinked: notice), !account.signedOut {
-                        Task { await workspace.signOutAccount(account) }
+                        Task {
+                            await AccountExit.leaveSignedOutAccount(accountIdHex: notice.accountIdHex, in: workspace)
+                        }
                     }
                 }
             )
@@ -80,14 +85,9 @@ struct ContentView: View {
             .task(id: runtimeIdentity) {
                 guard let client = workspace.client else { return }
                 await session.deviceUnlinks.observe(client) { accountIdHex in
-                    // MDK already signed it out: re-read it and leave it now, as Sign Out does, so the
-                    // removed profile's chats stop showing while the notice waits for an answer.
-                    guard
-                        let account = workspace.accounts.first(where: {
-                            $0.accountIdHex.lowercased() == accountIdHex && !$0.signedOut
-                        })
-                    else { return }
-                    await workspace.signOutAccount(account)
+                    // MDK already signed it out: leave it now, as Sign Out does, so the removed
+                    // profile's chats stop showing while the notice waits for an answer.
+                    await AccountExit.leaveSignedOutAccount(accountIdHex: accountIdHex, in: workspace)
                 }
             }
             // A profile unlinked in an earlier launch (or left with Later) is still here, signed out
