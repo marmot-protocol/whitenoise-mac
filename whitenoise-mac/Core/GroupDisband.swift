@@ -45,12 +45,15 @@ nonisolated enum GroupLifecycle: Hashable, Sendable {
         }
     }
 
-    /// The capsule a sidebar row wears for this state, or `nil` for an ordinary group.
+    /// The capsule a sidebar row wears for this state, or `nil` when it wears none.
+    ///
+    /// Only `.ending` does. An ended group says "Group ended" on the row's preview line instead
+    /// (`ChatItem.previewNotice(locale:)`), the same words its timeline's system row uses, so a
+    /// capsule beside the title would only repeat it.
     var sidebarBadgeLabel: String? {
         switch self {
-        case .active: nil
+        case .active, .ended: nil
         case .ending: L10n.string("Ending")
-        case .ended: L10n.string("Ended")
         }
     }
 

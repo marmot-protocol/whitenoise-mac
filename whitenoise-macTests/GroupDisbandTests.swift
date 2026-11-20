@@ -360,7 +360,8 @@ struct GroupDisbandTests {
         #expect(GroupLifecycle.active.symbolName == nil)
         #expect(GroupLifecycle.ending.sidebarBadgeLabel == L10n.string("Ending"))
         #expect(GroupLifecycle.ending.symbolName == "hourglass")
-        #expect(GroupLifecycle.ended.sidebarBadgeLabel == L10n.string("Ended"))
+        // An ended group says so on the preview line ("Group ended"), not in a capsule.
+        #expect(GroupLifecycle.ended.sidebarBadgeLabel == nil)
         #expect(GroupLifecycle.ended.symbolName == "xmark.circle.fill")
     }
 

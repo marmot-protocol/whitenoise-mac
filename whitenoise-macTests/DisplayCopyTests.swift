@@ -96,6 +96,17 @@ struct DisplayCopyTests {
         #expect(Set(filters).count == filters.count)
     }
 
+    /// The chat-list filter and the inspector's membership status share the English word "Left",
+    /// but Spanish names the filter as a collection ("Abandonados") and the status as a verb
+    /// ("Salió"), so they are separate catalog keys.
+    @Test func leftFilterAndLeftStatusAreLocalizedSeparately() {
+        let english = Locale(identifier: "en")
+        let spanish = Locale(identifier: "es")
+        #expect(L10n.string("Left chats", locale: english) == "Left")
+        #expect(L10n.string("Left chats", locale: spanish) == "Abandonados")
+        #expect(L10n.string("Left", locale: spanish) == "Salió")
+    }
+
     @Test func languagePickerOffersSystemThenEveryLanguageOnceInItsOwnName() {
         #expect(AppLanguage.pickerChoices.first == .system)
         #expect(Set(AppLanguage.pickerChoices) == Set(AppLanguage.allCases))

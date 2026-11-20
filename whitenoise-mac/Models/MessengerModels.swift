@@ -64,8 +64,9 @@ nonisolated enum ChatSelfMembership: Hashable {
     /// MDK asks hosts not to call that a removal: the person was not removed, this Mac was.
     case deviceRemoved
 
-    /// Short badge label for sidebar rows, `nil` while still a member.
-    var sidebarBadgeLabel: String? {
+    /// One-word name for the ended state (the inspector's developer section), `nil` while still a
+    /// member. The sidebar row says it in a sentence instead — see `ChatItem.previewNotice(locale:)`.
+    var statusLabel: String? {
         switch self {
         case .member:
             return nil
@@ -78,8 +79,8 @@ nonisolated enum ChatSelfMembership: Hashable {
         }
     }
 
-    /// One-line explanation of the ended membership, used by the sidebar badge
-    /// tooltip and the composer notice. `nil` while still a member.
+    /// One-line explanation of the ended membership, used by the sidebar row's preview line and the
+    /// composer notice. `nil` while still a member.
     var endedDescription: String? {
         endedDescription(locale: AppLanguage.currentLocale)
     }
@@ -97,18 +98,6 @@ nonisolated enum ChatSelfMembership: Hashable {
         case .deviceRemoved:
             return L10n.string("This device is no longer in this chat", locale: locale)
         }
-    }
-
-    /// Whether this ended membership says so on the row's preview line instead of in a capsule
-    /// beside the title.
-    ///
-    /// Only removal does. Being removed is the one ended state the reader did not choose, so the
-    /// row spends its widest slot saying it in the same words the chat itself does
-    /// (`MembershipEndedComposerNotice`) rather than compressing it to a "Removed" capsule the
-    /// reader has to hover to expand. Leaving stays a capsule: the reader already knows they left,
-    /// and the last message is still the more useful thing for that row to show.
-    var reportsInChatRowPreviewLine: Bool {
-        self == .removed
     }
 
     /// SF Symbol shown alongside the ended state, `nil` while still a member.
@@ -228,21 +217,24 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// What the row draws where the last message would go, whenever something other than the last
     /// message belongs there. `nil` means `preview` speaks for itself.
     ///
-    /// A removal outranks the last message: the chat is closed to the reader, so what the row has
-    /// to report is that fact rather than whatever was said before it. It stays first because an
-    /// ended group's removed members are ended too, and the removal is the more specific fact.
+    /// An ended membership (left, removed, or this device removed) outranks the last message: the
+    /// chat is closed to the reader, so the row reports that fact in the same words the chat's own
+    /// composer notice uses, instead of a capsule beside the title. It stays first because an
+    /// ended group's departed members are ended too, and their own departure is the more specific
+    /// fact.
     ///
     /// An ended group outranks the last message the same way. The line cannot wait for the
     /// disband's system row to arrive as the last message: MDK keeps that row in the timeline only
     /// and never projects it onto the chat list, so an ended row carries whichever message or
     /// membership change came before it (or nothing). The lifecycle is the one signal every
-    /// account's row agrees on. A group still `.ending` keeps its message; the badge says the rest.
+    /// account's row agrees on, so the row needs no "Ended" capsule beside the title. A group still
+    /// `.ending` keeps its message; its "Ending" capsule says the rest.
     ///
     /// Every other state only fills the line when there is no message to draw — see
     /// `previewPlaceholder(locale:)`.
     func previewNotice(locale: Locale = AppLanguage.currentLocale) -> String? {
-        if selfMembership.reportsInChatRowPreviewLine {
-            return selfMembership.endedDescription(locale: locale)
+        if let ended = selfMembership.endedDescription(locale: locale) {
+            return ended
         }
         if lifecycle == .ended {
             return GroupLifecycle.disbandedSystemText(locale: locale)
@@ -4274,7 +4266,7 @@ enum ChatListFilter: String, CaseIterable {
         case .archived:
             return L10n.string("Archived")
         case .left:
-            return L10n.string("Left")
+            return L10n.string("Left chats")
         }
     }
 

@@ -1093,19 +1093,16 @@ struct ChatRowContent: View {
                     // Precedence lives in `ChatRowStatus` so the badge and the row's
                     // destructive menu item are decided by one rule.
                     switch rowStatus {
-                    case .groupLifecycle(let lifecycle):
+                    case .groupLifecycle(let lifecycle) where lifecycle.sidebarBadgeLabel != nil:
                         GroupLifecycleBadge(lifecycle: lifecycle)
                     case .leaving:
                         LeavingGroupBadge()
-                    case .membershipEnded(let membership)
-                    where !membership.reportsInChatRowPreviewLine:
-                        MembershipEndedBadge(membership: membership)
-                    // A pending invite reports itself on the line below instead — the invite text
-                    // where the last message would be, the `+` badge where the unread count would
-                    // be. The two capsules above stay here because they report a settled state
-                    // about the chat rather than something waiting on the reader. A removal is the
-                    // one settled state that goes to the line below too, in the chat's own words.
-                    case .membershipEnded, .pendingInvite, nil:
+                    // Settled endings — left, removed, group ended — report themselves on the line
+                    // below instead, in the words the chat's own system message and composer notice
+                    // use (`ChatItem.previewNotice(locale:)`). A pending invite does too: the invite
+                    // text where the last message would be, the `+` badge where the unread count
+                    // would be. Only the in-flight states keep a capsule beside the title.
+                    case .groupLifecycle, .membershipEnded, .pendingInvite, nil:
                         EmptyView()
                     }
                     if chat.muted {
@@ -1180,8 +1177,9 @@ struct ChatRowContent: View {
         // last-message glyph would describe the wrong message.
         guard let searchResult else {
             // What an empty chat says here depends on why it is empty, and an unanswered invite
-            // says so in words rather than in a badge beside the title — as does a removal, which
-            // takes this line even when the chat has messages behind it.
+            // says so in words rather than in a badge beside the title — as do a left or removed
+            // membership and an ended group, which take this line even when the chat has messages
+            // behind it.
             if let notice = chat.previewNotice(locale: locale) {
                 return Text(notice)
             }
@@ -1368,8 +1366,8 @@ private struct ChatTimestampText: View, Equatable {
 /// the whole point of it: an invite and an unread message are the same kind of claim on the
 /// reader — something in this chat is waiting — so they belong in the same slot, in the same fill,
 /// distinguished only by the glyph. `+` reads as "join", which is the answer the row is asking
-/// for. The neutral title-side capsule stays on `LeavingGroupBadge` and `MembershipEndedBadge`,
-/// which report a settled state rather than ask for a decision.
+/// for. The neutral title-side capsule stays on `LeavingGroupBadge` and `GroupLifecycleBadge`,
+/// which report a state in progress rather than ask for a decision.
 ///
 /// Icon-only, so it carries both an accessibility label and a hover explanation; the row's
 /// preview line says the same thing in words.
@@ -1401,31 +1399,6 @@ struct LeavingGroupBadge: View {
             .background(WNColor.fillSecondary, in: Capsule())
             .overlay(Capsule().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
             .help(L10n.string("Leave request pending"))
-    }
-}
-
-/// "Left" capsule on rows for groups the local account walked out of; the chat stays listed so
-/// the history remains readable.
-///
-/// It renders any ended membership it is handed — the label, symbol and tooltip all come from
-/// `ChatSelfMembership` — but the sidebar row only hands it the memberships that
-/// `reportsInChatRowPreviewLine` leaves to a capsule. A removal takes the preview line instead.
-struct MembershipEndedBadge: View {
-    let membership: ChatSelfMembership
-
-    var body: some View {
-        Label(
-            membership.sidebarBadgeLabel ?? "",
-            systemImage: membership.endedSymbolName ?? ""
-        )
-        .wnFont(.semiBold10)
-        .labelStyle(.titleAndIcon)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .foregroundStyle(WNColor.fillContentTertiary)
-        .background(WNColor.fillSecondary, in: Capsule())
-        .overlay(Capsule().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
-        .help(membership.endedDescription ?? "")
     }
 }
 
