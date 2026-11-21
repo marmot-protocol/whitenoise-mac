@@ -68,10 +68,14 @@ final class DeviceLinkingViewModel {
     @ObservationIgnored private var linkSuggestionShown = false
     /// A name for this device the user gave while it had none, to write once the roster lists it:
     /// after the first link this device founds the device group, and only then has a slot to rename.
-    @ObservationIgnored private var pendingThisDeviceLabel: String?
-    /// The held name was typed by the user, so it replaces whatever name the roster entry arrives
-    /// with. The name picked during linking yields to one given first.
-    @ObservationIgnored private var pendingThisDeviceLabelReplaces = false
+    /// A name for this device waiting for the roster to list it. `replacesName` when the user typed
+    /// it, so it replaces whatever name the entry arrives with; the name picked during linking
+    /// yields to one given first. One value, so a newer save replaces both together.
+    private struct ThisDeviceName: Equatable {
+        let label: String
+        let replacesName: Bool
+    }
+    @ObservationIgnored private var pendingThisDeviceName: ThisDeviceName?
     @ObservationIgnored private var thisDeviceLabelTask: Task<Void, Never>?
 
     private enum Part: CaseIterable {
@@ -252,45 +256,52 @@ final class DeviceLinkingViewModel {
     private func nameThisDevice(_ label: String, replacingName: Bool) {
         let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isAvailable, DeviceLinkPresentation.isValidLabel(label) else { return }
-        pendingThisDeviceLabel = label
-        pendingThisDeviceLabelReplaces = replacingName
+        pendingThisDeviceName = ThisDeviceName(label: label, replacesName: replacingName)
         writePendingThisDeviceLabel()
     }
 
+    /// Writes held names until none is left. Each pass handles the name it started with and clears
+    /// only that one, so a name saved while a pass awaits is handled next rather than dropped.
     private func writePendingThisDeviceLabel() {
-        guard thisDeviceLabelTask == nil, pendingThisDeviceLabel != nil, let runtime else { return }
+        guard thisDeviceLabelTask == nil, pendingThisDeviceName != nil, let runtime else { return }
         thisDeviceLabelTask = Task { [weak self] in
-            for attempt in 0..<20 {
-                guard let self, !Task.isCancelled, let label = self.pendingThisDeviceLabel else { break }
-                if attempt > 0 { try? await Task.sleep(for: .seconds(3)) }
+            var waitFirst = false
+            for _ in 0..<20 {
+                guard let self, !Task.isCancelled, let request = self.pendingThisDeviceName else { break }
+                if waitFirst { try? await Task.sleep(for: .seconds(3)) }
+                waitFirst = false
                 await self.refresh(.devices)
-                guard let me = self.thisDevice else { continue }
-                // Named meanwhile, here or on another device: that name stands, unless the user
-                // typed this one.
-                guard me.label.isEmpty || me.label == label || self.pendingThisDeviceLabelReplaces else {
-                    self.pendingThisDeviceLabel = nil
-                    break
+                // Replaced during the read: handle the newer one.
+                guard request == self.pendingThisDeviceName else { continue }
+                guard let me = self.thisDevice else {
+                    waitFirst = true
+                    continue
                 }
-                if me.label == label {
-                    self.pendingThisDeviceLabel = nil
-                    break
+                // Already this name, or named meanwhile (here or on another device) and that name
+                // stands because the user didn't type this one.
+                if me.label == request.label || !(me.label.isEmpty || request.replacesName) {
+                    self.settleThisDeviceName(request)
+                    continue
                 }
                 do {
                     try await runtime.renameLinkedDevice(
-                        accountRef: self.accountRef, slotIdHex: me.slotIdHex, label: label)
-                    self.pendingThisDeviceLabel = nil
+                        accountRef: self.accountRef, slotIdHex: me.slotIdHex, label: request.label)
+                    self.settleThisDeviceName(request)
                     await self.refresh(.devices)
-                    break
                 } catch MarmotKitError.Runtime(let details)
                     where details == DeviceLinkPresentation.refusalPrefix + "device_group_busy"
                 {
-                    continue
+                    waitFirst = true
                 } catch {
                     break
                 }
             }
             self?.thisDeviceLabelTask = nil
         }
+    }
+
+    private func settleThisDeviceName(_ request: ThisDeviceName) {
+        if pendingThisDeviceName == request { pendingThisDeviceName = nil }
     }
 
     func decline(promptId: String) async {
@@ -426,16 +437,18 @@ final class DeviceLinkingViewModel {
 
     // MARK: Plumbing
 
-    /// Runs a linking call that answers with a snapshot and installs it. True when it succeeded.
+    /// Runs a linking call that answers with a snapshot, then shows the snapshot as read afterwards.
+    /// True when it succeeded.
+    ///
+    /// The reply itself is never installed: the call's own `DeviceLinkChanged` can be read before
+    /// the reply lands, so the reply may be older than what is showing. The coalesced read is the
+    /// one writer, and a read that fails keeps the last good snapshot.
     @discardableResult
     private func perform(
         _ action: Action,
         _ body: @MainActor (any MarmotRuntime, String) async throws -> DeviceLinkSnapshotFfi
     ) async -> Bool {
-        guard let next = await run(action, body) else { return false }
-        install(next)
-        // The call's own `DeviceLinkChanged` can be read before this reply lands, and the reply may
-        // be older than that read. Reading again after it leaves the newest snapshot showing.
+        guard await run(action, body) != nil else { return false }
         await refresh(.link)
         return true
     }
@@ -529,7 +542,7 @@ final class DeviceLinkingViewModel {
                 removedDeviceLeftoverChats = leftover
                 startedFresh = fresh
                 // A name held for this device gets written once the roster lists it.
-                if pendingThisDeviceLabel != nil { writePendingThisDeviceLabel() }
+                if pendingThisDeviceName != nil { writePendingThisDeviceLabel() }
             case .signIns:
                 let next = try await runtime.unrecognizedSignIns(accountRef: accountRef)
                 try Task.checkCancellation()

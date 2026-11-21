@@ -681,8 +681,11 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.isAccountMutationInProgress)
 
         runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
-        await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
-        #expect(state.activeAccountId == nil)
+        // The leave takes the profile off screen at once, then checks again once the other change ends.
+        let leaving = Task {
+            await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+        }
+        await Self.waitUntil { state.activeAccountId == nil }
         #expect(state.activeChats.isEmpty)
 
         let deleting = Task {
@@ -693,10 +696,47 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
 
         otherChange.release()
         await signingOutBackup.value
+        await leaving.value
         _ = await deleting.value
 
         #expect(runtime.removedAccountRefs == [desktop.label])
         #expect(!state.accounts.contains { $0.id == desktop.label })
+    }
+
+    /// The other order: a sign-out of another profile read the account list before MDK signed the
+    /// unlinked one out, and installs that list after the app left it. The unlinked profile must not
+    /// come back as signed in, or become the profile on screen.
+    @Test func anOlderAccountListInstalledAfterTheUnlinkDoesNotBringItBack() async throws {
+        let desktop = desktopAccount()
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true, externalSigning: false, signedOut: false, running: true, unlinked: false)
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let backupItem = try #require(state.accounts.first { $0.id == backup.label })
+
+        // Hold the account-list read that follows MDK's sign-out of the backup profile, after it has
+        // taken MDK's list (desktop still signed in).
+        runtime.onSignOutAccountMidFlight = { _ in runtime.userProfileGateEnabled = true }
+        let signingOutBackup = Task { await state.signOutAccount(backupItem) }
+        await Self.waitUntil { runtime.didReachUserProfileGate }
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        let leaving = Task {
+            await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+        }
+        await Self.waitUntil { state.activeAccountId == nil }
+
+        runtime.releaseUserProfileGate()
+        await signingOutBackup.value
+        await leaving.value
+
+        #expect(state.activeAccountId == nil)
+        #expect(state.accounts.first { $0.id == desktop.label }?.signedOut == true)
+        #expect(state.phase == .onboarding)
     }
 
     /// A profile left with Later stays here signed out, and signed-out profiles show nowhere else, so
@@ -884,7 +924,11 @@ struct DeviceLinkActionReplyTests {
             await model.link(promptId: "p1", label: "Phone", addToAllChats: true, bringHistory: false)
         }
         await runtime.deviceLinking.linkReplyGate.waitUntilReached()
+        // The link's event is read first and shows the prompt gone; the read after the reply fails.
         runtime.deviceLinking.snapshot.prompts = []
+        await model.refreshAll()
+        #expect(model.prompt(id: "p1") == nil)
+        runtime.deviceLinking.error = MarmotKitError.Runtime(details: "relay unreachable")
         runtime.deviceLinking.linkReplyGate.release()
         await linking.value
 
@@ -936,6 +980,25 @@ struct ThisDeviceNameTests {
         #expect(model.thisDevice == nil)
 
         await model.saveThisDeviceName("Studio Mac")
+        await DeviceLinkingTests.waitUntil { model.thisDevice?.label == "Studio Mac" }
+
+        #expect(runtime.deviceLinking.renames.map(\.label) == ["Studio Mac"])
+    }
+
+    /// Two saves while the roster loads: the second name is the one written.
+    @Test func aSecondSaveWhileTheRosterLoadsWins() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        var me = DeviceLinkingTests.makeDevice("a", thisDevice: true)
+        me.label = "New Device"
+        runtime.deviceLinking.devices = [me]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        runtime.deviceLinking.devicesReadGate.isEnabled = true
+
+        await model.saveThisDeviceName("Mac")
+        await runtime.deviceLinking.devicesReadGate.waitUntilReached()
+        await model.saveThisDeviceName("Studio Mac")
+        runtime.deviceLinking.devicesReadGate.release()
         await DeviceLinkingTests.waitUntil { model.thisDevice?.label == "Studio Mac" }
 
         #expect(runtime.deviceLinking.renames.map(\.label) == ["Studio Mac"])

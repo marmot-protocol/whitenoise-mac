@@ -29,6 +29,8 @@
         var keyPackageRotationError: Error?
         /// Parks a snapshot read after it has taken its snapshot, so its answer lands late.
         let snapshotReadGate = AsyncFfiGate()
+        /// Parks a roster read after it has taken the roster, so its answer lands late.
+        let devicesReadGate = AsyncFfiGate()
         /// Parks `linkDevice`'s reply after the link went through, so the reply lands late.
         let linkReplyGate = AsyncFfiGate()
 
@@ -151,7 +153,9 @@
         func linkedDevices(accountRef: String) async throws -> [LinkedDeviceFfi] {
             deviceLinking.countDeviceRead()
             try deviceLinking.read()
-            return deviceLinking.devices
+            let devices = deviceLinking.devices
+            await deviceLinking.devicesReadGate.passIfArmed()
+            return devices
         }
 
         func renameLinkedDevice(accountRef: String, slotIdHex: String, label: String) async throws {

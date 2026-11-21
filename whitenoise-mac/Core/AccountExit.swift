@@ -21,6 +21,12 @@ enum AccountExit {
     /// wrong here: MDK has already signed the account out, so the app has to follow whatever else
     /// is running. A change in flight decides its own recovery from the state after its awaits.
     static func leaveSignedOutAccount(accountIdHex: String, in workspace: WorkspaceState) async {
+        await leaveSignedOutAccount(accountIdHex: accountIdHex, in: workspace, checkingAfterOtherChanges: true)
+    }
+
+    private static func leaveSignedOutAccount(
+        accountIdHex: String, in workspace: WorkspaceState, checkingAfterOtherChanges: Bool
+    ) async {
         guard let client = workspace.client,
             let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == accountIdHex })
         else { return }
@@ -40,6 +46,19 @@ enum AccountExit {
                 await workspace.restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
             workspace.lastError = UserFacingError.message(for: error)
+            return
+        }
+        // A change already in flight may have read the account list before MDK signed this account
+        // out, and it installs that list (and may move into this account) when it finishes. Once
+        // nothing else is changing accounts, leave it once more if it is showing again. MDK's list
+        // is fresh by then, so the second pass settles it.
+        guard checkingAfterOtherChanges else { return }
+        await untilNoAccountChange(in: workspace)
+        let showingAgain =
+            workspace.activeAccountId == account.id
+            || workspace.accounts.contains { $0.id == account.id && !$0.signedOut }
+        if showingAgain {
+            await leaveSignedOutAccount(accountIdHex: accountIdHex, in: workspace, checkingAfterOtherChanges: false)
         }
     }
 

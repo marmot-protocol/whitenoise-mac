@@ -131301,68 +131301,68 @@
         }
       }
     },
-    "Your other devices keep your chats and will finish removing this one from them. This can take about 30 seconds." : {
+    "Your other devices keep your chats and will finish removing this one from them. This can take about 30 seconds. If they can’t be reached, this device leaves your chats instead." : {
       "comment" : "Device linking: history imports, device names, sign-out with linked devices.",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine anderen Geräte behalten deine Chats und entfernen dieses Gerät daraus. Das kann etwa 30 Sekunden dauern."
+            "value" : "Deine anderen Geräte behalten deine Chats und entfernen dieses Gerät daraus. Das kann etwa 30 Sekunden dauern. Wenn sie nicht erreichbar sind, verlässt dieses Gerät deine Chats stattdessen selbst."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tus otros dispositivos conservan tus chats y terminarán de quitar este de ellos. Puede tardar unos 30 segundos."
+            "value" : "Tus otros dispositivos conservan tus chats y terminarán de quitar este de ellos. Puede tardar unos 30 segundos. Si no se puede contactar con ellos, este dispositivo saldrá de tus chats."
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Muut laitteesi säilyttävät keskustelusi ja viimeistelevät tämän laitteen poistamisen niistä. Tämä voi kestää noin 30 sekuntia."
+            "value" : "Muut laitteesi säilyttävät keskustelusi ja viimeistelevät tämän laitteen poistamisen niistä. Tämä voi kestää noin 30 sekuntia. Jos niihin ei saada yhteyttä, tämä laite poistuu keskusteluistasi itse."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vos autres appareils conservent vos discussions et finiront d’en retirer celui-ci. Cela peut prendre environ 30 secondes."
+            "value" : "Vos autres appareils conservent vos discussions et finiront d’en retirer celui-ci. Cela peut prendre environ 30 secondes. S’ils sont injoignables, cet appareil quitte vos discussions à la place."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gli altri tuoi dispositivi mantengono le chat e finiranno di rimuovere questo dispositivo. Può richiedere circa 30 secondi."
+            "value" : "Gli altri tuoi dispositivi mantengono le chat e finiranno di rimuovere questo dispositivo. Può richiedere circa 30 secondi. Se non sono raggiungibili, questo dispositivo esce invece dalle tue chat."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seus outros dispositivos mantêm suas conversas e vão terminar de remover este delas. Isso pode levar cerca de 30 segundos."
+            "value" : "Seus outros dispositivos mantêm suas conversas e vão terminar de remover este delas. Isso pode levar cerca de 30 segundos. Se eles não puderem ser alcançados, este dispositivo sai das suas conversas."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Другие ваши устройства сохранят чаты и завершат удаление этого устройства из них. Это может занять около 30 секунд."
+            "value" : "Другие ваши устройства сохранят чаты и завершат удаление этого устройства из них. Это может занять около 30 секунд. Если они недоступны, это устройство само выйдет из ваших чатов."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diğer cihazlarınız sohbetlerinizi korur ve bu cihazı onlardan kaldırmayı tamamlar. Bu yaklaşık 30 saniye sürebilir."
+            "value" : "Diğer cihazlarınız sohbetlerinizi korur ve bu cihazı onlardan kaldırmayı tamamlar. Bu yaklaşık 30 saniye sürebilir. Onlara ulaşılamazsa bu cihaz sohbetlerinizden kendisi ayrılır."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的其他设备会保留你的聊天，并完成将此设备从中移除。这可能需要约 30 秒。"
+            "value" : "你的其他设备会保留你的聊天，并完成将此设备从中移除。这可能需要约 30 秒。如果无法联系到它们，此设备会自行退出你的聊天。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的其他裝置會保留你的聊天，並完成將此裝置從中移除。這可能需要約 30 秒。"
+            "value" : "你的其他裝置會保留你的聊天，並完成將此裝置從中移除。這可能需要約 30 秒。如果無法聯絡到它們，此裝置會自行退出你的聊天。"
           }
         }
       }

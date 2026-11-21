@@ -100,8 +100,7 @@ struct DeleteProfileConsequence: Identifiable, Equatable {
             case "Groups":
                 DeleteProfileConsequence(
                     title: "Groups",
-                    detail:
-                        "Your other devices keep your chats and will finish removing this one from them. This can take about 30 seconds."
+                    detail: LinkedDeviceHandOff.note
                 )
             case "If you sign in again":
                 DeleteProfileConsequence(

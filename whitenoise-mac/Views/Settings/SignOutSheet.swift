@@ -120,9 +120,7 @@ struct SignOutSheet: View {
     }
 
     private static var handOffNote: String {
-        L10n.string(
-            "Your other devices keep your chats and will finish removing this one from them. This can take about 30 seconds."
-        )
+        L10n.string(LinkedDeviceHandOff.note)
     }
 
     @ViewBuilder
