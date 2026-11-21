@@ -18,7 +18,7 @@ concurrency:
 
 env:
   PROJECT: whitenoise-mac.xcodeproj
-  SCHEME: whitenoise-mac
+  SCHEME: "whitenoise-mac (Production)"
   DESTINATION: platform=macOS
 
 # The first four jobs below are independent by construction, so they run in

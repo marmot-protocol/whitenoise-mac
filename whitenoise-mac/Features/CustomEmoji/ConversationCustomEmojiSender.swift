@@ -300,6 +300,8 @@ final class ConversationCustomEmojiSender {
             return CustomEmojiSendError.staleEpoch
         case .MediaReferenceEpochUnsettled?:
             return CustomEmojiSendError.epochUnsettled
+        case .NoUsableRelay?:
+            return CustomEmojiSendError.noUsableRelay
         default:
             return CustomEmojiSendError.sendFailed
         }

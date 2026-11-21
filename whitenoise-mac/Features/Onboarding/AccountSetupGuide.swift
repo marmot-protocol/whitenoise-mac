@@ -64,16 +64,29 @@ struct AccountSetupGuide: Equatable {
     let steps: [OnboardingStepStateFfi]
     let phase: Phase
 
-    init(snapshot: OnboardingSnapshotFfi?, recoveryRequired: Bool) {
-        steps = snapshot?.steps ?? []
+    /// `acknowledgesSingleDeviceAutomatically` is a device-group build, where the coordinator
+    /// acknowledges "Chats on this device" itself and setup ends by offering a link instead. The step
+    /// then has no row, and while it waits for that acknowledgement setup reads as working, not as
+    /// needing the user. A failed check still shows: its Try Again is the user's.
+    init(snapshot: OnboardingSnapshotFfi?, recoveryRequired: Bool, acknowledgesSingleDeviceAutomatically: Bool = false)
+    {
+        let allSteps = snapshot?.steps ?? []
+        steps =
+            acknowledgesSingleDeviceAutomatically
+            ? allSteps.filter { $0.step != .singleDevice || Self.needsSingleDeviceRetry($0) }
+            : allSteps
         if recoveryRequired {
             phase = .recovery
         } else if snapshot?.cancellationPending == true {
             phase = .cancelling
         } else if snapshot?.ready == true {
             phase = .ready
-        } else if let open = steps.first(where: { !Self.isComplete($0.status) }) {
-            phase = Self.checkState(open).needsAttention ? .attention(open) : .working(open)
+        } else if let open = allSteps.first(where: { !Self.isComplete($0.status) }) {
+            let handledAutomatically =
+                acknowledgesSingleDeviceAutomatically && open.step == .singleDevice
+                && !Self.needsSingleDeviceRetry(open)
+            phase =
+                Self.checkState(open).needsAttention && !handledAutomatically ? .attention(open) : .working(open)
         } else {
             phase = .working(nil)
         }
@@ -84,6 +97,11 @@ struct AccountSetupGuide: Equatable {
     var reviewStep: OnboardingStepFfi? {
         guard case .attention(let step) = phase else { return nil }
         return step.step
+    }
+
+    /// The single-device check failed with nothing to acknowledge: only the user's Try Again moves on.
+    static func needsSingleDeviceRetry(_ step: OnboardingStepStateFfi) -> Bool {
+        step.step == .singleDevice && !step.actions.contains(.continueAnyway) && step.actions.contains(.retry)
     }
 
     static func checkState(_ step: OnboardingStepStateFfi) -> CheckState {

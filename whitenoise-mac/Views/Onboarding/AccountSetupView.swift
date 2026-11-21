@@ -21,7 +21,11 @@ struct AccountSetupView: View {
     @State private var acknowledgesRecoveryRisk = false
 
     private var guide: AccountSetupGuide {
-        AccountSetupGuide(snapshot: model.snapshot, recoveryRequired: model.recoveryRequired)
+        AccountSetupGuide(
+            snapshot: model.snapshot,
+            recoveryRequired: model.recoveryRequired,
+            acknowledgesSingleDeviceAutomatically: model.offersLinkingAfterSetup
+        )
     }
 
     var body: some View {

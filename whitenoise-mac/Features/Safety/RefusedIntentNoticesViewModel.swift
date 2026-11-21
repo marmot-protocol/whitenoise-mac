@@ -43,13 +43,20 @@ nonisolated enum RefusedIntentPresentation {
             L10n.string("You're no longer an admin of this group.")
         case "not_a_member":
             L10n.string("You're no longer a member of this group.")
+        case "not_delivered":
+            L10n.string("This change didn’t reach any of the group’s relays, so it wasn’t made.")
+        case "refused":
+            L10n.string("The group’s relays refused this change, so it wasn’t made.")
         default:
             L10n.string("The group changed while this was waiting to send. Check the chat, then try again.")
         }
     }
 }
 
-/// Raises a toast when MDK drops a queued send because the settled group refused it.
+/// Raises a toast when MDK drops a queued send because the settled group refused it, or (since
+/// 0.18.0, `GroupChangeNotDelivered`) gives up a group change whose call had already returned.
+/// The given-up changes are also kept in `groupChangesNotDelivered` for a host that misses the
+/// event; reading and acknowledging those on start is not adopted yet.
 ///
 /// MDK can deliver the same refusal more than once, so each intent id is announced once (the last
 /// 64 are remembered). Owned by `AccountScope`, so an account switch discards it.
@@ -122,11 +129,16 @@ final class RefusedIntentNoticesViewModel {
                 return
             }
             guard let event else { return }
-            if case .groupEvent(let eventAccountIdHex, _, _, let groupEvent) = event,
-                eventAccountIdHex.lowercased() == accountIdHex,
-                case .queuedIntentRefused(let intentIdHex, let intentKind, let reason, let artifact, _) = groupEvent
-            {
+            guard case .groupEvent(let eventAccountIdHex, _, _, let groupEvent) = event,
+                eventAccountIdHex.lowercased() == accountIdHex
+            else { continue }
+            switch groupEvent {
+            case .queuedIntentRefused(let intentIdHex, let intentKind, let reason, let artifact, _):
                 announce(intentIdHex: intentIdHex, intentKind: intentKind, reason: reason, artifact: artifact)
+            case .groupChangeNotDelivered(let commitIdHex, let intentKind, let reason):
+                announce(intentIdHex: commitIdHex, intentKind: intentKind, reason: reason)
+            default:
+                break
             }
         }
     }

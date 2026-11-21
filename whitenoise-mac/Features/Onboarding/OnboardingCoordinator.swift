@@ -45,6 +45,13 @@ final class OnboardingCoordinator {
     /// guards a write, it only refuses to repeat one automatic command on an unchanged snapshot.
     @ObservationIgnored private var lastAutomaticRevision: UInt64?
 
+    /// Whether finishing setup leads into device linking, so the single-device step can say so. Only
+    /// a runtime with `deviceGroupsEnabled` links; the step itself never offers a Link
+    /// action, as MDK asks.
+    var offersLinkingAfterSetup: Bool {
+        runtime?.deviceGroupsEnabled == true
+    }
+
     init(accountRef: String, runtime: any MarmotRuntime) {
         self.accountRef = accountRef
         self.runtime = runtime
@@ -85,6 +92,9 @@ final class OnboardingCoordinator {
     func start() {
         stop()
         reviewingStep = nil
+        // A new session may send an automatic command once more on the same revision: Try Again
+        // after an automatic acknowledgement threw would otherwise find it already spent.
+        lastAutomaticRevision = nil
         observationTask = Task { [weak self] in await self?.restoreAndObserve() }
     }
 
@@ -129,6 +139,16 @@ final class OnboardingCoordinator {
     /// Records that the shell entered the chats. See `hasEnteredChats`.
     func didEnterChats() {
         guard canEnterChats else { return }
+        hasEnteredChats = true
+    }
+
+    /// Records that this account's chats are on screen however they got there: a launch or an
+    /// account switch opens them without passing through onboarding, so `didEnterChats()` never
+    /// runs for that scope. Without this, Settings → Add Profile reopened onboarding with a scope
+    /// that had never "entered", so the account's own checklist could stand in for Welcome, and its
+    /// next checkpoint revision sent the shell straight back to the chats. Unlike `didEnterChats()`,
+    /// it does not need a ready checkpoint: the chats are already showing.
+    func chatsAreShowing() {
         hasEnteredChats = true
     }
 
@@ -177,8 +197,13 @@ final class OnboardingCoordinator {
         await update { try await $0.setOnboardingDiscoveryRelays(accountRef: $1, discoveryRelays: relays) }
     }
 
-    func approveRepair() async {
-        guard let revision = snapshot?.revision else { return }
+    /// Approves the proposal on screen. One built on an inconclusive check (a relay that may hold
+    /// newer settings never answered) needs `acceptingInconclusiveCheck`, which the view passes
+    /// only once the user has confirmed at their own risk, as MDK asks.
+    func approveRepair(acceptingInconclusiveCheck: Bool = false) async {
+        guard let snapshot else { return }
+        guard acceptingInconclusiveCheck || snapshot.proposal?.inconclusive != true else { return }
+        let revision = snapshot.revision
         await update { try await $0.approveOnboardingRepair(accountRef: $1, revision: revision) }
     }
 
@@ -218,7 +243,9 @@ final class OnboardingCoordinator {
     }
 
     /// Use Default Relays: proposes the recommended relays for `step` and approves the proposal in
-    /// one press. MDK merges the defaults with the checked record and keeps existing entries.
+    /// one press. MDK merges the defaults with the checked record and keeps existing entries. A
+    /// proposal built on an inconclusive check is left on screen instead, for the confirmation
+    /// `approveRepair(acceptingInconclusiveCheck:)` needs.
     func useRecommendedRelays(step: OnboardingStepFfi) async {
         await publish(step: step) { try await $0.proposeOnboardingRecommendedRelays(accountRef: $1, step: step) }
     }
@@ -241,6 +268,7 @@ final class OnboardingCoordinator {
                 proposal.revision == proposed.revision,
                 proposed.steps.first(where: { $0.step == step })?.actions.contains(.approveRepair) == true
             else { throw AccountSetupFailure.settingsChanged }
+            if proposal.inconclusive { return proposed }
             return try await runtime.approveOnboardingRepair(accountRef: accountRef, revision: proposed.revision)
         }
     }
@@ -398,6 +426,12 @@ final class OnboardingCoordinator {
         // otherwise be retried at once, forever. Try Again (`start()`) clears it.
         if error == nil, currentStep?.status == .pending {
             operation = { await $0.run() }
+        } else if error == nil,
+            Self.acknowledgesSingleDeviceAutomatically(snapshot, deviceGroupsEnabled: offersLinkingAfterSetup),
+            lastAutomaticRevision != snapshot.revision
+        {
+            lastAutomaticRevision = snapshot.revision
+            operation = { await $0.acknowledgeSingleDevice() }
         } else if error == nil, let followsAction = Self.automaticFollowsAction(snapshot),
             lastAutomaticRevision != snapshot.revision
         {
@@ -421,6 +455,20 @@ final class OnboardingCoordinator {
     var automaticOperation: Task<Void, Never>? { operationTask }
 
     enum AutomaticFollowsAction: Equatable { case skip, cancelRepair }
+
+    /// With device groups, the "Chats on this device" notice is acknowledged without a screen. It
+    /// warns that signing in alone restores no chats; a device that can link is offered exactly that
+    /// once setup finishes (`DeviceLinkSuggestionSheet`). MDK still pauses there before publishing
+    /// this device's KeyPackage and still needs the acknowledgement, so this sends it. Without device
+    /// groups the notice is shown as before: there is nothing to link to.
+    static func acknowledgesSingleDeviceAutomatically(
+        _ snapshot: OnboardingSnapshotFfi, deviceGroupsEnabled: Bool
+    ) -> Bool {
+        guard deviceGroupsEnabled, !snapshot.cancellationPending, snapshot.proposal == nil,
+            let step = snapshot.steps.first(where: { !AccountSetupGuide.isComplete($0.status) })
+        else { return false }
+        return step.step == .singleDevice && step.actions.contains(.continueAnyway)
+    }
 
     /// Ported from `whitenoise-ios`'s `AccountSetupPolicy.automaticAction`.
     static func automaticFollowsAction(_ snapshot: OnboardingSnapshotFfi) -> AutomaticFollowsAction? {

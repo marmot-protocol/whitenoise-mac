@@ -394,6 +394,28 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(failed.statusLabel == "Not delivered")
     }
 
+    /// Chat history another of the account's devices sent arrives with no source event id, even for
+    /// the account's own messages. Those were delivered by the device that sent them, so they must not
+    /// read as "Not delivered" with a Retry on the device that imported them.
+    @MainActor
+    @Test func importedOwnHistoryReadsAsDeliveredDespiteMissingSourceEvent() async throws {
+        let recordedAt: UInt64 = 1_800_000_000
+        var imported = timelineMessage(
+            id: "imported", direction: "received", groupIdHex: "group", sender: "self",
+            plaintext: "hello", recordedAt: recordedAt
+        )
+        imported.historyImportProvenance = .device(deviceSlotIdHex: String(repeating: "a", count: 64))
+        let page = TimelinePageFfi(messages: [imported], hasMoreBefore: false, hasMoreAfter: false)
+        let message = try #require(MessageItem.timeline(from: page, activeAccountIdHex: "self").first)
+        let afterGrace = Date(timeIntervalSince1970: TimeInterval(recordedAt) + MessageItem.pendingDeliveryGrace + 60)
+
+        #expect(message.isOutgoing)
+        #expect(!message.isPendingDelivery)
+        #expect(message.deliveryIndicator(at: afterGrace) == .delivered)
+        #expect(!message.canRetryDelivery(at: afterGrace))
+        #expect(message.statusLabel == "Sent")
+    }
+
     @MainActor
     @Test func deliveryIndicatorDistinguishesDeliveredIncomingAndInvalidatedRows() async throws {
         let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
@@ -9905,6 +9927,39 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(runtime.unreactFromMessageCallCount == 1)
         #expect(runtime.deletedMessage == nil)
         #expect(runtime.reactedMessage == nil)
+    }
+
+    /// MDK answers `ReactionNotFound` when the reaction is already gone (removed on another device,
+    /// or by a second click): the removal is done, not failed. Any other refusal still says so.
+    @MainActor
+    @Test func removingAReactionThatIsAlreadyGoneIsNotAnError() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true, externalSigning: false, signedOut: false, running: true, unlinked: false)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(), selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice", displayName: "Alice", about: nil, picture: nil, nip05: nil, lud16: nil))
+        let state = WorkspaceState(clientFactory: { runtime })
+        let ownReaction = MessageReaction(emoji: "👍", count: 1, isOwn: true)
+        let message = MessageItem(
+            id: "parent", senderName: "Alice", body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000), isOutgoing: false, reactions: [ownReaction])
+        await state.bootstrap()
+        state.lastError = nil
+
+        runtime.unreactFromMessageError = MarmotKitError.ReactionNotFound
+        await state.removeReaction(ownReaction, from: message)
+        #expect(runtime.unreactFromMessageCallCount == 1)
+        #expect(state.lastError == nil)
+
+        runtime.unreactFromMessageError = MarmotKitError.NoUsableRelay
+        await state.removeReaction(ownReaction, from: message)
+        #expect(state.lastError == UserFacingError.message(for: MarmotKitError.NoUsableRelay))
     }
 
     /// `unreactFromMessage` retracts every reaction the viewer holds on the target, so holding two

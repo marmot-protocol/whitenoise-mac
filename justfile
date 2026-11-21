@@ -21,7 +21,9 @@
 # counterpart beyond `just precommit` itself.
 
 PROJECT := "whitenoise-mac.xcodeproj"
-SCHEME := "whitenoise-mac"
+# Production's scheme also runs and tests the development app: its Debug is `White Noise Dev`.
+SCHEME := "whitenoise-mac (Production)"
+STAGING_SCHEME := "whitenoise-mac (Staging)"
 DESTINATION := "platform=macOS"
 
 # Source roots checked by swift-format (matches the "Swift format lint" CI step).
@@ -163,7 +165,7 @@ run-staging *ARGS:
     set -euo pipefail
     xcodebuild build \
         -project "{{PROJECT}}" \
-        -scheme "{{SCHEME}} (Staging)" \
+        -scheme "{{STAGING_SCHEME}}" \
         -configuration Debug-Staging \
         -destination "{{DESTINATION}}" \
         -derivedDataPath build \

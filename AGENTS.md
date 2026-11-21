@@ -13,8 +13,8 @@ build/test workflow or the MarmotKit boundary changes.
 
 ## Build flavors
 
-The app builds as **production** (scheme `whitenoise-mac`, configuration `Release`,
-`dev.ipf.whitenoise.mac`), **development** (scheme `whitenoise-mac`, configuration `Debug`,
+The app builds as **production** (scheme `whitenoise-mac (Production)`, configuration `Release`,
+`dev.ipf.whitenoise.mac`), **development** (scheme `whitenoise-mac (Production)`, configuration `Debug`,
 `dev.ipf.whitenoise.mac.dev`, product `White Noise Dev`) or **staging** (scheme
 `whitenoise-mac (Staging)`, configurations `Debug-Staging`/`Release-Staging`,
 `dev.ipf.whitenoise.mac.staging`, product `White Noise Staging`). Flavor values live in
@@ -36,25 +36,30 @@ through `Core/AppFlavor.swift`.
   own workspace on a fake runtime.
 - `just run` / `just reset-dev` build and wipe the development app, `just run-staging` /
   `just reset-staging` the staging app; `just sanity` asserts all three flavors' identities.
+- Build, run and test as the development flavor by default (`just run`, the main scheme's Debug,
+  `just test`): it is the one flavor whose data belongs to no tester or user, so it is safe on any
+  Mac whatever else is installed. Use staging only for a reason — a second instance beside
+  `White Noise Dev` (two devices of one account, for linking), or checking a staging build — and
+  never run production to develop or test.
 
 ## Building and testing
 
-The project builds and tests with `xcodebuild` against the `whitenoise-mac`
+The project builds and tests with `xcodebuild` against the `whitenoise-mac (Production)`
 scheme (Apple Silicon / `arch=arm64`, code signing disabled for CI/local checks):
 
 ```sh
 # Build the app
-xcodebuild -scheme whitenoise-mac -configuration Debug build CODE_SIGNING_ALLOWED=NO
+xcodebuild -scheme "whitenoise-mac (Production)" -configuration Debug build CODE_SIGNING_ALLOWED=NO
 
 # Build the unit-test target (catches test-only breakage without running)
-xcodebuild -scheme whitenoise-mac -configuration Debug build-for-testing CODE_SIGNING_ALLOWED=NO
+xcodebuild -scheme "whitenoise-mac (Production)" -configuration Debug build-for-testing CODE_SIGNING_ALLOWED=NO
 
 # Run the unit tests in the PR test plan
-xcodebuild test-without-building -scheme whitenoise-mac -configuration Debug \
+xcodebuild test-without-building -scheme "whitenoise-mac (Production)" -configuration Debug \
   -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO
 
 # Run UI performance tests (requires macOS UI automation permissions)
-xcodebuild test -scheme whitenoise-mac -configuration Debug -testPlan UIPerformance \
+xcodebuild test -scheme "whitenoise-mac (Production)" -configuration Debug -testPlan UIPerformance \
   -destination 'platform=macOS,arch=arm64'
 ```
 
@@ -65,7 +70,7 @@ smaller focused suites, with shared fakes and helpers in
 test function, which is how you iterate without paying for the full suite:
 
 ```sh
-xcodebuild test-without-building -scheme whitenoise-mac -configuration Debug \
+xcodebuild test-without-building -scheme "whitenoise-mac (Production)" -configuration Debug \
   -destination 'platform=macOS,arch=arm64' -testPlan PR CODE_SIGNING_ALLOWED=NO \
   -only-testing:'whitenoise-macTests/TimelineTests/someTestName()'
 ```
@@ -183,6 +188,11 @@ build.
   cross-checks every stamp, re-hashes the vendored `MarmotKit.swift` and
   `PrivacyInfo.xcprivacy`, and verifies the Swift package resource declaration
   — so never hand-edit generated release artifacts, re-run the sync instead.
+- Device linking (Settings → Devices and the link sheets, `Features/Devices/`) runs on MDK's device
+  groups, which every MarmotKit open has on since 0.18.0 (`newWithConfiguration`; there is no off
+  switch). `MarmotRuntime.deviceGroupsEnabled` is always true for `MarmotClient` and exists so
+  tests can run the fake without linking. `White Noise Dev` and `White Noise Staging` keep separate roots and keychain services, so the two
+  can sign in to one account on one Mac and link to each other.
 - A dated nightly installs the same way (`just sync-bindings 0.14.0-nightly.20261022`). Nightlies
   are for testing only and upstream deletes them after 30 days; pin a formal release before
   shipping.
@@ -243,6 +253,12 @@ build.
 - Settings → Storage → Manage Storage (`ManageStorageViewModel`) reads MDK's attachment storage
   figures and removes in bulk. Bulk removals report counts, not hashes, so every removal runs the
   shell's `attachmentsDidChange` hook, which clears the host media cache.
+- The account list (`WorkspaceState.accounts`) is MDK's, mirrored by `AccountRoster`
+  (`Core/AccountRoster.swift`), its only writer. After changing an account, call
+  `accountRoster.reload(from:)` instead of reading `listAccounts` and saving the result: reloads
+  install in order, so a read taken before MDK changed an account (an unlink from another device,
+  say) can never land after a newer one. Decide what to show next from `accounts` after the reload,
+  not from a list you read yourself.
 - Show a `MarmotKitError` to the user through `UserFacingError.message(for:)`, never its
   `localizedDescription`. Its switch is exhaustive on purpose: a new core error case fails the
   build until it has copy.
@@ -280,15 +296,17 @@ build.
   (plus the directory cache from schema 1 to 2), and 0.15.0 through 117–153, 160–180, 200 and 201
   (schema 116 → 201). 0.16.0 leaves account databases alone but moves `shared.sqlite3` from
   schema 3 to 4, which 0.15.0 refuses. 0.17.0 moves account databases through 202–207 (schema
-  201 → 207), which 0.16.0 refuses. An older app must not
+  201 → 207), which 0.16.0 refuses. 0.18.0 moves account databases through 208–216 (schema
+  207 → 216), `shared.sqlite3` from 4 to 5 and the directory cache from 2 to 3, which 0.17.0
+  refuses. An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every
   database once to a raw SQLCipher key, which 0.13.0 cannot open at all, so the only way back is a
   copy of the account directory taken before the upgrade; see
   `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md`,
   `docs/MarmotKit-0.12.0-migration.md`, `docs/MarmotKit-0.14.0-migration.md`,
-  `docs/MarmotKit-0.15.0-migration.md`, `docs/MarmotKit-0.16.0-migration.md` and
-  `docs/MarmotKit-0.17.0-migration.md`.
+  `docs/MarmotKit-0.15.0-migration.md`, `docs/MarmotKit-0.16.0-migration.md`,
+  `docs/MarmotKit-0.17.0-migration.md` and `docs/MarmotKit-0.18.0-migration.md`.
 - Start a direct chat with `startDirectConversation` (both accounts founding admins, retry-safe),
   not `createGroup` plus a promotion. The one exception is an explicitly requested *additional*
   direct chat with someone, which that call would answer with the existing one.

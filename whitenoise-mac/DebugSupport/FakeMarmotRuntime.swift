@@ -145,6 +145,13 @@
         var blockUserError: Error?
         var unblockUserError: Error?
         var quarantinedGroupRecords: [AppQuarantinedGroupFfi] = []
+        /// Whether the fake reports device linking as available (`deviceGroupsEnabled`).
+        var deviceGroupsEnabled = false
+        /// Device linking's state and calls; see `FakeMarmotRuntime+DeviceLinking.swift`.
+        let deviceLinking = FakeDeviceLinkingState()
+        /// `accountDevicesActivation` per group; unlisted groups answer `notAdmin`.
+        var accountDevicesActivations: [String: AccountDevicesActivationFfi] = [:]
+        private(set) var enabledAccountDevicesGroupIds: [String] = []
         var groupRecoveryStatuses: [String: GroupRecoveryStatusFfi] = [:]
         /// The account's "history may be incomplete" notices. `dismissHistoryNotice` removes by id and
         /// answers `false` for an id it no longer holds, as the core does for a re-armed occurrence.
@@ -269,6 +276,9 @@
         private(set) var proposedOnboardingProfiles: [UserProfileMetadataFfi] = []
         /// Thrown by `runOnboarding` in place of a checkpoint: storage failing, the account closed.
         var runOnboardingError: Error?
+        private(set) var acknowledgeSingleDeviceCallCount = 0
+        /// Thrown by `acknowledgeOnboardingSingleDevice` in place of a checkpoint.
+        var acknowledgeSingleDeviceError: Error?
         /// Armed, parks `runOnboarding` until released — a check MarmotKit is still working on.
         let onboardingRunGate = AsyncFfiGate()
         var usageSettings = UsageDiagnosticsSettingsFfi(
@@ -521,6 +531,8 @@
         var replyToMessageError: Error?
         private(set) var reactToMessageCallCount = 0
         private(set) var unreactFromMessageCallCount = 0
+        /// Thrown by `unreactFromMessage` after it is counted.
+        var unreactFromMessageError: Error?
         private(set) var deleteMessageCallCount = 0
         private(set) var editMessageCallCount = 0
         var uploadMediaCallCount: Int {
@@ -1001,6 +1013,8 @@
         /// Optional hook fired inside `userProfile`, on the off-main FFI batch thread. A test can
         /// use it to advance an injected clock and model a slow batch (whitenoise-mac#181).
         var onUserProfileLookup: (@Sendable (String) -> Void)?
+        /// Thrown by `listAccounts` while set.
+        var listAccountsError: Error?
 
         /// Tests do not call this: the test target's convenience initialiser picks a storage root
         /// isolated to the running test (`TestStorageRoot`).
@@ -1028,6 +1042,7 @@
 
         func listAccounts() throws -> [AccountSummaryFfi] {
             recordSyncCall("listAccounts")
+            if let listAccountsError { throw listAccountsError }
             return storedAccounts
         }
 
@@ -2394,7 +2409,15 @@
         func acknowledgeOnboardingSingleDevice(accountRef: String, revision: UInt64) async throws
             -> OnboardingSnapshotFfi
         {
-            try advanceOnboarding(expectedRevision: revision)
+            acknowledgeSingleDeviceCallCount += 1
+            if let acknowledgeSingleDeviceError { throw acknowledgeSingleDeviceError }
+            _ = try advanceOnboarding(expectedRevision: revision)
+            // As MDK does: the acknowledgement passes the step.
+            if let index = onboardingState?.steps.firstIndex(where: { $0.step == .singleDevice }) {
+                onboardingState?.steps[index].status = .passed
+            }
+            guard let onboardingState else { throw FakeMarmotRuntimeError.unused }
+            return onboardingState
         }
 
         func cancelOnboardingRepair(accountRef: String) async throws -> OnboardingSnapshotFfi {
@@ -2471,6 +2494,20 @@
             mediaDownloadsByPlaintextSha256 = [:]
             chatListUpdates = []
             storedAuditLogFiles = []
+        }
+
+        /// What `signOutAndWipe` reports. It removes the account the way `removeAccount` does, so a
+        /// test of either path reads `removedAccountRefs`.
+        var wipeOutcome = WipeOutcomeFfi(
+            groupsLeft: 0, groupLeaveFailures: [], keyPackagesDeleted: 1, keyPackageFailures: [],
+            localCleanup: LocalCleanupReportFfi(completed: true, reason: nil), groupsLeftToSiblings: 0,
+            siblingsNotReached: false)
+        private(set) var wipedAccountRefs: [String] = []
+
+        func signOutAndWipe(accountRef: String) async throws -> WipeOutcomeFfi {
+            wipedAccountRefs.append(accountRef)
+            try await removeAccount(accountRef: accountRef)
+            return wipeOutcome
         }
 
         func removeAccount(accountRef: String) async throws {
@@ -2741,6 +2778,29 @@
                 groupManagementStateById[groupIdHex] = managementStateBeforePromote
             }
             return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-promote")
+        }
+
+        func accountDevicesActivation(accountRef: String, groupIdHex: String) async throws
+            -> AccountDevicesActivationFfi
+        {
+            if let accountDevicesActivationError { throw accountDevicesActivationError }
+            return accountDevicesActivations[groupIdHex] ?? .notAdmin
+        }
+
+        /// Thrown by `accountDevicesActivation`: a read that fails after the change went through.
+        var accountDevicesActivationError: Error?
+
+        /// Refused like MDK when the activation is not `eligible`; otherwise a group change that passes
+        /// the advisory gate like every other.
+        func enableAccountDevices(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+            let activation = accountDevicesActivations[groupIdHex] ?? .notAdmin
+            guard activation == .eligible else {
+                throw MarmotKitError.AccountDevicesActivationRefused(groupIdHex: groupIdHex, reason: activation)
+            }
+            try admitGroupChange(groupIdHex: groupIdHex)
+            enabledAccountDevicesGroupIds.append(groupIdHex)
+            accountDevicesActivations[groupIdHex] = .alreadyEnabled
+            return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-account-devices")
         }
 
         func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
@@ -4205,6 +4265,7 @@
             unreactFromMessageCallCount += 1
             unreactedMessage = UnreactedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
             await messageActionGate.passIfArmed()
+            if let unreactFromMessageError { throw unreactFromMessageError }
             return SendSummaryFfi(published: 1, messageIds: ["unreact"])
         }
 
@@ -4399,6 +4460,16 @@
             -> AccountAttentionSnapshotFfi?
         {
             try await subscription.next()
+        }
+
+        /// Another device removed this one: MDK signs the account out here, then says so once.
+        func unlinkFromAnotherDevice(accountRef: String) {
+            guard let index = storedAccounts.firstIndex(where: { $0.label == accountRef }) else { return }
+            storedAccounts[index].signedOut = true
+            storedAccounts[index].unlinked = true
+            storedAccounts[index].running = false
+            eventHub.emit(
+                .deviceUnlinked(accountIdHex: storedAccounts[index].accountIdHex, accountLabel: accountRef))
         }
 
         func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi {

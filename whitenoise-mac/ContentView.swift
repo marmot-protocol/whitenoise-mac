@@ -33,6 +33,68 @@ struct ContentView: View {
             .chatDestructiveActionsConfirmation()
             // Group changes made from the panes ask here. Sheets that make one host their own.
             .groupChangeAdvisoryAlert(session.accountScope?.groupChangeAdvisory)
+            // A device-link request can arrive whatever the user is looking at, and wants an answer
+            // while both screens show the code.
+            .deviceLinkSheet(
+                session.accountScope?.deviceLinking,
+                locale: workspace.preferredLocale,
+                suggestionAllowed: session.accountScope.map {
+                    $0.onboarding.canEnterChats && $0.onboarding.hasShownIncompleteSetup
+                } == true
+            )
+            .deviceUnlinkAlert(
+                session.deviceUnlinks,
+                accountName: { account(forUnlinked: $0)?.displayName },
+                onRemove: { notice in
+                    Task {
+                        await session.deviceUnlinks.finishLeaving(notice.accountIdHex)
+                        session.reportWipe(
+                            await AccountExit.removeUnlinkedAccount(accountIdHex: notice.accountIdHex, in: workspace))
+                    }
+                },
+                onLater: { notice in
+                    // The app left the account when the event arrived; this only retries that if it
+                    // failed then.
+                    if let account = account(forUnlinked: notice), !account.signedOut {
+                        Task {
+                            await AccountExit.leaveSignedOutAccount(accountIdHex: notice.accountIdHex, in: workspace)
+                        }
+                    }
+                }
+            )
+            .accountWipeReportAlert(session)
+            .profileLinkRequestAlert(session.linkRequests) { request in
+                reviewLinkRequest(request)
+            }
+            .task(
+                id: LinkRequestsObserveKey(
+                    runtime: runtimeIdentity, signedIn: workspace.signedInAccounts.map(\.accountIdHex))
+            ) {
+                guard let client = workspace.client else { return }
+                await session.linkRequests.observe(client, accounts: { workspace.signedInAccounts })
+            }
+            // Also re-run once an alert closes, so a second profile's request gets its turn.
+            .task(
+                id: LinkRequestAlertKey(
+                    pending: session.linkRequests.pending, active: workspace.activeAccountId,
+                    showing: session.linkRequests.alert != nil)
+            ) {
+                session.linkRequests.presentIfNeeded(
+                    activeAccountIdHex: workspace.activeAccount?.accountIdHex, accounts: workspace.signedInAccounts)
+            }
+            .task(id: runtimeIdentity) {
+                guard let client = workspace.client else { return }
+                await session.deviceUnlinks.observe(client) { accountIdHex in
+                    // MDK already signed it out: leave it now, as Sign Out does, so the removed
+                    // profile's chats stop showing while the notice waits for an answer.
+                    await AccountExit.leaveSignedOutAccount(accountIdHex: accountIdHex, in: workspace)
+                }
+            }
+            // A profile unlinked in an earlier launch (or left with Later) is still here, signed out
+            // and shown nowhere else, so its notice comes back once a launch.
+            .task(id: workspace.accounts.filter(\.unlinked).map(\.accountIdHex)) {
+                session.deviceUnlinks.remind(about: workspace.accounts)
+            }
             // App-wide default: static text is selectable, so anything on screen — a startup
             // failure message, a relay URL, an npub, a profile field — can be selected and
             // copied without the view having to opt in. `.textSelection` propagates through the
@@ -167,6 +229,27 @@ struct ContentView: View {
         session.accountScope?.selectedConversationModel?.readableMessageIds
     }
 
+    /// Review on another profile's link request: switch to it. Its own `DeviceLinkingViewModel`
+    /// reads the request and presents it, so comparing and linking run as that profile.
+    private func reviewLinkRequest(_ request: ProfileLinkRequestsMonitor.Request) {
+        guard
+            let account = workspace.signedInAccounts.first(where: {
+                $0.accountIdHex.lowercased() == request.accountIdHex
+            })
+        else { return }
+        workspace.selectAccount(account)
+    }
+
+    /// Which runtime is installed. Delete All Local Data replaces the runtime at the same storage
+    /// root, so the root path alone would leave the monitors on the old one.
+    private var runtimeIdentity: ObjectIdentifier? {
+        workspace.client.map { ObjectIdentifier($0 as AnyObject) }
+    }
+
+    private func account(forUnlinked notice: DeviceUnlinkMonitor.Notice) -> AccountItem? {
+        workspace.accounts.first { $0.accountIdHex.lowercased() == notice.accountIdHex }
+    }
+
     private func applyAppearance(_ preference: AppearancePreference) {
         NativeAppearanceController.apply(preference)
     }
@@ -185,4 +268,17 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environment(WorkspaceState.preview())
+}
+
+/// Re-checks whether another profile's link request should raise the alert: when requests change
+/// or the active profile does (its own requests are its model's).
+private struct LinkRequestAlertKey: Equatable {
+    let pending: [String: [String]]
+    let active: String?
+    let showing: Bool
+}
+
+private struct LinkRequestsObserveKey: Equatable {
+    let runtime: ObjectIdentifier?
+    let signedIn: [String]
 }

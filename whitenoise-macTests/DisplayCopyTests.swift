@@ -13,7 +13,7 @@ struct DisplayCopyTests {
     private static let english = Locale(identifier: "en")
 
     private static let settingsPages: [SettingsPage] = [
-        .overview, .preferences, .profile, .identityKeys, .relays, .keyPackages, .appearance,
+        .overview, .preferences, .profile, .identityKeys, .devices, .relays, .keyPackages, .appearance,
         .privacySecurity, .blockedUsers, .notifications, .storage, .agents, .support, .donate,
         .developerMode, .quarantinedGroups, .deleteProfile,
     ]

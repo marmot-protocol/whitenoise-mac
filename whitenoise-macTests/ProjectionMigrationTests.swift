@@ -2193,13 +2193,13 @@ struct ProjectionMigrationTests {
 
 struct MarmotKitReleaseProvenanceTests {
     @Test func generatedReleaseProvenancePinsTheAuditedBuild() throws {
-        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.17.0")
-        #expect(MarmotKitVersion.mdkSHA == "4df811aea99269b437a6023be9446a5141e93cbe")
+        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.18.0")
+        #expect(MarmotKitVersion.mdkSHA == "34646a577807f2b112ee031f3c164ec58aa18b64")
         #expect(MarmotKitVersion.uniffiVersion == "0.29.4")
         #expect(MarmotKitVersion.features == "otlp-export,product-analytics-export")
-        #expect(MarmotKitVersion.swiftPMChecksum == "c749c03f2e1da467099bce8707042d665ba19173b6ee99f48b8cdd3b4b1a7e9d")
+        #expect(MarmotKitVersion.swiftPMChecksum == "02c2a3f970949b4024245f2e88d870b7515a1c5b369a2682801d5836275a2f84")
         #expect(
-            MarmotKitVersion.vendoredSwiftSHA256 == "288a1906d4adcf422c720879224839b86b80fb922e2ca0f81001fc7e2588193d")
+            MarmotKitVersion.vendoredSwiftSHA256 == "010c4478c13d8757158768d7a37799d053aa238a898b1f507203af1d3394ef72")
         #expect(MarmotKitVersion.distribution == "static-library-and-privacy-v1")
         #expect(MarmotKitVersion.privacySHA256 == "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7")
         let privacyData = try #require(MarmotKitVersion.privacyManifestData())

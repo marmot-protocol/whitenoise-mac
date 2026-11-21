@@ -343,6 +343,9 @@ struct PollComposerSheet: View {
                     try await onSend(submission)
                 } catch is CancellationError {
                     return
+                } catch MarmotKitError.NoUsableRelay {
+                    // Not worth retrying: it fails the same way until the chat's relays change.
+                    sendError = UserFacingError.message(for: MarmotKitError.NoUsableRelay)
                 } catch {
                     sendError = L10n.string("Couldn’t send the poll. Try again.")
                 }

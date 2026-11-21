@@ -49,10 +49,7 @@ extension WorkspaceState {
             loadHiddenMessages()
             loadContactNicknames()
             loadRememberedDirectPeers()
-            let summaries = try await FFIExecutor.run {
-                try runtime.listAccounts()
-            }
-            accounts = try await accountItems(from: summaries, client: runtime)
+            try await accountRoster.reload(from: runtime)
             restoreOrSelectFirstAccount()
             await configureObservabilityRuntimeBestEffort()
             // Not `accounts.isEmpty`: a Mac holding nothing but deactivated identities has
@@ -73,7 +70,7 @@ extension WorkspaceState {
             }
 
             try await bringRuntimeOnline(runtime)
-            accounts = try await accountItemsFromRuntime(client: runtime)
+            try await accountRoster.reload(from: runtime)
             restoreOrSelectFirstAccount()
             await migrateLegacyPinnedChats(runtime: runtime)
             await activateReadyState()
@@ -413,12 +410,16 @@ extension WorkspaceState {
         }
     }
 
-    func login() async {
-        guard !isAuthenticating else { return }
+    /// Signs in with the entered private key. Returns the profile on this Mac that key belongs to
+    /// when another of its devices unlinked this Mac (`AccountUnlinked`): it can't sign in as it is,
+    /// so the shell offers to delete it, after which signing in links this Mac anew.
+    @discardableResult
+    func login() async -> AccountItem? {
+        guard !isAuthenticating else { return nil }
         let identity = loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines)
         // Private keys only, whoever calls: the pane already disables Sign In for anything else,
         // and an `npub1…` the core would accept as a read-only account must not get in another way.
-        guard LoginIdentityDraft(identity).isSubmittable else { return }
+        guard LoginIdentityDraft(identity).isSubmittable else { return nil }
 
         lastError = nil
         authenticationActivity = .login
@@ -429,7 +430,7 @@ extension WorkspaceState {
             clearEnteredLoginIdentity()
         }
 
-        guard let client = await clientForAuthentication() else { return }
+        guard let client = await clientForAuthentication() else { return nil }
 
         do {
             let options = OnboardingOptionsFfi(
@@ -455,7 +456,7 @@ extension WorkspaceState {
                 let enteredAccountIdHex = activeAccount?.accountIdHex
                 await activateReadyState()
                 await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
-                return
+                return nil
             }
             let summaries = try await FFIExecutor.run { try client.listAccounts() }
             guard let summary = summaries.first(where: { $0.accountIdHex == snapshot.accountIdHex }) else {
@@ -472,7 +473,7 @@ extension WorkspaceState {
                 // command. Keeping the app in onboarding makes termination/relaunch resume
                 // the same checkpoint instead of opening a partially prepared account.
                 phase = .onboarding
-                return
+                return nil
             }
             // Read before `activateReadyState()`: it goes `.ready` part-way through, after which a
             // switch from Settings can land on a different identity. See
@@ -480,8 +481,16 @@ extension WorkspaceState {
             let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
             await presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            return nil
+        } catch MarmotKitError.AccountUnlinked(let accountRef) {
+            lastError = UserFacingError.message(for: MarmotKitError.AccountUnlinked(accountRef: accountRef))
+            if !accounts.contains(where: { $0.accountRef == accountRef }) {
+                _ = try? await accountRoster.reload(from: client)
+            }
+            return accounts.first { $0.accountRef == accountRef }
         } catch {
             lastError = SignInFailure.message
+            return nil
         }
     }
 
@@ -610,8 +619,14 @@ extension WorkspaceState {
     /// in-memory message/profile caches are cleared and the user is asked to choose one of the
     /// remaining signed-in accounts — or the app switches straight into the only one left, or
     /// returns to onboarding when none remain.
-    func removeAccount(_ account: AccountItem) async {
-        guard let client, !isAccountMutationInProgress else { return }
+    /// A signed-in account goes through MDK's sign-out-and-wipe, which with linked devices first
+    /// hands this device's removal to them (about 30 seconds) and otherwise leaves its chats and
+    /// deletes its KeyPackage slot; its report is returned for the shell to show. An account already
+    /// signed out (an unlinked one included) has nothing left to tell the network, so it is removed
+    /// locally and returns nil.
+    @discardableResult
+    func removeAccount(_ account: AccountItem) async -> WipeOutcomeFfi? {
+        guard let client, !isAccountMutationInProgress else { return nil }
 
         lastError = nil
         isRemovingAccount = true
@@ -623,6 +638,8 @@ extension WorkspaceState {
         let selectedGroupId = wasActive ? selectedChat?.id : nil
         suppressMediaDiskStores(forAccountId: removedAccountId)
         defer { resumeMediaDiskStores(forAccountId: removedAccountId) }
+        // Outside the `do`: a wipe that went through is still reported if a later step fails.
+        var outcome: WipeOutcomeFfi?
         do {
             if wasActive {
                 stopTimelineListener()
@@ -630,7 +647,11 @@ extension WorkspaceState {
                 cancelChatListReload()
                 stopChatListListener()
             }
-            try await client.removeAccount(accountRef: account.accountRef)
+            if account.signedOut {
+                try await client.removeAccount(accountRef: account.accountRef)
+            } else {
+                outcome = try await client.signOutAndWipe(accountRef: account.accountRef)
+            }
             removeChatRestorationTarget(forOwnerAccountIdHex: removedAccountIdHex)
             clearComposerDrafts(forAccountId: removedAccountId)
             purgeHiddenMessages(accountId: removedAccountId)
@@ -639,7 +660,7 @@ extension WorkspaceState {
             purgeRememberedDirectPeers(accountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
-            accounts = try await accountItemsFromRuntime(client: client)
+            try await accountRoster.reload(from: client)
             removeChats(forAccountId: removedAccountId)
 
             // `activeAccountId` may have changed during the await above — e.g. the user
@@ -675,7 +696,7 @@ extension WorkspaceState {
                 clearEnteredLoginIdentity()
                 phase = .onboarding
                 notificationSettings = .defaults
-                return
+                return outcome
             }
 
             // Reselecting and reloading is only required when the account currently
@@ -695,14 +716,14 @@ extension WorkspaceState {
                     switchActiveAccount(remaining, finalSelection: settingsSelectionAfterAccountMutation)
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
-                    return
+                    return outcome
                 }
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 notificationSettings = .defaults
                 selection = settingsSelectionAfterAccountMutation
-                return
+                return outcome
             }
 
             if needsActiveReset {
@@ -712,11 +733,13 @@ extension WorkspaceState {
                 await loadSettingsData()
                 await reloadChats()
             }
+            return outcome
         } catch {
             if wasActive, activeAccountId == removedAccountId {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
             lastError = UserFacingError.message(for: error)
+            return outcome
         }
     }
 
@@ -803,58 +826,16 @@ extension WorkspaceState {
                 cancelChatListReload()
                 stopChatListListener()
             }
-            _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
-            clearComposerDrafts(forAccountId: account.id)
-            clearMediaReferenceResolutionCache(forAccountId: account.id)
-            accounts = try await accountItemsFromRuntime(client: client)
-            removeChats(forAccountId: account.id)
-
-            // `activeAccountId` may have changed during the awaits above — e.g. the user
-            // selected another account while this sign-out was in flight (account switching
-            // is not gated by `isSigningOutAccount`). Decide recovery from post-await state,
-            // not the pre-await `wasActive` snapshot: if a still-signed-in account is active
-            // (an untouched background account, or the one the user just raced to), leave its
-            // freshly loaded session intact rather than tearing it down and reselecting.
-            let currentActiveAccount = activeAccountId.flatMap { id in
-                accounts.first { $0.id == id && !$0.signedOut }
+            // Another device's unlink signs the account out in MDK before the app hears of it, so a
+            // Sign Out racing that event has only the app's side left (`AccountExit`). MDK's own
+            // summary answers that; names and pictures aren't needed for it.
+            let alreadySignedOut =
+                (try? await FFIExecutor.run { try client.listAccounts() })?
+                .first(where: { $0.accountIdHex.lowercased() == account.accountIdHex.lowercased() })?.signedOut == true
+            if !alreadySignedOut {
+                _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
             }
-            guard currentActiveAccount == nil else { return }
-
-            resetActiveAccountUIState()
-            if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
-                // Exactly one profile left: a chooser with a single row is no choice, so continue
-                // straight into it, still on the settings page the sign-out left — as deleting
-                // the active profile does (`removeAccount`).
-                switchActiveAccount(remaining, finalSelection: settingsSelectionAfterAccountMutation)
-                await configureObservabilityRuntimeBestEffort()
-                await loadSettingsData()
-            } else if !signedInAccounts.isEmpty {
-                // Signing out of the profile the user was in, with two or more others still
-                // signed in, asks which one to continue with — exactly as deleting it does
-                // (`removeAccount`) — rather than silently moving into whichever identity
-                // `accounts` lists first. Settings stays selected behind `ProfileChooserView`, so
-                // the pick lands back on Settings.
-                activeAccountId = nil
-                invalidateNotificationSettingsOperations()
-                UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
-                notificationSettings = .defaults
-                selection = settingsSelectionAfterAccountMutation
-            } else {
-                // Signing out the last identity is a way out of the app, so it lands where a
-                // first launch does. It used to stay in `.ready` with no active account, which
-                // drew a list of this Mac's deactivated identities offering to reactivate one
-                // with a click — undoing the sign-out that had just been confirmed. Coming back
-                // is Sign In or Sign Up now; the core reactivates a matching signed-out account
-                // on login, so this identity's chats are still waiting behind its key.
-                activeAccountId = nil
-                invalidateNotificationSettingsOperations()
-                UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
-                selection = nil
-                authenticationMode = .landing
-                clearEnteredLoginIdentity()
-                phase = .onboarding
-                notificationSettings = .defaults
-            }
+            try await AccountExit.finishSigningOut(accountId: account.id, in: self, client: client)
         } catch {
             if wasActive, activeAccountId == account.id {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
@@ -873,7 +854,7 @@ extension WorkspaceState {
         let preAwaitActiveAccountId = activeAccountId
         do {
             _ = try await client.signInAccount(accountRef: account.accountRef)
-            accounts = try await accountItemsFromRuntime(client: client)
+            try await accountRoster.reload(from: client)
             if let refreshed = accounts.first(where: { $0.id == account.id }) {
                 let currentActiveAccount = activeAccountId.flatMap { id in
                     accounts.first { $0.id == id && !$0.signedOut }
@@ -1023,6 +1004,11 @@ extension WorkspaceState {
     /// Refresh public profile metadata after the local account snapshot is usable.
     /// This keeps launch fast while replacing stale fallback identifiers as soon as
     /// relay-backed profile data arrives.
+    ///
+    /// Names and pictures only: it never picks the profile on screen. It runs whenever the app
+    /// comes to the front, and choosing there closed the profile chooser a sign-out or an unlink
+    /// had just opened, moving into whichever profile was listed first. Sign-in, sign-out and
+    /// removal choose.
     func refreshAccountProfiles() async {
         guard let client, !isRefreshingAccountProfiles, !accounts.isEmpty else { return }
         isRefreshingAccountProfiles = true
@@ -1036,22 +1022,15 @@ extension WorkspaceState {
             try? await client.refreshProfile(accountIdHex: accountIdHex, relays: relays)
         }
 
-        guard let refreshed = try? await accountItemsFromRuntime(client: client) else { return }
-        accounts = refreshed
-        restoreOrSelectFirstAccount()
+        _ = try? await accountRoster.reload(from: client)
     }
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {
         guard let client else { return }
         await flushComposerDraftPersistence()
-        let preferredItems = try await accountItems(from: [summary], client: client)
+        let preferredItems = try await AccountRoster.items(from: [summary], client: client)
         let preferredAccount = preferredItems.first ?? Self.accountItem(from: summary, resolved: nil)
-        var refreshed = try await accountItemsFromRuntime(client: client)
-        if !refreshed.contains(where: { $0.id == preferredAccount.id }) {
-            refreshed.append(preferredAccount)
-        }
-
-        accounts = refreshed
+        try await accountRoster.reload(from: client, including: preferredAccount)
         resetComposeContacts()
         clearFollows()
         activeAccountId = preferredAccount.id
@@ -1077,7 +1056,7 @@ extension WorkspaceState {
         stopChatListListener()
         stopTimelineListener()
         cancelTimelineLoad()
-        accounts = []
+        accountRoster.clear()
         resetChats()
         clearPendingChatDestructiveActions()
         cachedMessageChatIds = []
@@ -1153,25 +1132,6 @@ extension WorkspaceState {
         phase = .onboarding
     }
 
-    func accountItemsFromRuntime(client: any MarmotRuntime) async throws -> [AccountItem] {
-        let summaries = try await FFIExecutor.run {
-            try client.listAccounts()
-        }
-        return try await accountItems(from: summaries, client: client)
-    }
-
-    func accountItems(
-        from summaries: [AccountSummaryFfi],
-        client: any MarmotRuntime
-    ) async throws -> [AccountItem] {
-        try await FFIExecutor.run {
-            summaries.map { summary in
-                let resolved = Self.resolvedAccountFFI(from: summary, client: client)
-                return Self.accountItem(from: summary, resolved: resolved)
-            }
-        }
-    }
-
     nonisolated static func resolvedAccountFFI(
         from summary: AccountSummaryFfi,
         client: any MarmotRuntime
@@ -1208,27 +1168,15 @@ extension WorkspaceState {
             localSigning: base.localSigning,
             externalSigning: base.externalSigning,
             isRunning: base.isRunning,
-            signedOut: base.signedOut
+            signedOut: base.signedOut,
+            unlinked: base.unlinked
         )
     }
 
-    func updateActiveAccountProfile(displayName: String, pictureURL: String?) {
-        guard let activeAccountId,
-            let index = accounts.firstIndex(where: { $0.id == activeAccountId })
-        else { return }
-
-        let account = accounts[index]
-        accounts[index] = AccountItem(
-            id: account.id,
-            accountRef: account.accountRef,
-            displayName: displayName,
-            accountIdHex: account.accountIdHex,
-            npub: account.npub,
-            pictureURL: pictureURL,
-            localSigning: account.localSigning,
-            externalSigning: account.externalSigning,
-            isRunning: account.isRunning,
-            signedOut: account.signedOut
-        )
+    /// `confirmed` when the user just saved this profile, so MDK holds it (see `AccountRoster`).
+    func updateActiveAccountProfile(displayName: String, pictureURL: String?, confirmed: Bool = false) {
+        guard let activeAccountId else { return }
+        accountRoster.updateProfile(
+            accountId: activeAccountId, displayName: displayName, pictureURL: pictureURL, confirmed: confirmed)
     }
 }

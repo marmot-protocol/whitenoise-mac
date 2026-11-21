@@ -9,6 +9,14 @@ import Observation
 @Observable
 final class SessionState {
     private(set) var accountScope: AccountScope?
+    /// What the last sign-out-and-wipe left undone, for the shell's alert. Held here, not on the
+    /// account's scope: the account it reports on is gone by the time it shows.
+    var wipeReport: AccountWipeReport?
+    /// Link requests for signed-in profiles other than the active one.
+    let linkRequests = ProfileLinkRequestsMonitor()
+    /// "This Mac was unlinked", for any profile on this Mac. Here rather than on the shell so the
+    /// sign-in pane can raise it when a key it was given belongs to an unlinked profile.
+    let deviceUnlinks = DeviceUnlinkMonitor()
     /// The app shell has two independent task owners (bootstrap and account-id observation), so
     /// cancelling either task cannot supersede an activation already suspended in old-scope
     /// revocation. This ticket lets only the most recent caller install a replacement scope.
@@ -84,5 +92,11 @@ final class SessionState {
         let previous = accountScope
         accountScope = nil
         await previous?.cancelAll()
+    }
+
+    /// Shows `outcome`'s report when it has anything to say.
+    func reportWipe(_ outcome: WipeOutcomeFfi?) {
+        guard let outcome, let report = AccountWipeReport(outcome: outcome) else { return }
+        wipeReport = report
     }
 }

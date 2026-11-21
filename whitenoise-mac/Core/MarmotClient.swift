@@ -7,6 +7,9 @@ import Security
 // calls run off the main thread (see FFIExecutor.run) instead of blocking the UI.
 nonisolated protocol MarmotRuntime: Sendable {
     var storageRootPath: String { get }
+    /// Whether device linking is available on this runtime. Always true for `MarmotClient`: since
+    /// MarmotKit 0.18.0 every open has device groups on. Test doubles can turn it off.
+    var deviceGroupsEnabled: Bool { get }
 
     func start() async throws
     func listAccounts() throws -> [AccountSummaryFfi]
@@ -143,6 +146,48 @@ nonisolated protocol MarmotRuntime: Sendable {
     func accountRecoveryStatus(accountRef: String) async throws -> AccountRecoveryStatusFfi
     /// Cancels a leave that became blocked (this account is now the last admin), on this device only.
     func cancelLeave(accountRef: String, groupIdHex: String) async throws
+
+    // Device linking.
+    func deviceLinkSnapshot(accountRef: String) async throws -> DeviceLinkSnapshotFfi
+    func startDeviceLink(accountRef: String) async throws -> DeviceLinkSnapshotFfi
+    func confirmDeviceLinkMatch(accountRef: String) async throws -> DeviceLinkSnapshotFfi
+    func cancelDeviceLink(accountRef: String) async throws -> DeviceLinkSnapshotFfi
+    func linkDevice(
+        accountRef: String, promptId: String, label: String, addToAllChats: Bool, bringHistory: Bool
+    ) async throws -> DeviceLinkSnapshotFfi
+    func declineDeviceLink(accountRef: String, promptId: String) async throws -> DeviceLinkSnapshotFfi
+    func dismissDeviceGroupMoveSibling(accountRef: String, moveId: String, slotIdHex: String) async throws
+        -> DeviceLinkSnapshotFfi
+    func resetDeviceGroupForRepair(accountRef: String) async throws -> DeviceLinkSnapshotFfi
+    func linkedDevices(accountRef: String) async throws -> [LinkedDeviceFfi]
+    func renameLinkedDevice(accountRef: String, slotIdHex: String, label: String) async throws
+    func updateLinkedDeviceSettings(
+        accountRef: String, slotIdHex: String, addToAllChats: Bool?, bringHistory: Bool?, keepWhileInactive: Bool?
+    ) async throws
+    func removeLinkedDevice(accountRef: String, slotIdHex: String) async throws
+    func chatsClosedToLinkedDevices(accountRef: String) async throws -> UInt32
+    func removedDeviceLeftoverChats(accountRef: String) async throws -> UInt32
+    func keyPackageRefreshOverdue(accountRef: String) async throws -> Bool
+    func unrecognizedSignIns(accountRef: String) async throws -> [UnrecognizedSignInFfi]
+    func checkSignIns(accountRef: String) async throws -> [UnrecognizedSignInFfi]
+    func answerSignIn(accountRef: String, slotIdHex: String, response: SignInResponseFfi) async throws
+    func startFresh(accountRef: String) async throws
+    func startedFresh(accountRef: String) async throws -> Bool
+    func compromiseWarning(accountRef: String) async throws -> [CompromiseWarningItemFfi]
+    func dismissCompromiseWarning(accountRef: String) async throws
+    /// Publishes a fresh KeyPackage for this device; linking needs one after a device-group reset.
+    func rotateKeyPackage(accountRef: String) async throws -> UInt64
+    /// Whether this account can turn on account-devices in the group, so its linked devices can join.
+    func accountDevicesActivation(accountRef: String, groupIdHex: String) async throws -> AccountDevicesActivationFfi
+    /// Turns account-devices on, for good, in one admin commit. A group change: run it through
+    /// `GroupChangeAdvisoryRetry`.
+    func enableAccountDevices(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi
+    /// Each held chat's history from another of the account's devices: receiving, or imported.
+    func chatHistoryImports(accountRef: String) async throws -> [ChatHistoryImportFfi]
+    /// Signs out, leaves what the account's other devices can't take this device out of, deletes
+    /// its KeyPackage slot and wipes it. With linked devices it first hands its removal to them
+    /// (about 30 seconds).
+    func signOutAndWipe(accountRef: String) async throws -> WipeOutcomeFfi
     /// One custom-emoji reaction's encrypted artwork as an attachment source slot, or nil.
     func reactionAttachment(
         accountRef: String, groupIdHex: String, reactionMessageIdHex: String
@@ -526,6 +571,7 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     let marmot: Marmot
     let rootPath: String
+    let deviceGroupsEnabled = true
     var storageRootPath: String { rootPath }
 
     convenience init() throws {
@@ -542,19 +588,18 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         cursorPersistence: CursorPersistenceFfi = .advance
     ) throws {
         self.rootPath = rootPath
-        self.marmot = try Marmot.newWithConfiguration(
-            rootPath: rootPath,
-            relayUrls: relayUrls,
-            options: MarmotOptions(
-                cursorPersistence: cursorPersistence,
-                clientName: "whitenoise",
-                attachmentAcquisitionMode: .hostManaged,
-                // White Noise's deployment keeps the keychain service existing installs
-                // already use (`com.marmot.whitenoise`); never substitute the neutral one.
-                // A staging build keeps the same deployment under its own keychain service.
-                deployment: AppFlavor.current.marmotDeployment()
-            )
+        let options = MarmotOptions(
+            cursorPersistence: cursorPersistence,
+            clientName: "whitenoise",
+            // With `clientName`, fills this Mac's entry on the account's Devices list.
+            devicePlatform: "macOS",
+            attachmentAcquisitionMode: .hostManaged,
+            // White Noise's deployment keeps the keychain service existing installs
+            // already use (`com.marmot.whitenoise`); never substitute the neutral one.
+            // A staging build keeps the same deployment under its own keychain service.
+            deployment: AppFlavor.current.marmotDeployment()
         )
+        self.marmot = try Marmot.newWithConfiguration(rootPath: rootPath, relayUrls: relayUrls, options: options)
         // Installed after construction rather than through `MarmotOptions`: MDK rejects an
         // invalid destination whole, and a bad build setting must hide the report-to-White-Noise
         // options, never stop the runtime from opening.
@@ -958,6 +1003,124 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func accountRecoveryStatus(accountRef: String) async throws -> AccountRecoveryStatusFfi {
         try await marmot.accountRecoveryStatus(accountRef: accountRef)
+    }
+
+    func deviceLinkSnapshot(accountRef: String) async throws -> DeviceLinkSnapshotFfi {
+        try await marmot.deviceLinkSnapshot(accountRef: accountRef)
+    }
+
+    func startDeviceLink(accountRef: String) async throws -> DeviceLinkSnapshotFfi {
+        try await marmot.startDeviceLink(accountRef: accountRef)
+    }
+
+    func confirmDeviceLinkMatch(accountRef: String) async throws -> DeviceLinkSnapshotFfi {
+        try await marmot.confirmDeviceLinkMatch(accountRef: accountRef)
+    }
+
+    func cancelDeviceLink(accountRef: String) async throws -> DeviceLinkSnapshotFfi {
+        try await marmot.cancelDeviceLink(accountRef: accountRef)
+    }
+
+    func linkDevice(
+        accountRef: String, promptId: String, label: String, addToAllChats: Bool, bringHistory: Bool
+    ) async throws -> DeviceLinkSnapshotFfi {
+        try await marmot.linkDevice(
+            accountRef: accountRef, promptId: promptId, label: label, addToAllChats: addToAllChats,
+            bringHistory: bringHistory)
+    }
+
+    func declineDeviceLink(accountRef: String, promptId: String) async throws -> DeviceLinkSnapshotFfi {
+        try await marmot.declineDeviceLink(accountRef: accountRef, promptId: promptId)
+    }
+
+    func dismissDeviceGroupMoveSibling(accountRef: String, moveId: String, slotIdHex: String) async throws
+        -> DeviceLinkSnapshotFfi
+    {
+        try await marmot.dismissDeviceGroupMoveSibling(accountRef: accountRef, moveId: moveId, slotIdHex: slotIdHex)
+    }
+
+    func resetDeviceGroupForRepair(accountRef: String) async throws -> DeviceLinkSnapshotFfi {
+        try await marmot.resetDeviceGroupForRepair(accountRef: accountRef)
+    }
+
+    func linkedDevices(accountRef: String) async throws -> [LinkedDeviceFfi] {
+        try await marmot.linkedDevices(accountRef: accountRef)
+    }
+
+    func renameLinkedDevice(accountRef: String, slotIdHex: String, label: String) async throws {
+        try await marmot.renameLinkedDevice(accountRef: accountRef, slotIdHex: slotIdHex, label: label)
+    }
+
+    func updateLinkedDeviceSettings(
+        accountRef: String, slotIdHex: String, addToAllChats: Bool?, bringHistory: Bool?, keepWhileInactive: Bool?
+    ) async throws {
+        try await marmot.updateLinkedDeviceSettings(
+            accountRef: accountRef, slotIdHex: slotIdHex, addToAllChats: addToAllChats, bringHistory: bringHistory,
+            keepWhileInactive: keepWhileInactive)
+    }
+
+    func removeLinkedDevice(accountRef: String, slotIdHex: String) async throws {
+        try await marmot.removeLinkedDevice(accountRef: accountRef, slotIdHex: slotIdHex)
+    }
+
+    func chatsClosedToLinkedDevices(accountRef: String) async throws -> UInt32 {
+        try await marmot.chatsClosedToLinkedDevices(accountRef: accountRef)
+    }
+
+    func removedDeviceLeftoverChats(accountRef: String) async throws -> UInt32 {
+        try await marmot.removedDeviceLeftoverChats(accountRef: accountRef)
+    }
+
+    func keyPackageRefreshOverdue(accountRef: String) async throws -> Bool {
+        try await marmot.keyPackageRefreshOverdue(accountRef: accountRef)
+    }
+
+    func unrecognizedSignIns(accountRef: String) async throws -> [UnrecognizedSignInFfi] {
+        try await marmot.unrecognizedSignIns(accountRef: accountRef)
+    }
+
+    func checkSignIns(accountRef: String) async throws -> [UnrecognizedSignInFfi] {
+        try await marmot.checkSignIns(accountRef: accountRef)
+    }
+
+    func answerSignIn(accountRef: String, slotIdHex: String, response: SignInResponseFfi) async throws {
+        try await marmot.answerSignIn(accountRef: accountRef, slotIdHex: slotIdHex, response: response)
+    }
+
+    func startFresh(accountRef: String) async throws {
+        try await marmot.startFresh(accountRef: accountRef)
+    }
+
+    func startedFresh(accountRef: String) async throws -> Bool {
+        try await marmot.startedFresh(accountRef: accountRef)
+    }
+
+    func compromiseWarning(accountRef: String) async throws -> [CompromiseWarningItemFfi] {
+        try await marmot.compromiseWarning(accountRef: accountRef)
+    }
+
+    func dismissCompromiseWarning(accountRef: String) async throws {
+        try await marmot.dismissCompromiseWarning(accountRef: accountRef)
+    }
+
+    func rotateKeyPackage(accountRef: String) async throws -> UInt64 {
+        try await marmot.rotateKeyPackage(accountRef: accountRef)
+    }
+
+    func accountDevicesActivation(accountRef: String, groupIdHex: String) async throws -> AccountDevicesActivationFfi {
+        try await marmot.accountDevicesActivation(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func enableAccountDevices(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+        try await marmot.enableAccountDevices(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func chatHistoryImports(accountRef: String) async throws -> [ChatHistoryImportFfi] {
+        try await marmot.chatHistoryImports(accountRef: accountRef)
+    }
+
+    func signOutAndWipe(accountRef: String) async throws -> WipeOutcomeFfi {
+        try await marmot.signOutAndWipe(accountRef: accountRef)
     }
 
     func cancelLeave(accountRef: String, groupIdHex: String) async throws {

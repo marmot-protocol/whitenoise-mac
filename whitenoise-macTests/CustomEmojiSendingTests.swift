@@ -224,6 +224,21 @@ struct CustomEmojiSendingTests {
         #expect(sender.uploadCount == 2)
     }
 
+    /// No usable relay is said as such, not "check your connection": retrying can't help until the
+    /// chat's relays change.
+    @MainActor
+    @Test func aChatWithNoUsableRelaySaysSo() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.sendTaggedMediaErrors = [MarmotKitError.NoUsableRelay]
+        let sender = ConversationCustomEmojiSender(accountRef: "account", groupIdHex: Self.group, runtime: runtime)
+        let wn = try #require(
+            CustomEmojiSendCatalog.sendable(
+                forReaction: ":wn:", in: CustomEmojiSendCatalog.sendables(installed: [], chat: [])))
+
+        #expect(await !sender.submit(text: ":wn:", replyTargetId: nil, emoji: [wn]))
+        #expect(sender.errorMessage == UserFacingError.message(for: MarmotKitError.NoUsableRelay))
+    }
+
     @MainActor
     @Test func aRetryReusesTheUploadedImages() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])

@@ -32,7 +32,8 @@
             retentionSeconds: nil,
             retentionExpiresAt: nil,
             recordedAt: recordedAt,
-            receivedAt: recordedAt
+            receivedAt: recordedAt,
+            invalidated: false
         )
     }
 

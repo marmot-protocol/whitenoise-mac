@@ -394,6 +394,11 @@ struct AccountSetupDeviceStep: View {
                 }
                 if hasFailure || showsNotice { Divider() }
                 Text(L10n.string(AccountSetupGuide.descriptionKey(.singleDevice), locale: locale))
+                if model.offersLinkingAfterSetup, notice?.discovery != .noneFound {
+                    Text(
+                        L10n.string(
+                            "When setup finishes, you can link this Mac to your other device.", locale: locale))
+                }
             }
             AccountSetupNoActionLines(step: .singleDevice, snapshot: model.settledSnapshot)
             AccountSetupErrorLine(message: model.error)

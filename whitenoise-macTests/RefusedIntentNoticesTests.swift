@@ -36,6 +36,25 @@ struct RefusedIntentNoticesTests: WorkspaceTestSupport {
         #expect(model.notice?.message == RefusedIntentPresentation.message(reason: "not_group_admin"))
     }
 
+    /// 0.18.0 gives up a direct group change whose call answered `CompletionUnknown`; nothing sends
+    /// it again, so it gets the same toast as a refused queued change.
+    @Test func aGroupChangeThatWasGivenUpIsAnnounced() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let model = RefusedIntentNoticesViewModel(accountIdHex: Self.account.accountIdHex, runtime: runtime)
+        model.start()
+        defer { model.stop() }
+
+        runtime.eventHub.emit(
+            .groupEvent(
+                accountIdHex: Self.account.accountIdHex, accountLabel: "jeff", groupIdHex: "group",
+                event: .groupChangeNotDelivered(
+                    commitIdHex: "commit-1", intentKind: "update_group_data", reason: "not_delivered")))
+        await Self.waitUntil { model.notice != nil }
+
+        #expect(model.notice?.title == RefusedIntentPresentation.title(intentKind: "update_group_data"))
+        #expect(model.notice?.message == RefusedIntentPresentation.message(reason: "not_delivered"))
+    }
+
     @Test func aRepeatedDeliveryOfTheSameIntentIsAnnouncedOnce() {
         let model = RefusedIntentNoticesViewModel(accountIdHex: Self.account.accountIdHex, runtime: nil)
 

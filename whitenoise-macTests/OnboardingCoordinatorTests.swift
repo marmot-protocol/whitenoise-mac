@@ -87,6 +87,29 @@ import Testing
         model.stop()
     }
 
+    /// With device groups "Chats on this device" is acknowledged in the background. When that throws,
+    /// Try Again (`start()`) sends it once more on the same revision instead of finding it spent.
+    @Test func tryAgainResendsAFailedAutomaticAcknowledgement() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        runtime.onboardingState = F.snapshot(steps: [
+            F.step(.profile, .passed), F.step(.singleDevice, .needsInput, actions: [.continueAnyway]),
+        ])
+        runtime.acknowledgeSingleDeviceError = FakeMarmotRuntimeError.unused
+        let model = OnboardingCoordinator(accountRef: "account", runtime: runtime)
+        defer { model.stop() }
+
+        model.start()
+        #expect(await waitFor { model.error != nil })
+        #expect(runtime.acknowledgeSingleDeviceCallCount == 1)
+        runtime.acknowledgeSingleDeviceError = nil
+        model.start()
+
+        #expect(await waitFor { runtime.acknowledgeSingleDeviceCallCount == 2 })
+        #expect(await waitFor { model.error == nil && model.automaticOperation == nil })
+        #expect(runtime.acknowledgeSingleDeviceCallCount == 2)
+    }
+
     @Test func theCurrentStepIsTheFirstOneNotPassedOrSkipped() async {
         let model = await F.coordinator(
             F.snapshot(steps: [

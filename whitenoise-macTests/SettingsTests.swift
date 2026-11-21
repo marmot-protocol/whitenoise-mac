@@ -562,6 +562,8 @@ struct SettingsTests: WorkspaceTestSupport {
             SettingsPage.sidebarPages == [
                 .profile,
                 .identityKeys,
+                // Listed only when the runtime has device groups (`SettingsListDrawerView`).
+                .devices,
                 .notifications,
                 .appearance,
                 .privacySecurity,

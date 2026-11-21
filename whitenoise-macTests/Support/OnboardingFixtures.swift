@@ -78,7 +78,8 @@ enum OnboardingFixtures {
     /// `ImageRenderer`, this evaluates the content of a `ScrollView`, which every step screen has.
     @MainActor
     static func hostedSize(_ view: some View) -> CGSize {
-        let host = NSHostingView(rootView: AnyView(view.environment(WorkspaceState.preview())))
+        let host = NSHostingView(
+            rootView: AnyView(view.environment(WorkspaceState.preview()).environment(SessionState())))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize
     }
@@ -104,7 +105,8 @@ enum OnboardingFixtures {
     /// — where the primary button is — comes into view, rather than only whether it exists.
     @MainActor
     static func scrollGeometry(_ view: some View, size: CGSize) -> ScrollGeometry? {
-        let host = NSHostingView(rootView: AnyView(view.environment(WorkspaceState.preview())))
+        let host = NSHostingView(
+            rootView: AnyView(view.environment(WorkspaceState.preview()).environment(SessionState())))
         host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(
             contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false

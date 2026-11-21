@@ -326,6 +326,7 @@ import Testing
         workspace.loginIdentity = key
         let pane = OnboardingSignInView()
             .environment(workspace)
+            .environment(SessionState())
             .frame(width: Self.minimumWindowWidth)
         let height = try #require(ImageRenderer(content: pane).nsImage?.size.height)
         let holding = key.isEmpty ? "nothing" : key

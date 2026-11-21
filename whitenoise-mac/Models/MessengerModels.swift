@@ -21,6 +21,9 @@ struct AccountItem: Identifiable, Hashable {
     /// True when the account has been signed out (non-destructive): local data is
     /// retained but it is not active until signed back in.
     let signedOut: Bool
+    /// True once another of the account's devices removed this Mac (MDK's `unlinked`). It stays
+    /// signed out for good: signing in to it fails with `AccountUnlinked` until it is deleted here.
+    let unlinked: Bool
 
     nonisolated init(
         id: String,
@@ -34,7 +37,8 @@ struct AccountItem: Identifiable, Hashable {
         localSigning: Bool = true,
         externalSigning: Bool = false,
         isRunning: Bool = true,
-        signedOut: Bool = false
+        signedOut: Bool = false,
+        unlinked: Bool = false
     ) {
         self.id = id
         self.accountRef = accountRef
@@ -49,6 +53,7 @@ struct AccountItem: Identifiable, Hashable {
         self.externalSigning = externalSigning
         self.isRunning = isRunning
         self.signedOut = signedOut
+        self.unlinked = unlinked
     }
 }
 
@@ -2882,6 +2887,12 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// MDK proved delivery of an own send that failed with no relay acceptance on record: a peer
     /// reacted to it. Such a row keeps a nil `sourceMessageIdHex`, so it must read as delivered.
     let recipientConfirmed: Bool
+    /// Where the row came from when it arrived in chat history another of this account's devices
+    /// (or a backup) sent, rather than live. MDK stores such rows with no source event id, so an own
+    /// message among them would otherwise read as a send that never left: the device that sent it
+    /// delivered it.
+    let importSource: MessageImportSource?
+    nonisolated var isImportedHistory: Bool { importSource != nil }
     /// Authenticated MLS epoch and pinned retention decision for this exact message.
     let sourceEpoch: UInt64?
     let retentionSeconds: UInt64?
@@ -3133,6 +3144,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         groupIdHex: String = "",
         sourceMessageIdHex: String? = nil,
         recipientConfirmed: Bool = false,
+        importSource: MessageImportSource? = nil,
         sourceEpoch: UInt64? = nil,
         retentionSeconds: UInt64? = nil,
         retentionExpiresAt: UInt64? = nil,
@@ -3178,6 +3190,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.groupIdHex = groupIdHex
         self.sourceMessageIdHex = Self.nonBlank(sourceMessageIdHex)
         self.recipientConfirmed = recipientConfirmed
+        self.importSource = importSource
         self.sourceEpoch = sourceEpoch
         self.retentionSeconds = retentionSeconds
         self.retentionExpiresAt = retentionExpiresAt
@@ -3250,7 +3263,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
                 statusLabel = L10n.string("Not delivered")
             } else if invalidationStatus != nil {
                 statusLabel = L10n.string("May not have reached everyone")
-            } else if isOutgoing && Self.nonBlank(sourceMessageIdHex) == nil && !recipientConfirmed {
+            } else if isOutgoing && Self.nonBlank(sourceMessageIdHex) == nil && !recipientConfirmed
+                && importSource == nil
+            {
                 statusLabel = L10n.string("Not delivered")
             } else {
                 statusLabel = isOutgoing ? L10n.string("Sent") : nil
@@ -3288,6 +3303,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             groupIdHex: groupIdHex,
             sourceMessageIdHex: sourceMessageIdHex,
             recipientConfirmed: recipientConfirmed,
+            importSource: importSource,
             sourceEpoch: sourceEpoch,
             retentionSeconds: retentionSeconds,
             retentionExpiresAt: retentionExpiresAt,
@@ -3414,6 +3430,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             && invalidationStatus == nil
             && sourceMessageIdHex == nil
             && !recipientConfirmed
+            && !isImportedHistory
     }
 
     /// Whether this row may be re-driven to the relays at `now`.
@@ -3607,6 +3624,7 @@ extension MessageItem {
             && lhs.groupIdHex == rhs.groupIdHex
             && lhs.sourceMessageIdHex == rhs.sourceMessageIdHex
             && lhs.recipientConfirmed == rhs.recipientConfirmed
+            && lhs.importSource == rhs.importSource
             && lhs.sticker == rhs.sticker
             && lhs.replyTargetIdHex == rhs.replyTargetIdHex
             && lhs.senderAccountIdHex == rhs.senderAccountIdHex
@@ -3647,6 +3665,14 @@ extension MessageItem {
     }
 }
 
+/// Where an imported chat-history row came from. The device is named by its roster slot so the
+/// name shown follows renames (`DeviceLinkingViewModel.deviceName(slotIdHex:fallback:)`); `label` is
+/// what MDK reported with the row, for when the slot is no longer listed.
+nonisolated enum MessageImportSource: Hashable, Sendable {
+    case device(slotIdHex: String, label: String)
+    case backup
+}
+
 enum WorkspaceSelection: Equatable {
     case chat(String)
     case settings(SettingsPage)
@@ -3657,6 +3683,9 @@ enum SettingsPage: Equatable {
     case preferences
     case profile
     case identityKeys
+    /// The account's linked devices, link requests and unrecognized sign-ins. Listed in the drawer
+    /// only when the runtime reports `deviceGroupsEnabled`.
+    case devices
     case relays
     case keyPackages
     case appearance
@@ -3700,6 +3729,7 @@ enum SettingsPage: Equatable {
         [
             .profile,
             .identityKeys,
+            .devices,
             .notifications,
             .appearance,
             .privacySecurity,
@@ -3774,6 +3804,8 @@ enum SettingsPage: Equatable {
             "Profile"
         case .identityKeys:
             "Profile Keys"
+        case .devices:
+            "Devices"
         case .relays:
             "Relays"
         case .keyPackages:
@@ -3815,6 +3847,8 @@ enum SettingsPage: Equatable {
             "person.crop.circle"
         case .identityKeys:
             "key"
+        case .devices:
+            "laptopcomputer.and.iphone"
         case .relays:
             "antenna.radiowaves.left.and.right"
         case .keyPackages:

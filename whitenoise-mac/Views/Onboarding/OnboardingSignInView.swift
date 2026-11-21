@@ -21,6 +21,7 @@ import SwiftUI
 /// from a desktop, and here ⌘V and the field's own paste accessory cover it.
 struct OnboardingSignInView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SessionState.self) private var session
 
     private var draft: LoginIdentityDraft {
         LoginIdentityDraft(workspace.loginIdentity)
@@ -86,6 +87,12 @@ struct OnboardingSignInView: View {
 
     private func submit() {
         guard draft.isSubmittable, !workspace.isAuthenticating else { return }
-        Task { await workspace.login() }
+        Task {
+            // The key belongs to a profile another device unlinked from this Mac: offer to delete it,
+            // after which signing in again links this Mac anew.
+            if let unlinked = await workspace.login() {
+                session.deviceUnlinks.present(unlinked)
+            }
+        }
     }
 }

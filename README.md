@@ -96,8 +96,9 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
    # edit Config/AppSecrets.xcconfig
    ```
 
-3. **Select the `whitenoise-mac` scheme** and build/run (⌘R) on a "My Mac"
-   destination.
+3. **Select the `whitenoise-mac (Production)` scheme** and build/run (⌘R) on a "My Mac"
+   destination. Running it builds Debug, the `White Noise Dev` app; Product → Archive builds
+   production. Archive `whitenoise-mac (Staging)` for a staging build.
 
 ### Production, development and staging
 
@@ -105,7 +106,7 @@ The Mac app builds in three flavors that install side by side:
 
 | | Production | Development | Staging |
 | --- | --- | --- | --- |
-| Scheme | `whitenoise-mac` | `whitenoise-mac` | `whitenoise-mac (Staging)` |
+| Scheme | `whitenoise-mac (Production)` (Archive) | `whitenoise-mac (Production)` (Run, Test) | `whitenoise-mac (Staging)` |
 | Configurations | `Release` | `Debug` | `Debug-Staging`, `Release-Staging` |
 | App | `White Noise.app` | `White Noise Dev.app` (shown as "WN Dev", blue icon) | `White Noise Staging.app` (shown as "WN Staging", blue icon) |
 | Bundle ID | `dev.ipf.whitenoise.mac` | `dev.ipf.whitenoise.mac.dev` | `dev.ipf.whitenoise.mac.staging` |
@@ -174,7 +175,7 @@ Run the tests from Xcode (⌘U) or via `xcodebuild`:
 ```sh
 xcodebuild test \
   -project whitenoise-mac.xcodeproj \
-  -scheme whitenoise-mac \
+  -scheme "whitenoise-mac (Production)" \
   -destination 'platform=macOS'
 ```
 

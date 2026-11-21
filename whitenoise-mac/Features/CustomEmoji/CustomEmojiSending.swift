@@ -154,6 +154,9 @@ nonisolated enum CustomEmojiSendError: Error, Equatable {
     case uploadFailed
     case staleEpoch
     case epochUnsettled
+    /// MarmotKit 0.18.0 `NoUsableRelay`: none of the chat's relays can be used, so retrying fails
+    /// the same way until they change.
+    case noUsableRelay
     case sendFailed
 
     var message: String {
@@ -174,6 +177,8 @@ nonisolated enum CustomEmojiSendError: Error, Equatable {
             L10n.string("The message you're replying to is unavailable.")
         case .unsendableShortcode, .missingLocator, .forbiddenImetaTag, .malformedTag:
             L10n.string("This custom emoji can't be sent.")
+        case .noUsableRelay:
+            L10n.string("Not sent. White Noise can’t use any of this chat’s relays.")
         case .sendFailed:
             L10n.string("Couldn't send. Check your connection and try again.")
         }

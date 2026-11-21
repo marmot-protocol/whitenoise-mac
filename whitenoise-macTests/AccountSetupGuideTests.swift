@@ -189,6 +189,34 @@ import Testing
         #expect(model.error == AccountSetupFailure.settingsChanged.errorDescription)
     }
 
+    /// A proposal built on an inconclusive check (a relay that may hold newer settings never
+    /// answered) is never saved without the user's at-your-own-risk confirmation, as MDK asks:
+    /// Use Default Relays stops at the proposal, and Approve needs the confirmed flag.
+    @Test func anInconclusiveProposalIsSavedOnlyOnceTheUserConfirms() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        var snapshot = F.snapshot(steps: [
+            F.step(.relays, .retryableFailure, actions: [.useRecommendedRelays, .approveRepair, .cancelRepair])
+        ])
+        // Run makes it revision 2, propose 3 (see the profile test above).
+        var proposal = F.proposal(.relays, revision: 3, reads: ["wss://relay.example"])
+        proposal.inconclusive = true
+        snapshot.proposal = proposal
+        runtime.onboardingState = snapshot
+        let model = OnboardingCoordinator(accountRef: "account", runtime: runtime)
+        await model.run()
+
+        await model.useRecommendedRelays(step: .relays)
+        #expect(model.error == nil)
+        #expect(model.snapshot?.revision == 3)
+
+        await model.approveRepair()
+        #expect(model.snapshot?.revision == 3)
+
+        await model.approveRepair(acceptingInconclusiveCheck: true)
+        #expect(model.error == nil)
+        #expect(model.snapshot?.revision == 4)
+    }
+
     // MARK: - Relay steps
 
     @Test func missingRelaysLeadWithTheDefaultsAndListThem() {
@@ -324,6 +352,43 @@ import Testing
         #expect(OnboardingCoordinator.automaticFollowsAction(skippable) == .skip)
         #expect(OnboardingCoordinator.automaticFollowsAction(proposed) == .cancelRepair)
         #expect(OnboardingCoordinator.automaticFollowsAction(otherStep) == nil)
+    }
+
+    /// A device-group build acknowledges "Chats on this device" without a screen and offers a link
+    /// after setup instead; an ordinary build still shows it.
+    @Test func theSingleDeviceNoticeIsAcknowledgedAutomaticallyOnlyWithDeviceGroups() {
+        let notice = F.snapshot(steps: [
+            F.step(.profile, .passed), F.step(.singleDevice, .needsInput, actions: [.continueAnyway]),
+        ])
+        let retryOnly = F.snapshot(steps: [F.step(.singleDevice, .retryableFailure, actions: [.retry])])
+        let otherStep = F.snapshot(steps: [F.step(.profile, .needsInput, actions: [.continueWithout])])
+
+        #expect(OnboardingCoordinator.acknowledgesSingleDeviceAutomatically(notice, deviceGroupsEnabled: true))
+        #expect(!OnboardingCoordinator.acknowledgesSingleDeviceAutomatically(notice, deviceGroupsEnabled: false))
+        #expect(!OnboardingCoordinator.acknowledgesSingleDeviceAutomatically(retryOnly, deviceGroupsEnabled: true))
+        #expect(!OnboardingCoordinator.acknowledgesSingleDeviceAutomatically(otherStep, deviceGroupsEnabled: true))
+    }
+
+    /// A device-group build has no "Chats on this device" row: the step is acknowledged in the
+    /// background, and setup reads as working meanwhile. A failed check keeps its row for Try Again.
+    @Test func deviceGroupBuildsHideTheSingleDeviceStep() {
+        let waiting = F.snapshot(steps: [
+            F.step(.profile, .passed), F.step(.singleDevice, .needsInput, actions: [.continueAnyway]),
+            F.step(.keyPackage, .pending),
+        ])
+        let failed = F.snapshot(steps: [F.step(.singleDevice, .retryableFailure, actions: [.retry])])
+
+        let hidden = AccountSetupGuide(
+            snapshot: waiting, recoveryRequired: false, acknowledgesSingleDeviceAutomatically: true)
+        #expect(!hidden.steps.contains { $0.step == .singleDevice })
+        #expect(hidden.reviewStep == nil)
+        let shown = AccountSetupGuide(snapshot: waiting, recoveryRequired: false)
+        #expect(shown.reviewStep == .singleDevice)
+
+        let retry = AccountSetupGuide(
+            snapshot: failed, recoveryRequired: false, acknowledgesSingleDeviceAutomatically: true)
+        #expect(retry.steps.contains { $0.step == .singleDevice })
+        #expect(retry.reviewStep == .singleDevice)
     }
 
     // MARK: - Catalog
@@ -464,6 +529,19 @@ import Testing
         #expect(OnboardingView.showsAccountSetup(model), "Opening your chats… stays up until the shell leaves")
 
         model.didEnterChats()
+        #expect(OnboardingView.showsAccountSetup(model) == false)
+    }
+
+    /// An account opened at launch or by a switch is in its chats without ever passing through
+    /// onboarding. Settings → Add Profile reopens onboarding with that account still active, and its
+    /// checkpoint, ready or not, must neither replace Welcome nor take the user back to the chats.
+    @Test func anAccountWhoseChatsAreShowingNeverTakesOverAddProfile() async {
+        let model = await F.coordinator(F.snapshot(steps: [F.step(.relays, .checking)]))
+        #expect(OnboardingView.showsAccountSetup(model), "an unfinished checkpoint shows while signing in")
+
+        model.chatsAreShowing()
+
+        #expect(model.hasEnteredChats)
         #expect(OnboardingView.showsAccountSetup(model) == false)
     }
 

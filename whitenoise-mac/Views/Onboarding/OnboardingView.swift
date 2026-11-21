@@ -59,4 +59,5 @@ struct OnboardingView: View {
 #Preview {
     OnboardingView(model: nil)
         .environment(WorkspaceState.preview())
+        .environment(SessionState())
 }
