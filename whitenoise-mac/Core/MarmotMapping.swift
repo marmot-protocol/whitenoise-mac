@@ -589,7 +589,7 @@ nonisolated extension MessageItem {
         replyContext: MessageReplyContext?
     ) {
         let senderProfile = senderProfiles[record.sender]
-        let presentation = MessageItem.presentation(for: record.kind)
+        let presentation = MessageItem.presentation(for: record.kind, tags: record.tags)
         let plaintext = editedPlaintext ?? record.plaintext
         let projectedIsEdited = isEdited || record.edit != nil
         // A poll card and an unsupported-event card sit on their author's side like a bubble does,
@@ -737,12 +737,32 @@ nonisolated extension MessageItem {
         }
     }
 
-    fileprivate static func presentation(for kind: UInt64) -> MessagePresentation {
+    /// NIP-22 comments, which MDK keeps out of read tracking.
+    static let nip22CommentKind = MarmotTimelineKind.comment
+
+    /// MDK's rule for a NIP-22 comment it treats as a message: kind 1111 with a numeric `k` tag. It
+    /// projects such a comment's parent as its reply target and quote and accepts edits to it; any
+    /// other kind-1111 event is app-defined and owns its tags.
+    static func isRecognizedComment(kind: UInt64, tags: [MessageTagFfi]) -> Bool {
+        kind == MarmotTimelineKind.comment
+            && tags.contains { $0.values.first == "k" && $0.values.dropFirst().first.flatMap(UInt64.init) != nil }
+    }
+
+    /// A text message as MDK treats one: kind 9 or a recognised comment. Search covers these.
+    static func isTextMessage(_ record: TimelineMessageRecordFfi) -> Bool {
+        record.kind == MarmotTimelineKind.chat || isRecognizedComment(kind: record.kind, tags: record.tags)
+    }
+
+    /// `tags` is nil for a reply preview, which carries none; a comment there is one MDK projected.
+    fileprivate static func presentation(for kind: UInt64, tags: [MessageTagFfi]? = nil) -> MessagePresentation {
         switch kind {
-        // A NIP-22 comment is a text message answering another one. Since 0.18.0 MDK projects its
-        // parent as the reply target and quote, so it reads as a chat reply.
-        case MarmotTimelineKind.chat, MarmotTimelineKind.comment:
+        case MarmotTimelineKind.chat:
             return .chat
+        // A recognised NIP-22 comment answers another message: since 0.18.0 MDK projects its parent
+        // as the reply target and quote, so it reads as a chat reply.
+        case MarmotTimelineKind.comment:
+            let recognized = tags.map { isRecognizedComment(kind: kind, tags: $0) } ?? true
+            return recognized ? .chat : .unsupported
         case MarmotTimelineKind.agentStreamStart:
             return .agentStreamStart
         case MarmotTimelineKind.agentActivity:

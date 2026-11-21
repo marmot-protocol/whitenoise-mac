@@ -75,7 +75,7 @@ nonisolated enum ConversationSearchCorpus {
 
     /// The same rows the account-wide search considers: chat messages that still stand.
     static func entry(for record: TimelineMessageRecordFfi) -> ConversationSearchEntry? {
-        guard record.kind == 9,
+        guard MessageItem.isTextMessage(record),
             !record.deleted,
             record.invalidationStatus == nil,
             !record.messageIdHex.isEmpty
