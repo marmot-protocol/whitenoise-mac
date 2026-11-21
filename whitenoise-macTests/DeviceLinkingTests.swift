@@ -964,8 +964,11 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.accounts.first { $0.id == desktop.id }?.signedOut == false)
         runtime.onRemoveAccountMidFlight = nil
         runtime.listAccountsError = nil
+        // That wipe did remove it in MDK, so the retry finds it gone and finishes leaving it.
         _ = await state.removeAccount(desktop)
         #expect(runtime.wipedAccountRefs.count == 2)
+        #expect(!state.accounts.contains { $0.id == desktop.id })
+        #expect(state.activeAccountId == Self.backupSummary.label)
     }
 
     /// After a wipe that reported incomplete cleanup but did remove the account, the next try finds
@@ -1002,6 +1005,22 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         // The unlink path isn't taken: the Sign Out that signed it out moves the app on itself.
         #expect(state.activeAccountId == desktopAccount().label)
         #expect(state.accounts.first { $0.id == desktopAccount().label }?.unlinked == false)
+    }
+
+    /// An unlink that lands while the refresh waits on a relay is caught by its final read.
+    @Test func aMissedUnlinkDuringTheRelayRefreshIsLeftByItsFinalRead() async throws {
+        let (runtime, state) = await twoProfiles()
+        let relayWait = AsyncFfiGate()
+        relayWait.isEnabled = true
+        runtime.onRefreshProfile = { _ in await relayWait.passIfArmed() }
+        let refreshing = Task { await state.refreshAccountProfiles() }
+        await relayWait.waitUntilReached()
+        runtime.unlinkFromAnotherDevice(accountRef: desktopAccount().label)  // nothing observes the event
+        relayWait.release()
+        await refreshing.value
+
+        #expect(state.activeAccountId == Self.backupSummary.label)
+        #expect(state.chatsByAccount[desktopAccount().label]?.isEmpty ?? true)
     }
 
     /// A refresh still waiting on a relay doesn't hold up the next focus's check for a missed unlink.

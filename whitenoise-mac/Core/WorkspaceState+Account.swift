@@ -651,10 +651,15 @@ extension WorkspaceState {
             // An account another device unlinked is signed out too, but MDK asks for its wipe: for an
             // unlinked device it skips the relay stages and clears what's left here, reporting what
             // didn't finish. One the user signed out has nothing left to tell the network.
-            if account.signedOut, !account.unlinked {
-                try await client.removeAccount(accountRef: account.accountRef)
-            } else {
-                outcome = try await client.signOutAndWipe(accountRef: account.accountRef)
+            do {
+                if account.signedOut, !account.unlinked {
+                    try await client.removeAccount(accountRef: account.accountRef)
+                } else {
+                    outcome = try await client.signOutAndWipe(accountRef: account.accountRef)
+                }
+            } catch MarmotKitError.UnknownAccount {
+                // MDK no longer holds it (an earlier wipe that reported unfinished cleanup still
+                // removed it), so it is gone: finish the removal here rather than restore it.
             }
             removeChatRestorationTarget(forOwnerAccountIdHex: removedAccountIdHex)
             clearComposerDrafts(forAccountId: removedAccountId)
@@ -1032,13 +1037,17 @@ extension WorkspaceState {
     func refreshAccountProfiles() async {
         guard let client, !accounts.isEmpty else { return }
         // An unlink whose event the app missed (the event stream ended, say) shows up in MDK's list as
-        // the profile on screen unlinked. That read is local, so it runs on every call, before the
-        // relay refresh and outside its guard (an earlier refresh may still be waiting on a relay),
-        // and leaves the profile as the event would have. Only an unlink: a profile merely signed
-        // out is a Sign Out still finishing, which decides for itself.
-        if (try? await accountRoster.reload(from: client)) != nil, let active = activeAccount, active.unlinked {
+        // the profile on screen unlinked; leave it as the event would have. Only an unlink: a profile
+        // merely signed out is a Sign Out still finishing, which decides for itself. Checked after
+        // every read here, the local one first on every call (outside the relay refresh's guard, as
+        // an earlier refresh may still be waiting on a relay) and again after the relay refresh.
+        func reloadLeavingAMissedUnlink() async {
+            guard (try? await accountRoster.reload(from: client)) != nil,
+                let active = activeAccount, active.unlinked
+            else { return }
             await AccountExit.leaveSignedOutAccount(accountIdHex: active.accountIdHex.lowercased(), in: self)
         }
+        await reloadLeavingAMissedUnlink()
 
         guard !isRefreshingAccountProfiles else { return }
         isRefreshingAccountProfiles = true
@@ -1052,7 +1061,7 @@ extension WorkspaceState {
             try? await client.refreshProfile(accountIdHex: accountIdHex, relays: relays)
         }
 
-        _ = try? await accountRoster.reload(from: client)
+        await reloadLeavingAMissedUnlink()
     }
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {
