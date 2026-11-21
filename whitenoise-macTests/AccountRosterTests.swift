@@ -43,4 +43,36 @@ struct AccountRosterTests {
         try await roster.reload(from: runtime)
         #expect(roster.accounts.isEmpty)
     }
+
+    /// Clearing (a reset to a new install) stops a reload still reading from putting the old list back.
+    @Test func clearingStopsAReloadStillReading() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let roster = AccountRoster()
+
+        runtime.userProfileGateEnabled = true
+        let reading = Task { try await roster.reload(from: runtime) }
+        while !runtime.didReachUserProfileGate { await Task.yield() }
+        roster.clear()
+        runtime.releaseUserProfileGate()
+
+        await #expect(throws: CancellationError.self) { try await reading.value }
+        #expect(roster.accounts.isEmpty)
+    }
+
+    /// A name saved while a reload is still reading isn't replaced by the old name that reload read.
+    @Test func aProfileEditOutlivesAReloadThatReadTheOldName() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let roster = AccountRoster()
+        try await roster.reload(from: runtime)
+        let id = try #require(roster.accounts.first?.id)
+
+        runtime.userProfileGateEnabled = true
+        let reading = Task { try await roster.reload(from: runtime) }
+        while !runtime.didReachUserProfileGate { await Task.yield() }
+        roster.updateProfile(accountId: id, displayName: "Studio", pictureURL: nil)
+        runtime.releaseUserProfileGate()
+        _ = try await reading.value
+
+        #expect(roster.accounts.first?.displayName == "Studio")
+    }
 }

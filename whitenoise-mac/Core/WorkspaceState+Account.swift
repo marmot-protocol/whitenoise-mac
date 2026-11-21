@@ -1004,6 +1004,11 @@ extension WorkspaceState {
     /// Refresh public profile metadata after the local account snapshot is usable.
     /// This keeps launch fast while replacing stale fallback identifiers as soon as
     /// relay-backed profile data arrives.
+    ///
+    /// Names and pictures only: it never picks the profile on screen. It runs whenever the app
+    /// comes to the front, and choosing there closed the profile chooser a sign-out or an unlink
+    /// had just opened, moving into whichever profile was listed first. Sign-in, sign-out and
+    /// removal choose.
     func refreshAccountProfiles() async {
         guard let client, !isRefreshingAccountProfiles, !accounts.isEmpty else { return }
         isRefreshingAccountProfiles = true
@@ -1017,8 +1022,7 @@ extension WorkspaceState {
             try? await client.refreshProfile(accountIdHex: accountIdHex, relays: relays)
         }
 
-        guard (try? await accountRoster.reload(from: client)) != nil else { return }
-        restoreOrSelectFirstAccount()
+        _ = try? await accountRoster.reload(from: client)
     }
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {

@@ -771,6 +771,31 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.accounts.first { $0.id == desktop.label }?.signedOut == true)
     }
 
+    /// With two profiles left the unlink opens the profile chooser, and the refresh that runs when
+    /// the app comes back to the front leaves it open rather than picking one.
+    @Test func theChooserAfterAnUnlinkSurvivesAFocusRefresh() async throws {
+        let desktop = desktopAccount()
+        let others = ["1111", "2222"].map { prefix in
+            AccountSummaryFfi(
+                label: "Account \(prefix)", accountIdHex: String(repeating: prefix, count: 16),
+                localSigning: true, externalSigning: false, signedOut: false, running: true, unlinked: false)
+        }
+        let runtime = FakeMarmotRuntime(accounts: [desktop] + others)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        #expect(state.activeAccountId == desktop.label)
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+        #expect(state.activeAccountId == nil)
+
+        await state.refreshAccountProfiles()
+
+        #expect(state.activeAccountId == nil)
+        #expect(state.signedInAccounts.count == 2)
+    }
+
     /// A profile left with Later stays here signed out, and signed-out profiles show nowhere else, so
     /// the notice comes back once a launch. Signing in to it raises it again even after Later.
     @Test func anUnlinkedProfileStillHereIsRaisedOnceALaunchAndOnSignIn() {
@@ -1056,6 +1081,46 @@ struct ThisDeviceNameTests {
 
         #expect(runtime.deviceLinking.renames.map(\.label) == ["Mac", "Studio Mac"])
         #expect(model.actionError == nil)
+    }
+
+    /// A typed name that fails says so, and the next one that saves clears it.
+    @Test func aSavedNameClearsTheErrorAnEarlierOneLeft() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        runtime.deviceLinking.devices = [DeviceLinkingTests.makeDevice("a", thisDevice: true)]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        await model.refreshAll()
+
+        runtime.deviceLinking.nextActionError = MarmotKitError.Runtime(details: "storage closed")
+        model.saveThisDeviceName("Mac")
+        await DeviceLinkingTests.waitUntil { model.actionError != nil }
+        model.saveThisDeviceName("Studio Mac")
+        await DeviceLinkingTests.waitUntil { model.thisDevice?.label == "Studio Mac" }
+
+        #expect(model.actionError == nil)
+    }
+
+    /// A rename of this Mac from Settings joins the same writer, so a name still waiting from Name
+    /// This Mac can't overwrite it.
+    @Test func aSettingsRenameReplacesAWaitingName() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        var me = DeviceLinkingTests.makeDevice("a", thisDevice: true)
+        me.label = "New Device"
+        runtime.deviceLinking.devices = [me]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        await model.refreshAll()
+
+        runtime.deviceLinking.nextActionError = MarmotKitError.Runtime(
+            details: DeviceLinkPresentation.refusalPrefix + "device_group_busy")
+        model.saveThisDeviceName("Studio Mac")
+        await DeviceLinkingTests.waitUntil { runtime.deviceLinking.nextActionError == nil }
+        _ = await model.rename(slotIdHex: me.slotIdHex, label: "Office Mac")
+        await DeviceLinkingTests.waitUntil { model.thisDevice?.label == "Office Mac" }
+        await DeviceLinkingTests.waitUntil(timeout: .seconds(4)) { false }
+
+        #expect(runtime.deviceLinking.renames.map(\.label) == ["Office Mac"])
+        #expect(model.thisDevice?.label == "Office Mac")
     }
 
     @Test func aNameSomeoneElseGaveFirstStands() async {

@@ -284,6 +284,8 @@ final class DeviceLinkingViewModel {
                 do {
                     try await runtime.renameLinkedDevice(
                         accountRef: self.accountRef, slotIdHex: me.slotIdHex, label: request.label)
+                    // A typed name that saved answers any earlier one that didn't.
+                    if request.replacesName { self.actionError = nil }
                     self.settleThisDeviceName(request)
                     await self.refresh(.devices)
                 } catch MarmotKitError.Runtime(let details)
@@ -291,8 +293,9 @@ final class DeviceLinkingViewModel {
                 {
                     waitFirst = true
                 } catch {
-                    // A name the user typed says why it wasn't saved; the automatic one stays quiet.
-                    if request.replacesName {
+                    // A name the user typed says why it wasn't saved, unless a newer one has
+                    // replaced it; the automatic one stays quiet.
+                    if request.replacesName, self.pendingThisDeviceName == request {
                         self.actionError = DeviceLinkPresentation.errorMessage(for: error)
                     }
                     self.settleThisDeviceName(request)
@@ -360,6 +363,12 @@ final class DeviceLinkingViewModel {
     @discardableResult
     func rename(slotIdHex: String, label: String) async -> Bool {
         let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        // This Mac's name has one writer, shared with Name This Mac, so a rename from Settings can't
+        // be overwritten by an older name still waiting there.
+        if slotIdHex == thisDevice?.slotIdHex {
+            saveThisDeviceName(label)
+            return true
+        }
         return await performDevice(slotIdHex) { runtime, accountRef in
             try await runtime.renameLinkedDevice(accountRef: accountRef, slotIdHex: slotIdHex, label: label)
         }
