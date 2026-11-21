@@ -66,21 +66,16 @@ enum AccountExit {
         guard let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == accountIdHex })
         else { return UnlinkedRemoval(outcome: nil, leftBehind: nil) }
         let outcome = await workspace.removeAccount(account)
-        // `removeAccount` reports a failure through `lastError` and leaves the account listed. MDK
-        // may have removed it anyway (an earlier wipe that reported incomplete cleanup), so ask MDK
-        // before offering another try.
-        if workspace.accounts.contains(where: { $0.id == account.id }), let client = workspace.client {
-            _ = try? await workspace.accountRoster.reload(from: client)
-        }
-        let stillHere = workspace.accounts.contains { $0.id == account.id }
+        // A wipe that returned removed the profile, even with cleanup left over (the report says
+        // what). Without one, `removeAccount` failed, reported why in `lastError`, and left the
+        // profile listed, so Delete Everything can be tried again.
+        let stillHere = outcome == nil && workspace.accounts.contains { $0.id == account.id }
         return UnlinkedRemoval(outcome: outcome, leftBehind: stillHere ? account : nil)
     }
 
+    /// Either the profile went, with MDK's wipe report to show, or it is still here to try again.
     struct UnlinkedRemoval {
-        /// MDK's wipe report, to show whether or not the profile went.
         let outcome: WipeOutcomeFfi?
-        /// The profile, when it is still on this Mac: the reason is in `lastError`, and Delete
-        /// Everything can be tried again.
         let leftBehind: AccountItem?
     }
 

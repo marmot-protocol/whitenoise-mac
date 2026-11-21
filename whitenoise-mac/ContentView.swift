@@ -50,9 +50,13 @@ struct ContentView: View {
                         await session.deviceUnlinks.finishLeaving(notice.accountIdHex)
                         let removal = await AccountExit.removeUnlinkedAccount(
                             accountIdHex: notice.accountIdHex, in: workspace)
-                        session.reportWipe(removal.outcome)
                         // Didn't go: the notice comes back, so Delete Everything can be tried again.
-                        if let account = removal.leftBehind { session.deviceUnlinks.present(account) }
+                        // Otherwise it went, and the report says if anything was left undone.
+                        if let account = removal.leftBehind {
+                            session.deviceUnlinks.present(account)
+                        } else {
+                            session.reportWipe(removal.outcome)
+                        }
                     }
                 },
                 onLater: { notice in

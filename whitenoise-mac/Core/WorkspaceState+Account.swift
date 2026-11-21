@@ -670,20 +670,16 @@ extension WorkspaceState {
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
             // MDK has removed it, so a list that can't be read now mustn't bring the session back.
-            // Unless MDK says its local cleanup didn't finish: then it isn't known to be gone, so the
-            // list stays as it was and the session comes back, and the same page can try again.
             do {
                 try await accountRoster.reload(from: client)
             } catch  where !(error is CancellationError) {
                 lastError = UserFacingError.message(for: error)
-                guard outcome?.localCleanup.completed != false else {
-                    if wasActive, activeAccountId == removedAccountId {
-                        await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
-                    }
-                    return outcome
-                }
                 accountRoster.markRemoved(accountId: removedAccountId)
             }
+            // Once MDK's wipe returns, the account ref is no longer valid (its documented contract),
+            // whatever the cleanup report says: the report tells the user what didn't finish, and the
+            // profile goes either way.
+            if outcome != nil { accountRoster.markRemoved(accountId: removedAccountId) }
             removeChats(forAccountId: removedAccountId)
 
             // `activeAccountId` may have changed during the await above — e.g. the user

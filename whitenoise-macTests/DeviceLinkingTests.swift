@@ -928,9 +928,10 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.lastError != nil)
     }
 
-    /// A wipe whose local cleanup didn't finish, followed by a list that can't be read, keeps the
-    /// profile listed (signed out) so it can be deleted again, and still hands over the report.
-    @Test func anIncompleteWipeStaysListedForAnotherTry() async throws {
+    /// A wipe that returns has removed the profile (MDK's contract: the account ref is then
+    /// invalid), even when its cleanup didn't finish and the list can't be read. The profile goes,
+    /// and the report says what was left undone; there is nothing to retry.
+    @Test func anIncompleteWipeStillRemovesTheUnlinkedProfile() async throws {
         let (runtime, state) = await twoProfiles()
         var incomplete = runtime.wipeOutcome
         incomplete.localCleanup = LocalCleanupReportFfi(completed: false, reason: "locked")
@@ -943,13 +944,13 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
             accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
 
         #expect(removal.outcome?.localCleanup.completed == false)
-        #expect(removal.leftBehind?.id == desktopAccount().label)
-        #expect(state.accounts.first { $0.id == desktopAccount().label }?.signedOut == true)
+        #expect(removal.leftBehind == nil)
+        #expect(!state.accounts.contains { $0.id == desktopAccount().label })
     }
 
-    /// Deleting the profile on screen, when the wipe reports unfinished cleanup and the list can't
-    /// be read, keeps that profile on screen so the same page can try again.
-    @Test func anIncompleteWipeOfTheActiveProfileKeepsItForAnotherTry() async throws {
+    /// The same for the profile on screen: an incomplete wipe with an unreadable list still leaves
+    /// it at once, rather than restoring a session for an account MDK no longer holds.
+    @Test func anIncompleteWipeOfTheActiveProfileStillLeavesIt() async throws {
         let (runtime, state) = await twoProfiles()
         let desktop = try #require(state.activeAccount)
         var incomplete = runtime.wipeOutcome
@@ -960,38 +961,21 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         let outcome = await state.removeAccount(desktop)
 
         #expect(outcome?.localCleanup.completed == false)
-        #expect(state.activeAccountId == desktop.id)
-        #expect(state.accounts.first { $0.id == desktop.id }?.signedOut == false)
-        runtime.onRemoveAccountMidFlight = nil
-        runtime.listAccountsError = nil
-        // That wipe did remove it in MDK, so the retry finds it gone and finishes leaving it.
-        _ = await state.removeAccount(desktop)
-        #expect(runtime.wipedAccountRefs.count == 2)
         #expect(!state.accounts.contains { $0.id == desktop.id })
         #expect(state.activeAccountId == Self.backupSummary.label)
     }
 
-    /// After a wipe that reported incomplete cleanup but did remove the account, the next try finds
-    /// MDK no longer holds it, and the profile goes instead of being offered again.
-    @Test func aRetryAfterAWipeMDKFinishedStopsOffering() async throws {
+    /// A profile still listed here that MDK no longer holds (it answers `UnknownAccount`) is gone:
+    /// deleting it finishes leaving it instead of restoring it.
+    @Test func deletingAProfileMDKNoLongerHoldsFinishesLeavingIt() async throws {
         let (runtime, state) = await twoProfiles()
-        var incomplete = runtime.wipeOutcome
-        incomplete.localCleanup = LocalCleanupReportFfi(completed: false, reason: "keychain")
-        runtime.wipeOutcome = incomplete
-        runtime.unlinkFromAnotherDevice(accountRef: desktopAccount().label)
-        await AccountExit.leaveSignedOutAccount(accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
-        runtime.onRemoveAccountMidFlight = { _ in runtime.listAccountsError = MarmotKitError.Runtime(details: "busy") }
-        let first = await AccountExit.removeUnlinkedAccount(
-            accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
-        #expect(first.leftBehind != nil)
-        runtime.onRemoveAccountMidFlight = nil
-        runtime.listAccountsError = nil
+        let desktop = try #require(state.activeAccount)
+        try await runtime.removeAccount(accountRef: desktop.accountRef)  // gone in MDK, still listed here
 
-        let retry = await AccountExit.removeUnlinkedAccount(
-            accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+        _ = await state.removeAccount(desktop)
 
-        #expect(retry.leftBehind == nil)
-        #expect(!state.accounts.contains { $0.id == desktopAccount().label })
+        #expect(!state.accounts.contains { $0.id == desktop.id })
+        #expect(state.activeAccountId == Self.backupSummary.label)
     }
 
     /// A focus read that sees a profile merely signed out (a Sign Out still finishing) doesn't treat
