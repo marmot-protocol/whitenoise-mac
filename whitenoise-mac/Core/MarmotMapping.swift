@@ -589,7 +589,10 @@ nonisolated extension MessageItem {
         replyContext: MessageReplyContext?
     ) {
         let senderProfile = senderProfiles[record.sender]
-        let presentation = MessageItem.presentation(for: record.kind, tags: record.tags)
+        // An author's retraction clears a comment's tags, but MDK keeps its parent, which only a
+        // recognised comment has: such a row stays a reply bubble, now deleted.
+        let presentation = MessageItem.presentation(
+            for: record.kind, tags: record.deleted && record.replyToMessageIdHex != nil ? nil : record.tags)
         let plaintext = editedPlaintext ?? record.plaintext
         let projectedIsEdited = isEdited || record.edit != nil
         // A poll card and an unsupported-event card sit on their author's side like a bubble does,

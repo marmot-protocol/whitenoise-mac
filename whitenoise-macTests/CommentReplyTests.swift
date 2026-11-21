@@ -58,6 +58,20 @@ struct CommentReplyTests {
         #expect(ConversationSearchCorpus.entry(for: unmarked) == nil)
     }
 
+    /// An author's retraction clears a comment's tags; MDK keeps its parent, so the row stays its
+    /// author's deleted bubble rather than turning into a centred notice.
+    @Test func aRetractedCommentStaysItsAuthorsDeletedBubble() throws {
+        let retracted = timelineMessage(
+            id: Self.commentId, groupIdHex: "group", sender: "bob", plaintext: "", kind: 1111, tags: [],
+            recordedAt: 2, replyToMessageIdHex: Self.parentId, deleted: true)
+
+        let item = try #require(Self.items(retracted).first)
+
+        #expect(item.presentation == .chat)
+        #expect(item.isDeleted)
+        #expect(item.senderAccountIdHex == "bob")
+    }
+
     /// Search finds a comment like any message on screen.
     @Test func searchFindsAComment() {
         #expect(ConversationSearchCorpus.entry(for: Self.comment()) != nil)
