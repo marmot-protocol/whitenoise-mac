@@ -48,12 +48,11 @@ struct ContentView: View {
                 onRemove: { notice in
                     Task {
                         await session.deviceUnlinks.finishLeaving(notice.accountIdHex)
-                        switch await AccountExit.removeUnlinkedAccount(accountIdHex: notice.accountIdHex, in: workspace)
-                        {
-                        case .removed(let outcome): session.reportWipe(outcome)
+                        let removal = await AccountExit.removeUnlinkedAccount(
+                            accountIdHex: notice.accountIdHex, in: workspace)
+                        session.reportWipe(removal.outcome)
                         // Didn't go: the notice comes back, so Delete Everything can be tried again.
-                        case .failed(let account): session.deviceUnlinks.present(account)
-                        }
+                        if let account = removal.leftBehind { session.deviceUnlinks.present(account) }
                     }
                 },
                 onLater: { notice in

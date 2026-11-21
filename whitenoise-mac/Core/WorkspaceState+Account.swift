@@ -619,11 +619,11 @@ extension WorkspaceState {
     /// in-memory message/profile caches are cleared and the user is asked to choose one of the
     /// remaining signed-in accounts — or the app switches straight into the only one left, or
     /// returns to onboarding when none remain.
-    /// A signed-in account goes through MDK's sign-out-and-wipe, which with linked devices first
-    /// hands this device's removal to them (about 30 seconds) and otherwise leaves its chats and
-    /// deletes its KeyPackage slot; its report is returned for the shell to show. An account already
-    /// signed out (an unlinked one included) has nothing left to tell the network, so it is removed
-    /// locally and returns nil.
+    /// A signed-in account, and one another device unlinked (as MDK asks), goes through MDK's
+    /// sign-out-and-wipe, which with linked devices first hands this device's removal to them (about
+    /// 30 seconds) and otherwise leaves its chats and deletes its KeyPackage slot; its report is
+    /// returned for the shell to show. An account the user signed out has nothing left to tell the
+    /// network, so it is removed locally and returns nil.
     @discardableResult
     func removeAccount(_ account: AccountItem) async -> WipeOutcomeFfi? {
         guard let client, !isAccountMutationInProgress else { return nil }
@@ -664,11 +664,17 @@ extension WorkspaceState {
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
             // MDK has removed it, so a list that can't be read now mustn't bring the session back.
+            // Dropped only when MDK says its local cleanup finished; otherwise it stays listed,
+            // signed out, so the removal can be tried again.
             do {
                 try await accountRoster.reload(from: client)
             } catch  where !(error is CancellationError) {
                 lastError = UserFacingError.message(for: error)
-                accountRoster.markRemoved(accountId: removedAccountId)
+                if outcome?.localCleanup.completed == false {
+                    accountRoster.markSignedOut(accountId: removedAccountId)
+                } else {
+                    accountRoster.markRemoved(accountId: removedAccountId)
+                }
             }
             removeChats(forAccountId: removedAccountId)
 
@@ -846,8 +852,7 @@ extension WorkspaceState {
             }
             // MDK has signed it out, so a list that can't be read now mustn't bring the session back.
             accountRoster.markSignedOut(accountId: account.id)
-            try await AccountExit.finishSigningOut(
-                accountId: account.id, in: self, client: client, keepingListIfReadFails: true)
+            try await AccountExit.finishSigningOut(accountId: account.id, in: self, client: client)
         } catch {
             if wasActive, activeAccountId == account.id {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
@@ -1026,6 +1031,13 @@ extension WorkspaceState {
         isRefreshingAccountProfiles = true
         defer { isRefreshingAccountProfiles = false }
 
+        // An unlink whose event the app missed (the event stream ended, say) shows up in MDK's list as
+        // the profile on screen signed out. That read is local, so do it before any relay work and
+        // leave the profile as the event would have.
+        if (try? await accountRoster.reload(from: client)) != nil, let active = activeAccount, active.signedOut {
+            await AccountExit.leaveSignedOutAccount(accountIdHex: active.accountIdHex.lowercased(), in: self)
+        }
+
         let accountIds = accounts.map(\.accountIdHex)
         // Seed relays alone miss an identity published only to its own NIP-65 write relays,
         // so use the same union every peer refresh uses.
@@ -1035,11 +1047,6 @@ extension WorkspaceState {
         }
 
         _ = try? await accountRoster.reload(from: client)
-        // An unlink whose event the app missed (the event stream ended, say) shows up here as the
-        // profile on screen now signed out. Leave it as the event would have.
-        if let active = activeAccount, active.signedOut {
-            await AccountExit.leaveSignedOutAccount(accountIdHex: active.accountIdHex.lowercased(), in: self)
-        }
     }
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {

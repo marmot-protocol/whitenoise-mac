@@ -32,7 +32,7 @@ enum AccountExit {
         let selectedGroupId = wasActive ? workspace.selectedChat?.id : nil
         // MDK has signed it out already, so the app follows even if the next read fails. The event
         // fires once; restoring the old session on a failed read would leave its chats showing.
-        workspace.accountRoster.markSignedOut(accountId: account.id)
+        workspace.accountRoster.markSignedOut(accountId: account.id, unlinked: true)
         // Off screen before the first await: its chats and transcript go now, and nothing captured
         // here can later stop the work of a profile the user switches to meanwhile. Recovery after
         // the reload picks what to show next.
@@ -47,8 +47,7 @@ enum AccountExit {
         }
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)
-            try await finishSigningOut(
-                accountId: account.id, in: workspace, client: client, keepingListIfReadFails: true)
+            try await finishSigningOut(accountId: account.id, in: workspace, client: client)
         } catch {
             if wasActive, workspace.activeAccountId == account.id {
                 await workspace.restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
@@ -65,32 +64,32 @@ enum AccountExit {
     static func removeUnlinkedAccount(accountIdHex: String, in workspace: WorkspaceState) async -> UnlinkedRemoval {
         await untilNoAccountChange(in: workspace)
         guard let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == accountIdHex })
-        else { return .removed(nil) }
+        else { return UnlinkedRemoval(outcome: nil, leftBehind: nil) }
         let outcome = await workspace.removeAccount(account)
         // `removeAccount` reports a failure through `lastError` and leaves the account listed.
         let stillHere = workspace.accounts.contains { $0.id == account.id }
-        return stillHere ? .failed(account) : .removed(outcome)
+        return UnlinkedRemoval(outcome: outcome, leftBehind: stillHere ? account : nil)
     }
 
-    enum UnlinkedRemoval {
-        /// Gone, with MDK's wipe report to show if it has anything to say.
-        case removed(WipeOutcomeFfi?)
-        /// Still on this Mac; the reason is in `lastError`, and Delete Everything can be tried again.
-        case failed(AccountItem)
+    struct UnlinkedRemoval {
+        /// MDK's wipe report, to show whether or not the profile went.
+        let outcome: WipeOutcomeFfi?
+        /// The profile, when it is still on this Mac: the reason is in `lastError`, and Delete
+        /// Everything can be tried again.
+        let leftBehind: AccountItem?
     }
 
     /// The steps after MDK's sign-out, shared by Sign Out and `leaveSignedOutAccount`.
-    /// `keepingListIfReadFails` carries on with the installed list when the reload fails, for an
-    /// account the list already shows signed out; the failure is still reported.
+    /// The caller has already marked the account signed out in the roster (MDK has signed it out),
+    /// so a reload that fails carries on with the installed list; the failure is still reported.
     static func finishSigningOut(
-        accountId: String, in workspace: WorkspaceState, client: any MarmotRuntime,
-        keepingListIfReadFails: Bool = false
+        accountId: String, in workspace: WorkspaceState, client: any MarmotRuntime
     ) async throws {
         workspace.clearComposerDrafts(forAccountId: accountId)
         workspace.clearMediaReferenceResolutionCache(forAccountId: accountId)
         do {
             try await workspace.accountRoster.reload(from: client)
-        } catch  where keepingListIfReadFails && !(error is CancellationError) {
+        } catch  where !(error is CancellationError) {
             workspace.lastError = UserFacingError.message(for: error)
         }
         workspace.removeChats(forAccountId: accountId)

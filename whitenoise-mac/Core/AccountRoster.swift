@@ -117,16 +117,17 @@ final class AccountRoster {
         }
     }
 
-    /// Shows `accountId` signed out right away: MDK signed it out (another device unlinked this Mac)
-    /// before the app heard of it. A reload already in flight read it signed in, so it is applied
-    /// again to those; any read that starts later gets it from MDK.
-    func markSignedOut(accountId: String) {
+    /// Shows `accountId` signed out right away, and `unlinked` when another device unlinked it: MDK
+    /// has done so, but a reload may not have read it yet or may fail. A reload already in flight
+    /// read the old state, so it is applied again to those; any read that starts later gets it from
+    /// MDK.
+    func markSignedOut(accountId: String, unlinked: Bool = false) {
         apply(to: accountId, replayingOverReloads: true) { account in
             AccountItem(
                 id: account.id, accountRef: account.accountRef, displayName: account.displayName,
                 accountIdHex: account.accountIdHex, npub: account.npub, pictureURL: account.pictureURL,
                 localSigning: account.localSigning, externalSigning: account.externalSigning,
-                isRunning: false, signedOut: true, unlinked: account.unlinked)
+                isRunning: false, signedOut: true, unlinked: unlinked || account.unlinked)
         }
     }
 

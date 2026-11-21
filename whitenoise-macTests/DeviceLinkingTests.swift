@@ -893,24 +893,23 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
     }
 
     /// Delete Everything on an unlinked profile goes through MDK's full wipe, as MDK asks, and hands
-    /// its report to the shell.
+    /// its report to the shell, even when the account list couldn't be read as the unlink arrived.
     @Test func deletingAnUnlinkedProfileWipesItThroughMDK() async throws {
         let (runtime, state) = await twoProfiles()
         var partial = runtime.wipeOutcome
         partial.keyPackageFailures = [RelayFailureFfi(eventIdHex: "kp", reason: "relay refused")]
         runtime.wipeOutcome = partial
         runtime.unlinkFromAnotherDevice(accountRef: desktopAccount().label)
+        runtime.listAccountsError = MarmotKitError.Runtime(details: "busy")
         await AccountExit.leaveSignedOutAccount(accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+        runtime.listAccountsError = nil
 
         let removal = await AccountExit.removeUnlinkedAccount(
             accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
 
-        guard case .removed(let outcome) = removal else {
-            Issue.record("expected the profile removed")
-            return
-        }
         #expect(runtime.wipedAccountRefs == [desktopAccount().label])
-        #expect(outcome?.keyPackageFailures.count == 1)
+        #expect(removal.outcome?.keyPackageFailures.count == 1)
+        #expect(removal.leftBehind == nil)
         #expect(!state.accounts.contains { $0.id == desktopAccount().label })
     }
 
@@ -924,13 +923,28 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         let removal = await AccountExit.removeUnlinkedAccount(
             accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
 
-        guard case .failed(let account) = removal else {
-            Issue.record("expected the delete reported as failed")
-            return
-        }
-        #expect(account.id == desktopAccount().label)
+        #expect(removal.leftBehind?.id == desktopAccount().label)
         #expect(state.accounts.contains { $0.id == desktopAccount().label })
         #expect(state.lastError != nil)
+    }
+
+    /// A wipe whose local cleanup didn't finish, followed by a list that can't be read, keeps the
+    /// profile listed (signed out) so it can be deleted again, and still hands over the report.
+    @Test func anIncompleteWipeStaysListedForAnotherTry() async throws {
+        let (runtime, state) = await twoProfiles()
+        var incomplete = runtime.wipeOutcome
+        incomplete.localCleanup = LocalCleanupReportFfi(completed: false, reason: "locked")
+        runtime.wipeOutcome = incomplete
+        runtime.unlinkFromAnotherDevice(accountRef: desktopAccount().label)
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+        runtime.onRemoveAccountMidFlight = { _ in runtime.listAccountsError = MarmotKitError.Runtime(details: "busy") }
+
+        let removal = await AccountExit.removeUnlinkedAccount(
+            accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+
+        #expect(removal.outcome?.localCleanup.completed == false)
+        #expect(removal.leftBehind?.id == desktopAccount().label)
+        #expect(state.accounts.first { $0.id == desktopAccount().label }?.signedOut == true)
     }
 
     /// Once MDK has wiped the profile on screen, an account list that can't be read must not bring
@@ -962,13 +976,18 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
     }
 
     /// An unlink whose event the app missed shows up at the next focus refresh as the profile on
-    /// screen signed out, and the app leaves it then.
+    /// screen signed out, and the app leaves it then, before waiting on any relay.
     @Test func aFocusRefreshLeavesAnUnlinkTheEventMissed() async throws {
         let (runtime, state) = await twoProfiles()
         #expect(state.activeAccountId == desktopAccount().label)
         runtime.unlinkFromAnotherDevice(accountRef: desktopAccount().label)  // nothing observes the event
+        runtime.profileRefreshDelaysByAccountId[desktopAccount().accountIdHex] = 30_000_000_000
 
-        await state.refreshAccountProfiles()
+        let refreshing = Task { await state.refreshAccountProfiles() }
+        await Self.waitUntil(timeout: .seconds(5)) { state.activeAccountId == Self.backupSummary.label }
+        #expect(state.activeAccountId == Self.backupSummary.label)  // while the relay read still waits
+        refreshing.cancel()
+        await refreshing.value
 
         #expect(state.activeAccountId == Self.backupSummary.label)
         #expect(state.accounts.first { $0.id == desktopAccount().label }?.signedOut == true)
