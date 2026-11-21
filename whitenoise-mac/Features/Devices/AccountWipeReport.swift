@@ -54,12 +54,16 @@ extension View {
                 get: { session.wipeReportToShow != nil },
                 set: { presented in
                     // Hidden by an unlink notice isn't read: it shows once the notice is answered.
-                    if !presented, session.deviceUnlinks.notice == nil { session.wipeReport = nil }
+                    if !presented, session.deviceUnlinks.notice == nil, session.wipeReport == report {
+                        session.dismissWipeReport()
+                    }
                 }
             ),
             presenting: report
-        ) { _ in
-            Button(L10n.string("OK"), role: .cancel) { session.wipeReport = nil }
+        ) { shown in
+            Button(L10n.string("OK"), role: .cancel) {
+                if session.wipeReport == shown { session.dismissWipeReport() }
+            }
         } message: { report in
             Text(report.lines.joined(separator: "\n\n"))
         }

@@ -641,6 +641,8 @@ extension WorkspaceState {
         defer { resumeMediaDiskStores(forAccountId: removedAccountId) }
         // Outside the `do`: a wipe that went through is still reported if a later step fails.
         var outcome: WipeOutcomeFfi?
+        // MDK answered that it no longer holds the account, so it is gone too.
+        var alreadyGone = false
         do {
             if wasActive {
                 stopTimelineListener()
@@ -660,6 +662,7 @@ extension WorkspaceState {
             } catch MarmotKitError.UnknownAccount {
                 // MDK no longer holds it (an earlier wipe that reported unfinished cleanup still
                 // removed it), so it is gone: finish the removal here rather than restore it.
+                alreadyGone = true
             }
             removeChatRestorationTarget(forOwnerAccountIdHex: removedAccountIdHex)
             clearComposerDrafts(forAccountId: removedAccountId)
@@ -679,8 +682,9 @@ extension WorkspaceState {
             }
             // Once MDK's wipe returns, the account ref is no longer valid (its documented contract),
             // whatever the cleanup report says: the report tells the user what didn't finish, and the
-            // profile goes either way.
-            if outcome != nil { accountRoster.markRemoved(accountId: removedAccountId) }
+            // profile goes either way. The same when MDK says it holds no such account. A read that
+            // lagged MDK and still lists it doesn't keep it.
+            if outcome != nil || alreadyGone { accountRoster.markRemoved(accountId: removedAccountId) }
             removeChats(forAccountId: removedAccountId)
 
             // `activeAccountId` may have changed during the await above — e.g. the user

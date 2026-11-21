@@ -978,6 +978,20 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.activeAccountId == Self.backupSummary.label)
     }
 
+    /// The same when the read after still lists it (it lagged MDK): MDK said it holds no such
+    /// account, so the profile goes rather than being offered for deletion again.
+    @Test func aProfileMDKNoLongerHoldsGoesEvenWhenTheListStillHasIt() async throws {
+        let (runtime, state) = await twoProfiles()
+        let desktop = try #require(state.activeAccount)
+        runtime.listedAccountsOverride = try runtime.listAccounts()
+        try await runtime.removeAccount(accountRef: desktop.accountRef)  // gone in MDK, still listed
+
+        _ = await state.removeAccount(desktop)
+
+        #expect(!state.accounts.contains { $0.id == desktop.id })
+        #expect(state.activeAccountId == Self.backupSummary.label)
+    }
+
     /// A focus read that sees a profile merely signed out (a Sign Out still finishing) doesn't treat
     /// it as unlinked: no false unlink notice, no Delete Everything wipe.
     @Test func aFocusRefreshLeavesAPlainSignOutAlone() async throws {
@@ -1079,6 +1093,39 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(session.wipeReportToShow == nil)
         session.deviceUnlinks.dismiss()  // Later on the second
         #expect(session.wipeReportToShow == session.wipeReport)
+    }
+
+    /// Three profiles unlinked at once, the first two deleted in turn while the third's notice is
+    /// up: both wipe reports are kept and shown one after the other once that notice is answered.
+    @Test func wipeReportsQueueBehindAnUnlinkNotice() {
+        let session = SessionState()
+        for id in ["aa", "bb", "cc"] {
+            session.deviceUnlinks.receive(DeviceUnlinkMonitor.Notice(accountIdHex: id, accountLabel: id))
+        }
+        let clean = WipeOutcomeFfi(
+            groupsLeft: 0, groupLeaveFailures: [], keyPackagesDeleted: 0, keyPackageFailures: [],
+            localCleanup: LocalCleanupReportFfi(completed: true, reason: nil), groupsLeftToSiblings: 0,
+            siblingsNotReached: false)
+        var first = clean
+        first.siblingsNotReached = true
+        var second = clean
+        second.localCleanup = LocalCleanupReportFfi(completed: false, reason: "locked")
+
+        session.deviceUnlinks.dismiss()  // Delete Everything on aa
+        session.reportWipe(first)
+        session.deviceUnlinks.dismiss()  // Delete Everything on bb
+        session.reportWipe(second)
+
+        #expect(session.wipeReportToShow == nil)  // cc's notice is up
+        session.deviceUnlinks.dismiss()
+        let shownFirst = session.wipeReportToShow
+        session.dismissWipeReport()
+        let shownSecond = session.wipeReportToShow
+        session.dismissWipeReport()
+
+        #expect(shownFirst?.lines == AccountWipeReport(outcome: first)?.lines)
+        #expect(shownSecond?.lines == AccountWipeReport(outcome: second)?.lines)
+        #expect(session.wipeReportToShow == nil)
     }
 
     /// The same for Sign Out: once MDK has signed the profile out, a failed read doesn't restore it.
