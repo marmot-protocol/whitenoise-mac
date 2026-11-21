@@ -33,14 +33,20 @@ enum AccountExit {
         // MDK has signed it out already, so the app follows even if the next read fails. The event
         // fires once; restoring the old session on a failed read would leave its chats showing.
         workspace.accountRoster.markSignedOut(accountId: account.id)
+        // Off screen before the first await: its chats and transcript go now, and nothing captured
+        // here can later stop the work of a profile the user switches to meanwhile. Recovery after
+        // the reload picks what to show next.
+        workspace.removeChats(forAccountId: account.id)
+        if wasActive {
+            workspace.stopTimelineListener()
+            workspace.cancelTimelineLoad()
+            workspace.cancelChatListReload()
+            workspace.stopChatListListener()
+            workspace.resetActiveAccountUIState()
+            workspace.activeAccountId = nil
+        }
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)
-            if wasActive {
-                workspace.stopTimelineListener()
-                workspace.cancelTimelineLoad()
-                workspace.cancelChatListReload()
-                workspace.stopChatListListener()
-            }
             try await finishSigningOut(
                 accountId: account.id, in: workspace, client: client, keepingListIfReadFails: true)
         } catch {

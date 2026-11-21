@@ -31,6 +31,8 @@
         let snapshotReadGate = AsyncFfiGate()
         /// Parks a roster read after it has taken the roster, so its answer lands late.
         let devicesReadGate = AsyncFfiGate()
+        /// Thrown by every `renameLinkedDevice` while set.
+        var renameError: Error?
         /// Parks `renameLinkedDevice` before it takes effect.
         let renameGate = AsyncFfiGate()
         /// Parks `linkDevice`'s reply after the link went through, so the reply lands late.
@@ -162,6 +164,7 @@
 
         func renameLinkedDevice(accountRef: String, slotIdHex: String, label: String) async throws {
             await deviceLinking.renameGate.passIfArmed()
+            if let error = deviceLinking.renameError { throw error }
             try deviceLinking.act()
             deviceLinking.recordRename((slotIdHex, label))
             deviceLinking.updateDevice(slotIdHex) { $0.label = label }

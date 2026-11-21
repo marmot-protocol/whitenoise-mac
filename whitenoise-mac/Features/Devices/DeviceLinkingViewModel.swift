@@ -75,6 +75,8 @@ final class DeviceLinkingViewModel {
         let label: String
         let replacesName: Bool
     }
+    @ObservationIgnored private let nameRetries: Int
+    @ObservationIgnored private let nameRetryDelay: Duration
     /// Observed: while a typed name waits, this device's other settings stay disabled (`isBusy`).
     private var pendingThisDeviceName: ThisDeviceName?
     @ObservationIgnored private var thisDeviceLabelTask: Task<Void, Never>?
@@ -84,11 +86,18 @@ final class DeviceLinkingViewModel {
     }
 
     /// `isAvailable` overrides the runtime's answer, for previews only.
-    init(accountRef: String, accountIdHex: String, runtime: (any MarmotRuntime)?, isAvailable: Bool? = nil) {
+    /// `nameRetries` bounds how often a held name is retried while the device group is busy, at
+    /// `nameRetryDelay` apart.
+    init(
+        accountRef: String, accountIdHex: String, runtime: (any MarmotRuntime)?, isAvailable: Bool? = nil,
+        nameRetries: Int = 20, nameRetryDelay: Duration = .seconds(3)
+    ) {
         self.accountRef = accountRef
         self.accountIdHex = accountIdHex.lowercased()
         self.runtime = runtime
         self.isAvailable = isAvailable ?? (runtime?.deviceGroupsEnabled == true)
+        self.nameRetries = nameRetries
+        self.nameRetryDelay = nameRetryDelay
     }
 
     // MARK: Derived
@@ -281,15 +290,17 @@ final class DeviceLinkingViewModel {
         guard thisDeviceLabelTask == nil, pendingThisDeviceName != nil, let runtime else { return }
         thisDeviceLabelTask = Task { [weak self] in
             var waitFirst = false
-            for _ in 0..<20 {
+            var lastBusy: Error?
+            for _ in 0..<(self?.nameRetries ?? 0) {
                 guard let self, !Task.isCancelled, let request = self.pendingThisDeviceName else { break }
-                if waitFirst { try? await Task.sleep(for: .seconds(3)) }
+                if waitFirst { try? await Task.sleep(for: self.nameRetryDelay) }
                 waitFirst = false
                 await self.refresh(.devices)
                 // Replaced during the read: handle the newer one.
                 guard request == self.pendingThisDeviceName else { continue }
                 guard let me = self.thisDevice else {
                     waitFirst = true
+                    lastBusy = nil
                     continue
                 }
                 // Already this name, or named meanwhile (here or on another device) and that name
@@ -303,12 +314,14 @@ final class DeviceLinkingViewModel {
                         accountRef: self.accountRef, slotIdHex: me.slotIdHex, label: request.label)
                     // A typed name that saved answers any earlier one that didn't.
                     if request.replacesName { self.actionError = nil }
+                    lastBusy = nil
                     self.settleThisDeviceName(request)
                     await self.refresh(.devices)
                 } catch MarmotKitError.Runtime(let details)
                     where details == DeviceLinkPresentation.refusalPrefix + "device_group_busy"
                 {
                     waitFirst = true
+                    lastBusy = MarmotKitError.Runtime(details: details)
                 } catch {
                     // A name the user typed says why it wasn't saved, unless a newer one has
                     // replaced it; the automatic one stays quiet.
@@ -318,7 +331,14 @@ final class DeviceLinkingViewModel {
                     self.settleThisDeviceName(request)
                 }
             }
-            self?.thisDeviceLabelTask = nil
+            guard let self else { return }
+            self.thisDeviceLabelTask = nil
+            // Out of retries with the group still busy: let the name go, and a typed one says why,
+            // so Save and this device's settings come back for another try.
+            if !Task.isCancelled, let request = self.pendingThisDeviceName, let lastBusy {
+                if request.replacesName { self.actionError = DeviceLinkPresentation.errorMessage(for: lastBusy) }
+                self.settleThisDeviceName(request)
+            }
         }
     }
 
