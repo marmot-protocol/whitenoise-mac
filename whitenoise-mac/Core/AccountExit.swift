@@ -61,13 +61,22 @@ enum AccountExit {
     ///
     /// The alert's Delete Everything can be pressed while another account change runs, and
     /// `removeAccount` drops a call that arrives then. So this waits for the gate to open and
-    /// calls it in the same main-actor step, against the account as it stands then. Returns the
-    /// wipe outcome to report, which is nil for an account already signed out.
-    static func removeUnlinkedAccount(accountIdHex: String, in workspace: WorkspaceState) async -> WipeOutcomeFfi? {
+    /// calls it in the same main-actor step, against the account as it stands then.
+    static func removeUnlinkedAccount(accountIdHex: String, in workspace: WorkspaceState) async -> UnlinkedRemoval {
         await untilNoAccountChange(in: workspace)
         guard let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == accountIdHex })
-        else { return nil }
-        return await workspace.removeAccount(account)
+        else { return .removed(nil) }
+        let outcome = await workspace.removeAccount(account)
+        // `removeAccount` reports a failure through `lastError` and leaves the account listed.
+        let stillHere = workspace.accounts.contains { $0.id == account.id }
+        return stillHere ? .failed(account) : .removed(outcome)
+    }
+
+    enum UnlinkedRemoval {
+        /// Gone, with MDK's wipe report to show if it has anything to say.
+        case removed(WipeOutcomeFfi?)
+        /// Still on this Mac; the reason is in `lastError`, and Delete Everything can be tried again.
+        case failed(AccountItem)
     }
 
     /// The steps after MDK's sign-out, shared by Sign Out and `leaveSignedOutAccount`.

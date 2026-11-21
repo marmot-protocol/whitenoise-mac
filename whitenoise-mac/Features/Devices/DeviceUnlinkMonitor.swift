@@ -32,7 +32,8 @@ final class DeviceUnlinkMonitor {
 
     /// Runs until cancelled, so the shell ties it to the runtime's lifetime with `.task(id:)`.
     /// `onUnlinked` gets the account id as each event arrives, before the user answers the notice:
-    /// MDK has signed the account out, so the shell stops showing it right away.
+    /// MDK has signed the account out, so the shell stops showing it right away. Each account's
+    /// teardown runs on its own, so a slow one never holds up the next event.
     func observe(
         _ runtime: any MarmotRuntime, onUnlinked: @escaping @MainActor (String) async -> Void = { _ in }
     ) async {
@@ -45,8 +46,10 @@ final class DeviceUnlinkMonitor {
                 receive(Notice(accountIdHex: id, accountLabel: accountLabel))
                 let teardown = Task { await onUnlinked(id) }
                 leaving[id] = teardown
-                await teardown.value
-                if leaving[id] == teardown { leaving[id] = nil }
+                Task { [weak self] in
+                    await teardown.value
+                    if self?.leaving[id] == teardown { self?.leaving[id] = nil }
+                }
             }
         }
     }

@@ -647,7 +647,10 @@ extension WorkspaceState {
                 cancelChatListReload()
                 stopChatListListener()
             }
-            if account.signedOut {
+            // An account another device unlinked is signed out too, but MDK asks for its full wipe:
+            // it leaves the chats, deletes this device's KeyPackage from relays and reports what
+            // didn't finish. One the user signed out has nothing left to tell the network.
+            if account.signedOut, !account.unlinked {
                 try await client.removeAccount(accountRef: account.accountRef)
             } else {
                 outcome = try await client.signOutAndWipe(accountRef: account.accountRef)
@@ -660,7 +663,13 @@ extension WorkspaceState {
             purgeRememberedDirectPeers(accountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
-            try await accountRoster.reload(from: client)
+            // MDK has removed it, so a list that can't be read now mustn't bring the session back.
+            do {
+                try await accountRoster.reload(from: client)
+            } catch  where !(error is CancellationError) {
+                lastError = UserFacingError.message(for: error)
+                accountRoster.markRemoved(accountId: removedAccountId)
+            }
             removeChats(forAccountId: removedAccountId)
 
             // `activeAccountId` may have changed during the await above — e.g. the user
@@ -835,7 +844,10 @@ extension WorkspaceState {
             if !alreadySignedOut {
                 _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
             }
-            try await AccountExit.finishSigningOut(accountId: account.id, in: self, client: client)
+            // MDK has signed it out, so a list that can't be read now mustn't bring the session back.
+            accountRoster.markSignedOut(accountId: account.id)
+            try await AccountExit.finishSigningOut(
+                accountId: account.id, in: self, client: client, keepingListIfReadFails: true)
         } catch {
             if wasActive, activeAccountId == account.id {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
@@ -1023,6 +1035,11 @@ extension WorkspaceState {
         }
 
         _ = try? await accountRoster.reload(from: client)
+        // An unlink whose event the app missed (the event stream ended, say) shows up here as the
+        // profile on screen now signed out. Leave it as the event would have.
+        if let active = activeAccount, active.signedOut {
+            await AccountExit.leaveSignedOutAccount(accountIdHex: active.accountIdHex.lowercased(), in: self)
+        }
     }
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {

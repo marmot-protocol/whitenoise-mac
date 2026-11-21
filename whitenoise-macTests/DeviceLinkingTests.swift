@@ -852,6 +852,129 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.activeAccountId == backup.label)
     }
 
+    private func twoProfiles() async -> (FakeMarmotRuntime, WorkspaceState) {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), Self.backupSummary])
+        runtime.installGroup(messageGroup())
+        UserDefaults.standard.set(desktopAccount().label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        return (runtime, state)
+    }
+
+    private static let backupSummary = AccountSummaryFfi(
+        label: "Backup Account",
+        accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+        localSigning: true, externalSigning: false, signedOut: false, running: true, unlinked: false)
+
+    /// One slow teardown doesn't hold up the next unlink: each account's runs on its own.
+    @Test func aSlowTeardownDoesNotHoldUpTheNextUnlink() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        let monitor = DeviceUnlinkMonitor()
+        let firstTeardown = AsyncFfiGate()
+        firstTeardown.isEnabled = true
+        var started: [String] = []
+        let observing = Task {
+            await monitor.observe(runtime) { id in
+                started.append(id)
+                if id == "aa" { await firstTeardown.passIfArmed() }
+            }
+        }
+        defer { observing.cancel() }
+        await Self.waitUntil { runtime.eventHub.subscriberCount == 1 }
+
+        runtime.eventHub.emit(.deviceUnlinked(accountIdHex: "aa", accountLabel: "jeff"))
+        await firstTeardown.waitUntilReached()
+        runtime.eventHub.emit(.deviceUnlinked(accountIdHex: "bb", accountLabel: "lab"))
+        await Self.waitUntil(timeout: .seconds(2)) { started.contains("bb") }
+
+        #expect(started == ["aa", "bb"])
+        firstTeardown.release()
+    }
+
+    /// Delete Everything on an unlinked profile goes through MDK's full wipe, as MDK asks, and hands
+    /// its report to the shell.
+    @Test func deletingAnUnlinkedProfileWipesItThroughMDK() async throws {
+        let (runtime, state) = await twoProfiles()
+        var partial = runtime.wipeOutcome
+        partial.keyPackageFailures = [RelayFailureFfi(eventIdHex: "kp", reason: "relay refused")]
+        runtime.wipeOutcome = partial
+        runtime.unlinkFromAnotherDevice(accountRef: desktopAccount().label)
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+
+        let removal = await AccountExit.removeUnlinkedAccount(
+            accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+
+        guard case .removed(let outcome) = removal else {
+            Issue.record("expected the profile removed")
+            return
+        }
+        #expect(runtime.wipedAccountRefs == [desktopAccount().label])
+        #expect(outcome?.keyPackageFailures.count == 1)
+        #expect(!state.accounts.contains { $0.id == desktopAccount().label })
+    }
+
+    /// A delete that fails leaves the profile here and says so, so the notice can offer it again.
+    @Test func aFailedDeleteOfAnUnlinkedProfileIsReportedAsFailed() async throws {
+        let (runtime, state) = await twoProfiles()
+        runtime.unlinkFromAnotherDevice(accountRef: desktopAccount().label)
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+        runtime.removeAccountError = MarmotKitError.Runtime(details: "storage busy")
+
+        let removal = await AccountExit.removeUnlinkedAccount(
+            accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+
+        guard case .failed(let account) = removal else {
+            Issue.record("expected the delete reported as failed")
+            return
+        }
+        #expect(account.id == desktopAccount().label)
+        #expect(state.accounts.contains { $0.id == desktopAccount().label })
+        #expect(state.lastError != nil)
+    }
+
+    /// Once MDK has wiped the profile on screen, an account list that can't be read must not bring
+    /// its session back: the app moves on as if the list had been read.
+    @Test func aWipeWhoseListCantBeReadStillLeavesTheProfile() async throws {
+        let (runtime, state) = await twoProfiles()
+        let desktop = try #require(state.activeAccount)
+        runtime.onRemoveAccountMidFlight = { _ in runtime.listAccountsError = MarmotKitError.Runtime(details: "busy") }
+
+        _ = await state.removeAccount(desktop)
+
+        #expect(runtime.wipedAccountRefs == [desktop.accountRef])
+        #expect(!state.accounts.contains { $0.id == desktop.id })
+        #expect(state.activeAccountId == Self.backupSummary.label)
+        #expect(state.lastError != nil)
+    }
+
+    /// The same for Sign Out: once MDK has signed the profile out, a failed read doesn't restore it.
+    @Test func aSignOutWhoseListCantBeReadStillLeavesTheProfile() async throws {
+        let (runtime, state) = await twoProfiles()
+        let desktop = try #require(state.activeAccount)
+        runtime.onSignOutAccountMidFlight = { _ in runtime.listAccountsError = MarmotKitError.Runtime(details: "busy") }
+
+        await state.signOutAccount(desktop)
+
+        #expect(state.accounts.first { $0.id == desktop.id }?.signedOut == true)
+        #expect(state.activeAccountId == Self.backupSummary.label)
+        #expect(state.lastError != nil)
+    }
+
+    /// An unlink whose event the app missed shows up at the next focus refresh as the profile on
+    /// screen signed out, and the app leaves it then.
+    @Test func aFocusRefreshLeavesAnUnlinkTheEventMissed() async throws {
+        let (runtime, state) = await twoProfiles()
+        #expect(state.activeAccountId == desktopAccount().label)
+        runtime.unlinkFromAnotherDevice(accountRef: desktopAccount().label)  // nothing observes the event
+
+        await state.refreshAccountProfiles()
+
+        #expect(state.activeAccountId == Self.backupSummary.label)
+        #expect(state.accounts.first { $0.id == desktopAccount().label }?.signedOut == true)
+        #expect(state.chatsByAccount[desktopAccount().label]?.isEmpty ?? true)
+    }
+
     /// A profile left with Later stays here signed out, and signed-out profiles show nowhere else, so
     /// the notice comes back once a launch. Signing in to it raises it again even after Later.
     @Test func anUnlinkedProfileStillHereIsRaisedOnceALaunchAndOnSignIn() {
