@@ -878,7 +878,8 @@ extension WorkspaceState {
             isActionable: true,
             isDirectConversation: target.isDirectConversation,
             isOwnMessage: message.isOutgoing,
-            isSelfGroupAdmin: target.isSelfGroupAdmin
+            // MDK lets an admin remove another member's chat message only (kind 9), not a comment.
+            isSelfGroupAdmin: target.isSelfGroupAdmin && message.timelineKind == 9
         )
     }
 

@@ -2999,7 +2999,10 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// which is why the marker must consider these rows too.
     nonisolated func countsAsReadActivity(inAuthoritativeGroup isAuthoritativeGroup: Bool) -> Bool {
         switch presentation {
-        case .chat, .poll:
+        // MDK keeps NIP-22 comments out of read tracking, so one is never a read-marker target.
+        case .chat:
+            return timelineKind != Self.nip22CommentKind
+        case .poll:
             return true
         case .groupSystem:
             return isAuthoritativeGroup && groupSystemType.map(Self.readActivityGroupSystemTypes.contains) == true

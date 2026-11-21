@@ -567,7 +567,8 @@ final class MessageTimelineStore {
     }
 
     private func isValidEditTarget(_ message: MessageItem, editSender: String) -> Bool {
-        message.timelineKind == 9
+        // MDK accepts edits to chat messages and to the comments it recognises (drawn as `.chat`).
+        (message.timelineKind == 9 || message.timelineKind == MessageItem.nip22CommentKind)
             && message.presentation == .chat
             && message.senderAccountIdHex == editSender
             && !message.isDeleted

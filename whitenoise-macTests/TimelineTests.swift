@@ -1163,6 +1163,27 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(display.truncated)
     }
 
+    @Test func aTypedNewlineStaysALineBreakInTheBubble() throws {
+        // CommonMark parses a single newline as a soft break, which it would join with a space.
+        let document = MarkdownDocumentFfi(
+            blocks: [
+                .paragraph(inlines: [
+                    .text(content: "First line"), .softBreak, .strong(children: [.text(content: "second")]),
+                    .hardBreak, .text(content: "third"),
+                ])
+            ],
+            truncated: false
+        )
+
+        let display = MarkdownDisplayDocument(document: document)
+
+        guard case .paragraph(let text) = display.blocks.first?.block else {
+            Issue.record("expected a paragraph block")
+            return
+        }
+        #expect(String(text.characters) == "First line\nsecond\nthird")
+    }
+
     @MainActor
     @Test func deeplyNestedMarkdownInlinesCollapseInsteadOfRecursing() async throws {
         // Inline emphasis/strong/strikethrough/link/image-alt recurse proportionally to
@@ -9621,6 +9642,34 @@ struct TimelineTests: WorkspaceTestSupport {
                     groupIdHex: chat.id,
                     targetMessageId: message.id
                 ))
+    }
+
+    /// MDK lets an admin remove another member's chat message, not their NIP-22 comment: a comment
+    /// can still be hidden here, but not deleted for everyone.
+    @MainActor
+    @Test func groupAdminCannotDeleteAnIncomingCommentForEveryone() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: true)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let comment = MessageItem(
+            id: "incoming-group-comment",
+            senderName: "Alice",
+            body: "A comment",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineKind: 1111,
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        await state.refreshConversationMetadata(for: chat)
+
+        let capability = state.messageDeletionCapability(comment)
+        #expect(capability.canDeleteForMe)
+        #expect(!capability.canDeleteForEveryone)
     }
 
     @MainActor

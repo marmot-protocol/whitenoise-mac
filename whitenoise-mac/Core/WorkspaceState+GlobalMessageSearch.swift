@@ -194,7 +194,7 @@ nonisolated enum GlobalMessageSearchEngine {
 
                 for record in page.messages.reversed() {
                     try checkCancellation()
-                    guard record.kind == 9,
+                    guard MessageItem.isTextMessage(record),
                         !record.deleted,
                         record.invalidationStatus == nil,
                         GlobalMessageSearchText.matches(record.plaintext, tokens: tokens)
@@ -270,7 +270,7 @@ nonisolated enum GlobalMessageSearchEngine {
 
                 for record in page.messages.reversed() {
                     try checkCancellation()
-                    guard record.kind == 9,
+                    guard MessageItem.isTextMessage(record),
                         !record.deleted,
                         record.invalidationStatus == nil,
                         GlobalMessageSearchText.matches(record.plaintext, tokens: tokens)
