@@ -66,9 +66,10 @@ extension View {
 }
 
 /// What wiping a profile with other linked devices does, said before the user confirms: MDK hands
-/// this device's removal to them, and leaves every chat itself if it can't reach them. A catalog
+/// this device's removal to them in the chats they share (a device linked without "Add to all my
+/// chats" isn't in every one), and leaves every chat itself if it can't reach them. A catalog
 /// key, localized where it is drawn.
 nonisolated enum LinkedDeviceHandOff {
     static let note =
-        "Your other devices keep your chats and will finish removing this one from them. This can take about 30 seconds. If they can’t be reached, this device leaves your chats instead."
+        "Your other devices keep the chats they’re in and will finish removing this one from them. This can take about 30 seconds. If they can’t be reached, this device leaves your chats instead."
 }

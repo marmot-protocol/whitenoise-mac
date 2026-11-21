@@ -106,7 +106,7 @@ struct DeleteProfileConsequence: Identifiable, Equatable {
                 DeleteProfileConsequence(
                     title: "If you sign in again",
                     detail:
-                        "You can sign in again with a saved secret key and keep the same Nostr identity. To get your chats back on this device, link it to one of your other devices."
+                        "You can sign in again with a saved secret key and keep the same Nostr identity. Linking this device to one of your other devices brings back the chats that device is in."
                 )
             default: consequence
             }

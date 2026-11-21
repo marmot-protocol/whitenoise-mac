@@ -306,7 +306,7 @@ private struct NameThisMacField: View {
         HStack(alignment: .bottom, spacing: 8) {
             DeviceLabelField(title: L10n.string("Name This Mac"), label: $label)
             Button(L10n.string("Save")) {
-                Task { await model.saveThisDeviceName(label) }
+                model.saveThisDeviceName(label)
             }
             .buttonStyle(.wnSecondary)
             .disabled(!DeviceLinkPresentation.isValidLabel(label) || label == current)

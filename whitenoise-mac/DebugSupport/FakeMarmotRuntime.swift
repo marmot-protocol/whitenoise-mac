@@ -1013,6 +1013,8 @@
         /// Optional hook fired inside `userProfile`, on the off-main FFI batch thread. A test can
         /// use it to advance an injected clock and model a slow batch (whitenoise-mac#181).
         var onUserProfileLookup: (@Sendable (String) -> Void)?
+        /// Thrown by `listAccounts` while set.
+        var listAccountsError: Error?
 
         /// Tests do not call this: the test target's convenience initialiser picks a storage root
         /// isolated to the running test (`TestStorageRoot`).
@@ -1040,6 +1042,7 @@
 
         func listAccounts() throws -> [AccountSummaryFfi] {
             recordSyncCall("listAccounts")
+            if let listAccountsError { throw listAccountsError }
             return storedAccounts
         }
 

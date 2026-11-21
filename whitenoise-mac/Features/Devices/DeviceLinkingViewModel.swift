@@ -243,14 +243,12 @@ final class DeviceLinkingViewModel {
         nameThisDevice(label, replacingName: false)
     }
 
-    /// Name This Mac's Save: renames this device's roster entry, or holds the name until the roster
-    /// lists this device and then writes it over whatever name the entry has (iOS's "New Device").
-    func saveThisDeviceName(_ label: String) async {
-        if let me = thisDevice {
-            await rename(slotIdHex: me.slotIdHex, label: label)
-        } else {
-            nameThisDevice(label, replacingName: true)
-        }
+    /// Name This Mac's Save: writes the name over whatever this device's roster entry has (iOS's
+    /// "New Device"), once the roster lists it. Every save goes through the one writer that holds
+    /// names, so a second save while the first is still being written is written after it rather
+    /// than racing it for the device group.
+    func saveThisDeviceName(_ label: String) {
+        nameThisDevice(label, replacingName: true)
     }
 
     private func nameThisDevice(_ label: String, replacingName: Bool) {
@@ -293,7 +291,11 @@ final class DeviceLinkingViewModel {
                 {
                     waitFirst = true
                 } catch {
-                    break
+                    // A name the user typed says why it wasn't saved; the automatic one stays quiet.
+                    if request.replacesName {
+                        self.actionError = DeviceLinkPresentation.errorMessage(for: error)
+                    }
+                    self.settleThisDeviceName(request)
                 }
             }
             self?.thisDeviceLabelTask = nil

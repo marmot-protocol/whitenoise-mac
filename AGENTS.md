@@ -253,6 +253,12 @@ build.
 - Settings → Storage → Manage Storage (`ManageStorageViewModel`) reads MDK's attachment storage
   figures and removes in bulk. Bulk removals report counts, not hashes, so every removal runs the
   shell's `attachmentsDidChange` hook, which clears the host media cache.
+- The account list (`WorkspaceState.accounts`) is MDK's, mirrored by `AccountRoster`
+  (`Core/AccountRoster.swift`), its only writer. After changing an account, call
+  `accountRoster.reload(from:)` instead of reading `listAccounts` and saving the result: reloads
+  install in order, so a read taken before MDK changed an account (an unlink from another device,
+  say) can never land after a newer one. Decide what to show next from `accounts` after the reload,
+  not from a list you read yourself.
 - Show a `MarmotKitError` to the user through `UserFacingError.message(for:)`, never its
   `localizedDescription`. Its switch is exhaustive on purpose: a new core error case fails the
   build until it has copy.

@@ -27031,68 +27031,68 @@
         }
       }
     },
-    "You can sign in again with a saved secret key and keep the same Nostr identity. To get your chats back on this device, link it to one of your other devices." : {
+    "You can sign in again with a saved secret key and keep the same Nostr identity. Linking this device to one of your other devices brings back the chats that device is in." : {
       "comment" : "Delete Profile page, “If you sign in again” consequence, shown when the profile has other linked devices that keep its chats.",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Du kannst dich mit einem gespeicherten geheimen Schlüssel erneut anmelden und dieselbe Nostr-Identität behalten. Um deine Chats auf diesem Gerät zurückzubekommen, verknüpfe es mit einem deiner anderen Geräte."
+            "value" : "Du kannst dich mit einem gespeicherten geheimen Schlüssel erneut anmelden und dieselbe Nostr-Identität behalten. Wenn du dieses Gerät mit einem deiner anderen Geräte verknüpfst, kommen die Chats zurück, in denen jenes Gerät ist."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Puedes volver a iniciar sesión con una llave secreta guardada y conservar la misma identidad de Nostr. Para recuperar tus chats en este dispositivo, vincúlalo con uno de tus otros dispositivos."
+            "value" : "Puedes volver a iniciar sesión con una llave secreta guardada y conservar la misma identidad de Nostr. Si vinculas este dispositivo con otro de tus dispositivos, recuperarás los chats en los que está ese dispositivo."
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Voit kirjautua uudelleen tallennetulla salaisella avaimella ja säilyttää saman Nostr-identiteetin. Saat keskustelusi takaisin tälle laitteelle linkittämällä sen johonkin muista laitteistasi."
+            "value" : "Voit kirjautua uudelleen tallennetulla salaisella avaimella ja säilyttää saman Nostr-identiteetin. Kun linkität tämän laitteen johonkin muista laitteistasi, saat takaisin ne keskustelut, joissa se laite on mukana."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vous pouvez vous reconnecter avec une clé secrète sauvegardée et conserver la même identité Nostr. Pour retrouver vos discussions sur cet appareil, associez-le à l’un de vos autres appareils."
+            "value" : "Vous pouvez vous reconnecter avec une clé secrète sauvegardée et conserver la même identité Nostr. Associer cet appareil à l’un de vos autres appareils récupère les discussions dont cet appareil fait partie."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Puoi accedere di nuovo con una chiave segreta salvata e mantenere la stessa identità Nostr. Per riavere le tue chat su questo dispositivo, collegalo a uno dei tuoi altri dispositivi."
+            "value" : "Puoi accedere di nuovo con una chiave segreta salvata e mantenere la stessa identità Nostr. Collegando questo dispositivo a uno dei tuoi altri dispositivi, ritrovi le chat di cui quel dispositivo fa parte."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Você pode entrar novamente com uma chave secreta salva e manter a mesma identidade Nostr. Para recuperar suas conversas neste dispositivo, vincule-o a um dos seus outros dispositivos."
+            "value" : "Você pode entrar novamente com uma chave secreta salva e manter a mesma identidade Nostr. Vincular este dispositivo a um dos seus outros dispositivos traz de volta as conversas de que aquele dispositivo participa."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Вы можете войти снова с сохранённым секретным ключом и сохранить ту же идентичность Nostr. Чтобы вернуть чаты на это устройство, привяжите его к одному из других ваших устройств."
+            "value" : "Вы можете снова войти с сохранённым секретным ключом и сохранить ту же идентичность Nostr. Если привязать это устройство к одному из других ваших устройств, вернутся чаты, в которых состоит то устройство."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kaydedilmiş bir gizli anahtarla tekrar giriş yapabilir ve aynı Nostr kimliğini kullanmaya devam edebilirsiniz. Sohbetlerinizi bu cihaza geri almak için onu diğer cihazlarınızdan birine bağlayın."
+            "value" : "Kaydedilmiş bir gizli anahtarla tekrar giriş yapabilir ve aynı Nostr kimliğini kullanmaya devam edebilirsiniz. Bu cihazı diğer cihazlarınızdan birine bağlamak, o cihazın bulunduğu sohbetleri geri getirir."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你可以使用已保存的私钥再次登录，并保留同一个 Nostr 身份。要在此设备上找回你的聊天，请将它关联到你的另一台设备。"
+            "value" : "你可以使用已保存的私钥再次登录，并保留同一个 Nostr 身份。将此设备关联到你的另一台设备后，那台设备所在的聊天会回来。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你可以使用已儲存的私鑰再次登入，並保留同一個 Nostr 身分。要在此裝置上找回你的聊天，請將它連結到你的另一台裝置。"
+            "value" : "你可以使用已儲存的私鑰再次登入，並保留同一個 Nostr 身分。將此裝置連結到你的另一台裝置後，那台裝置所在的聊天會回來。"
           }
         }
       }
@@ -131301,68 +131301,68 @@
         }
       }
     },
-    "Your other devices keep your chats and will finish removing this one from them. This can take about 30 seconds. If they can’t be reached, this device leaves your chats instead." : {
+    "Your other devices keep the chats they’re in and will finish removing this one from them. This can take about 30 seconds. If they can’t be reached, this device leaves your chats instead." : {
       "comment" : "Device linking: history imports, device names, sign-out with linked devices.",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine anderen Geräte behalten deine Chats und entfernen dieses Gerät daraus. Das kann etwa 30 Sekunden dauern. Wenn sie nicht erreichbar sind, verlässt dieses Gerät deine Chats stattdessen selbst."
+            "value" : "Deine anderen Geräte behalten die Chats, in denen sie sind, und entfernen dieses Gerät daraus. Das kann etwa 30 Sekunden dauern. Wenn sie nicht erreichbar sind, verlässt dieses Gerät deine Chats stattdessen selbst."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tus otros dispositivos conservan tus chats y terminarán de quitar este de ellos. Puede tardar unos 30 segundos. Si no se puede contactar con ellos, este dispositivo saldrá de tus chats."
+            "value" : "Tus otros dispositivos conservan los chats en los que están y terminarán de quitar este de ellos. Puede tardar unos 30 segundos. Si no se puede contactar con ellos, este dispositivo saldrá de tus chats."
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Muut laitteesi säilyttävät keskustelusi ja viimeistelevät tämän laitteen poistamisen niistä. Tämä voi kestää noin 30 sekuntia. Jos niihin ei saada yhteyttä, tämä laite poistuu keskusteluistasi itse."
+            "value" : "Muut laitteesi säilyttävät keskustelut, joissa ne ovat mukana, ja viimeistelevät tämän laitteen poistamisen niistä. Tämä voi kestää noin 30 sekuntia. Jos niihin ei saada yhteyttä, tämä laite poistuu keskusteluistasi itse."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vos autres appareils conservent vos discussions et finiront d’en retirer celui-ci. Cela peut prendre environ 30 secondes. S’ils sont injoignables, cet appareil quitte vos discussions à la place."
+            "value" : "Vos autres appareils conservent les discussions dont ils font partie et finiront d’en retirer celui-ci. Cela peut prendre environ 30 secondes. S’ils sont injoignables, cet appareil quitte vos discussions à la place."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gli altri tuoi dispositivi mantengono le chat e finiranno di rimuovere questo dispositivo. Può richiedere circa 30 secondi. Se non sono raggiungibili, questo dispositivo esce invece dalle tue chat."
+            "value" : "Gli altri tuoi dispositivi mantengono le chat di cui fanno parte e finiranno di rimuovere questo dispositivo. Può richiedere circa 30 secondi. Se non sono raggiungibili, questo dispositivo esce invece dalle tue chat."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seus outros dispositivos mantêm suas conversas e vão terminar de remover este delas. Isso pode levar cerca de 30 segundos. Se eles não puderem ser alcançados, este dispositivo sai das suas conversas."
+            "value" : "Seus outros dispositivos mantêm as conversas de que participam e vão terminar de remover este delas. Isso pode levar cerca de 30 segundos. Se eles não puderem ser alcançados, este dispositivo sai das suas conversas."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Другие ваши устройства сохранят чаты и завершат удаление этого устройства из них. Это может занять около 30 секунд. Если они недоступны, это устройство само выйдет из ваших чатов."
+            "value" : "Другие ваши устройства сохранят чаты, в которых они состоят, и завершат удаление этого устройства из них. Это может занять около 30 секунд. Если они недоступны, это устройство само выйдет из ваших чатов."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diğer cihazlarınız sohbetlerinizi korur ve bu cihazı onlardan kaldırmayı tamamlar. Bu yaklaşık 30 saniye sürebilir. Onlara ulaşılamazsa bu cihaz sohbetlerinizden kendisi ayrılır."
+            "value" : "Diğer cihazlarınız içinde bulundukları sohbetleri korur ve bu cihazı onlardan kaldırmayı tamamlar. Bu yaklaşık 30 saniye sürebilir. Onlara ulaşılamazsa bu cihaz sohbetlerinizden kendisi ayrılır."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的其他设备会保留你的聊天，并完成将此设备从中移除。这可能需要约 30 秒。如果无法联系到它们，此设备会自行退出你的聊天。"
+            "value" : "你的其他设备会保留它们所在的聊天，并完成将此设备从中移除。这可能需要约 30 秒。如果无法联系到它们，此设备会自行退出你的聊天。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的其他裝置會保留你的聊天，並完成將此裝置從中移除。這可能需要約 30 秒。如果無法聯絡到它們，此裝置會自行退出你的聊天。"
+            "value" : "你的其他裝置會保留它們所在的聊天，並完成將此裝置從中移除。這可能需要約 30 秒。如果無法聯絡到它們，此裝置會自行退出你的聊天。"
           }
         }
       }

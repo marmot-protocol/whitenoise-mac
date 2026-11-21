@@ -64,7 +64,9 @@ final class WorkspaceState {
     }
 
     var phase: Phase = .bootstrapping
-    var accounts: [AccountItem]
+    /// The only owner of the account list: every change goes through it (see `AccountRoster`).
+    let accountRoster: AccountRoster
+    var accounts: [AccountItem] { accountRoster.accounts }
     var chatsByAccount: [String: [ChatItem]]
     /// Observed invalidation token for `selectedChat`, whose actual lookup stays in the
     /// ignored O(1) indexes below. Live chat-list deltas mutate those indexes, so the selected
@@ -1203,7 +1205,7 @@ final class WorkspaceState {
         relayHostProbe: any RelayHostReachabilityProbing = TCPRelayHostProbe(),
         connectivityPolicy: ConnectivityPolicy = .standard
     ) {
-        self.accounts = accounts
+        self.accountRoster = AccountRoster(accounts: accounts)
         self.chatsByAccount = chatsByAccount.mapValues { Self.deduplicatedChats($0) }
         self.messageTimelineStores = messagesByChat.mapValues { MessageTimelineStore.loaded(with: $0) }
         self.cachedMessageChatIds = Set(messagesByChat.keys)

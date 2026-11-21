@@ -49,10 +49,7 @@ extension WorkspaceState {
             loadHiddenMessages()
             loadContactNicknames()
             loadRememberedDirectPeers()
-            let summaries = try await FFIExecutor.run {
-                try runtime.listAccounts()
-            }
-            accounts = try await accountItems(from: summaries, client: runtime)
+            try await accountRoster.reload(from: runtime)
             restoreOrSelectFirstAccount()
             await configureObservabilityRuntimeBestEffort()
             // Not `accounts.isEmpty`: a Mac holding nothing but deactivated identities has
@@ -73,7 +70,7 @@ extension WorkspaceState {
             }
 
             try await bringRuntimeOnline(runtime)
-            accounts = try await accountItemsFromRuntime(client: runtime)
+            try await accountRoster.reload(from: runtime)
             restoreOrSelectFirstAccount()
             await migrateLegacyPinnedChats(runtime: runtime)
             await activateReadyState()
@@ -487,10 +484,8 @@ extension WorkspaceState {
             return nil
         } catch MarmotKitError.AccountUnlinked(let accountRef) {
             lastError = UserFacingError.message(for: MarmotKitError.AccountUnlinked(accountRef: accountRef))
-            if !accounts.contains(where: { $0.accountRef == accountRef }),
-                let refreshed = try? await accountItemsFromRuntime(client: client)
-            {
-                accounts = refreshed
+            if !accounts.contains(where: { $0.accountRef == accountRef }) {
+                _ = try? await accountRoster.reload(from: client)
             }
             return accounts.first { $0.accountRef == accountRef }
         } catch {
@@ -665,7 +660,7 @@ extension WorkspaceState {
             purgeRememberedDirectPeers(accountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
-            accounts = try await accountItemsFromRuntime(client: client)
+            try await accountRoster.reload(from: client)
             removeChats(forAccountId: removedAccountId)
 
             // `activeAccountId` may have changed during the await above — e.g. the user
@@ -832,10 +827,11 @@ extension WorkspaceState {
                 stopChatListListener()
             }
             // Another device's unlink signs the account out in MDK before the app hears of it, so a
-            // Sign Out racing that event has only the app's side left (`AccountExit`).
+            // Sign Out racing that event has only the app's side left (`AccountExit`). MDK's own
+            // summary answers that; names and pictures aren't needed for it.
             let alreadySignedOut =
-                (try? await accountItemsFromRuntime(client: client))?
-                .first(where: { $0.id == account.id })?.signedOut == true
+                (try? await FFIExecutor.run { try client.listAccounts() })?
+                .first(where: { $0.accountIdHex.lowercased() == account.accountIdHex.lowercased() })?.signedOut == true
             if !alreadySignedOut {
                 _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
             }
@@ -858,7 +854,7 @@ extension WorkspaceState {
         let preAwaitActiveAccountId = activeAccountId
         do {
             _ = try await client.signInAccount(accountRef: account.accountRef)
-            accounts = try await accountItemsFromRuntime(client: client)
+            try await accountRoster.reload(from: client)
             if let refreshed = accounts.first(where: { $0.id == account.id }) {
                 let currentActiveAccount = activeAccountId.flatMap { id in
                     accounts.first { $0.id == id && !$0.signedOut }
@@ -1021,22 +1017,16 @@ extension WorkspaceState {
             try? await client.refreshProfile(accountIdHex: accountIdHex, relays: relays)
         }
 
-        guard let refreshed = try? await accountItemsFromRuntime(client: client) else { return }
-        accounts = refreshed
+        guard (try? await accountRoster.reload(from: client)) != nil else { return }
         restoreOrSelectFirstAccount()
     }
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {
         guard let client else { return }
         await flushComposerDraftPersistence()
-        let preferredItems = try await accountItems(from: [summary], client: client)
+        let preferredItems = try await AccountRoster.items(from: [summary], client: client)
         let preferredAccount = preferredItems.first ?? Self.accountItem(from: summary, resolved: nil)
-        var refreshed = try await accountItemsFromRuntime(client: client)
-        if !refreshed.contains(where: { $0.id == preferredAccount.id }) {
-            refreshed.append(preferredAccount)
-        }
-
-        accounts = refreshed
+        try await accountRoster.reload(from: client, including: preferredAccount)
         resetComposeContacts()
         clearFollows()
         activeAccountId = preferredAccount.id
@@ -1062,7 +1052,7 @@ extension WorkspaceState {
         stopChatListListener()
         stopTimelineListener()
         cancelTimelineLoad()
-        accounts = []
+        accountRoster.clear()
         resetChats()
         clearPendingChatDestructiveActions()
         cachedMessageChatIds = []
@@ -1138,25 +1128,6 @@ extension WorkspaceState {
         phase = .onboarding
     }
 
-    func accountItemsFromRuntime(client: any MarmotRuntime) async throws -> [AccountItem] {
-        let summaries = try await FFIExecutor.run {
-            try client.listAccounts()
-        }
-        return try await accountItems(from: summaries, client: client)
-    }
-
-    func accountItems(
-        from summaries: [AccountSummaryFfi],
-        client: any MarmotRuntime
-    ) async throws -> [AccountItem] {
-        try await FFIExecutor.run {
-            summaries.map { summary in
-                let resolved = Self.resolvedAccountFFI(from: summary, client: client)
-                return Self.accountItem(from: summary, resolved: resolved)
-            }
-        }
-    }
-
     nonisolated static func resolvedAccountFFI(
         from summary: AccountSummaryFfi,
         client: any MarmotRuntime
@@ -1199,23 +1170,7 @@ extension WorkspaceState {
     }
 
     func updateActiveAccountProfile(displayName: String, pictureURL: String?) {
-        guard let activeAccountId,
-            let index = accounts.firstIndex(where: { $0.id == activeAccountId })
-        else { return }
-
-        let account = accounts[index]
-        accounts[index] = AccountItem(
-            id: account.id,
-            accountRef: account.accountRef,
-            displayName: displayName,
-            accountIdHex: account.accountIdHex,
-            npub: account.npub,
-            pictureURL: pictureURL,
-            localSigning: account.localSigning,
-            externalSigning: account.externalSigning,
-            isRunning: account.isRunning,
-            signedOut: account.signedOut,
-            unlinked: account.unlinked
-        )
+        guard let activeAccountId else { return }
+        accountRoster.updateProfile(accountId: activeAccountId, displayName: displayName, pictureURL: pictureURL)
     }
 }
