@@ -47,18 +47,23 @@ nonisolated struct AccountWipeReport: Identifiable, Equatable {
 
 extension View {
     func accountWipeReportAlert(_ session: SessionState) -> some View {
-        let report = session.wipeReport
+        let report = session.wipeReportToShow
         return alert(
             L10n.string("Signed Out"),
             isPresented: Binding(
-                get: { session.wipeReport != nil },
+                get: { session.wipeReportToShow != nil },
                 set: { presented in
-                    if !presented { session.wipeReport = nil }
+                    // Hidden by an unlink notice isn't read: it shows once the notice is answered.
+                    if !presented, session.deviceUnlinks.notice == nil, session.wipeReport == report {
+                        session.dismissWipeReport()
+                    }
                 }
             ),
             presenting: report
-        ) { _ in
-            Button(L10n.string("OK"), role: .cancel) { session.wipeReport = nil }
+        ) { shown in
+            Button(L10n.string("OK"), role: .cancel) {
+                if session.wipeReport == shown { session.dismissWipeReport() }
+            }
         } message: { report in
             Text(report.lines.joined(separator: "\n\n"))
         }

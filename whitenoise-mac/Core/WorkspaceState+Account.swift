@@ -621,9 +621,10 @@ extension WorkspaceState {
     /// returns to onboarding when none remain.
     /// A signed-in account goes through MDK's sign-out-and-wipe, which with linked devices first
     /// hands this device's removal to them (about 30 seconds) and otherwise leaves its chats and
-    /// deletes its KeyPackage slot; its report is returned for the shell to show. An account already
-    /// signed out (an unlinked one included) has nothing left to tell the network, so it is removed
-    /// locally and returns nil.
+    /// deletes its KeyPackage slot. One another device unlinked goes through it too, as MDK asks,
+    /// which then only clears it here. Either way its report is returned for the shell to show. An
+    /// account the user signed out has nothing left to tell the network, so it is removed locally
+    /// and returns nil.
     @discardableResult
     func removeAccount(_ account: AccountItem) async -> WipeOutcomeFfi? {
         guard let client, !isAccountMutationInProgress else { return nil }
@@ -640,6 +641,8 @@ extension WorkspaceState {
         defer { resumeMediaDiskStores(forAccountId: removedAccountId) }
         // Outside the `do`: a wipe that went through is still reported if a later step fails.
         var outcome: WipeOutcomeFfi?
+        // MDK answered that it no longer holds the account, so it is gone too.
+        var alreadyGone = false
         do {
             if wasActive {
                 stopTimelineListener()
@@ -647,10 +650,19 @@ extension WorkspaceState {
                 cancelChatListReload()
                 stopChatListListener()
             }
-            if account.signedOut {
-                try await client.removeAccount(accountRef: account.accountRef)
-            } else {
-                outcome = try await client.signOutAndWipe(accountRef: account.accountRef)
+            // An account another device unlinked is signed out too, but MDK asks for its wipe: for an
+            // unlinked device it skips the relay stages and clears what's left here, reporting what
+            // didn't finish. One the user signed out has nothing left to tell the network.
+            do {
+                if account.signedOut, !account.unlinked {
+                    try await client.removeAccount(accountRef: account.accountRef)
+                } else {
+                    outcome = try await client.signOutAndWipe(accountRef: account.accountRef)
+                }
+            } catch MarmotKitError.UnknownAccount {
+                // MDK no longer holds it (an earlier wipe that reported unfinished cleanup still
+                // removed it), so it is gone: finish the removal here rather than restore it.
+                alreadyGone = true
             }
             removeChatRestorationTarget(forOwnerAccountIdHex: removedAccountIdHex)
             clearComposerDrafts(forAccountId: removedAccountId)
@@ -660,7 +672,19 @@ extension WorkspaceState {
             purgeRememberedDirectPeers(accountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
-            try await accountRoster.reload(from: client)
+            // MDK has removed it, so a list that can't be read now mustn't bring the session back.
+            // Nothing is reported: the app carries on from the installed list, and the user's
+            // delete went through.
+            do {
+                try await accountRoster.reload(from: client)
+            } catch  where !(error is CancellationError) {
+                accountRoster.markRemoved(accountId: removedAccountId)
+            }
+            // Once MDK's wipe returns, the account ref is no longer valid (its documented contract),
+            // whatever the cleanup report says: the report tells the user what didn't finish, and the
+            // profile goes either way. The same when MDK says it holds no such account. A read that
+            // lagged MDK and still lists it doesn't keep it.
+            if outcome != nil || alreadyGone { accountRoster.markRemoved(accountId: removedAccountId) }
             removeChats(forAccountId: removedAccountId)
 
             // `activeAccountId` may have changed during the await above — e.g. the user
@@ -835,6 +859,8 @@ extension WorkspaceState {
             if !alreadySignedOut {
                 _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
             }
+            // MDK has signed it out, so a list that can't be read now mustn't bring the session back.
+            accountRoster.markSignedOut(accountId: account.id)
             try await AccountExit.finishSigningOut(accountId: account.id, in: self, client: client)
         } catch {
             if wasActive, activeAccountId == account.id {
@@ -1010,7 +1036,21 @@ extension WorkspaceState {
     /// had just opened, moving into whichever profile was listed first. Sign-in, sign-out and
     /// removal choose.
     func refreshAccountProfiles() async {
-        guard let client, !isRefreshingAccountProfiles, !accounts.isEmpty else { return }
+        guard let client, !accounts.isEmpty else { return }
+        // An unlink whose event the app missed (the event stream ended, say) shows up in MDK's list as
+        // the profile on screen unlinked; leave it as the event would have. Only an unlink: a profile
+        // merely signed out is a Sign Out still finishing, which decides for itself. Checked after
+        // every read here, the local one first on every call (outside the relay refresh's guard, as
+        // an earlier refresh may still be waiting on a relay) and again after the relay refresh.
+        func reloadLeavingAMissedUnlink() async {
+            guard (try? await accountRoster.reload(from: client)) != nil,
+                let active = activeAccount, active.unlinked
+            else { return }
+            await AccountExit.leaveSignedOutAccount(accountIdHex: active.accountIdHex.lowercased(), in: self)
+        }
+        await reloadLeavingAMissedUnlink()
+
+        guard !isRefreshingAccountProfiles else { return }
         isRefreshingAccountProfiles = true
         defer { isRefreshingAccountProfiles = false }
 
@@ -1022,7 +1062,7 @@ extension WorkspaceState {
             try? await client.refreshProfile(accountIdHex: accountIdHex, relays: relays)
         }
 
-        _ = try? await accountRoster.reload(from: client)
+        await reloadLeavingAMissedUnlink()
     }
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {

@@ -711,6 +711,8 @@
         var timelineStreamEndsAfterUpdates = false
         private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
         var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
+        /// Awaited inside each `refreshProfile`, after any delay: lets a test park the relay refresh.
+        var onRefreshProfile: (@Sendable (String) async -> Void)?
         var accountIdsMissingProfiles = Set<String>()
         var timelineMessagesHandler: ((TimelineMessageQueryFfi) throws -> TimelinePageFfi)?
         private let syncCallThreadLock = NSLock()
@@ -1015,6 +1017,8 @@
         var onUserProfileLookup: (@Sendable (String) -> Void)?
         /// Thrown by `listAccounts` while set.
         var listAccountsError: Error?
+        /// Returned by `listAccounts` while set, in place of what is stored: a read that lags MDK.
+        var listedAccountsOverride: [AccountSummaryFfi]?
 
         /// Tests do not call this: the test target's convenience initialiser picks a storage root
         /// isolated to the running test (`TestStorageRoot`).
@@ -1043,7 +1047,7 @@
         func listAccounts() throws -> [AccountSummaryFfi] {
             recordSyncCall("listAccounts")
             if let listAccountsError { throw listAccountsError }
-            return storedAccounts
+            return listedAccountsOverride ?? storedAccounts
         }
 
         func clearSyncCallThreadRecords() {
@@ -1116,6 +1120,7 @@
             if let delay = profileRefreshDelaysByAccountId[accountIdHex] {
                 try await Task.sleep(nanoseconds: delay)
             }
+            if let onRefreshProfile { await onRefreshProfile(accountIdHex) }
         }
 
         func clearRefreshedProfileIds() {
@@ -2506,6 +2511,10 @@
 
         func signOutAndWipe(accountRef: String) async throws -> WipeOutcomeFfi {
             wipedAccountRefs.append(accountRef)
+            // MDK refuses an account it no longer holds.
+            guard storedAccounts.contains(where: { $0.label == accountRef }) else {
+                throw MarmotKitError.UnknownAccount(accountRef: accountRef)
+            }
             try await removeAccount(accountRef: accountRef)
             return wipeOutcome
         }

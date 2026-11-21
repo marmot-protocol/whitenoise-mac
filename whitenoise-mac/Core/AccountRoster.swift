@@ -33,9 +33,8 @@ final class AccountRoster {
     @ObservationIgnored private var edits: [Edit] = []
 
     private struct Edit {
-        let accountId: String
         let readsBefore: Set<UUID>
-        let apply: (AccountItem) -> AccountItem
+        let apply: ([AccountItem]) -> [AccountItem]
     }
 
     init(accounts: [AccountItem] = []) {
@@ -61,7 +60,7 @@ final class AccountRoster {
             try Task.checkCancellation()
             guard let self else { return items }
             for edit in self.edits where edit.readsBefore.contains(id) {
-                items = items.map { $0.id == edit.accountId ? edit.apply($0) : $0 }
+                items = edit.apply(items)
             }
             self.accounts = items
             return items
@@ -118,25 +117,37 @@ final class AccountRoster {
         }
     }
 
-    /// Shows `accountId` signed out right away: MDK signed it out (another device unlinked this Mac)
-    /// before the app heard of it. A reload already in flight read it signed in, so it is applied
-    /// again to those; any read that starts later gets it from MDK.
-    func markSignedOut(accountId: String) {
+    /// Shows `accountId` signed out right away, and `unlinked` when another device unlinked it: MDK
+    /// has done so, but a reload may not have read it yet or may fail. A reload already in flight
+    /// read the old state, so it is applied again to those; any read that starts later gets it from
+    /// MDK.
+    func markSignedOut(accountId: String, unlinked: Bool = false) {
         apply(to: accountId, replayingOverReloads: true) { account in
             AccountItem(
                 id: account.id, accountRef: account.accountRef, displayName: account.displayName,
                 accountIdHex: account.accountIdHex, npub: account.npub, pictureURL: account.pictureURL,
                 localSigning: account.localSigning, externalSigning: account.externalSigning,
-                isRunning: false, signedOut: true, unlinked: account.unlinked)
+                isRunning: false, signedOut: true, unlinked: unlinked || account.unlinked)
         }
+    }
+
+    /// Drops `accountId` right away: MDK has removed it, but the reload after could not be read.
+    func markRemoved(accountId: String) {
+        apply(replayingOverReloads: true) { $0.filter { $0.id != accountId } }
     }
 
     private func apply(
         to accountId: String, replayingOverReloads: Bool, _ change: @escaping (AccountItem) -> AccountItem
     ) {
-        if replayingOverReloads, !inFlight.isEmpty {
-            edits.append(Edit(accountId: accountId, readsBefore: Set(inFlight.keys), apply: change))
+        apply(replayingOverReloads: replayingOverReloads) { items in
+            items.map { $0.id == accountId ? change($0) : $0 }
         }
-        accounts = accounts.map { $0.id == accountId ? change($0) : $0 }
+    }
+
+    private func apply(replayingOverReloads: Bool, _ change: @escaping ([AccountItem]) -> [AccountItem]) {
+        if replayingOverReloads, !inFlight.isEmpty {
+            edits.append(Edit(readsBefore: Set(inFlight.keys), apply: change))
+        }
+        accounts = change(accounts)
     }
 }

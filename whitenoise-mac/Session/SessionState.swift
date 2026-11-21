@@ -11,7 +11,10 @@ final class SessionState {
     private(set) var accountScope: AccountScope?
     /// What the last sign-out-and-wipe left undone, for the shell's alert. Held here, not on the
     /// account's scope: the account it reports on is gone by the time it shows.
-    var wipeReport: AccountWipeReport?
+    private(set) var wipeReport: AccountWipeReport?
+    /// Reports that came in while another was waiting or showing, shown after it in order: two
+    /// unlinked profiles deleted in turn each leave one, and neither may be lost.
+    @ObservationIgnored private var queuedWipeReports: [AccountWipeReport] = []
     /// Link requests for signed-in profiles other than the active one.
     let linkRequests = ProfileLinkRequestsMonitor()
     /// "This Mac was unlinked", for any profile on this Mac. Here rather than on the shell so the
@@ -94,9 +97,24 @@ final class SessionState {
         await previous?.cancelAll()
     }
 
+    /// The report to show now. It waits while an unlink notice is up: SwiftUI shows one alert at a
+    /// time, and Delete Everything on one unlinked profile brings the next one's notice straight up.
+    var wipeReportToShow: AccountWipeReport? {
+        deviceUnlinks.notice == nil ? wipeReport : nil
+    }
+
     /// Shows `outcome`'s report when it has anything to say.
     func reportWipe(_ outcome: WipeOutcomeFfi?) {
         guard let outcome, let report = AccountWipeReport(outcome: outcome) else { return }
-        wipeReport = report
+        if wipeReport == nil {
+            wipeReport = report
+        } else {
+            queuedWipeReports.append(report)
+        }
+    }
+
+    /// The user has read the report on screen; the next one waiting takes its place.
+    func dismissWipeReport() {
+        wipeReport = queuedWipeReports.isEmpty ? nil : queuedWipeReports.removeFirst()
     }
 }
