@@ -81,7 +81,8 @@ enum AccountExit {
 
     /// The steps after MDK's sign-out, shared by Sign Out and `leaveSignedOutAccount`.
     /// The caller has already marked the account signed out in the roster (MDK has signed it out),
-    /// so a reload that fails carries on with the installed list; the failure is still reported.
+    /// so a reload that fails carries on with the installed list. That isn't reported: the sign-out
+    /// went through, and the next reload reads the list again.
     static func finishSigningOut(
         accountId: String, in workspace: WorkspaceState, client: any MarmotRuntime
     ) async throws {
@@ -89,9 +90,7 @@ enum AccountExit {
         workspace.clearMediaReferenceResolutionCache(forAccountId: accountId)
         do {
             try await workspace.accountRoster.reload(from: client)
-        } catch  where !(error is CancellationError) {
-            workspace.lastError = UserFacingError.message(for: error)
-        }
+        } catch  where !(error is CancellationError) {}
         workspace.removeChats(forAccountId: accountId)
 
         // `activeAccountId` may have changed during the awaits above — e.g. the user

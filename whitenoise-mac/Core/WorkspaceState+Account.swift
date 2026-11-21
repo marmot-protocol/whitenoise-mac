@@ -670,10 +670,11 @@ extension WorkspaceState {
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
             // MDK has removed it, so a list that can't be read now mustn't bring the session back.
+            // Nothing is reported: the app carries on from the installed list, and the user's
+            // delete went through.
             do {
                 try await accountRoster.reload(from: client)
             } catch  where !(error is CancellationError) {
-                lastError = UserFacingError.message(for: error)
                 accountRoster.markRemoved(accountId: removedAccountId)
             }
             // Once MDK's wipe returns, the account ref is no longer valid (its documented contract),

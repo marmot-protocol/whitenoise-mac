@@ -94,6 +94,12 @@ final class SessionState {
         await previous?.cancelAll()
     }
 
+    /// The report to show now. It waits while an unlink notice is up: SwiftUI shows one alert at a
+    /// time, and Delete Everything on one unlinked profile brings the next one's notice straight up.
+    var wipeReportToShow: AccountWipeReport? {
+        deviceUnlinks.notice == nil ? wipeReport : nil
+    }
+
     /// Shows `outcome`'s report when it has anything to say.
     func reportWipe(_ outcome: WipeOutcomeFfi?) {
         guard let outcome, let report = AccountWipeReport(outcome: outcome) else { return }

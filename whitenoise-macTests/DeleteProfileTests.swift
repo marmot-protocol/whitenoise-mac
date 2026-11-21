@@ -248,8 +248,8 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         #expect(session.wipeReport?.lines.count == 1)
     }
 
-    /// An account already signed out (an unlinked one included) has nothing to tell the network: it
-    /// is removed locally, and there is no report.
+    /// An account the user signed out has nothing to tell the network: it is removed locally, and
+    /// there is no report. (One another device unlinked goes through MDK's wipe instead.)
     @Test func aSignedOutAccountIsRemovedLocally() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
         defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }

@@ -1017,6 +1017,8 @@
         var onUserProfileLookup: (@Sendable (String) -> Void)?
         /// Thrown by `listAccounts` while set.
         var listAccountsError: Error?
+        /// Returned by `listAccounts` while set, in place of what is stored: a read that lags MDK.
+        var listedAccountsOverride: [AccountSummaryFfi]?
 
         /// Tests do not call this: the test target's convenience initialiser picks a storage root
         /// isolated to the running test (`TestStorageRoot`).
@@ -1045,7 +1047,7 @@
         func listAccounts() throws -> [AccountSummaryFfi] {
             recordSyncCall("listAccounts")
             if let listAccountsError { throw listAccountsError }
-            return storedAccounts
+            return listedAccountsOverride ?? storedAccounts
         }
 
         func clearSyncCallThreadRecords() {

@@ -818,7 +818,7 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.activeAccountId == backup.label)
         #expect(state.accounts.first { $0.id == desktop.label }?.signedOut == true)
         #expect(state.chatsByAccount[desktop.label]?.isEmpty ?? true)
-        #expect(state.lastError != nil)
+        #expect(state.lastError == nil)
     }
 
     /// The unlinked profile goes off screen before the app awaits anything: its chats are gone while
@@ -1023,7 +1023,8 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
     }
 
     /// Once MDK has wiped the profile on screen, an account list that can't be read must not bring
-    /// its session back: the app moves on as if the list had been read.
+    /// its session back: the app moves on as if the list had been read, and the delete went through,
+    /// so there is no error to show.
     @Test func aWipeWhoseListCantBeReadStillLeavesTheProfile() async throws {
         let (runtime, state) = await twoProfiles()
         let desktop = try #require(state.activeAccount)
@@ -1034,10 +1035,54 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(runtime.wipedAccountRefs == [desktop.accountRef])
         #expect(!state.accounts.contains { $0.id == desktop.id })
         #expect(state.activeAccountId == Self.backupSummary.label)
-        #expect(state.lastError != nil)
+        #expect(state.lastError == nil)
+    }
+
+    /// A read after the wipe that still lists the profile (it lagged MDK) doesn't bring it back:
+    /// MDK's wipe returned, so the profile is gone.
+    @Test func aWipeWhoseListStillHasTheProfileStillLeavesIt() async throws {
+        let (runtime, state) = await twoProfiles()
+        let desktop = try #require(state.activeAccount)
+        let listedBefore = try runtime.listAccounts()
+        runtime.onRemoveAccountMidFlight = { _ in runtime.listedAccountsOverride = listedBefore }
+
+        _ = await state.removeAccount(desktop)
+
+        #expect(runtime.wipedAccountRefs == [desktop.accountRef])
+        #expect(!state.accounts.contains { $0.id == desktop.id })
+        #expect(state.activeAccountId == Self.backupSummary.label)
+    }
+
+    /// Two profiles unlinked at once: Delete Everything on the first brings the second's notice
+    /// straight up. SwiftUI shows one alert at a time, so the first's wipe report waits for that
+    /// notice to be answered instead of racing it.
+    @Test func aWipeReportWaitsForTheNextUnlinkNotice() async throws {
+        let (runtime, state) = await twoProfiles()
+        var incomplete = runtime.wipeOutcome
+        incomplete.localCleanup = LocalCleanupReportFfi(completed: false, reason: "locked")
+        runtime.wipeOutcome = incomplete
+        let session = SessionState()
+        for summary in [desktopAccount(), Self.backupSummary] {
+            let id = summary.accountIdHex.lowercased()
+            runtime.unlinkFromAnotherDevice(accountRef: summary.label)
+            session.deviceUnlinks.receive(DeviceUnlinkMonitor.Notice(accountIdHex: id, accountLabel: summary.label))
+            await AccountExit.leaveSignedOutAccount(accountIdHex: id, in: state)
+        }
+
+        session.deviceUnlinks.dismiss()  // Delete Everything on the first
+        let removal = await AccountExit.removeUnlinkedAccount(
+            accountIdHex: desktopAccount().accountIdHex.lowercased(), in: state)
+        session.reportWipe(removal.outcome)
+
+        #expect(session.wipeReport != nil)
+        #expect(session.deviceUnlinks.notice?.accountIdHex == Self.backupSummary.accountIdHex.lowercased())
+        #expect(session.wipeReportToShow == nil)
+        session.deviceUnlinks.dismiss()  // Later on the second
+        #expect(session.wipeReportToShow == session.wipeReport)
     }
 
     /// The same for Sign Out: once MDK has signed the profile out, a failed read doesn't restore it.
+    /// The sign-out went through, so there is no error to show.
     @Test func aSignOutWhoseListCantBeReadStillLeavesTheProfile() async throws {
         let (runtime, state) = await twoProfiles()
         let desktop = try #require(state.activeAccount)
@@ -1047,7 +1092,7 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
 
         #expect(state.accounts.first { $0.id == desktop.id }?.signedOut == true)
         #expect(state.activeAccountId == Self.backupSummary.label)
-        #expect(state.lastError != nil)
+        #expect(state.lastError == nil)
     }
 
     /// An unlink whose event the app missed shows up at the next focus refresh as the profile on
