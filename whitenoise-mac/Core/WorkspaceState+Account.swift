@@ -1173,8 +1173,10 @@ extension WorkspaceState {
         )
     }
 
-    func updateActiveAccountProfile(displayName: String, pictureURL: String?) {
+    /// `confirmed` when the user just saved this profile, so MDK holds it (see `AccountRoster`).
+    func updateActiveAccountProfile(displayName: String, pictureURL: String?, confirmed: Bool = false) {
         guard let activeAccountId else { return }
-        accountRoster.updateProfile(accountId: activeAccountId, displayName: displayName, pictureURL: pictureURL)
+        accountRoster.updateProfile(
+            accountId: activeAccountId, displayName: displayName, pictureURL: pictureURL, confirmed: confirmed)
     }
 }

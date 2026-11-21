@@ -75,7 +75,8 @@ final class DeviceLinkingViewModel {
         let label: String
         let replacesName: Bool
     }
-    @ObservationIgnored private var pendingThisDeviceName: ThisDeviceName?
+    /// Observed: while a typed name waits, this device's other settings stay disabled (`isBusy`).
+    private var pendingThisDeviceName: ThisDeviceName?
     @ObservationIgnored private var thisDeviceLabelTask: Task<Void, Never>?
 
     private enum Part: CaseIterable {
@@ -141,7 +142,17 @@ final class DeviceLinkingViewModel {
         return devices.first { $0.slotIdHex == slotIdHex }
     }
 
-    func isBusy(_ action: Action) -> Bool { inFlight.contains(action) }
+    /// A typed name for this device still being written holds its other settings too, as a rename
+    /// of any other device does: a change made meanwhile would meet `device_group_busy`.
+    func isBusy(_ action: Action) -> Bool {
+        if inFlight.contains(action) { return true }
+        if case .device(let slotIdHex) = action, pendingThisDeviceName?.replacesName == true,
+            slotIdHex == thisDevice?.slotIdHex
+        {
+            return true
+        }
+        return false
+    }
 
     // MARK: Lifetime
 
@@ -247,15 +258,21 @@ final class DeviceLinkingViewModel {
     /// "New Device"), once the roster lists it. Every save goes through the one writer that holds
     /// names, so a second save while the first is still being written is written after it rather
     /// than racing it for the device group.
-    func saveThisDeviceName(_ label: String) {
+    /// An empty name clears it, as MDK allows. False when the name can't be saved (too long).
+    @discardableResult
+    func saveThisDeviceName(_ label: String) -> Bool {
         nameThisDevice(label, replacingName: true)
     }
 
-    private func nameThisDevice(_ label: String, replacingName: Bool) {
+    @discardableResult
+    private func nameThisDevice(_ label: String, replacingName: Bool) -> Bool {
         let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isAvailable, DeviceLinkPresentation.isValidLabel(label) else { return }
+        // Only a typed name may be empty, to clear it; linking's automatic name never is.
+        let acceptable = label.isEmpty ? replacingName : DeviceLinkPresentation.isValidLabel(label)
+        guard isAvailable, acceptable else { return false }
         pendingThisDeviceName = ThisDeviceName(label: label, replacesName: replacingName)
         writePendingThisDeviceLabel()
+        return true
     }
 
     /// Writes held names until none is left. Each pass handles the name it started with and clears
@@ -366,8 +383,7 @@ final class DeviceLinkingViewModel {
         // This Mac's name has one writer, shared with Name This Mac, so a rename from Settings can't
         // be overwritten by an older name still waiting there.
         if slotIdHex == thisDevice?.slotIdHex {
-            saveThisDeviceName(label)
-            return true
+            return saveThisDeviceName(label)
         }
         return await performDevice(slotIdHex) { runtime, accountRef in
             try await runtime.renameLinkedDevice(accountRef: accountRef, slotIdHex: slotIdHex, label: label)
@@ -483,7 +499,7 @@ final class DeviceLinkingViewModel {
         _ action: Action,
         _ body: @MainActor (any MarmotRuntime, String) async throws -> Value
     ) async -> Value? {
-        guard isAvailable, let runtime, !inFlight.contains(action) else { return nil }
+        guard isAvailable, let runtime, !isBusy(action) else { return nil }
         inFlight.insert(action)
         actionError = nil
         defer { inFlight.remove(action) }

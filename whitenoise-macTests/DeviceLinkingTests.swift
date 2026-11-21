@@ -796,6 +796,31 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(state.signedInAccounts.count == 2)
     }
 
+    /// MDK has signed the account out when the event arrives, so the app leaves it even when the
+    /// account list can't be read then; the event won't come again.
+    @Test func anUnlinkLeavesTheProfileEvenWhenTheListCantBeRead() async throws {
+        let desktop = desktopAccount()
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true, externalSigning: false, signedOut: false, running: true, unlinked: false)
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.installGroup(messageGroup())
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        #expect(state.activeAccountId == desktop.label)
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        runtime.listAccountsError = MarmotKitError.Runtime(details: "storage busy")
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+
+        #expect(state.activeAccountId == backup.label)
+        #expect(state.accounts.first { $0.id == desktop.label }?.signedOut == true)
+        #expect(state.chatsByAccount[desktop.label]?.isEmpty ?? true)
+        #expect(state.lastError != nil)
+    }
+
     /// A profile left with Later stays here signed out, and signed-out profiles show nowhere else, so
     /// the notice comes back once a launch. Signing in to it raises it again even after Later.
     @Test func anUnlinkedProfileStillHereIsRaisedOnceALaunchAndOnSignIn() {
@@ -1100,8 +1125,8 @@ struct ThisDeviceNameTests {
         #expect(model.actionError == nil)
     }
 
-    /// A rename of this Mac from Settings joins the same writer, so a name still waiting from Name
-    /// This Mac can't overwrite it.
+    /// A rename of this Mac from Settings joins the same writer, so a name still being written from
+    /// Name This Mac can't land after it. Meanwhile this Mac's other settings stay disabled.
     @Test func aSettingsRenameReplacesAWaitingName() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.deviceGroupsEnabled = true
@@ -1111,16 +1136,33 @@ struct ThisDeviceNameTests {
         let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
         await model.refreshAll()
 
-        runtime.deviceLinking.nextActionError = MarmotKitError.Runtime(
-            details: DeviceLinkPresentation.refusalPrefix + "device_group_busy")
+        runtime.deviceLinking.renameGate.isEnabled = true
         model.saveThisDeviceName("Studio Mac")
-        await DeviceLinkingTests.waitUntil { runtime.deviceLinking.nextActionError == nil }
-        _ = await model.rename(slotIdHex: me.slotIdHex, label: "Office Mac")
-        await DeviceLinkingTests.waitUntil { model.thisDevice?.label == "Office Mac" }
-        await DeviceLinkingTests.waitUntil(timeout: .seconds(4)) { false }
+        await runtime.deviceLinking.renameGate.waitUntilReached()
+        #expect(model.isBusy(.device(slotIdHex: me.slotIdHex)))
+        #expect(await model.rename(slotIdHex: me.slotIdHex, label: "Office Mac"))
+        runtime.deviceLinking.renameGate.release()
+        await DeviceLinkingTests.waitUntil { runtime.deviceLinking.renames.count == 2 }
+        await DeviceLinkingTests.waitUntil { !model.isBusy(.device(slotIdHex: me.slotIdHex)) }
 
-        #expect(runtime.deviceLinking.renames.map(\.label) == ["Office Mac"])
+        #expect(runtime.deviceLinking.renames.map(\.label) == ["Studio Mac", "Office Mac"])
         #expect(model.thisDevice?.label == "Office Mac")
+    }
+
+    /// Settings can clear this Mac's name, as MDK allows, through the same writer.
+    @Test func settingsCanClearThisMacsName() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.deviceGroupsEnabled = true
+        var me = DeviceLinkingTests.makeDevice("a", thisDevice: true)
+        me.label = "Mac"
+        runtime.deviceLinking.devices = [me]
+        let model = DeviceLinkingViewModel(accountRef: "a", accountIdHex: "a", runtime: runtime)
+        await model.refreshAll()
+
+        #expect(await model.rename(slotIdHex: me.slotIdHex, label: "  "))
+        await DeviceLinkingTests.waitUntil { model.thisDevice?.label == "" }
+
+        #expect(runtime.deviceLinking.renames.map(\.label) == [""])
     }
 
     @Test func aNameSomeoneElseGaveFirstStands() async {

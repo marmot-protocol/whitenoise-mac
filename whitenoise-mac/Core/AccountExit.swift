@@ -30,6 +30,9 @@ enum AccountExit {
         else { return }
         let wasActive = workspace.activeAccountId == account.id
         let selectedGroupId = wasActive ? workspace.selectedChat?.id : nil
+        // MDK has signed it out already, so the app follows even if the next read fails. The event
+        // fires once; restoring the old session on a failed read would leave its chats showing.
+        workspace.accountRoster.markSignedOut(accountId: account.id)
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)
             if wasActive {
@@ -38,7 +41,8 @@ enum AccountExit {
                 workspace.cancelChatListReload()
                 workspace.stopChatListListener()
             }
-            try await finishSigningOut(accountId: account.id, in: workspace, client: client)
+            try await finishSigningOut(
+                accountId: account.id, in: workspace, client: client, keepingListIfReadFails: true)
         } catch {
             if wasActive, workspace.activeAccountId == account.id {
                 await workspace.restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
@@ -61,12 +65,19 @@ enum AccountExit {
     }
 
     /// The steps after MDK's sign-out, shared by Sign Out and `leaveSignedOutAccount`.
+    /// `keepingListIfReadFails` carries on with the installed list when the reload fails, for an
+    /// account the list already shows signed out; the failure is still reported.
     static func finishSigningOut(
-        accountId: String, in workspace: WorkspaceState, client: any MarmotRuntime
+        accountId: String, in workspace: WorkspaceState, client: any MarmotRuntime,
+        keepingListIfReadFails: Bool = false
     ) async throws {
         workspace.clearComposerDrafts(forAccountId: accountId)
         workspace.clearMediaReferenceResolutionCache(forAccountId: accountId)
-        try await workspace.accountRoster.reload(from: client)
+        do {
+            try await workspace.accountRoster.reload(from: client)
+        } catch  where keepingListIfReadFails && !(error is CancellationError) {
+            workspace.lastError = UserFacingError.message(for: error)
+        }
         workspace.removeChats(forAccountId: accountId)
 
         // `activeAccountId` may have changed during the awaits above — e.g. the user

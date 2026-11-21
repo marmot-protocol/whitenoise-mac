@@ -69,10 +69,27 @@ struct AccountRosterTests {
         runtime.userProfileGateEnabled = true
         let reading = Task { try await roster.reload(from: runtime) }
         while !runtime.didReachUserProfileGate { await Task.yield() }
-        roster.updateProfile(accountId: id, displayName: "Studio", pictureURL: nil)
+        roster.updateProfile(accountId: id, displayName: "Studio", pictureURL: nil, confirmed: true)
         runtime.releaseUserProfileGate()
         _ = try await reading.value
 
         #expect(roster.accounts.first?.displayName == "Studio")
+    }
+
+    /// A name only read from MDK (not just saved) isn't replayed over a reload, which is newer.
+    @Test func anUnconfirmedProfileValueIsNotReplayed() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let roster = AccountRoster()
+        let before = try await roster.reload(from: runtime)
+        let account = try #require(before.first)
+
+        runtime.userProfileGateEnabled = true
+        let reading = Task { try await roster.reload(from: runtime) }
+        while !runtime.didReachUserProfileGate { await Task.yield() }
+        roster.updateProfile(accountId: account.id, displayName: "Older Read", pictureURL: nil)
+        runtime.releaseUserProfileGate()
+        _ = try await reading.value
+
+        #expect(roster.accounts.first?.displayName == account.displayName)
     }
 }

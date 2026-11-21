@@ -373,7 +373,7 @@ extension WorkspaceState {
             guard activeAccountId == accountId else { return }
             profileDraft = ProfileDraft(profile: published, fallbackName: activeAccount.displayName)
             let displayName = profileDraft.primaryDisplayName(fallback: activeAccount.displayName)
-            updateActiveAccountProfile(displayName: displayName, pictureURL: profileDraft.picture)
+            updateActiveAccountProfile(displayName: displayName, pictureURL: profileDraft.picture, confirmed: true)
             // Only a publish that landed moves the baseline, which is what puts Cancel and Save
             // away. A failure leaves the fields as typed against the old baseline, so the actions
             // stay up and the same Save can be pressed again.

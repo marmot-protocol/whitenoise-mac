@@ -27,15 +27,15 @@ final class AccountRoster {
     /// Reloads not yet installed, so `clear()` can stop them and a profile edit knows which of them
     /// may have read the old name.
     @ObservationIgnored private var inFlight: [UUID: Task<[AccountItem], Error>] = [:]
-    /// Names and pictures shown by `updateProfile` while reloads that may have read the old ones are
-    /// still in flight. Each is applied to those reloads as they land and dropped after the last.
-    @ObservationIgnored private var profileEdits: [ProfileEdit] = []
+    /// Changes MDK already holds, shown before a reload has them (a saved name, an account MDK signed
+    /// out). Each is applied again to the reloads that were in flight when it was made, since those
+    /// may have read the old value, and dropped after the last of them lands.
+    @ObservationIgnored private var edits: [Edit] = []
 
-    private struct ProfileEdit {
+    private struct Edit {
         let accountId: String
-        let displayName: String
-        let pictureURL: String?
         let readsBefore: Set<UUID>
+        let apply: (AccountItem) -> AccountItem
     }
 
     init(accounts: [AccountItem] = []) {
@@ -60,8 +60,8 @@ final class AccountRoster {
             // Cleared while reading: what was read belongs to the list that was cleared.
             try Task.checkCancellation()
             guard let self else { return items }
-            for edit in self.profileEdits where edit.readsBefore.contains(id) {
-                items = items.map { $0.id == edit.accountId ? Self.edited($0, edit) : $0 }
+            for edit in self.edits where edit.readsBefore.contains(id) {
+                items = items.map { $0.id == edit.accountId ? edit.apply($0) : $0 }
             }
             self.accounts = items
             return items
@@ -72,7 +72,7 @@ final class AccountRoster {
             guard let self else { return }
             self.inFlight[id] = nil
             let remaining = Set(self.inFlight.keys)
-            self.profileEdits.removeAll { $0.readsBefore.isDisjoint(with: remaining) }
+            self.edits.removeAll { $0.readsBefore.isDisjoint(with: remaining) }
         }
         return try await read.value
     }
@@ -100,34 +100,43 @@ final class AccountRoster {
     func clear() {
         for read in inFlight.values { read.cancel() }
         inFlight = [:]
-        profileEdits = []
+        edits = []
         tail = nil
         accounts = []
     }
 
-    /// Shows a name or picture MDK now holds for `accountId` right away. A reload already in flight
-    /// may have read the old one, so the edit is applied to it again when it lands.
-    func updateProfile(accountId: String, displayName: String, pictureURL: String?) {
-        let edit = ProfileEdit(
-            accountId: accountId, displayName: displayName, pictureURL: pictureURL,
-            readsBefore: Set(inFlight.keys))
-        if !edit.readsBefore.isEmpty { profileEdits.append(edit) }
-        accounts = accounts.map { $0.id == accountId ? Self.edited($0, edit) : $0 }
+    /// Shows a name or picture for `accountId` right away. `confirmed` when MDK now holds it (the
+    /// user just saved it): then a reload already in flight, which may have read the old one, gets
+    /// it applied again when it lands. A value merely read from MDK isn't replayed over later reads.
+    func updateProfile(accountId: String, displayName: String, pictureURL: String?, confirmed: Bool = false) {
+        apply(to: accountId, replayingOverReloads: confirmed) { account in
+            AccountItem(
+                id: account.id, accountRef: account.accountRef, displayName: displayName,
+                accountIdHex: account.accountIdHex, npub: account.npub, pictureURL: pictureURL,
+                localSigning: account.localSigning, externalSigning: account.externalSigning,
+                isRunning: account.isRunning, signedOut: account.signedOut, unlinked: account.unlinked)
+        }
     }
 
-    private static func edited(_ account: AccountItem, _ edit: ProfileEdit) -> AccountItem {
-        AccountItem(
-            id: account.id,
-            accountRef: account.accountRef,
-            displayName: edit.displayName,
-            accountIdHex: account.accountIdHex,
-            npub: account.npub,
-            pictureURL: edit.pictureURL,
-            localSigning: account.localSigning,
-            externalSigning: account.externalSigning,
-            isRunning: account.isRunning,
-            signedOut: account.signedOut,
-            unlinked: account.unlinked
-        )
+    /// Shows `accountId` signed out right away: MDK signed it out (another device unlinked this Mac)
+    /// before the app heard of it. A reload already in flight read it signed in, so it is applied
+    /// again to those; any read that starts later gets it from MDK.
+    func markSignedOut(accountId: String) {
+        apply(to: accountId, replayingOverReloads: true) { account in
+            AccountItem(
+                id: account.id, accountRef: account.accountRef, displayName: account.displayName,
+                accountIdHex: account.accountIdHex, npub: account.npub, pictureURL: account.pictureURL,
+                localSigning: account.localSigning, externalSigning: account.externalSigning,
+                isRunning: false, signedOut: true, unlinked: account.unlinked)
+        }
+    }
+
+    private func apply(
+        to accountId: String, replayingOverReloads: Bool, _ change: @escaping (AccountItem) -> AccountItem
+    ) {
+        if replayingOverReloads, !inFlight.isEmpty {
+            edits.append(Edit(accountId: accountId, readsBefore: Set(inFlight.keys), apply: change))
+        }
+        accounts = accounts.map { $0.id == accountId ? change($0) : $0 }
     }
 }

@@ -168,7 +168,8 @@ extension WorkspaceState {
             publishedProfile = profileDraft
             updateActiveAccountProfile(
                 displayName: profileDraft.primaryDisplayName(fallback: account.displayName),
-                pictureURL: profileDraft.picture
+                pictureURL: profileDraft.picture,
+                confirmed: true
             )
 
             signUpDraft = SignUpDraft()
