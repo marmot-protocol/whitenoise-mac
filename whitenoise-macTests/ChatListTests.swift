@@ -1519,9 +1519,18 @@ struct ChatListTests: WorkspaceTestSupport {
             kind: 1210,
             recordedAt: 503
         )
+        let comment = timelineMessage(
+            id: String(repeating: "9", count: 64),
+            groupIdHex: "group",
+            sender: sender,
+            plaintext: "The café comment shipped",
+            kind: 1111,
+            tags: [MessageTagFfi(values: ["k", "9"])],
+            recordedAt: 504
+        )
         runtime.installTimelinePage(
             TimelinePageFfi(
-                messages: olderRows + [resolvedEdit, deleted, invalidated, systemRow],
+                messages: olderRows + [resolvedEdit, deleted, invalidated, systemRow, comment],
                 hasMoreBefore: false,
                 hasMoreAfter: false
             ),
@@ -1554,7 +1563,8 @@ struct ChatListTests: WorkspaceTestSupport {
             checkCancellation: {}
         )
 
-        #expect(results.map(\.messageId) == [resolvedEdit.messageIdHex, olderRows[3].messageIdHex])
+        #expect(
+            results.map(\.messageId) == [comment.messageIdHex, resolvedEdit.messageIdHex, olderRows[3].messageIdHex])
         #expect(results.allSatisfy { $0.groupId == "group" && $0.chatTitle == "Test Group" })
         #expect(results.first?.snippet.match.lowercased() == "café")
         #expect(runtime.timelineMessageQueries.count == 3)
@@ -1602,11 +1612,15 @@ struct ChatListTests: WorkspaceTestSupport {
         runtime.timelineMessagesHandler = { query in
             let groupId = query.groupIdHex ?? "group"
             let messages = (0..<75).map { index in
-                timelineMessage(
+                // The second chat's newest match is a NIP-22 comment, which search covers too.
+                let isComment = groupId == "second" && index == 74
+                return timelineMessage(
                     id: String(format: "%064x", index + (groupId == "first" ? 1 : 1_000)),
                     groupIdHex: groupId,
                     sender: sender,
                     plaintext: "shared needle \(index)",
+                    kind: isComment ? 1111 : 9,
+                    tags: isComment ? [MessageTagFfi(values: ["k", "9"])] : [],
                     recordedAt: UInt64(index + (groupId == "first" ? 1 : 1_000))
                 )
             }

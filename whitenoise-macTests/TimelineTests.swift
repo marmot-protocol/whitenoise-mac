@@ -9644,6 +9644,34 @@ struct TimelineTests: WorkspaceTestSupport {
                 ))
     }
 
+    /// MDK lets an admin remove another member's chat message, not their NIP-22 comment: a comment
+    /// can still be hidden here, but not deleted for everyone.
+    @MainActor
+    @Test func groupAdminCannotDeleteAnIncomingCommentForEveryone() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: true)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let comment = MessageItem(
+            id: "incoming-group-comment",
+            senderName: "Alice",
+            body: "A comment",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineKind: 1111,
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        await state.refreshConversationMetadata(for: chat)
+
+        let capability = state.messageDeletionCapability(comment)
+        #expect(capability.canDeleteForMe)
+        #expect(!capability.canDeleteForEveryone)
+    }
+
     @MainActor
     @Test func newerFailedConversationMetadataRefreshInvalidatesHeldOlderResult() async throws {
         let account = desktopAccount()

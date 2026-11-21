@@ -745,7 +745,11 @@ nonisolated extension MessageItem {
     /// other kind-1111 event is app-defined and owns its tags.
     static func isRecognizedComment(kind: UInt64, tags: [MessageTagFfi]) -> Bool {
         kind == MarmotTimelineKind.comment
-            && tags.contains { $0.values.first == "k" && $0.values.dropFirst().first.flatMap(UInt64.init) != nil }
+            && tags.contains { tag in
+                // Rust's `u64` parse, which MDK uses, refuses a sign Swift's accepts on "-0".
+                guard tag.values.first == "k", let value = tag.values.dropFirst().first else { return false }
+                return !value.hasPrefix("-") && UInt64(value) != nil
+            }
     }
 
     /// A text message as MDK treats one: kind 9 or a recognised comment. Search covers these.

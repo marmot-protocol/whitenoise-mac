@@ -12,13 +12,13 @@ struct CommentReplyTests {
     private static let commentId = String(repeating: "c", count: 64)
     private static let commentTags = [["E", parentId], ["K", "9"], ["e", parentId], ["k", "9"]]
 
-    private static func comment(tags: [[String]] = commentTags) -> TimelineMessageRecordFfi {
+    private static func comment(tags: [[String]] = commentTags, sender: String = "bob") -> TimelineMessageRecordFfi {
         let preview = TimelineReplyPreviewFfi(
             messageIdHex: parentId, sender: "alice", plaintext: "Lunch at noon?",
             contentTokens: emptyMarkdownDocument(), kind: 9, mediaJson: nil, media: [],
             agentTextStreamJson: nil, deleted: false, invalidationStatus: nil)
         return timelineMessage(
-            id: commentId, groupIdHex: "group", sender: "bob", plaintext: "Agreed", kind: 1111,
+            id: commentId, groupIdHex: "group", sender: sender, plaintext: "Agreed", kind: 1111,
             tags: tags.map { MessageTagFfi(values: $0) }, recordedAt: 2,
             replyToMessageIdHex: parentId, replyPreview: preview)
     }
@@ -44,11 +44,15 @@ struct CommentReplyTests {
 
     /// A kind-1111 event without a numeric `k` tag is app-defined, as MDK treats it: no bubble, no
     /// Edit (MDK would refuse it), and search leaves it out.
-    @Test func aKind1111WithoutANumericKTagStaysAnAppDefinedEvent() throws {
-        let unmarked = Self.comment(tags: [["e", Self.parentId], ["k", "nine"]])
+    /// Own events, so `canEdit` would hold for a bubble. `-0` parses in Swift but not in Rust's
+    /// `u64`, which MDK uses.
+    @Test(arguments: ["nine", "-0"])
+    func aKind1111WithoutANumericKTagStaysAnAppDefinedEvent(kValue: String) throws {
+        let unmarked = Self.comment(tags: [["e", Self.parentId], ["k", kValue]], sender: "self")
 
         let item = try #require(Self.items(unmarked).first)
 
+        #expect(item.isOutgoing)
         #expect(item.presentation == .unsupported)
         #expect(!item.canEdit)
         #expect(ConversationSearchCorpus.entry(for: unmarked) == nil)
