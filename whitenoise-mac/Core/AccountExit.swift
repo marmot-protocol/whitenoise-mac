@@ -66,7 +66,12 @@ enum AccountExit {
         guard let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == accountIdHex })
         else { return UnlinkedRemoval(outcome: nil, leftBehind: nil) }
         let outcome = await workspace.removeAccount(account)
-        // `removeAccount` reports a failure through `lastError` and leaves the account listed.
+        // `removeAccount` reports a failure through `lastError` and leaves the account listed. MDK
+        // may have removed it anyway (an earlier wipe that reported incomplete cleanup), so ask MDK
+        // before offering another try.
+        if workspace.accounts.contains(where: { $0.id == account.id }), let client = workspace.client {
+            _ = try? await workspace.accountRoster.reload(from: client)
+        }
         let stillHere = workspace.accounts.contains { $0.id == account.id }
         return UnlinkedRemoval(outcome: outcome, leftBehind: stillHere ? account : nil)
     }

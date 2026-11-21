@@ -2506,6 +2506,10 @@
 
         func signOutAndWipe(accountRef: String) async throws -> WipeOutcomeFfi {
             wipedAccountRefs.append(accountRef)
+            // MDK refuses an account it no longer holds.
+            guard storedAccounts.contains(where: { $0.label == accountRef }) else {
+                throw MarmotKitError.UnknownAccount(accountRef: accountRef)
+            }
             try await removeAccount(accountRef: accountRef)
             return wipeOutcome
         }
