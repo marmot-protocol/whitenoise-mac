@@ -2818,7 +2818,6 @@ nonisolated enum TemporaryOutgoingMediaFile {
 
 nonisolated enum MessagePresentation: Hashable {
     case chat
-    case agentStreamStart
     case agentActivity
     case agentOperation
     case groupSystem
@@ -2836,8 +2835,6 @@ nonisolated enum MessagePresentation: Hashable {
         switch self {
         case .chat:
             return "text.bubble"
-        case .agentStreamStart:
-            return "sparkles"
         case .agentActivity:
             return "waveform.path"
         case .agentOperation:
@@ -2855,8 +2852,6 @@ nonisolated enum MessagePresentation: Hashable {
         switch self {
         case .chat:
             return "chat"
-        case .agentStreamStart:
-            return "agent-stream-start"
         case .agentActivity:
             return "agent-activity"
         case .agentOperation:
@@ -2993,20 +2988,18 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     ]
 
     /// Whether MarmotKit counts this row toward a chat's unread state, and so accepts it as a
-    /// read-marker target. Chat messages and polls always count; membership and admin changes
-    /// count only in a chat MarmotKit classifies as a group (`ChatItem.isAuthoritativeGroup`). A
-    /// read marker parked on the newest chat message leaves any member change after it unread,
-    /// which is why the marker must consider these rows too.
+    /// read-marker target. Chat messages (thread messages included, since MarmotKit 0.19.0) and
+    /// polls always count; membership and admin changes count only in a chat MarmotKit classifies
+    /// as a group (`ChatItem.isAuthoritativeGroup`). A read marker parked on the newest chat
+    /// message leaves any member change after it unread, which is why the marker must consider
+    /// these rows too.
     nonisolated func countsAsReadActivity(inAuthoritativeGroup isAuthoritativeGroup: Bool) -> Bool {
         switch presentation {
-        // MDK keeps NIP-22 comments out of read tracking, so one is never a read-marker target.
-        case .chat:
-            return timelineKind != Self.nip22CommentKind
-        case .poll:
+        case .chat, .poll:
             return true
         case .groupSystem:
             return isAuthoritativeGroup && groupSystemType.map(Self.readActivityGroupSystemTypes.contains) == true
-        case .agentStreamStart, .agentActivity, .agentOperation, .unsupported:
+        case .agentActivity, .agentOperation, .unsupported:
             return false
         }
     }

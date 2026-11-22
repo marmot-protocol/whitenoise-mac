@@ -50,7 +50,7 @@ struct DisplayCopyTests {
         )
         expectResolvableSymbols(
             [
-                MessagePresentation.chat, .agentStreamStart, .agentActivity, .agentOperation, .groupSystem,
+                MessagePresentation.chat, .agentActivity, .agentOperation, .groupSystem,
                 .poll, .unsupported,
             ].map(\.systemImage)
         )
@@ -62,7 +62,7 @@ struct DisplayCopyTests {
 
     @Test func messagePresentationDebugLabelsAreDistinct() {
         let labels = [
-            MessagePresentation.chat, .agentStreamStart, .agentActivity, .agentOperation, .groupSystem, .poll,
+            MessagePresentation.chat, .agentActivity, .agentOperation, .groupSystem, .poll,
             .unsupported,
         ].map(\.debugLabel)
         #expect(Set(labels).count == labels.count)

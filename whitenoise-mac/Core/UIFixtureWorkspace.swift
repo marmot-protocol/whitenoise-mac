@@ -354,7 +354,6 @@
                 kind: 9,
                 mediaJson: nil,
                 media: [],
-                agentTextStreamJson: nil,
                 deleted: false,
                 invalidationStatus: nil
             )

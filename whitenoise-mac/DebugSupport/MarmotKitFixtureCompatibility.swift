@@ -362,7 +362,7 @@
             replyPreview: TimelineReplyPreviewFfi?,
             mediaJson: String?,
             media: [MediaAttachmentReferenceFfi],
-            agentTextStreamJson: String?,
+            thread: TimelineThreadRefFfi? = nil,
             groupSystem: GroupSystemEventFfi?,
             reactions: TimelineReactionSummaryFfi,
             deleted: Bool,
@@ -391,11 +391,11 @@
                 receivedAt: receivedAt,
                 replyToMessageIdHex: replyToMessageIdHex,
                 replyPreview: replyPreview,
+                thread: thread,
                 mediaJson: mediaJson,
                 media: media.enumerated().map {
                     .accepted(attachmentIndex: UInt32(clamping: $0.offset), reference: $0.element)
                 },
-                agentTextStreamJson: agentTextStreamJson,
                 groupSystem: groupSystem,
                 reactions: reactions,
                 edit: nil,
@@ -419,12 +419,14 @@
             kind: UInt64,
             mediaJson: String?,
             media: [MediaAttachmentReferenceFfi],
-            agentTextStreamJson: String?,
+            replyToMessageIdHex: String? = nil,
+            thread: TimelineThreadRefFfi? = nil,
             deleted: Bool,
             invalidationStatus: String?
         ) {
             self.init(
                 messageIdHex: messageIdHex,
+                replyToMessageIdHex: replyToMessageIdHex,
                 sender: sender,
                 plaintext: plaintext,
                 contentTokens: contentTokens,
@@ -434,10 +436,10 @@
                 media: media.enumerated().map {
                     .accepted(attachmentIndex: UInt32(clamping: $0.offset), reference: $0.element)
                 },
-                agentTextStreamJson: agentTextStreamJson,
                 deleted: deleted,
                 deletionSource: .unknown,
-                invalidationStatus: invalidationStatus
+                invalidationStatus: invalidationStatus,
+                thread: thread
             )
         }
     }

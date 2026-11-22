@@ -116,7 +116,7 @@ struct HistoryNoticesTests: WorkspaceTestSupport {
             .historyNoticesChanged(accountIdHex: AccountItem.samples[1].accountIdHex, accountLabel: "lab")
         )
         runtime.eventHub.emit(
-            .agentStreamActivity(accountIdHex: Self.account.accountIdHex, accountLabel: "jeff")
+            .keyPackageRefreshOverdueChanged(accountIdHex: Self.account.accountIdHex, accountLabel: "jeff")
         )
         // A matching event queued after the ignored ones proves they were consumed and skipped.
         runtime.eventHub.emit(

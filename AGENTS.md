@@ -298,6 +298,7 @@ build.
   schema 3 to 4, which 0.15.0 refuses. 0.17.0 moves account databases through 202–207 (schema
   201 → 207), which 0.16.0 refuses. 0.18.0 moves account databases through 208–216 (schema
   207 → 216), `shared.sqlite3` from 4 to 5 and the directory cache from 2 to 3, which 0.17.0
+  refuses. 0.19.0 moves account databases through 217–218 (schema 216 → 218), which 0.18.0
   refuses. An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every
@@ -306,7 +307,15 @@ build.
   `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md`,
   `docs/MarmotKit-0.12.0-migration.md`, `docs/MarmotKit-0.14.0-migration.md`,
   `docs/MarmotKit-0.15.0-migration.md`, `docs/MarmotKit-0.16.0-migration.md`,
-  `docs/MarmotKit-0.17.0-migration.md` and `docs/MarmotKit-0.18.0-migration.md`.
+  `docs/MarmotKit-0.17.0-migration.md`, `docs/MarmotKit-0.18.0-migration.md` and
+  `docs/MarmotKit-0.19.0-migration.md`.
+- NIP-22 thread messages (kind 1111) are chat. MDK marks each one with `thread` (root and parent,
+  kept on a deleted row) on timeline records and reply previews, and counts it wherever kind 9
+  counts: unread, mentions, read position, notifications, search, author edits. Recognise one by
+  `MessageItem.isThreadMessage(kind:thread:)`, never by parsing its tags; a kind 1111 without
+  `thread` is a custom event. The Mac has no thread view, so it draws a thread message as an inline
+  reply and answers any row with `replyToMessage`, not `sendThreadMessage`. Admin removal stays
+  kind 9 only.
 - Start a direct chat with `startDirectConversation` (both accounts founding admins, retry-safe),
   not `createGroup` plus a promotion. The one exception is an explicitly requested *additional*
   direct chat with someone, which that call would answer with the existing one.

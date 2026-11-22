@@ -4,22 +4,26 @@ import Testing
 
 @testable import whitenoise_mac
 
-/// NIP-22 comments (kind 1111) from other clients. Since 0.18.0 MDK projects a recognised comment's
-/// parent as its reply target and quote, as for a chat reply, so the app draws it as an ordinary
-/// reply, one level deep. MDK recognises a comment by a numeric `k` tag; the app uses the same rule.
+/// NIP-22 thread messages (kind 1111) from other clients. MDK marks each one with `thread` and
+/// projects its parent as the reply target and quote, as for a chat reply, so the app draws it as an
+/// ordinary reply, one level deep. The app never reads the tags: since 0.19.0 a kind 1111 without
+/// `thread` is a custom event, whatever it carries.
 struct CommentReplyTests {
     private static let parentId = String(repeating: "a", count: 64)
     private static let commentId = String(repeating: "c", count: 64)
     private static let commentTags = [["E", parentId], ["K", "9"], ["e", parentId], ["k", "9"]]
+    private static let placement = TimelineThreadRefFfi(rootMessageIdHex: parentId, parentMessageIdHex: parentId)
 
-    private static func comment(tags: [[String]] = commentTags, sender: String = "bob") -> TimelineMessageRecordFfi {
+    private static func comment(
+        thread: TimelineThreadRefFfi? = placement, sender: String = "bob"
+    ) -> TimelineMessageRecordFfi {
         let preview = TimelineReplyPreviewFfi(
             messageIdHex: parentId, sender: "alice", plaintext: "Lunch at noon?",
             contentTokens: emptyMarkdownDocument(), kind: 9, mediaJson: nil, media: [],
-            agentTextStreamJson: nil, deleted: false, invalidationStatus: nil)
+            deleted: false, invalidationStatus: nil)
         return timelineMessage(
             id: commentId, groupIdHex: "group", sender: sender, plaintext: "Agreed", kind: 1111,
-            tags: tags.map { MessageTagFfi(values: $0) }, recordedAt: 2,
+            tags: commentTags.map { MessageTagFfi(values: $0) }, recordedAt: 2, thread: thread,
             replyToMessageIdHex: parentId, replyPreview: preview)
     }
 
@@ -30,7 +34,8 @@ struct CommentReplyTests {
             senderProfiles: ["alice": ChatPeerProfile(accountIdHex: "alice", displayName: "Alice", pictureURL: nil)])
     }
 
-    /// A comment reads as a chat bubble quoting the parent MDK names, and its quote opens that parent.
+    /// A thread message reads as a chat bubble quoting the parent MDK names, and its quote opens
+    /// that parent.
     @Test func aCommentReadsAsAReplyQuotingItsParent() throws {
         let item = try #require(Self.items(Self.comment()).first)
 
@@ -42,13 +47,11 @@ struct CommentReplyTests {
         #expect(item.replyContext?.body == "Lunch at noon?")
     }
 
-    /// A kind-1111 event without a numeric `k` tag is app-defined, as MDK treats it: no bubble, no
-    /// Edit (MDK would refuse it), and search leaves it out.
-    /// Own events, so `canEdit` would hold for a bubble. `-0` parses in Swift but not in Rust's
-    /// `u64`, which MDK uses.
-    @Test(arguments: ["nine", "-0"])
-    func aKind1111WithoutANumericKTagStaysAnAppDefinedEvent(kValue: String) throws {
-        let unmarked = Self.comment(tags: [["e", Self.parentId], ["k", kValue]], sender: "self")
+    /// A kind-1111 event MDK leaves without `thread` (no parent, or no NIP-22 marks at all) is
+    /// app-defined, even with thread-shaped tags: no bubble, no Edit, and search leaves it out.
+    /// An own event, so `canEdit` would hold for a bubble.
+    @Test func aKind1111WithoutThreadPlacementStaysAnAppDefinedEvent() throws {
+        let unmarked = Self.comment(thread: nil, sender: "self")
 
         let item = try #require(Self.items(unmarked).first)
 
@@ -58,12 +61,12 @@ struct CommentReplyTests {
         #expect(ConversationSearchCorpus.entry(for: unmarked) == nil)
     }
 
-    /// An author's retraction clears a comment's tags; MDK keeps its parent, so the row stays its
-    /// author's deleted bubble rather than turning into a centred notice.
+    /// An author's retraction clears a thread message's tags; MDK keeps its `thread`, so the row
+    /// stays its author's deleted bubble rather than turning into a centred notice.
     @Test func aRetractedCommentStaysItsAuthorsDeletedBubble() throws {
         let retracted = timelineMessage(
             id: Self.commentId, groupIdHex: "group", sender: "bob", plaintext: "", kind: 1111, tags: [],
-            recordedAt: 2, replyToMessageIdHex: Self.parentId, deleted: true)
+            recordedAt: 2, thread: Self.placement, replyToMessageIdHex: Self.parentId, deleted: true)
 
         let item = try #require(Self.items(retracted).first)
 
@@ -72,20 +75,37 @@ struct CommentReplyTests {
         #expect(item.senderAccountIdHex == "bob")
     }
 
-    /// Search finds a comment like any message on screen.
+    /// An inline reply to a thread message quotes its text: the preview carries the target's
+    /// `thread`, so the quote is a message, not an unsupported event.
+    @Test func anInlineReplyQuotesAThreadMessage() throws {
+        let preview = TimelineReplyPreviewFfi(
+            messageIdHex: Self.commentId, sender: "alice", plaintext: "Agreed",
+            contentTokens: emptyMarkdownDocument(), kind: 1111, mediaJson: nil, media: [],
+            replyToMessageIdHex: Self.parentId, thread: Self.placement, deleted: false, invalidationStatus: nil)
+        let reply = timelineMessage(
+            id: String(repeating: "d", count: 64), groupIdHex: "group", sender: "bob", plaintext: "Same",
+            recordedAt: 3, replyToMessageIdHex: Self.commentId, replyPreview: preview)
+
+        let item = try #require(Self.items(reply).first)
+
+        #expect(item.replyContext?.targetMessageId == Self.commentId)
+        #expect(item.replyContext?.body == "Agreed")
+    }
+
+    /// Search finds a thread message like any message on screen.
     @Test func searchFindsAComment() {
         #expect(ConversationSearchCorpus.entry(for: Self.comment()) != nil)
     }
 
-    /// MDK keeps comments out of read tracking, so a comment is never the read-marker target: one
-    /// after an unread message must not mark that message read.
-    @Test func aCommentIsNeverAReadMarkerTarget() throws {
+    /// Since 0.19.0 MDK counts a thread message toward unread and accepts it as the read-marker
+    /// target, so reading one marks the chat read up to it.
+    @Test func aCommentIsAReadMarkerTarget() throws {
         let item = try #require(Self.items(Self.comment()).first)
 
-        #expect(!item.countsAsReadActivity(inAuthoritativeGroup: true))
+        #expect(item.countsAsReadActivity(inAuthoritativeGroup: true))
     }
 
-    /// An author's edit of their comment applies live, as MDK accepts edits to recognised comments.
+    /// An author's edit of their thread message applies live, as MDK accepts edits to them.
     @MainActor
     @Test func anAuthorsEditOfACommentAppliesLive() throws {
         let base = MessageItem(
