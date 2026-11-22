@@ -434,13 +434,32 @@ nonisolated protocol MarmotRuntime: Sendable {
         revision: MessageDraftRevisionFfi,
         attachmentId: String
     ) throws -> Data?
-    func saveMessageDraftIfRevision(
+    /// Keeps every attachment the draft holds that `mediaAttachments` does not name; remove one with
+    /// `.removed(id:)`. `.retained(id:)` keeps a held body without copying it again.
+    func saveMessageDraftInputsIfRevision(
         accountRef: String,
         revision: MessageDraftRevisionFfi,
         content: String,
         replyToMessageIdHex: String?,
-        mediaAttachments: [MessageDraftAttachmentFfi]
+        mediaAttachments: [MessageDraftAttachmentInputFfi]
     ) throws -> SelectedMessageDraftFfi
+    /// Copies a host file into the account's encrypted media store as a file-backed draft
+    /// attachment. A draft cleared or sent during the copy discards it with
+    /// `MessageDraftRevisionConflict`. Cancel only through `control`.
+    func stageMessageDraftAttachmentFile(
+        accountRef: String,
+        revision: MessageDraftRevisionFfi,
+        request: MessageDraftAttachmentFileRequestFfi,
+        control: MediaFileTransferControlFfi
+    ) async throws -> SelectedMessageDraftFfi
+    /// A private plaintext copy of one draft attachment, inline or file-backed, released with
+    /// `releaseAttachmentHandoff`. Nil when the draft holds no such attachment.
+    func openMessageDraftAttachmentHandoff(
+        accountRef: String,
+        revision: MessageDraftRevisionFfi,
+        attachmentId: String,
+        control: MediaFileTransferControlFfi
+    ) async throws -> AttachmentHandoffFfi?
     func clearMessageDraftIfRevision(accountRef: String, revision: MessageDraftRevisionFfi) throws
         -> SelectedMessageDraftFfi
     func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi]
@@ -1813,20 +1832,40 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func saveMessageDraftIfRevision(
+    func saveMessageDraftInputsIfRevision(
         accountRef: String,
         revision: MessageDraftRevisionFfi,
         content: String,
         replyToMessageIdHex: String?,
-        mediaAttachments: [MessageDraftAttachmentFfi]
+        mediaAttachments: [MessageDraftAttachmentInputFfi]
     ) throws -> SelectedMessageDraftFfi {
-        try marmot.saveMessageDraftIfRevision(
+        try marmot.saveMessageDraftInputsIfRevision(
             accountRef: accountRef,
             revision: revision,
             content: content,
             replyToMessageIdHex: replyToMessageIdHex,
             mediaAttachments: mediaAttachments
         )
+    }
+
+    func stageMessageDraftAttachmentFile(
+        accountRef: String,
+        revision: MessageDraftRevisionFfi,
+        request: MessageDraftAttachmentFileRequestFfi,
+        control: MediaFileTransferControlFfi
+    ) async throws -> SelectedMessageDraftFfi {
+        try await marmot.stageMessageDraftAttachmentFile(
+            accountRef: accountRef, revision: revision, request: request, control: control)
+    }
+
+    func openMessageDraftAttachmentHandoff(
+        accountRef: String,
+        revision: MessageDraftRevisionFfi,
+        attachmentId: String,
+        control: MediaFileTransferControlFfi
+    ) async throws -> AttachmentHandoffFfi? {
+        try await marmot.openMessageDraftAttachmentHandoff(
+            accountRef: accountRef, revision: revision, attachmentId: attachmentId, control: control)
     }
 
     func clearMessageDraftIfRevision(accountRef: String, revision: MessageDraftRevisionFfi) throws

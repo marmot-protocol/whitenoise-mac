@@ -345,7 +345,13 @@
         var messageEditHistoryPages: [String: [TimelineEditHistoryPageFfi]] = [:]
         private(set) var messageEditHistoryRequests:
             [(messageIdHex: String, beforeEditedAt: UInt64?, beforeMessageIdHex: String?, limit: UInt32)] = []
-        var selectedDrafts: [String: SelectedMessageDraftFfi] = [:]
+        /// Under `recordedStateLock`, so a draft write checks its revision, stores its body and
+        /// replaces the revision in one step, as MDK's transaction does.
+        var selectedDrafts: [String: SelectedMessageDraftFfi] {
+            get { recordedStateLock.withLock { _selectedDrafts } }
+            set { recordedStateLock.withLock { _selectedDrafts = newValue } }
+        }
+        private var _selectedDrafts: [String: SelectedMessageDraftFfi] = [:]
         var localSendStatuses: [String: LocalSendStatusFfi] = [:]
         var localSendStatusFallback: LocalSendStatusFfi?
         private(set) var sentTextClientTokens: [String] = []
@@ -512,6 +518,42 @@
         let uploadReleaseGate = UploadReleaseGate()
         private var _uploadedAttachmentSequence = 0
         private var storedMessageDraftsByAccountRef: [String: [String: MessageDraftFfi]] = [:]
+        /// Draft attachments held as files (`stageMessageDraftAttachmentFile`), by account and group.
+        /// Their bytes sit in `storedMessageDraftsByAccountRef` like an inline body's.
+        private var fileBackedDraftAttachmentIds: [String: [String: Set<String>]] = [:]
+        /// Bumped whenever a group's draft ends (a clear), as MDK's composition is: a file still
+        /// copying into the ended draft never joins the next one.
+        private var draftCompositions: [String: [String: Int]] = [:]
+        /// Every file a staging call read, in call order.
+        var stagedDraftAttachmentFiles: [StagedDraftAttachmentFile] {
+            recordedStateLock.withLock { _stagedDraftAttachmentFiles }
+        }
+        private var _stagedDraftAttachmentFiles: [StagedDraftAttachmentFile] = []
+        /// Every attachment list a revisioned inputs save was given, in call order.
+        var savedDraftAttachmentInputs: [[MessageDraftAttachmentInputFfi]] {
+            recordedStateLock.withLock { _savedDraftAttachmentInputs }
+        }
+        private var _savedDraftAttachmentInputs: [[MessageDraftAttachmentInputFfi]] = []
+        /// Holds a staging call after it read its source and before the attachment joins the draft,
+        /// as MDK's copy into its media store would.
+        let stageDraftAttachmentFileGate = AsyncFfiGate()
+        /// Staging calls answered with `MessageDraftRevisionConflict` before any copy, as for a
+        /// revision a concurrent save replaced.
+        var stageDraftAttachmentFileConflicts: Int {
+            get { recordedStateLock.withLock { _stageDraftAttachmentFileConflicts } }
+            set { recordedStateLock.withLock { _stageDraftAttachmentFileConflicts = newValue } }
+        }
+        private var _stageDraftAttachmentFileConflicts = 0
+        var stageDraftAttachmentFileCallCount: Int {
+            recordedStateLock.withLock { _stageDraftAttachmentFileCallCount }
+        }
+        private var _stageDraftAttachmentFileCallCount = 0
+        /// MDK's bound on the bytes one draft's attachments may total; a copy past it is refused.
+        var draftAttachmentBytesLimit: Int? {
+            get { recordedStateLock.withLock { _draftAttachmentBytesLimit } }
+            set { recordedStateLock.withLock { _draftAttachmentBytesLimit = newValue } }
+        }
+        private var _draftAttachmentBytesLimit: Int?
         private var messageDraftTimestamp: Int64 = 1_700_000_000_000
         private let messageDraftReadGate = BlockingFfiGate()
         var messageDraftReadGateEnabled: Bool {
@@ -3849,18 +3891,17 @@
 
         func selectedMessageDraft(accountRef: String, groupIdHex: String) throws -> SelectedMessageDraftFfi {
             recordSyncCall("selectedMessageDraft")
-            if let selected = selectedDrafts[groupIdHex] {
-                messageDraftReadGate.passIfArmed()
+            let selected = recordedStateLock.withLock { () -> SelectedMessageDraftFfi in
+                if let selected = _selectedDrafts[groupIdHex] { return selected }
+                let selected = SelectedMessageDraftFfi(
+                    revision: MessageDraftRevisionFfi(noPointer: .init()),
+                    draft: storedMessageDraftsByAccountRef[accountRef]?[groupIdHex].map {
+                        selectedDraftContentLocked(from: $0, accountRef: accountRef)
+                    }
+                )
+                _selectedDrafts[groupIdHex] = selected
                 return selected
             }
-            let stored = recordedStateLock.withLock {
-                storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
-            }
-            let selected = SelectedMessageDraftFfi(
-                revision: MessageDraftRevisionFfi(noPointer: .init()),
-                draft: stored.map { Self.selectedDraftContent(from: $0) }
-            )
-            selectedDrafts[groupIdHex] = selected
             messageDraftReadGate.passIfArmed()
             return selected
         }
@@ -3880,36 +3921,161 @@
             }
         }
 
-        func saveMessageDraftIfRevision(
+        func saveMessageDraftInputsIfRevision(
             accountRef: String,
             revision: MessageDraftRevisionFfi,
             content: String,
             replyToMessageIdHex: String?,
-            mediaAttachments: [MessageDraftAttachmentFfi]
+            mediaAttachments: [MessageDraftAttachmentInputFfi]
         ) throws -> SelectedMessageDraftFfi {
-            recordSyncCall("saveMessageDraftIfRevision")
-            guard let groupIdHex = selectedDrafts.first(where: { $0.value.revision === revision })?.key else {
-                throw FakeMarmotRuntimeError.unused
-            }
-            let draft = recordedStateLock.withLock {
-                messageDraftTimestamp += 1
+            recordSyncCall("saveMessageDraftInputsIfRevision")
+            return try recordedStateLock.withLock { () throws -> SelectedMessageDraftFfi in
+                let groupIdHex = try currentDraftGroupLocked(for: revision)
+                _savedDraftAttachmentInputs.append(mediaAttachments)
                 let stored = storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+                let held = stored?.mediaAttachments ?? []
+                var fileIds = fileBackedDraftAttachmentIds[accountRef]?[groupIdHex] ?? []
+                var named = Set<String>()
+                var kept: [MessageDraftAttachmentFfi] = []
+                for input in mediaAttachments {
+                    switch input {
+                    case .inline(let attachment):
+                        named.insert(attachment.id)
+                        fileIds.remove(attachment.id)
+                        kept.append(attachment)
+                    case .retained(let id):
+                        named.insert(id)
+                        guard let attachment = held.first(where: { $0.id == id }) else {
+                            throw MarmotKitError.InvalidMessageDraft(
+                                details: "a retained attachment is not in the draft")
+                        }
+                        kept.append(attachment)
+                    case .removed(let id):
+                        named.insert(id)
+                        fileIds.remove(id)
+                    }
+                }
+                // MDK keeps every held attachment the save does not name, after the named ones.
+                kept += held.filter { !named.contains($0.id) }
+                messageDraftTimestamp += 1
                 let draft = MessageDraftFfi(
                     groupIdHex: groupIdHex,
                     content: content,
                     replyToMessageIdHex: replyToMessageIdHex,
-                    mediaAttachments: mediaAttachments,
+                    mediaAttachments: kept,
                     createdAtMs: stored?.createdAtMs ?? messageDraftTimestamp,
                     updatedAtMs: messageDraftTimestamp
                 )
                 storedMessageDraftsByAccountRef[accountRef, default: [:]][groupIdHex] = draft
-                return draft
+                fileBackedDraftAttachmentIds[accountRef, default: [:]][groupIdHex] = fileIds
+                return replaceSelectedDraftLocked(draft, accountRef: accountRef, groupIdHex: groupIdHex)
             }
+        }
+
+        func stageMessageDraftAttachmentFile(
+            accountRef: String,
+            revision: MessageDraftRevisionFfi,
+            request: MessageDraftAttachmentFileRequestFfi,
+            control: MediaFileTransferControlFfi
+        ) async throws -> SelectedMessageDraftFfi {
+            let (groupIdHex, composition) = try recordedStateLock.withLock { () throws -> (String, Int) in
+                _stageDraftAttachmentFileCallCount += 1
+                if _stageDraftAttachmentFileConflicts > 0 {
+                    _stageDraftAttachmentFileConflicts -= 1
+                    throw MarmotKitError.MessageDraftRevisionConflict
+                }
+                let groupIdHex = try currentDraftGroupLocked(for: revision)
+                let held = storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]?.mediaAttachments ?? []
+                let heldBytes = held.reduce(0) { $0 + $1.plaintext.count }
+                if let limit = _draftAttachmentBytesLimit, heldBytes + Int(request.expectedSize ?? 0) > limit {
+                    throw MarmotKitError.InvalidMessageDraft(
+                        details: "the draft cannot hold this attachment within the upload bounds")
+                }
+                return (groupIdHex, draftCompositions[accountRef]?[groupIdHex] ?? 0)
+            }
+            let plaintext = try Data(contentsOf: URL(fileURLWithPath: request.sourcePath))
+            recordedStateLock.withLock {
+                _stagedDraftAttachmentFiles.append(
+                    StagedDraftAttachmentFile(groupIdHex: groupIdHex, request: request, plaintext: plaintext))
+            }
+            await stageDraftAttachmentFileGate.passIfArmed()
+            if control.isCancelled() { throw CancellationError() }
+            return try recordedStateLock.withLock { () throws -> SelectedMessageDraftFfi in
+                let stored = storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+                // A draft cleared (or sent) while the file copied discards the copy.
+                if draftCompositions[accountRef]?[groupIdHex] ?? 0 != composition {
+                    throw MarmotKitError.MessageDraftRevisionConflict
+                }
+                messageDraftTimestamp += 1
+                let attachment = MessageDraftAttachmentFfi(
+                    id: request.id,
+                    fileName: request.fileName,
+                    mediaType: request.mediaType,
+                    plaintext: plaintext,
+                    dim: request.dim,
+                    thumbhash: request.thumbhash,
+                    durationSeconds: request.durationSeconds,
+                    waveformSamples: request.waveformSamples
+                )
+                let draft = MessageDraftFfi(
+                    groupIdHex: groupIdHex,
+                    content: stored?.content ?? "",
+                    replyToMessageIdHex: stored?.replyToMessageIdHex,
+                    mediaAttachments: (stored?.mediaAttachments ?? []) + [attachment],
+                    createdAtMs: stored?.createdAtMs ?? messageDraftTimestamp,
+                    updatedAtMs: messageDraftTimestamp
+                )
+                storedMessageDraftsByAccountRef[accountRef, default: [:]][groupIdHex] = draft
+                fileBackedDraftAttachmentIds[accountRef, default: [:]][groupIdHex, default: []].insert(request.id)
+                return replaceSelectedDraftLocked(draft, accountRef: accountRef, groupIdHex: groupIdHex)
+            }
+        }
+
+        func openMessageDraftAttachmentHandoff(
+            accountRef: String,
+            revision: MessageDraftRevisionFfi,
+            attachmentId: String,
+            control: MediaFileTransferControlFfi
+        ) async throws -> AttachmentHandoffFfi? {
+            let attachment = try recordedStateLock.withLock { () throws -> MessageDraftAttachmentFfi? in
+                let groupIdHex = try currentDraftGroupLocked(for: revision)
+                return storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]?.mediaAttachments
+                    .first(where: { $0.id == attachmentId })
+            }
+            guard let attachment else { return nil }
+            let directory = URL(fileURLWithPath: storageRootPath, isDirectory: true)
+                .appendingPathComponent("handoff", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let lease = UUID().uuidString
+            let url = directory.appendingPathComponent(lease, isDirectory: false)
+            try attachment.plaintext.write(to: url)
+            return AttachmentHandoffFfi(
+                lease: lease,
+                path: url.path,
+                byteCount: UInt64(attachment.plaintext.count),
+                mediaType: attachment.mediaType,
+                fileName: attachment.fileName
+            )
+        }
+
+        /// The group a current revision selects. A revision a later write replaced is stale, as in
+        /// MDK, so the caller has to reload. Call under `recordedStateLock`.
+        private func currentDraftGroupLocked(for revision: MessageDraftRevisionFfi) throws -> String {
+            if let groupIdHex = _selectedDrafts.first(where: { $0.value.revision === revision })?.key {
+                return groupIdHex
+            }
+            throw MarmotKitError.MessageDraftRevisionConflict
+        }
+
+        /// Call under `recordedStateLock`.
+        private func replaceSelectedDraftLocked(
+            _ draft: MessageDraftFfi, accountRef: String, groupIdHex: String
+        ) -> SelectedMessageDraftFfi {
             let replacement = SelectedMessageDraftFfi(
                 revision: MessageDraftRevisionFfi(noPointer: .init()),
-                draft: Self.selectedDraftContent(from: draft)
+                draft: selectedDraftContentLocked(from: draft, accountRef: accountRef)
             )
-            selectedDrafts[groupIdHex] = replacement
+            _selectedDrafts[groupIdHex] = replacement
             return replacement
         }
 
@@ -3917,24 +4083,26 @@
             -> SelectedMessageDraftFfi
         {
             recordSyncCall("clearMessageDraftIfRevision")
-            guard let groupIdHex = selectedDrafts.first(where: { $0.value.revision === revision })?.key else {
-                throw FakeMarmotRuntimeError.unused
-            }
-            recordedStateLock.withLock {
+            return try recordedStateLock.withLock { () throws -> SelectedMessageDraftFfi in
+                let groupIdHex = try currentDraftGroupLocked(for: revision)
                 storedMessageDraftsByAccountRef[accountRef]?[groupIdHex] = nil
+                fileBackedDraftAttachmentIds[accountRef]?[groupIdHex] = nil
+                draftCompositions[accountRef, default: [:]][groupIdHex, default: 0] += 1
+                let replacement = SelectedMessageDraftFfi(
+                    revision: MessageDraftRevisionFfi(noPointer: .init()),
+                    draft: nil
+                )
+                _selectedDrafts[groupIdHex] = replacement
+                return replacement
             }
-            let replacement = SelectedMessageDraftFfi(
-                revision: MessageDraftRevisionFfi(noPointer: .init()),
-                draft: nil
-            )
-            selectedDrafts[groupIdHex] = replacement
-            return replacement
         }
 
-        private nonisolated static func selectedDraftContent(from draft: MessageDraftFfi)
+        /// Call under `recordedStateLock`.
+        private func selectedDraftContentLocked(from draft: MessageDraftFfi, accountRef: String)
             -> SelectedMessageDraftContentFfi
         {
-            SelectedMessageDraftContentFfi(
+            let fileIds = fileBackedDraftAttachmentIds[accountRef]?[draft.groupIdHex] ?? []
+            return SelectedMessageDraftContentFfi(
                 groupIdHex: draft.groupIdHex,
                 content: draft.content,
                 replyToMessageIdHex: draft.replyToMessageIdHex,
@@ -3947,7 +4115,8 @@
                         dim: attachment.dim,
                         thumbhash: attachment.thumbhash,
                         durationSeconds: attachment.durationSeconds,
-                        waveformSamples: attachment.waveformSamples
+                        waveformSamples: attachment.waveformSamples,
+                        fileBacked: fileIds.contains(attachment.id)
                     )
                 },
                 createdAtMs: draft.createdAtMs,
@@ -4773,6 +4942,13 @@
         let groupIdHex: String
         let request: MediaUploadRequestFfi
         let clientToken: String
+    }
+
+    struct StagedDraftAttachmentFile: Equatable {
+        let groupIdHex: String
+        let request: MessageDraftAttachmentFileRequestFfi
+        /// What the source file held when the call read it.
+        let plaintext: Data
     }
 
     struct FileBackedMediaSubmission: Equatable {

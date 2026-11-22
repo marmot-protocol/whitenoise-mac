@@ -1525,8 +1525,10 @@ struct ChatListTests: WorkspaceTestSupport {
             sender: sender,
             plaintext: "The café comment shipped",
             kind: 1111,
-            tags: [MessageTagFfi(values: ["k", "9"])],
-            recordedAt: 504
+            tags: [MessageTagFfi(values: ["e", olderRows[0].messageIdHex]), MessageTagFfi(values: ["k", "9"])],
+            recordedAt: 504,
+            thread: TimelineThreadRefFfi(
+                rootMessageIdHex: olderRows[0].messageIdHex, parentMessageIdHex: olderRows[0].messageIdHex)
         )
         runtime.installTimelinePage(
             TimelinePageFfi(
@@ -1621,7 +1623,9 @@ struct ChatListTests: WorkspaceTestSupport {
                     plaintext: "shared needle \(index)",
                     kind: isComment ? 1111 : 9,
                     tags: isComment ? [MessageTagFfi(values: ["k", "9"])] : [],
-                    recordedAt: UInt64(index + (groupId == "first" ? 1 : 1_000))
+                    recordedAt: UInt64(index + (groupId == "first" ? 1 : 1_000)),
+                    thread: isComment
+                        ? TimelineThreadRefFfi(rootMessageIdHex: "root", parentMessageIdHex: "root") : nil
                 )
             }
             return TimelinePageFfi(messages: messages, hasMoreBefore: false, hasMoreAfter: false)

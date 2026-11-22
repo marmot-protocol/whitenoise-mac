@@ -245,11 +245,19 @@ build.
 - Outgoing attachments may reach MDK's 512 MiB blob limit (`Core/MediaFileUpload.swift`). Read
   picked files through `PickedMediaFile` (an unlinked, mapped clone), never into resident memory;
   images keep the 50 MB `maxImageSourceBytes` because they are decoded. The composer refuses an
-  attachment that would take one send past `maxFileMediaCiphertextBytes()`. MDK's draft API copies
-  every attachment on each save, so until marmot-protocol/mdk#3431 lands, attachments over
-  `maxDraftAttachmentBytes` are left out of saved drafts, are not uploaded ahead of Send, skip the
-  host media cache, and their message goes through `uploadMediaFilesWithClientToken` (anything
-  smaller keeps the byte upload).
+  attachment that would take one send past `maxFileMediaCiphertextBytes()`. Attachments over the
+  50 MB `maxInlineAttachmentBytes` are not uploaded ahead of Send, skip the host media cache, and
+  their message goes through `uploadMediaFilesWithClientToken` (anything smaller keeps the byte
+  upload).
+- Composer drafts go through `ComposerDraftStore` (`Core/ComposerDraftStore.swift`). An
+  attachment's bytes cross the FFI once: a small one inline on its first save, one over the inline
+  cap as a file MDK copies into the draft (`stageMessageDraftAttachmentFile`, run as the
+  attachment's task in `pendingMediaUploadTasks` so removing or sending it cancels the copy). Save
+  with `saveMessageDraftInputsIfRevision`, never the whole-list save: name a held attachment
+  `.retained`, and since MDK keeps every attachment a save leaves unnamed, remove a dropped one
+  with an explicit `.removed`; a file still copying in is left unnamed. A file-backed attachment
+  is restored from `openMessageDraftAttachmentHandoff` through a mapped clone, never read whole.
+  Clearing the draft (an empty composer, or Send) releases its files and discards a copy in flight.
 - Settings → Storage → Manage Storage (`ManageStorageViewModel`) reads MDK's attachment storage
   figures and removes in bulk. Bulk removals report counts, not hashes, so every removal runs the
   shell's `attachmentsDidChange` hook, which clears the host media cache.
@@ -298,6 +306,7 @@ build.
   schema 3 to 4, which 0.15.0 refuses. 0.17.0 moves account databases through 202–207 (schema
   201 → 207), which 0.16.0 refuses. 0.18.0 moves account databases through 208–216 (schema
   207 → 216), `shared.sqlite3` from 4 to 5 and the directory cache from 2 to 3, which 0.17.0
+  refuses. 0.19.0 moves account databases through 217–218 (schema 216 → 218), which 0.18.0
   refuses. An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every
@@ -306,7 +315,15 @@ build.
   `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md`,
   `docs/MarmotKit-0.12.0-migration.md`, `docs/MarmotKit-0.14.0-migration.md`,
   `docs/MarmotKit-0.15.0-migration.md`, `docs/MarmotKit-0.16.0-migration.md`,
-  `docs/MarmotKit-0.17.0-migration.md` and `docs/MarmotKit-0.18.0-migration.md`.
+  `docs/MarmotKit-0.17.0-migration.md`, `docs/MarmotKit-0.18.0-migration.md` and
+  `docs/MarmotKit-0.19.0-migration.md`.
+- NIP-22 thread messages (kind 1111) are chat. MDK marks each one with `thread` (root and parent,
+  kept on a deleted row) on timeline records and reply previews, and counts it wherever kind 9
+  counts: unread, mentions, read position, notifications, search, author edits. Recognise one by
+  `MessageItem.isThreadMessage(kind:thread:)`, never by parsing its tags; a kind 1111 without
+  `thread` is a custom event. The Mac has no thread view, so it draws a thread message as an inline
+  reply and answers any row with `replyToMessage`, not `sendThreadMessage`. Admin removal stays
+  kind 9 only.
 - Start a direct chat with `startDirectConversation` (both accounts founding admins, retry-safe),
   not `createGroup` plus a promotion. The one exception is an explicitly requested *additional*
   direct chat with someone, which that call would answer with the existing one.

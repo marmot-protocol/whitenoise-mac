@@ -338,7 +338,7 @@ extension ChatItem {
             return PreviewProjection(text: text)
         }
 
-        let presentation = MessageItem.presentation(for: preview.kind)
+        let presentation = MessageItem.presentation(for: preview.kind, thread: nil, isChatActivity: true)
         if presentation == .poll {
             return PreviewProjection(text: MessageItem.pollLabel(question: preview.plaintext))
         }
@@ -589,10 +589,9 @@ nonisolated extension MessageItem {
         replyContext: MessageReplyContext?
     ) {
         let senderProfile = senderProfiles[record.sender]
-        // An author's retraction clears a comment's tags, but MDK keeps its parent, which only a
-        // recognised comment has: such a row stays a reply bubble, now deleted.
-        let presentation = MessageItem.presentation(
-            for: record.kind, tags: record.deleted && record.replyToMessageIdHex != nil ? nil : record.tags)
+        // MDK keeps `thread` on a deleted row, so a retracted thread message stays a reply bubble,
+        // now deleted.
+        let presentation = MessageItem.presentation(for: record.kind, thread: record.thread)
         let plaintext = editedPlaintext ?? record.plaintext
         let projectedIsEdited = isEdited || record.edit != nil
         // A poll card and an unsupported-event card sit on their author's side like a bubble does,
@@ -740,38 +739,36 @@ nonisolated extension MessageItem {
         }
     }
 
-    /// NIP-22 comments, which MDK keeps out of read tracking.
+    /// The kind of a NIP-22 thread message (and of any other kind-1111 event).
     static let nip22CommentKind = MarmotTimelineKind.comment
 
-    /// MDK's rule for a NIP-22 comment it treats as a message: kind 1111 with a numeric `k` tag. It
-    /// projects such a comment's parent as its reply target and quote and accepts edits to it; any
-    /// other kind-1111 event is app-defined and owns its tags.
-    static func isRecognizedComment(kind: UInt64, tags: [MessageTagFfi]) -> Bool {
-        kind == MarmotTimelineKind.comment
-            && tags.contains { tag in
-                // Rust's `u64` parse, which MDK uses, refuses a sign Swift's accepts on "-0".
-                guard tag.values.first == "k", let value = tag.values.dropFirst().first else { return false }
-                return !value.hasPrefix("-") && UInt64(value) != nil
-            }
+    /// A NIP-22 thread message, which MDK treats as chat: it marks every one with `thread` (a
+    /// deleted one too), counts it toward unread, mentions and the read position, projects its
+    /// parent as the reply target and quote, and accepts its author's edits. Hosts never parse its
+    /// tags; a kind-1111 event without `thread` is a custom event.
+    static func isThreadMessage(kind: UInt64, thread: TimelineThreadRefFfi?) -> Bool {
+        kind == MarmotTimelineKind.comment && thread != nil
     }
 
-    /// A text message as MDK treats one: kind 9 or a recognised comment. Search covers these.
+    /// A text message as MDK treats one: kind 9 or a thread message. Search covers these.
     static func isTextMessage(_ record: TimelineMessageRecordFfi) -> Bool {
-        record.kind == MarmotTimelineKind.chat || isRecognizedComment(kind: record.kind, tags: record.tags)
+        record.kind == MarmotTimelineKind.chat || isThreadMessage(kind: record.kind, thread: record.thread)
     }
 
-    /// `tags` is nil for a reply preview, which carries none; a comment there is one MDK projected.
-    fileprivate static func presentation(for kind: UInt64, tags: [MessageTagFfi]? = nil) -> MessagePresentation {
+    /// `thread` is MDK's thread placement for the row. A chat-list preview has none to pass: MDK
+    /// previews chat activity only, so a kind 1111 there is always a thread message.
+    fileprivate static func presentation(
+        for kind: UInt64,
+        thread: TimelineThreadRefFfi?,
+        isChatActivity: Bool = false
+    ) -> MessagePresentation {
         switch kind {
         case MarmotTimelineKind.chat:
             return .chat
-        // A recognised NIP-22 comment answers another message: since 0.18.0 MDK projects its parent
-        // as the reply target and quote, so it reads as a chat reply.
+        // A thread message answers another message, and MDK projects its parent as the reply
+        // target and quote, so it reads as a chat reply.
         case MarmotTimelineKind.comment:
-            let recognized = tags.map { isRecognizedComment(kind: kind, tags: $0) } ?? true
-            return recognized ? .chat : .unsupported
-        case MarmotTimelineKind.agentStreamStart:
-            return .agentStreamStart
+            return isChatActivity || isThreadMessage(kind: kind, thread: thread) ? .chat : .unsupported
         case MarmotTimelineKind.agentActivity:
             return .agentActivity
         case MarmotTimelineKind.agentOperation:
@@ -1376,19 +1373,14 @@ nonisolated extension MessageItem {
         let body = plaintext.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Only the agent / group-system rows consult the JSON payload, so each of those
-        // cases decodes it locally — the common chat path (and agent-stream-start) never
-        // pays for the decode. This runs for every message during mapping.
+        // cases decodes it locally — the common chat path never pays for the decode. This
+        // runs for every message during mapping.
         switch presentation {
         case .chat:
             if !body.isEmpty {
                 return body
             }
             return hasMediaAttachments ? "" : L10n.string("Unsupported message")
-        case .agentStreamStart:
-            if tagValue("route", in: tags) == "quic" {
-                return L10n.string("Agent started a live response")
-            }
-            return L10n.string("Agent started a response")
         case .agentActivity:
             let payload = TimelinePayload.decode(from: body)
             return firstNonBlank([
@@ -1449,7 +1441,7 @@ nonisolated extension MessageItem {
         )
         let hasSticker = preview.sticker != nil && !preview.deleted
         let body = displayText(
-            presentation: presentation(for: preview.kind),
+            presentation: presentation(for: preview.kind, thread: preview.thread),
             plaintext: preview.plaintext,
             tags: [],
             deleted: preview.deleted,
@@ -1486,7 +1478,7 @@ nonisolated extension MessageItem {
         presentation: MessagePresentation
     ) -> String {
         switch presentation {
-        case .agentStreamStart, .agentActivity, .agentOperation:
+        case .agentActivity, .agentOperation:
             return L10n.string("Agent")
         case .groupSystem:
             return L10n.string("System")
@@ -1505,7 +1497,7 @@ nonisolated extension MessageItem {
         presentation: MessagePresentation
     ) -> String? {
         switch presentation {
-        case .agentStreamStart, .agentActivity, .agentOperation, .groupSystem:
+        case .agentActivity, .agentOperation, .groupSystem:
             return nil
         case .chat, .poll, .unsupported:
             guard profile?.publishedDisplayName != nil else { return nil }
@@ -1567,7 +1559,6 @@ private nonisolated enum MarmotTimelineKind {
     static let chat: UInt64 = 9
     static let comment: UInt64 = 1111
     static let messageEdit: UInt64 = 1009
-    static let agentStreamStart: UInt64 = 1200
     static let agentActivity: UInt64 = 1201
     static let agentOperation: UInt64 = 1202
     static let groupSystem: UInt64 = 1210

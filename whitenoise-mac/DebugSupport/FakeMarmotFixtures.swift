@@ -95,7 +95,6 @@
                             kind: reply.kind,
                             mediaJson: nil,
                             media: [],
-                            agentTextStreamJson: nil,
                             deleted: false,
                             invalidationStatus: nil
                         )
@@ -103,7 +102,6 @@
                 },
                 mediaJson: nil,
                 media: [],
-                agentTextStreamJson: nil,
                 groupSystem: nil,
                 reactions: projectedReactionSummary(reactionsByTarget[message.messageIdHex] ?? []),
                 deleted: false,
@@ -176,7 +174,7 @@
         recordedAt: UInt64,
         mediaJson: String? = nil,
         media: [MediaAttachmentReferenceFfi] = [],
-        agentTextStreamJson: String? = nil,
+        thread: TimelineThreadRefFfi? = nil,
         groupSystem: GroupSystemEventFfi? = nil,
         replyToMessageIdHex: String? = nil,
         replyPreview: TimelineReplyPreviewFfi? = nil,
@@ -202,7 +200,7 @@
             replyPreview: replyPreview,
             mediaJson: mediaJson,
             media: media,
-            agentTextStreamJson: agentTextStreamJson,
+            thread: thread,
             groupSystem: groupSystem,
             reactions: reactions,
             deleted: deleted,

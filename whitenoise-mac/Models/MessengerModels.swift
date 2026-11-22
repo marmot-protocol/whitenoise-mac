@@ -2103,11 +2103,12 @@ nonisolated enum OutgoingMediaDraftProcessor {
     static let maxImageSourceBytes = 50 * 1024 * 1024
     /// MDK's largest encrypted media blob (512 MiB) less the AEAD tag encryption adds to it.
     static let maxAttachmentBytes = 512 * 1024 * 1024 - Int(MediaFileUploadLimit.aeadTagBytes)
-    /// MDK's draft API copies every attachment's bytes on each save, so larger attachments stay out
-    /// of saved drafts (and are not uploaded ahead of Send) until it can keep one by file
-    /// (marmot-protocol/mdk#3431). It is also the old attachment cap, so everything it admits keeps
-    /// the byte upload it always had.
-    static let maxDraftAttachmentBytes = 50 * 1024 * 1024
+    /// The largest attachment whose bytes cross the FFI as one array: it is saved into the draft
+    /// inline, uploaded ahead of Send, sent through the byte upload and kept in the host media
+    /// cache. A larger one is held in the draft as a file MDK copies (`ComposerDraftStore`), is
+    /// uploaded only by Send, and streams to MDK from files. It is also the old attachment cap, so
+    /// everything it admits keeps the paths it always had.
+    static let maxInlineAttachmentBytes = 50 * 1024 * 1024
 
     /// Whether a picked file of `kind` is sent as its own bytes. Images are decoded and re-encoded,
     /// so their source size is neither the upload size nor bound by the attachment cap.
@@ -2121,9 +2122,9 @@ nonisolated enum OutgoingMediaDraftProcessor {
         sendsSourceBytes(kind) ? maxAttachmentBytes : maxImageSourceBytes
     }
 
-    /// Whether `attachment` is small enough for MDK's draft API to copy on every save.
-    static func persistsInDraft(_ attachment: PendingMediaAttachment) -> Bool {
-        attachment.data.count <= maxDraftAttachmentBytes
+    /// Whether `attachment` is small enough for its bytes to cross the FFI as one array.
+    static func isInline(_ attachment: PendingMediaAttachment) -> Bool {
+        attachment.data.count <= maxInlineAttachmentBytes
     }
 
     /// The composer's attachments once `added` is staged: a recording is sent on its own, and new
@@ -2818,7 +2819,6 @@ nonisolated enum TemporaryOutgoingMediaFile {
 
 nonisolated enum MessagePresentation: Hashable {
     case chat
-    case agentStreamStart
     case agentActivity
     case agentOperation
     case groupSystem
@@ -2836,8 +2836,6 @@ nonisolated enum MessagePresentation: Hashable {
         switch self {
         case .chat:
             return "text.bubble"
-        case .agentStreamStart:
-            return "sparkles"
         case .agentActivity:
             return "waveform.path"
         case .agentOperation:
@@ -2855,8 +2853,6 @@ nonisolated enum MessagePresentation: Hashable {
         switch self {
         case .chat:
             return "chat"
-        case .agentStreamStart:
-            return "agent-stream-start"
         case .agentActivity:
             return "agent-activity"
         case .agentOperation:
@@ -2993,20 +2989,18 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     ]
 
     /// Whether MarmotKit counts this row toward a chat's unread state, and so accepts it as a
-    /// read-marker target. Chat messages and polls always count; membership and admin changes
-    /// count only in a chat MarmotKit classifies as a group (`ChatItem.isAuthoritativeGroup`). A
-    /// read marker parked on the newest chat message leaves any member change after it unread,
-    /// which is why the marker must consider these rows too.
+    /// read-marker target. Chat messages (thread messages included, since MarmotKit 0.19.0) and
+    /// polls always count; membership and admin changes count only in a chat MarmotKit classifies
+    /// as a group (`ChatItem.isAuthoritativeGroup`). A read marker parked on the newest chat
+    /// message leaves any member change after it unread, which is why the marker must consider
+    /// these rows too.
     nonisolated func countsAsReadActivity(inAuthoritativeGroup isAuthoritativeGroup: Bool) -> Bool {
         switch presentation {
-        // MDK keeps NIP-22 comments out of read tracking, so one is never a read-marker target.
-        case .chat:
-            return timelineKind != Self.nip22CommentKind
-        case .poll:
+        case .chat, .poll:
             return true
         case .groupSystem:
             return isAuthoritativeGroup && groupSystemType.map(Self.readActivityGroupSystemTypes.contains) == true
-        case .agentStreamStart, .agentActivity, .agentOperation, .unsupported:
+        case .agentActivity, .agentOperation, .unsupported:
             return false
         }
     }

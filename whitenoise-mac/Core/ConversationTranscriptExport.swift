@@ -72,7 +72,8 @@ nonisolated enum ConversationTranscriptExport {
         var receivedAt: UInt64
         var replyToMessageIdHex: String?
         var mediaJson: String?
-        var agentTextStreamJson: String?
+        var threadRootMessageIdHex: String?
+        var threadParentMessageIdHex: String?
         var deleted: Bool
         var deletedByMessageIdHex: String?
         var invalidationStatus: String?
@@ -90,7 +91,8 @@ nonisolated enum ConversationTranscriptExport {
             case receivedAt = "received_at"
             case replyToMessageIdHex = "reply_to_message_id_hex"
             case mediaJson = "media_json"
-            case agentTextStreamJson = "agent_text_stream_json"
+            case threadRootMessageIdHex = "thread_root_message_id_hex"
+            case threadParentMessageIdHex = "thread_parent_message_id_hex"
             case deleted
             case deletedByMessageIdHex = "deleted_by_message_id_hex"
             case invalidationStatus = "invalidation_status"
@@ -534,7 +536,8 @@ nonisolated enum ConversationTranscriptExport {
             receivedAt: record.receivedAt,
             replyToMessageIdHex: record.replyToMessageIdHex,
             mediaJson: record.mediaJson,
-            agentTextStreamJson: record.agentTextStreamJson,
+            threadRootMessageIdHex: record.thread?.rootMessageIdHex,
+            threadParentMessageIdHex: record.thread?.parentMessageIdHex,
             deleted: record.deleted,
             deletedByMessageIdHex: record.deletedByMessageIdHex,
             invalidationStatus: record.invalidationStatus

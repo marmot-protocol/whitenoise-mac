@@ -1477,18 +1477,6 @@ struct TimelineTests: WorkspaceTestSupport {
         let page = TimelinePageFfi(
             messages: [
                 timelineMessage(
-                    id: "stream-start",
-                    groupIdHex: "group",
-                    sender: "agent",
-                    plaintext: "",
-                    kind: 1200,
-                    tags: [
-                        MessageTagFfi(values: ["stream", "abc"]),
-                        MessageTagFfi(values: ["route", "quic"]),
-                    ],
-                    recordedAt: 1_700_000_000
-                ),
-                timelineMessage(
                     id: "activity",
                     groupIdHex: "group",
                     sender: "agent",
@@ -1525,14 +1513,12 @@ struct TimelineTests: WorkspaceTestSupport {
 
         #expect(
             messages.map(\.presentation) == [
-                .agentStreamStart,
                 .agentActivity,
                 .agentOperation,
                 .groupSystem,
             ])
         #expect(
             messages.map(\.body) == [
-                "Agent started a live response",
                 "Thinking",
                 "glp-1",
                 "Group renamed",
@@ -2250,8 +2236,7 @@ struct TimelineTests: WorkspaceTestSupport {
             groupIdHex: "direct-group",
             sender: account.accountIdHex,
             plaintext: "Streaming…",
-            recordedAt: 1_700_000_010,
-            agentTextStreamJson: #"{"stream_id":"stream"}"#
+            recordedAt: 1_700_000_010
         )
         let streamingChatRow = chatListRow(
             groupIdHex: "direct-group",
@@ -2271,7 +2256,7 @@ struct TimelineTests: WorkspaceTestSupport {
                             messages: [],
                             changes: [
                                 .remove(messageIdHex: "stale", reason: .noLongerMatchesQuery),
-                                .upsert(trigger: .agentStreamStarted, message: projected),
+                                .upsert(trigger: .newMessage, message: projected),
                             ],
                             chatListRow: streamingChatRow,
                             chatListTrigger: .newLastMessage
@@ -2478,8 +2463,7 @@ struct TimelineTests: WorkspaceTestSupport {
             groupIdHex: "direct-group",
             sender: account.accountIdHex,
             plaintext: "Streaming…",
-            recordedAt: 1_700_000_010,
-            agentTextStreamJson: #"{"stream_id":"stream"}"#
+            recordedAt: 1_700_000_010
         )
         let streamingChatRow = chatListRow(
             groupIdHex: "direct-group",
@@ -2499,7 +2483,7 @@ struct TimelineTests: WorkspaceTestSupport {
                             messages: [],
                             changes: [
                                 .remove(messageIdHex: "m1", reason: .noLongerMatchesQuery),
-                                .upsert(trigger: .agentStreamStarted, message: projected),
+                                .upsert(trigger: .newMessage, message: projected),
                             ],
                             chatListRow: streamingChatRow,
                             chatListTrigger: .newLastMessage
@@ -10275,18 +10259,17 @@ struct TimelineTests: WorkspaceTestSupport {
                 plaintext: "started",
                 kind: 1311,
                 tags: [MessageTagFfi(values: ["stream", "abcd"])],
-                recordedAt: 1,
-                agentTextStreamJson: #"{"status":"started"}"#
+                recordedAt: 1
             ),
             timelineMessage(
                 id: secondId,
                 groupIdHex: "group",
                 sender: String(repeating: "a", count: 64),
                 plaintext: "final answer",
-                kind: 9,
-                tags: [MessageTagFfi(values: ["stream", "abcd"])],
+                kind: 1111,
+                tags: [MessageTagFfi(values: ["e", firstId]), MessageTagFfi(values: ["k", "1311"])],
                 recordedAt: 2,
-                agentTextStreamJson: #"{"status":"finalized"}"#
+                thread: TimelineThreadRefFfi(rootMessageIdHex: firstId, parentMessageIdHex: firstId)
             ),
         ]
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
@@ -10316,7 +10299,9 @@ struct TimelineTests: WorkspaceTestSupport {
         #expect(events.compactMap { $0["message_id_hex"] as? String } == [firstId, secondId])
         #expect(events[0]["kind"] as? Int == 1311)
         #expect(events[1]["content"] as? String == "final answer")
-        #expect(events[1]["agent_text_stream_json"] as? String == #"{"status":"finalized"}"#)
+        #expect(events[0]["thread_root_message_id_hex"] == nil)
+        #expect(events[1]["thread_root_message_id_hex"] as? String == firstId)
+        #expect(events[1]["thread_parent_message_id_hex"] as? String == firstId)
     }
 
     @Test func conversationTranscriptExportDeduplicatesAcrossPageBoundaries() throws {
@@ -11054,7 +11039,7 @@ struct TimelineTests: WorkspaceTestSupport {
             runtime.storedMessageDraft(accountRef: account.label, groupIdHex: "group")?.content == "latest"
         }
         #expect(didPersistLatest)
-        #expect(runtime.syncCallThreadRecord("saveMessageDraftIfRevision") == [false])
+        #expect(runtime.syncCallThreadRecord("saveMessageDraftInputsIfRevision") == [false])
     }
 
     @MainActor

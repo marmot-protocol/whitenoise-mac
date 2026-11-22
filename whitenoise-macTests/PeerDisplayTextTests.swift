@@ -307,7 +307,6 @@ private func timelineMessage(
         replyPreview: nil,
         mediaJson: nil,
         media: [],
-        agentTextStreamJson: nil,
         groupSystem: groupSystem,
         reactions: TimelineReactionSummaryFfi(byEmoji: [], userReactions: []),
         deleted: false,
