@@ -245,11 +245,19 @@ build.
 - Outgoing attachments may reach MDK's 512 MiB blob limit (`Core/MediaFileUpload.swift`). Read
   picked files through `PickedMediaFile` (an unlinked, mapped clone), never into resident memory;
   images keep the 50 MB `maxImageSourceBytes` because they are decoded. The composer refuses an
-  attachment that would take one send past `maxFileMediaCiphertextBytes()`. MDK's draft API copies
-  every attachment on each save, so until marmot-protocol/mdk#3431 lands, attachments over
-  `maxDraftAttachmentBytes` are left out of saved drafts, are not uploaded ahead of Send, skip the
-  host media cache, and their message goes through `uploadMediaFilesWithClientToken` (anything
-  smaller keeps the byte upload).
+  attachment that would take one send past `maxFileMediaCiphertextBytes()`. Attachments over the
+  50 MB `maxInlineAttachmentBytes` are not uploaded ahead of Send, skip the host media cache, and
+  their message goes through `uploadMediaFilesWithClientToken` (anything smaller keeps the byte
+  upload).
+- Composer drafts go through `ComposerDraftStore` (`Core/ComposerDraftStore.swift`). An
+  attachment's bytes cross the FFI once: a small one inline on its first save, one over the inline
+  cap as a file MDK copies into the draft (`stageMessageDraftAttachmentFile`, run as the
+  attachment's task in `pendingMediaUploadTasks` so removing or sending it cancels the copy). Save
+  with `saveMessageDraftInputsIfRevision`, never the whole-list save: name a held attachment
+  `.retained`, and since MDK keeps every attachment a save leaves unnamed, remove a dropped one
+  with an explicit `.removed`; a file still copying in is left unnamed. A file-backed attachment
+  is restored from `openMessageDraftAttachmentHandoff` through a mapped clone, never read whole.
+  Clearing the draft (an empty composer, or Send) releases its files and discards a copy in flight.
 - Settings → Storage → Manage Storage (`ManageStorageViewModel`) reads MDK's attachment storage
   figures and removes in bulk. Bulk removals report counts, not hashes, so every removal runs the
   shell's `attachmentsDidChange` hook, which clears the host media cache.

@@ -11039,7 +11039,7 @@ struct TimelineTests: WorkspaceTestSupport {
             runtime.storedMessageDraft(accountRef: account.label, groupIdHex: "group")?.content == "latest"
         }
         #expect(didPersistLatest)
-        #expect(runtime.syncCallThreadRecord("saveMessageDraftIfRevision") == [false])
+        #expect(runtime.syncCallThreadRecord("saveMessageDraftInputsIfRevision") == [false])
     }
 
     @MainActor

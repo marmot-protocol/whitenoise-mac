@@ -2103,11 +2103,12 @@ nonisolated enum OutgoingMediaDraftProcessor {
     static let maxImageSourceBytes = 50 * 1024 * 1024
     /// MDK's largest encrypted media blob (512 MiB) less the AEAD tag encryption adds to it.
     static let maxAttachmentBytes = 512 * 1024 * 1024 - Int(MediaFileUploadLimit.aeadTagBytes)
-    /// MDK's draft API copies every attachment's bytes on each save, so larger attachments stay out
-    /// of saved drafts (and are not uploaded ahead of Send) until it can keep one by file
-    /// (marmot-protocol/mdk#3431). It is also the old attachment cap, so everything it admits keeps
-    /// the byte upload it always had.
-    static let maxDraftAttachmentBytes = 50 * 1024 * 1024
+    /// The largest attachment whose bytes cross the FFI as one array: it is saved into the draft
+    /// inline, uploaded ahead of Send, sent through the byte upload and kept in the host media
+    /// cache. A larger one is held in the draft as a file MDK copies (`ComposerDraftStore`), is
+    /// uploaded only by Send, and streams to MDK from files. It is also the old attachment cap, so
+    /// everything it admits keeps the paths it always had.
+    static let maxInlineAttachmentBytes = 50 * 1024 * 1024
 
     /// Whether a picked file of `kind` is sent as its own bytes. Images are decoded and re-encoded,
     /// so their source size is neither the upload size nor bound by the attachment cap.
@@ -2121,9 +2122,9 @@ nonisolated enum OutgoingMediaDraftProcessor {
         sendsSourceBytes(kind) ? maxAttachmentBytes : maxImageSourceBytes
     }
 
-    /// Whether `attachment` is small enough for MDK's draft API to copy on every save.
-    static func persistsInDraft(_ attachment: PendingMediaAttachment) -> Bool {
-        attachment.data.count <= maxDraftAttachmentBytes
+    /// Whether `attachment` is small enough for its bytes to cross the FFI as one array.
+    static func isInline(_ attachment: PendingMediaAttachment) -> Bool {
+        attachment.data.count <= maxInlineAttachmentBytes
     }
 
     /// The composer's attachments once `added` is staged: a recording is sent on its own, and new

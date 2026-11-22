@@ -34,8 +34,8 @@ thread contract is `docs/marmot-architecture/overview/thread-messages.md`.
   `replyToMessageIdHex`. The transcript export writes `thread_root_message_id_hex` and
   `thread_parent_message_id_hex` in place of the stream field.
 - **`MessageDraftAttachmentInputFfi.removed(id:)`** and keep-unnamed semantics for
-  `saveMessageDraftInputsIfRevision`. The app saves drafts through the whole-list
-  `saveMessageDraftIfRevision`, which still replaces the list, so nothing changes here.
+  `saveMessageDraftInputsIfRevision`. The app now saves every draft this way (see "File-backed
+  draft attachments").
 - **`sendThreadMessage`** is for clients with a thread view. The Mac has none, so, as MDK asks,
   it keeps answering every row, thread messages included, with `replyToMessage` (a kind-9 inline
   reply).
@@ -60,6 +60,38 @@ author edits). Hosts are told never to parse the tags. The app now follows that:
   read up to it.
 - Admin removal stays kind 9 only, unchanged.
 
+## File-backed draft attachments
+
+MDK has held draft attachments as files since 0.18.0 (mdk#3431), and 0.19.0's keep-unnamed save
+makes them safe to use; the app adopts both. Before, MDK's draft API copied every attachment's
+bytes on each save, so anything over 50 MB was left out of saved drafts and a relaunch lost it.
+
+- `ComposerDraftStore` owns the draft's persistence. An attachment over `maxInlineAttachmentBytes`
+  (the renamed `maxDraftAttachmentBytes`, still 50 MB) is copied into the draft as a file as soon
+  as it joins the composer (`stageMessageDraftAttachmentFile`, from a scratch copy removed once the
+  call returns). Smaller ones still go in inline, on their first save only.
+- Every save, debounced or at termination, is `saveMessageDraftInputsIfRevision`: a held
+  attachment is `.retained` (never copied again), a new small one `.inline`, a large one still
+  copying is left unnamed (so the save cannot drop it), and one the composer dropped is
+  `.removed`. A revision conflict re-reads the draft and retries, up to three times.
+- The copy runs as the attachment's task in `pendingMediaUploadTasks`, so removing the attachment,
+  sending, or dropping the draft cancels it. Once a copy lands the app saves again, which names
+  the file or, if the user removed the attachment meanwhile, removes it. A clear (empty composer or
+  Send) discards a copy still in flight; that conflict is silent.
+- The async flush (sign-out, account switch) waits for copies still landing before it saves. The
+  termination flush cannot wait, so quitting while a file is still copying saves the draft without
+  it, as every large attachment was before this change.
+- Before copying, the app removes the stored attachments the composer no longer holds, since MDK
+  measures the copy against everything the draft holds (a replaced audio file would count twice).
+- Restore reads a file-backed attachment through `openMessageDraftAttachmentHandoff`, clones and
+  maps the handoff copy (`PickedMediaFile`) and releases the lease, so a large draft never becomes
+  resident memory. It is not uploaded ahead of Send on restore either.
+- Send is unchanged: it uploads from the composer's own mapped bytes
+  (`uploadMediaFilesWithClientToken`) rather than `uploadMessageDraftAttachments` /
+  `sendMessageDraft`, and clearing the sent draft releases its files.
+- `MarmotRuntime` swaps `saveMessageDraftIfRevision` for `saveMessageDraftInputsIfRevision` and
+  gains `stageMessageDraftAttachmentFile` and `openMessageDraftAttachmentHandoff`.
+
 ## Linked devices
 
 The 0.19.0 device-group fixes are inside MDK and need no app change; the app shows invitation state
@@ -81,7 +113,6 @@ from MDK's projections and has no retry loop of its own:
 ## Not adopted yet
 
 - A thread view and `sendThreadMessage` (mdk#2787 covers thread graphs and windows).
-- File-backed draft attachments (mdk#3431, since 0.18.0) through `saveMessageDraftInputsIfRevision`
-  and `removed(id:)`. Until then the app keeps leaving attachments over `maxDraftAttachmentBytes`
-  out of saved drafts.
+- Sending a draft through `uploadMessageDraftAttachments` and `sendMessageDraftWithClientToken`,
+  which would upload a large attachment from the file the draft already holds.
 - Everything listed under "Not adopted yet" in `docs/MarmotKit-0.18.0-migration.md`.

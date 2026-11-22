@@ -62,7 +62,7 @@ nonisolated enum MediaUploadRoute: Equatable, Sendable {
     /// Everything the old 50 MB attachment cap admitted keeps the byte route it always had; only a
     /// batch carrying something larger streams from files.
     static func route(byteCounts: [Int]) -> MediaUploadRoute {
-        byteCounts.contains { $0 > OutgoingMediaDraftProcessor.maxDraftAttachmentBytes } ? .files : .bytes
+        byteCounts.contains { $0 > OutgoingMediaDraftProcessor.maxInlineAttachmentBytes } ? .files : .bytes
     }
 }
 

@@ -8,25 +8,6 @@
 import Foundation
 import MarmotKit
 
-private nonisolated struct ComposerDraftPersistenceSnapshot: Sendable {
-    let content: String
-    let replyToMessageIdHex: String?
-    let mediaAttachments: [MessageDraftAttachmentFfi]
-    /// Attachments staged in the composer that the saved draft leaves out because MDK's draft API
-    /// would copy them on every save (`OutgoingMediaDraftProcessor.maxDraftAttachmentBytes`).
-    let holdsUnsavedAttachments: Bool
-
-    /// Nothing worth saving: the stored draft is cleared.
-    var isEmpty: Bool {
-        content.isEmpty && replyToMessageIdHex == nil && mediaAttachments.isEmpty
-    }
-
-    /// Nothing in the composer at all, so a saved draft may be restored into it.
-    var isComposerEmpty: Bool {
-        isEmpty && !holdsUnsavedAttachments
-    }
-}
-
 /// Where a conversation's saved draft stands this session. `inFlight` lets a second caller await
 /// the read already running; `settled` means it has been read, or a local edit made reading it moot.
 enum ComposerDraftRestore: Equatable {
@@ -63,6 +44,18 @@ extension WorkspaceState {
     /// Flush every dirty draft through the normal off-main FFI boundary. Account teardown uses
     /// the scoped form before non-destructive sign-out so the encrypted draft survives sign-in.
     func flushComposerDraftPersistence(forAccountId accountId: String? = nil) async {
+        // A large attachment still copying into its draft would be left out of this save, and the
+        // teardown that may follow (sign-out) cancels the copy, so let the copies land first. For a
+        // large attachment the task in `pendingMediaUploadTasks` is that copy; it is never an upload.
+        let draftKeys = Set(pendingMediaAttachmentsByConversation.keys)
+            .union(editingMessageContextByConversation.keys)
+            .filter { accountId == nil || $0.accountId == accountId }
+        for key in draftKeys {
+            for attachment in composerDraftContents(for: key).attachments
+            where !OutgoingMediaDraftProcessor.isInline(attachment) {
+                _ = await pendingMediaUploadTasks[attachment.id]?.value
+            }
+        }
         let keys =
             dirtyComposerDraftKeys
             .filter { accountId == nil || $0.accountId == accountId }
@@ -79,7 +72,9 @@ extension WorkspaceState {
 
     /// `NSApplication.willTerminateNotification` cannot await an asynchronous task. Perform the
     /// final small local-database flush synchronously so edits inside the debounce window survive
-    /// an ordinary app quit. Interactive saves continue to use `FFIExecutor.run`.
+    /// an ordinary app quit. Interactive saves continue to use `FFIExecutor.run`. A large
+    /// attachment whose file is still copying into the draft cannot be waited for here, so a quit
+    /// during that copy saves the rest of the draft without it.
     func flushComposerDraftPersistenceSynchronouslyForTermination() {
         guard let client else { return }
         for task in composerDraftPersistenceTasks.values {
@@ -90,26 +85,13 @@ extension WorkspaceState {
         let keys = dirtyComposerDraftKeys
         for key in keys {
             guard let account = accounts.first(where: { $0.id == key.accountId }) else { continue }
-            let snapshot = composerDraftPersistenceSnapshot(for: key)
             do {
-                let selected = try client.selectedMessageDraft(
+                try ComposerDraftStore.save(
+                    composerDraftContents(for: key),
                     accountRef: account.accountRef,
-                    groupIdHex: key.chatId
+                    groupIdHex: key.chatId,
+                    client: client
                 )
-                if snapshot.isEmpty {
-                    _ = try client.clearMessageDraftIfRevision(
-                        accountRef: account.accountRef,
-                        revision: selected.revision
-                    )
-                } else {
-                    _ = try client.saveMessageDraftIfRevision(
-                        accountRef: account.accountRef,
-                        revision: selected.revision,
-                        content: snapshot.content,
-                        replyToMessageIdHex: snapshot.replyToMessageIdHex,
-                        mediaAttachments: snapshot.mediaAttachments
-                    )
-                }
                 dirtyComposerDraftKeys.remove(key)
             } catch {
                 // Termination is already committed and there is no reliable UI surface left.
@@ -138,7 +120,7 @@ extension WorkspaceState {
             let account = accounts.first(where: { $0.id == accountId })
         else { return }
 
-        if !composerDraftPersistenceSnapshot(for: key).isComposerEmpty {
+        if !composerDraftContents(for: key).isEmpty {
             composerDraftRestores[key] = .settled
             return
         }
@@ -161,35 +143,14 @@ extension WorkspaceState {
         let groupIdHex = key.chatId
         let startingGeneration = composerDraftMutationGenerations[key] ?? 0
         do {
-            let selectedDraft = try await FFIExecutor.run {
-                let selected = try client.selectedMessageDraft(
-                    accountRef: account.accountRef,
-                    groupIdHex: groupIdHex
-                )
-                let attachments = try selected.draft?.mediaAttachments.map { attachment in
-                    guard
-                        let plaintext = try client.messageDraftAttachmentIfRevision(
-                            accountRef: account.accountRef,
-                            revision: selected.revision,
-                            attachmentId: attachment.id
-                        )
-                    else {
-                        throw MarmotKitError.MessageDraftRevisionConflict
-                    }
-                    return MessageDraftAttachmentFfi(
-                        id: attachment.id,
-                        fileName: attachment.fileName,
-                        mediaType: attachment.mediaType,
-                        plaintext: plaintext,
-                        dim: attachment.dim,
-                        thumbhash: attachment.thumbhash,
-                        durationSeconds: attachment.durationSeconds,
-                        waveformSamples: attachment.waveformSamples
-                    )
-                }
-                return (selected, attachments ?? [])
-            }
-            let storedDraft = selectedDraft.0.draft
+            // A file-backed attachment comes back as a mapped clone of MDK's handoff copy, so even
+            // one of hundreds of megabytes is never read into memory.
+            let restored = try await ComposerDraftStore.restore(
+                accountRef: account.accountRef,
+                groupIdHex: groupIdHex,
+                client: client
+            )
+            let storedDraft = restored.draft
 
             let mentionNames: MarkdownMentionNames
             if storedDraft?.content.contains("@npub1") == true,
@@ -208,7 +169,7 @@ extension WorkspaceState {
             }
 
             guard composerDraftMutationGenerations[key] ?? 0 == startingGeneration,
-                composerDraftPersistenceSnapshot(for: key).isComposerEmpty
+                composerDraftContents(for: key).isEmpty
             else { return }
             guard let storedDraft else { return }
 
@@ -242,7 +203,7 @@ extension WorkspaceState {
             // draft. If the stored draft also holds text or other files — a draft written before
             // recordings took the composer over on their own — it comes back as ordinary media,
             // so nothing the user typed ends up hidden behind the voice bar.
-            let storedAttachments = selectedDraft.1
+            let storedAttachments = restored.attachments
                 .prefix(OutgoingMediaDraftProcessor.maxAttachmentCount)
             let restoresAsVoiceMessage = presentation.text.isEmpty && storedAttachments.count == 1
             let attachments = storedAttachments.map { attachment in
@@ -260,8 +221,9 @@ extension WorkspaceState {
             // Drafts persist plaintext, not Blossom references — deliberately, so a draft that sat
             // across an epoch rotation cannot publish a stale `source_epoch`. Re-upload on restore
             // instead, which is also the only staging path that bypasses
-            // `appendPendingMediaAttachment`.
-            for attachment in attachments {
+            // `appendPendingMediaAttachment`. As there, an attachment over the inline cap is left
+            // to Send's own upload; the draft already holds its file, so it is not copied again.
+            for attachment in attachments where OutgoingMediaDraftProcessor.isInline(attachment) {
                 beginPendingMediaUpload(attachment, for: key)
             }
         } catch {
@@ -301,14 +263,13 @@ extension WorkspaceState {
         dirtyComposerDraftKeys.insert(key)
         composerDraftRestores[key] = .settled
         do {
+            // An empty save is a clear, retried if a file copy lands between its read and its write.
             try await FFIExecutor.run {
-                let selected = try client.selectedMessageDraft(
+                try ComposerDraftStore.save(
+                    ComposerDraftContents(content: "", replyToMessageIdHex: nil, attachments: []),
                     accountRef: accountRef,
-                    groupIdHex: key.chatId
-                )
-                _ = try client.clearMessageDraftIfRevision(
-                    accountRef: accountRef,
-                    revision: selected.revision
+                    groupIdHex: key.chatId,
+                    client: client
                 )
             }
             guard composerDraftMutationGenerations[key] == generation else { return }
@@ -366,27 +327,15 @@ extension WorkspaceState {
             }
         }
 
-        let snapshot = composerDraftPersistenceSnapshot(for: key)
+        let contents = composerDraftContents(for: key)
         do {
             try await FFIExecutor.run {
-                let selected = try client.selectedMessageDraft(
+                try ComposerDraftStore.save(
+                    contents,
                     accountRef: account.accountRef,
-                    groupIdHex: key.chatId
+                    groupIdHex: key.chatId,
+                    client: client
                 )
-                if snapshot.isEmpty {
-                    _ = try client.clearMessageDraftIfRevision(
-                        accountRef: account.accountRef,
-                        revision: selected.revision
-                    )
-                } else {
-                    _ = try client.saveMessageDraftIfRevision(
-                        accountRef: account.accountRef,
-                        revision: selected.revision,
-                        content: snapshot.content,
-                        replyToMessageIdHex: snapshot.replyToMessageIdHex,
-                        mediaAttachments: snapshot.mediaAttachments
-                    )
-                }
             }
             guard composerDraftMutationGenerations[key] == generation else { return }
             dirtyComposerDraftKeys.remove(key)
@@ -398,9 +347,9 @@ extension WorkspaceState {
         }
     }
 
-    private func composerDraftPersistenceSnapshot(
-        for key: ComposerDraftKey
-    ) -> ComposerDraftPersistenceSnapshot {
+    /// What the conversation's draft holds: the composer, or while a sent message is being edited,
+    /// the composer state that edit set aside.
+    func composerDraftContents(for key: ComposerDraftKey) -> ComposerDraftContents {
         let text: String
         let mentionSelections: [ComposerMentionSelection]
         let replyContext: MessageReplyContext?
@@ -424,31 +373,10 @@ extension WorkspaceState {
             selections: mentionSelections,
             candidates: []
         )
-        // MDK's draft API copies every attachment's bytes on each save, so an attachment over the
-        // draft cap stays out of the saved draft until MDK can keep one by file
-        // (marmot-protocol/mdk#3431). Leaving the chat keeps it in this session's composer, but a
-        // relaunch brings back only the rest of the draft.
-        let saved = mediaAttachments.filter(OutgoingMediaDraftProcessor.persistsInDraft)
-        return ComposerDraftPersistenceSnapshot(
+        return ComposerDraftContents(
             content: canonicalContent,
             replyToMessageIdHex: replyContext?.targetMessageId,
-            mediaAttachments: saved.map(Self.messageDraftAttachment(from:)),
-            holdsUnsavedAttachments: saved.count < mediaAttachments.count
-        )
-    }
-
-    nonisolated static func messageDraftAttachment(
-        from attachment: PendingMediaAttachment
-    ) -> MessageDraftAttachmentFfi {
-        MessageDraftAttachmentFfi(
-            id: attachment.id.uuidString.lowercased(),
-            fileName: attachment.fileName,
-            mediaType: attachment.mediaType,
-            plaintext: attachment.data,
-            dim: attachment.dim,
-            thumbhash: attachment.thumbhash,
-            durationSeconds: attachment.durationSeconds,
-            waveformSamples: attachment.waveformSamples.map(Double.init)
+            attachments: mediaAttachments
         )
     }
 

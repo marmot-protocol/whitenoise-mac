@@ -1048,11 +1048,49 @@ extension WorkspaceState {
         }
         // Upload straight away so Send only has to publish the reference. Every staging path
         // (importer, drag-drop, paste, voice) funnels through here; restored drafts are the one
-        // bypass and kick their own uploads in `restoreComposerDraftIfNeeded`. An attachment too
-        // large for drafts is not uploaded ahead: Send's own upload replaces this one anyway, and
-        // a second pass over hundreds of megabytes would only compete with it.
-        if OutgoingMediaDraftProcessor.persistsInDraft(attachment) {
+        // bypass and kick their own uploads in `restoreComposerDraftIfNeeded`. An attachment over
+        // the inline cap is not uploaded ahead: Send's own upload replaces this one anyway, and a
+        // second pass over hundreds of megabytes would only compete with it. It is copied into the
+        // draft as a file instead, so it survives a relaunch without its bytes crossing the FFI.
+        if OutgoingMediaDraftProcessor.isInline(attachment) {
             beginPendingMediaUpload(attachment, for: draftKey)
+        } else if let client, let account = accounts.first(where: { $0.id == draftKey.accountId }) {
+            let accountRef = account.accountRef
+            // Kept with the attachment's uploads, so removing it, sending it or dropping the draft
+            // cancels the copy the way it cancels an upload. It resolves to no reference: Send never
+            // awaits it, only cancels it.
+            pendingMediaUploadTasks[attachment.id] = Task { [weak self] () -> MediaAttachmentReferenceFfi? in
+                // A save that ran while the file copied left it unnamed, so the next one names it,
+                // or removes it if the user took it out of the composer meanwhile (also when that
+                // cancelled this copy too late to stop it). A draft cleared or sent while it copied
+                // discards the copy, so a conflict is retried only while the draft still holds the
+                // attachment (set aside by an edit counts), and reported if it happens again.
+                for attempt in 1...2 {
+                    do {
+                        try await ComposerDraftStore.stageFile(
+                            attachment,
+                            composerAttachments: { [weak self] in self?.composerDraftContents(for: draftKey).attachments
+                            },
+                            accountRef: accountRef, groupIdHex: draftKey.chatId, client: client)
+                        self?.composerDraftDidChange(for: draftKey)
+                        return nil
+                    } catch {
+                        guard !Task.isCancelled,
+                            let self,
+                            self.composerDraftContents(for: draftKey).attachments.contains(where: {
+                                $0.id == attachment.id
+                            })
+                        else { return nil }
+                        if case MarmotKitError.MessageDraftRevisionConflict = error, attempt == 1 { continue }
+                        self.setBackgroundStatus(
+                            String(
+                                format: L10n.string("A draft could not be saved: %@"),
+                                UserFacingError.message(for: error)))
+                        return nil
+                    }
+                }
+                return nil
+            }
         }
         composerDraftDidChange(for: draftKey)
         return true

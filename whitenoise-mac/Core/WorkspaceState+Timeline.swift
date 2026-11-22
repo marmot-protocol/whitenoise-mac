@@ -1292,10 +1292,10 @@ extension WorkspaceState {
         accountId: String,
         groupIdHex: String
     ) async {
-        // An attachment over the draft cap would evict most of the cache on its own, and MDK
+        // An attachment over the inline cap would evict most of the cache on its own, and MDK
         // already retains the bytes it sent, so the bubble reads it back from there instead.
         for (attachment, reference) in zip(attachments, references)
-        where OutgoingMediaDraftProcessor.persistsInDraft(attachment) {
+        where OutgoingMediaDraftProcessor.isInline(attachment) {
             let cacheKey = MessageMediaDiskCacheKey(
                 accountId: accountId,
                 groupIdHex: groupIdHex,
