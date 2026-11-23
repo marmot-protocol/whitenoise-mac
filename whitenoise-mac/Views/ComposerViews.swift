@@ -1756,6 +1756,9 @@ struct PendingGroupInviteComposerNotice: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .glassCard()
+        // `.contain` keeps the identifier on the card: applied to the bare stack it overrode every
+        // child's, so Accept and Decline both answered to "composer.pendingGroupInvite".
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("composer.pendingGroupInvite")
         // This prompt replaces the composer, so the roster (and with it the inviter) has no
         // other reason to load for the chat that most needs it.

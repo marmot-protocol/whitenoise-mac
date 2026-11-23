@@ -148,7 +148,8 @@ struct DeviceLinkSuggestionSheet: View {
                 ForEach(model.earlierSignIns, id: \.slotIdHex) { signIn in
                     Label(
                         [
-                            signIn.client.isEmpty ? L10n.string("Unknown app") : signIn.client,
+                            signIn.client.isEmpty
+                                ? L10n.string("Unknown app") : DeviceLinkPresentation.clientName(signIn.client),
                             DeviceLinkPresentation.message(for: signIn),
                         ].joined(separator: " · "),
                         systemImage: "iphone"

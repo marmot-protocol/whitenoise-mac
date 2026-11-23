@@ -815,22 +815,26 @@ extension WorkspaceState {
         pendingMediaUploadStatesByConversation[draftKey, default: [:]][id] = state
     }
 
-    func toggleVoiceRecording() async {
+    /// Starts or finishes a recording. Returns why a start did not happen, for the composer to say;
+    /// nil when it started, when it finished, or when the user moved on while it was being asked.
+    @discardableResult
+    func toggleVoiceRecording() async -> VoiceRecordingNotice? {
         if isRecordingVoiceMessage {
             await finishVoiceRecording()
+            return nil
         } else {
-            await startVoiceRecording()
+            return await startVoiceRecording()
         }
     }
 
-    func startVoiceRecording() async {
-        guard !isRecordingVoiceMessage, !isPreparingVoiceRecording else { return }
-        guard let draftKey = selectedComposerDraftKey else { return }
-        guard canRecordVoiceMessage else {
-            presentVoiceMessageIsSentAloneWarning()
-            return
-        }
-        guard canBeginMediaAttachmentSelection() else { return }
+    /// Returns why the recording did not start, or nil once it has (or once the composer it was
+    /// started for has gone, when there is nobody left to tell).
+    @discardableResult
+    func startVoiceRecording() async -> VoiceRecordingNotice? {
+        guard !isRecordingVoiceMessage, !isPreparingVoiceRecording else { return nil }
+        guard let draftKey = selectedComposerDraftKey else { return nil }
+        guard canRecordVoiceMessage else { return .sentAlone }
+        guard canBeginMediaAttachmentSelection() else { return nil }
 
         isPreparingVoiceRecording = true
         defer { isPreparingVoiceRecording = false }
@@ -838,16 +842,11 @@ extension WorkspaceState {
         let preparationGeneration = voiceRecordingPreparationGeneration
 
         let hasPermission = await requestMicrophoneAccess()
-        guard hasPermission else {
-            if voiceRecordingPreparationGeneration == preparationGeneration,
-                canResumeVoiceRecording(for: draftKey)
-            {
-                lastError = L10n.string("Microphone access is needed to record voice messages.")
-            }
-            return
-        }
-        guard voiceRecordingPreparationGeneration == preparationGeneration else { return }
-        guard canResumeVoiceRecording(for: draftKey) else { return }
+        let composerStillWaiting =
+            voiceRecordingPreparationGeneration == preparationGeneration
+            && canResumeVoiceRecording(for: draftKey)
+        guard hasPermission else { return composerStillWaiting ? .microphoneDenied : nil }
+        guard composerStillWaiting else { return nil }
 
         do {
             let directory = try MediaPlaybackTempStore.voiceRecordingsDirectoryURL()
@@ -871,9 +870,10 @@ extension WorkspaceState {
             voiceRecordingDurationSeconds = 0
             isRecordingVoiceMessage = true
             startVoiceRecordingMetering()
+            return nil
         } catch {
             resetVoiceRecording(deleteFile: true)
-            lastError = L10n.string("Voice recording could not start.")
+            return .couldNotStart
         }
     }
 

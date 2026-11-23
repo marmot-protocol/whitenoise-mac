@@ -63,8 +63,9 @@ final class DeviceLinkingViewModel {
     @ObservationIgnored private var refreshers: [Part: CoalescingRead] = [:]
     /// Prompts the user closed or finished with. A prompt id is local to this runtime and MDK keeps
     /// a finished prompt listed, so this keeps one from opening its sheet again; it is never
-    /// persisted, and a new request is a new prompt id.
-    @ObservationIgnored private var settledPromptIds: Set<String> = []
+    /// persisted, and a new request is a new prompt id. Observed: `openPrompts` reads it, so closing
+    /// a finished prompt has to take its "Review" row off the Devices page there and then.
+    private var settledPromptIds: Set<String> = []
     @ObservationIgnored private var linkSuggestionShown = false
     /// A name for this device the user gave while it had none, to write once the roster lists it:
     /// after the first link this device founds the device group, and only then has a slot to rename.

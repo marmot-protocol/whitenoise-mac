@@ -3213,7 +3213,7 @@ struct MessageOverflowMenu: View {
 /// `QuickReactionButtons` from the workspace preference, while the remaining actions mirror the
 /// hover bar's overflow (`MessageRowAction.all`).
 ///
-/// React and Download are built here rather than in `MessageRowAction.all`: both also sit in the
+/// React, Reply and Download are built here rather than in `MessageRowAction.all`: all three also sit in the
 /// hover bar as controls of their own, and `.all` backs the bar's overflow popover, so routing
 /// them through it would show each of them twice, inches apart.
 struct MessageContextMenuItems: View {
@@ -3253,7 +3253,22 @@ struct MessageContextMenuItems: View {
                 } label: {
                     Label(L10n.string("React"), systemImage: "face.smiling")
                 }
+            }
 
+            // The hover bar's Reply is only there while the pointer is on the row; the menu is the
+            // path that does not depend on hovering (keyboard, VoiceOver, a trackpad right-click).
+            // Deliberately not a `MessageRowAction`: the hover bar's overflow popover sits beside
+            // its own Reply button and would offer it twice.
+            if message.canReply {
+                Button {
+                    workspace.startReply(to: message)
+                    composerFocusRequester.request()
+                } label: {
+                    Label(L10n.string("Reply"), systemImage: "arrowshape.turn.up.left")
+                }
+            }
+
+            if message.canReact || message.canReply {
                 Divider()
             }
 

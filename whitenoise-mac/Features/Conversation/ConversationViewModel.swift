@@ -74,6 +74,9 @@ final class ConversationViewModel {
     /// Dictation into this conversation's composer; cancelled when the conversation goes away,
     /// so words spoken for one chat never land in another's draft.
     let dictation: ComposerDictationController
+    /// Why the last press of the composer's mic did not start a recording, until dismissed or the
+    /// next press. Scoped to this conversation, so it goes away with the chat it was said in.
+    private(set) var voiceRecordingNotice: VoiceRecordingNotice?
     private(set) var snapshot: ConversationWindowSnapshotFfi?
     private(set) var isLoading = false
     /// True while a page, a jump, or a return to the latest is in flight. Each quotes the window's
@@ -702,5 +705,16 @@ final class ConversationViewModel {
             guard !Task.isCancelled else { return }
             self?.retentionExpiryTask = nil
         }
+    }
+}
+
+extension ConversationViewModel {
+    /// Shows why a recording did not start, or clears an earlier notice once one does.
+    func showVoiceRecordingNotice(_ notice: VoiceRecordingNotice?) {
+        voiceRecordingNotice = notice
+    }
+
+    func dismissVoiceRecordingNotice() {
+        voiceRecordingNotice = nil
     }
 }

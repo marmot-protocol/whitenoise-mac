@@ -125,8 +125,23 @@ nonisolated enum DeviceLinkPresentation {
 
     static func name(of device: LinkedDeviceFfi) -> String {
         if !device.label.isEmpty { return device.label }
-        let detail = [device.platform, device.client].filter { !$0.isEmpty }.joined(separator: " · ")
-        return detail.isEmpty ? L10n.string("Unnamed device") : detail
+        return appDescription(platform: device.platform, client: device.client) ?? L10n.string("Unnamed device")
+    }
+
+    /// The platform and app a device runs, such as "iOS · White Noise", or nil when MDK knows neither.
+    static func appDescription(platform: String, client: String) -> String? {
+        let detail = [platform, clientName(client)].filter { !$0.isEmpty }.joined(separator: " · ")
+        return detail.isEmpty ? nil : detail
+    }
+
+    /// MDK reports the app as its client identifier. White Noise's own identifier is spoken as the
+    /// product name, untranslated like it is everywhere else; any other app keeps what it reported.
+    static func clientName(_ client: String) -> String {
+        let trimmed = client.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch trimmed.lowercased() {
+        case "whitenoise", "white-noise", "white_noise": return "White Noise"
+        default: return trimmed
+        }
     }
 
     /// The status line under a device's name, or nil for an active device with nothing to say.
