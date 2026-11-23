@@ -818,7 +818,7 @@ extension WorkspaceState {
     /// Starts or finishes a recording. Returns why a start did not happen, for the composer to say;
     /// nil when it started, when it finished, or when the user moved on while it was being asked.
     @discardableResult
-    func toggleVoiceRecording() async -> VoiceRecordingNotice? {
+    func toggleVoiceRecording() async -> VoiceRecordingStartFailure? {
         if isRecordingVoiceMessage {
             await finishVoiceRecording()
             return nil
@@ -830,7 +830,7 @@ extension WorkspaceState {
     /// Returns why the recording did not start, or nil once it has (or once the composer it was
     /// started for has gone, when there is nobody left to tell).
     @discardableResult
-    func startVoiceRecording() async -> VoiceRecordingNotice? {
+    func startVoiceRecording() async -> VoiceRecordingStartFailure? {
         guard !isRecordingVoiceMessage, !isPreparingVoiceRecording else { return nil }
         guard let draftKey = selectedComposerDraftKey else { return nil }
         guard canRecordVoiceMessage else { return .sentAlone }

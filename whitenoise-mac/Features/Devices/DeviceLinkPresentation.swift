@@ -177,6 +177,15 @@ nonisolated enum DeviceLinkPresentation {
         signIn.beforeThisDevice ? L10n.string("Do You Still Have This Device?") : L10n.string("Was This You?")
     }
 
+    /// The line under a sign-in, on the link suggestion and in Settings → Devices alike:
+    /// "White Noise · Signed in before this Mac. Last seen 2 hours ago."
+    static func subtitle(for signIn: UnrecognizedSignInFfi, now: Date = Date()) -> String {
+        [
+            signIn.client.isEmpty ? L10n.string("Unknown app") : clientName(signIn.client),
+            message(for: signIn, now: now),
+        ].joined(separator: " · ")
+    }
+
     static func message(for signIn: UnrecognizedSignInFfi, now: Date = Date()) -> String {
         switch signIn.state {
         case .linkedElsewhere: return L10n.string("Linked on another of your devices.")

@@ -1,19 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Why a voice recording did not start, said over the composer that asked for it.
+/// What the composer says about a recording that did not start.
 ///
 /// The recorder used to put these on `WorkspaceState.lastError`, which the conversation pane never
 /// draws, so a refused or failed recording looked exactly like a mic button that does nothing — on
 /// a Mac with no microphone, every press.
-enum VoiceRecordingNotice: Equatable {
-    /// The composer holds text or attachments, and a voice message is sent on its own.
-    case sentAlone
-    /// The user, or a profile, has not granted White Noise the microphone.
-    case microphoneDenied
-    /// The recorder refused to start: most often no input device is connected.
-    case couldNotStart
-
+extension VoiceRecordingStartFailure {
     var message: String {
         switch self {
         case .sentAlone:
@@ -30,7 +23,7 @@ enum VoiceRecordingNotice: Equatable {
 
 /// The composer's note about a voice recording that did not start.
 struct VoiceRecordingNoticeView: View {
-    let notice: VoiceRecordingNotice
+    let notice: VoiceRecordingStartFailure
     let onDismiss: () -> Void
 
     var body: some View {

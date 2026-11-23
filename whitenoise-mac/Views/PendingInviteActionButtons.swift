@@ -46,7 +46,10 @@ struct PendingInviteActionButtons: View {
             }
             .wnPrimaryButtonStyle()
             .help(L10n.string("Accept invite"))
-            .accessibilityLabel(L10n.string("Accept invite"))
+            // Follows the visible title, so VoiceOver says "Accepting..." while the call is out.
+            .accessibilityLabel(
+                workspace.isAcceptingGroupInvite ? L10n.string("Accepting...") : L10n.string("Accept invite")
+            )
             .accessibilityIdentifier("invite.accept")
 
             // No destructive `role`: both sibling clients build Decline as their outline button, and
@@ -64,7 +67,9 @@ struct PendingInviteActionButtons: View {
             }
             .buttonStyle(.wnSecondary)
             .help(L10n.string("Decline invite"))
-            .accessibilityLabel(L10n.string("Decline invite"))
+            .accessibilityLabel(
+                workspace.isDecliningGroupInvite ? L10n.string("Declining...") : L10n.string("Decline invite")
+            )
             .accessibilityIdentifier("invite.decline")
         }
         .controlSize(.large)

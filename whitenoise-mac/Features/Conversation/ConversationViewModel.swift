@@ -76,7 +76,7 @@ final class ConversationViewModel {
     let dictation: ComposerDictationController
     /// Why the last press of the composer's mic did not start a recording, until dismissed or the
     /// next press. Scoped to this conversation, so it goes away with the chat it was said in.
-    private(set) var voiceRecordingNotice: VoiceRecordingNotice?
+    private(set) var voiceRecordingNotice: VoiceRecordingStartFailure?
     private(set) var snapshot: ConversationWindowSnapshotFfi?
     private(set) var isLoading = false
     /// True while a page, a jump, or a return to the latest is in flight. Each quotes the window's
@@ -710,7 +710,7 @@ final class ConversationViewModel {
 
 extension ConversationViewModel {
     /// Shows why a recording did not start, or clears an earlier notice once one does.
-    func showVoiceRecordingNotice(_ notice: VoiceRecordingNotice?) {
+    func showVoiceRecordingNotice(_ notice: VoiceRecordingStartFailure?) {
         voiceRecordingNotice = notice
     }
 

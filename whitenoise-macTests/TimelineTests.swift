@@ -11336,7 +11336,7 @@ struct TimelineTests: WorkspaceTestSupport {
 
         #expect(await deniedTask.value == .microphoneDenied)
         #expect(!state.isRecordingVoiceMessage)
-        #expect(VoiceRecordingNotice.microphoneDenied.opensMicrophoneSettings)
+        #expect(VoiceRecordingStartFailure.microphoneDenied.opensMicrophoneSettings)
     }
 
     @MainActor

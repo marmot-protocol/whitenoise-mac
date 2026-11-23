@@ -420,14 +420,9 @@ private struct SignInRow: View {
         let busy = model.isBusy(.signIn(slotIdHex: signIn.slotIdHex))
         VStack(alignment: .leading, spacing: 6) {
             Text(DeviceLinkPresentation.title(for: signIn))
-            Text(
-                [
-                    signIn.client.isEmpty ? L10n.string("Unknown app") : signIn.client,
-                    DeviceLinkPresentation.message(for: signIn),
-                ].joined(separator: " · ")
-            )
-            .wnFont(.medium12)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            Text(DeviceLinkPresentation.subtitle(for: signIn))
+                .wnFont(.medium12)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             if signIn.previouslyLinkedHere {
                 Text(
                     L10n.string(

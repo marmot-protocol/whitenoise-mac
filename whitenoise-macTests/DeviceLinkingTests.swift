@@ -242,6 +242,8 @@ struct DeviceLinkingTests: WorkspaceTestSupport {
         #expect(DeviceLinkPresentation.clientName("other-client") == "other-client")
         #expect(DeviceLinkPresentation.appDescription(platform: "iOS", client: "whitenoise") == "iOS · White Noise")
         #expect(DeviceLinkPresentation.appDescription(platform: "", client: "") == nil)
+        // The link suggestion and Settings → Devices share this line, so they cannot disagree.
+        #expect(DeviceLinkPresentation.subtitle(for: Self.earlierSignIn()).hasPrefix("White Noise · "))
     }
 
     @Test func linkingSendsTheTrimmedLabelAndBothChoices() async {
