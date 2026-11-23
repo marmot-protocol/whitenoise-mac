@@ -147,10 +147,7 @@ struct DeviceLinkSuggestionSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(model.earlierSignIns, id: \.slotIdHex) { signIn in
                     Label(
-                        [
-                            signIn.client.isEmpty ? L10n.string("Unknown app") : signIn.client,
-                            DeviceLinkPresentation.message(for: signIn),
-                        ].joined(separator: " · "),
+                        DeviceLinkPresentation.subtitle(for: signIn),
                         systemImage: "iphone"
                     )
                     .foregroundStyle(WNColor.backgroundContentSecondary)

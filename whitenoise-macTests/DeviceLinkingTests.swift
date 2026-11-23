@@ -1,5 +1,6 @@
 import Foundation
 import MarmotKit
+import Observation
 import Testing
 
 @testable import whitenoise_mac
@@ -213,6 +214,36 @@ struct DeviceLinkingTests: WorkspaceTestSupport {
 
         #expect(model.presentedSheet == .prompt(id: "p2"))
         #expect(model.openPrompts.map(\.promptId) == ["p2"])
+    }
+
+    /// Done on a linked prompt has to take its "linked · Review" row off the Devices page at once.
+    /// MDK keeps the finished prompt listed, so nothing else would redraw the page to drop it.
+    @Test func closingAFinishedPromptRedrawsTheDevicesPage() async {
+        let runtime = makeRuntime()
+        runtime.deviceLinking.snapshot = Self.snapshot(prompts: [Self.prompt("p1", .linked)])
+        let model = makeModel(runtime)
+        await model.refreshAll()
+        #expect(model.openPrompts.map(\.promptId) == ["p1"])
+
+        let redrawn = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = model.openPrompts
+        } onChange: {
+            redrawn.markInvalidated()
+        }
+        model.closePrompt("p1")
+
+        #expect(redrawn.value)
+        #expect(model.openPrompts.isEmpty)
+    }
+
+    @Test func devicesNameWhiteNoiseByItsProductName() {
+        #expect(DeviceLinkPresentation.clientName("whitenoise") == "White Noise")
+        #expect(DeviceLinkPresentation.clientName("other-client") == "other-client")
+        #expect(DeviceLinkPresentation.appDescription(platform: "iOS", client: "whitenoise") == "iOS · White Noise")
+        #expect(DeviceLinkPresentation.appDescription(platform: "", client: "") == nil)
+        // The link suggestion and Settings → Devices share this line, so they cannot disagree.
+        #expect(DeviceLinkPresentation.subtitle(for: Self.earlierSignIn()).hasPrefix("White Noise · "))
     }
 
     @Test func linkingSendsTheTrimmedLabelAndBothChoices() async {

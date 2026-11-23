@@ -125,8 +125,23 @@ nonisolated enum DeviceLinkPresentation {
 
     static func name(of device: LinkedDeviceFfi) -> String {
         if !device.label.isEmpty { return device.label }
-        let detail = [device.platform, device.client].filter { !$0.isEmpty }.joined(separator: " · ")
-        return detail.isEmpty ? L10n.string("Unnamed device") : detail
+        return appDescription(platform: device.platform, client: device.client) ?? L10n.string("Unnamed device")
+    }
+
+    /// The platform and app a device runs, such as "iOS · White Noise", or nil when MDK knows neither.
+    static func appDescription(platform: String, client: String) -> String? {
+        let detail = [platform, clientName(client)].filter { !$0.isEmpty }.joined(separator: " · ")
+        return detail.isEmpty ? nil : detail
+    }
+
+    /// MDK reports the app as its client identifier. White Noise's own identifier is spoken as the
+    /// product name, untranslated like it is everywhere else; any other app keeps what it reported.
+    static func clientName(_ client: String) -> String {
+        let trimmed = client.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch trimmed.lowercased() {
+        case "whitenoise", "white-noise", "white_noise": return "White Noise"
+        default: return trimmed
+        }
     }
 
     /// The status line under a device's name, or nil for an active device with nothing to say.
@@ -160,6 +175,15 @@ nonisolated enum DeviceLinkPresentation {
 
     static func title(for signIn: UnrecognizedSignInFfi) -> String {
         signIn.beforeThisDevice ? L10n.string("Do You Still Have This Device?") : L10n.string("Was This You?")
+    }
+
+    /// The line under a sign-in, on the link suggestion and in Settings → Devices alike:
+    /// "White Noise · Signed in before this Mac. Last seen 2 hours ago."
+    static func subtitle(for signIn: UnrecognizedSignInFfi, now: Date = Date()) -> String {
+        [
+            signIn.client.isEmpty ? L10n.string("Unknown app") : clientName(signIn.client),
+            message(for: signIn, now: now),
+        ].joined(separator: " · ")
     }
 
     static func message(for signIn: UnrecognizedSignInFfi, now: Date = Date()) -> String {

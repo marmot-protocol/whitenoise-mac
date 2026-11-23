@@ -121,6 +121,9 @@ struct SettingsSidebarRowLabel<Accessory: View>: View {
         .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
         .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
         .contentShape(Rectangle())
+        // The rows sit in plain-style buttons, which expose none of their label's text: without
+        // this every Settings row reached Accessibility as an unnamed "button".
+        .accessibilityElement(children: .combine)
     }
 }
 

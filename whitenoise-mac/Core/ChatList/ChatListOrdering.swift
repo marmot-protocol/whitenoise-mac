@@ -75,6 +75,7 @@ nonisolated enum ChatListOrdering {
             previewAttachmentKind: chat.previewAttachmentKind,
             previewAttribution: chat.previewAttribution,
             updatedAt: chat.updatedAt,
+            lastMessageAt: chat.lastMessageAt,
             avatarSeed: current.avatarSeed,
             directPeerAccountIdHex: current.directPeerAccountIdHex,
             pictureURL: current.pictureURL,

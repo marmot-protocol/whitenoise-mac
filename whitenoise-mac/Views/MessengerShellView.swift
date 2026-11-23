@@ -1040,6 +1040,10 @@ private struct ConversationView: View {
             DictationNoticeView(notice: notice, controller: model.dictation)
         }
 
+        if let notice = model.voiceRecordingNotice {
+            VoiceRecordingNoticeView(notice: notice, onDismiss: model.dismissVoiceRecordingNotice)
+        }
+
         if let editingMessageContext = workspace.editingMessageContext {
             EditComposerContextView(context: editingMessageContext)
         } else if let replyDraftContext = workspace.replyDraftContext {
@@ -1281,7 +1285,7 @@ private struct ConversationView: View {
                     .help(L10n.string("Cancel edit"))
                 } else {
                     Button {
-                        Task { await workspace.toggleVoiceRecording() }
+                        Task { model.showVoiceRecordingNotice(await workspace.toggleVoiceRecording()) }
                     } label: {
                         Image(systemName: "mic.fill")
                             .wnFont(.semiBold14)

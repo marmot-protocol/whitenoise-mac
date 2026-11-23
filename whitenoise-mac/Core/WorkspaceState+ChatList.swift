@@ -702,6 +702,7 @@ extension WorkspaceState {
             previewAttachmentKind: current.previewAttachmentKind,
             previewAttribution: current.previewAttribution,
             updatedAt: current.updatedAt,
+            lastMessageAt: current.lastMessageAt,
             avatarSeed: enrichedItem.avatarSeed,
             directPeerAccountIdHex: enrichedItem.directPeerAccountIdHex,
             pictureURL: enrichedItem.pictureURL ?? current.pictureURL,

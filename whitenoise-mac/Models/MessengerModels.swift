@@ -146,7 +146,14 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// The parts `preview` was composed from, set only when the line is attributed to another
     /// account. Travels with `preview` for the same reason `previewAttachmentKind` does.
     let previewAttribution: ChatPreviewAttribution?
+    /// MDK's activity time: what the chat list sorts by. Not what the row prints — a history
+    /// import or other maintenance moves it without anyone having said anything (see
+    /// `displayedAt`).
     let updatedAt: Date?
+    /// When the last message was sent, if the chat has one. Travels with `preview`. The row's
+    /// time label prefers it, so chats brought over by device linking show when their last
+    /// message was sent rather than when the history arrived.
+    let lastMessageAt: Date?
     /// Only a seed for the placeholder avatar's color and initials. A direct chat seeds it with the
     /// peer's hex, so its color matches that person everywhere else they appear; a group, a named
     /// two-member one included, seeds it with its group id. `ChatItem.init(row:…)` is the single
@@ -200,7 +207,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// Whether the group is still in use, being ended, or over. Independent of membership: a
     /// disband ends the group for everyone at once, members included.
     let lifecycle: GroupLifecycle
-    /// Precomputed once from `updatedAt` (which is immutable for a given value) to
+    /// Precomputed once from `displayedAt` (which is immutable for a given value) to
     /// avoid re-formatting the date on every chat-row render.
     let timestampLabel: String
 
@@ -398,9 +405,13 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         at now: Date,
         locale: Locale = AppLanguage.currentLocale
     ) -> String {
-        guard let updatedAt else { return "" }
-        return DisplayText.relativeTimestamp(for: updatedAt, now: now, locale: locale)
+        guard let displayedAt else { return "" }
+        return DisplayText.relativeTimestamp(for: displayedAt, now: now, locale: locale)
     }
+
+    /// The time the row prints: the last message's, falling back to MDK's activity time for a
+    /// chat with no message yet.
+    var displayedAt: Date? { lastMessageAt ?? updatedAt }
 
     init(
         id: String,
@@ -411,6 +422,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         previewAttachmentKind: ChatPreviewAttachmentKind? = nil,
         previewAttribution: ChatPreviewAttribution? = nil,
         updatedAt: Date?,
+        lastMessageAt: Date? = nil,
         avatarSeed: String,
         // Required whenever a direct row's `avatarSeed` is not the peer's hex. Omitted, a direct
         // row takes its seed as the peer unless the seed is the chat's own id.
@@ -444,6 +456,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.previewAttachmentKind = previewAttachmentKind
         self.previewAttribution = previewAttribution
         self.updatedAt = updatedAt
+        self.lastMessageAt = lastMessageAt
         self.avatarSeed = avatarSeed
         // A hand-built direct row passes the peer's hex as its seed, so that is the fallback;
         // the group id is what a peerless one passes, and names nobody.
@@ -470,8 +483,8 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.pendingConfirmation = pendingConfirmation
         self.selfMembership = selfMembership
         self.lifecycle = lifecycle
-        if let updatedAt {
-            self.timestampLabel = DisplayText.relativeTimestamp(for: updatedAt)
+        if let displayedAt = lastMessageAt ?? updatedAt {
+            self.timestampLabel = DisplayText.relativeTimestamp(for: displayedAt)
         } else {
             self.timestampLabel = ""
         }

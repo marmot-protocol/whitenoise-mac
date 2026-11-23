@@ -247,6 +247,11 @@ extension ChatItem {
         // writes and must not make a conversation jump in the sidebar.
         let timestamp = row.activitySortAt > 0 ? row.activitySortAt : row.conversationCreatedAt
         let updatedAt = timestamp > 0 ? Date(timeIntervalSince1970: TimeInterval(timestamp)) : nil
+        // The row prints the last message's own time. `activitySortAt` also moves when linking
+        // imports history, which would stamp every imported chat with the moment it arrived.
+        let lastMessageAt = row.lastMessage.flatMap {
+            $0.timelineAt > 0 ? Date(timeIntervalSince1970: TimeInterval($0.timelineAt)) : nil
+        }
         let isDirect = row.conversationKind == .direct || peer != nil
         let subtitle: String
         if row.archived {
@@ -270,6 +275,7 @@ extension ChatItem {
             previewAttachmentKind: preview?.attachmentKind,
             previewAttribution: preview?.attribution,
             updatedAt: updatedAt,
+            lastMessageAt: lastMessageAt,
             avatarSeed: peer?.accountIdHex ?? row.groupIdHex,
             directPeerAccountIdHex: peer?.accountIdHex,
             pictureURL: peer?.pictureURL ?? groupAvatarURL,

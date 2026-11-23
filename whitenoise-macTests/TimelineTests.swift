@@ -6763,9 +6763,8 @@ struct TimelineTests: WorkspaceTestSupport {
 
         // With a photo staged the mic is off — recording would have to discard it.
         #expect(!state.canRecordVoiceMessage)
-        await state.startVoiceRecording()
+        #expect(await state.startVoiceRecording() == .sentAlone)
         #expect(!state.isRecordingVoiceMessage)
-        #expect(state.lastError == L10n.string("A voice message is sent on its own"))
         state.lastError = nil
 
         let recording = recordedVoiceMessage()
@@ -6794,13 +6793,13 @@ struct TimelineTests: WorkspaceTestSupport {
         state.draftText = "half-written message"
         #expect(!state.canRecordVoiceMessage)
 
-        await state.startVoiceRecording()
+        let notice = await state.startVoiceRecording()
 
         // The typed text survives: the recording never started rather than replacing it.
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecorder == nil)
         #expect(state.draftText == "half-written message")
-        #expect(state.lastError == L10n.string("A voice message is sent on its own"))
+        #expect(notice == .sentAlone)
     }
 
     @MainActor
@@ -11300,20 +11299,44 @@ struct TimelineTests: WorkspaceTestSupport {
         state.selectChat(chat)
 
         microphoneGate.grantAccess()
-        await recordingTask.value
+        #expect(await recordingTask.value == nil)
 
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecorder == nil)
         #expect(state.voiceRecordingURL == nil)
         #expect(state.voiceRecordingMeterTask == nil)
 
-        state.lastError = nil
+        // A denial that lands after the user left the chat has no composer to be said over.
         let deniedTask = Task { await state.startVoiceRecording() }
         #expect(await microphoneGate.waitUntilRequested())
         state.showSettings(.profile)
         microphoneGate.denyAccess()
-        await deniedTask.value
-        #expect(state.lastError == nil)
+        #expect(await deniedTask.value == nil)
+    }
+
+    @MainActor
+    @Test func deniedMicrophoneIsReportedToTheComposerThatAsked() async throws {
+        // The conversation pane never drew `lastError`, so a refused microphone looked like a dead
+        // button. The refusal comes back to the composer instead, which says it with a way to fix it.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup()])
+        let microphoneGate = SuspendingMicrophoneAccessGate()
+        let state = WorkspaceState(
+            microphoneAccessProvider: { await microphoneGate.provider() },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first(where: { $0.id == "group" }))
+        state.selectChat(chat)
+
+        let deniedTask = Task { await state.toggleVoiceRecording() }
+        #expect(await microphoneGate.waitUntilRequested())
+        microphoneGate.denyAccess()
+
+        #expect(await deniedTask.value == .microphoneDenied)
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(VoiceRecordingStartFailure.microphoneDenied.opensMicrophoneSettings)
     }
 
     @MainActor

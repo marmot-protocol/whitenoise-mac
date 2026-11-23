@@ -704,6 +704,9 @@ private struct ChatSidebarRow: View {
                     searchResult: searchResult
                 )
             }
+            // A plain-style button exposes none of its label's text on its own, so without this the
+            // row reached Accessibility as an unnamed "button": name, preview and time are read as one.
+            .accessibilityElement(children: .combine)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")

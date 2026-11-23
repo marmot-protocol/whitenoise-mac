@@ -444,6 +444,28 @@ struct ChatListTests: WorkspaceTestSupport {
         #expect(chat.updatedAt == Date(timeIntervalSince1970: TimeInterval(lastMessageAt)))
     }
 
+    /// Device linking imports a chat's history, which moves MDK's activity time to the moment it
+    /// arrived. The row keeps sorting by that, but it prints when the last message was sent —
+    /// otherwise every imported chat reads as active at the minute of the link.
+    @MainActor
+    @Test func importedChatRowPrintsItsLastMessageTimeNotItsActivityTime() {
+        let sentAt: UInt64 = 1_700_000_000
+        let importedAt: UInt64 = sentAt + 3_600
+        var row = chatListRow(
+            groupIdHex: "imported", title: "XTest", preview: "hello", sender: "peer", timelineAt: sentAt)
+        row.activitySortAt = importedAt
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+        let now = Date(timeIntervalSince1970: TimeInterval(importedAt))
+
+        #expect(chat.updatedAt == Date(timeIntervalSince1970: TimeInterval(importedAt)))
+        #expect(chat.displayedAt == Date(timeIntervalSince1970: TimeInterval(sentAt)))
+        #expect(
+            chat.timestampLabel(at: now)
+                == DisplayText.relativeTimestamp(
+                    for: Date(timeIntervalSince1970: TimeInterval(sentAt)), now: now))
+    }
+
     /// Membership rows count as unread activity only in a chat MarmotKit classifies as `.group`.
     /// An unnamed chat the other person left is reclassified `.group` while the app still
     /// remembers that peer and calls it direct, so the read marker must follow MarmotKit's kind,

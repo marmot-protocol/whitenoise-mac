@@ -182,8 +182,8 @@ private struct LinkedDeviceRow: View {
                                     .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                         }
-                        if let status = DeviceLinkPresentation.status(of: device) {
-                            Text(status)
+                        if let detail {
+                            Text(detail)
                                 .wnFont(.medium12)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
@@ -193,6 +193,7 @@ private struct LinkedDeviceRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityLabel)
 
             if DeviceLinkPresentation.offersKeepOrRemove(device) {
                 Button(L10n.string("Keep")) {
@@ -204,7 +205,28 @@ private struct LinkedDeviceRow: View {
             Image(systemName: "chevron.right")
                 .wnFont(.semiBold10)
                 .foregroundStyle(WNColor.backgroundContentTertiary)
+                .accessibilityHidden(true)
         }
+    }
+
+    /// What the device runs, then anything worth knowing about it — "iOS · White Noise · Inactive".
+    /// The app line is left off a device that already shows it as its name.
+    private var detail: String? {
+        let app =
+            device.label.isEmpty
+            ? nil
+            : DeviceLinkPresentation.appDescription(
+                platform: device.platform, client: device.client)
+        let parts = [app, DeviceLinkPresentation.status(of: device)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The plain-style button's label is not read out on its own, so the row says what it shows.
+    private var accessibilityLabel: String {
+        var parts = [DeviceLinkPresentation.name(of: device)]
+        if device.isThisDevice { parts.append(L10n.string("This Mac")) }
+        if let detail { parts.append(detail) }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -398,14 +420,9 @@ private struct SignInRow: View {
         let busy = model.isBusy(.signIn(slotIdHex: signIn.slotIdHex))
         VStack(alignment: .leading, spacing: 6) {
             Text(DeviceLinkPresentation.title(for: signIn))
-            Text(
-                [
-                    signIn.client.isEmpty ? L10n.string("Unknown app") : signIn.client,
-                    DeviceLinkPresentation.message(for: signIn),
-                ].joined(separator: " · ")
-            )
-            .wnFont(.medium12)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            Text(DeviceLinkPresentation.subtitle(for: signIn))
+                .wnFont(.medium12)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             if signIn.previouslyLinkedHere {
                 Text(
                     L10n.string(
@@ -576,7 +593,8 @@ private struct LinkedDeviceSheetContent: View {
             if !device.client.isEmpty || !device.platform.isEmpty {
                 SettingsValueRow(
                     title: L10n.string("App"),
-                    value: [device.platform, device.client].filter { !$0.isEmpty }.joined(separator: " · "))
+                    value: DeviceLinkPresentation.appDescription(platform: device.platform, client: device.client) ?? ""
+                )
             }
             SettingsValueRow(
                 title: L10n.string("Linked"),

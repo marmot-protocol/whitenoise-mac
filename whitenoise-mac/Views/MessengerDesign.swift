@@ -379,6 +379,9 @@ struct MessagesSearchField: View {
                 .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentPrimary)
                 .focused($isFocused)
+                // Searches take names, npubs and pasted keys: a correction or a capitalized first
+                // letter offered over "npub1…" is never what the user meant.
+                .autocorrectionDisabled()
                 .accessibilityIdentifier(accessibilityIdentifier ?? "search.field")
 
             if !text.isEmpty {
