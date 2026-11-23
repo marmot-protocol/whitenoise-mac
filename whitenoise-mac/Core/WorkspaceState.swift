@@ -1376,21 +1376,21 @@ final class WorkspaceState {
     }
 
     func upsertChat(_ chat: ChatItem, forAccountId accountId: String) {
-        let chats = chatsByAccount[accountId] ?? []
-        let result = ChatListOrdering.upsertResult(
+        // Mutate the stored list and lookup in place: copying them out and back made every
+        // row update O(list size), which a live chat list pays on each delta.
+        let existingIndex = chatIndex(accountId: accountId, chatId: chat.id)
+        let pinned = pinnedChatIds(forAccountId: accountId)
+        let reindexStart = ChatListOrdering.upsert(
             chat,
-            into: chats,
-            existingIndex: chatIndex(accountId: accountId, chatId: chat.id),
-            pinnedChatIds: pinnedChatIds(forAccountId: accountId)
+            into: &chatsByAccount[accountId, default: []],
+            existingIndex: existingIndex,
+            pinnedChatIds: pinned
         )
-        chatsByAccount[accountId] = result.chats
 
-        if let reindexStart = result.reindexStart {
+        if let reindexStart {
             reindexChats(forAccountId: accountId, startingAt: reindexStart)
         } else {
-            var lookup = chatLookupByAccount[accountId] ?? [:]
-            lookup[chat.id] = chat
-            chatLookupByAccount[accountId] = lookup
+            chatLookupByAccount[accountId, default: [:]][chat.id] = chat
         }
         noteChatListChanged(forAccountId: accountId)
     }
@@ -1473,18 +1473,11 @@ final class WorkspaceState {
     }
 
     func reindexChats(forAccountId accountId: String, startingAt startIndex: Int) {
-        let chats = chatsByAccount[accountId] ?? []
-        guard startIndex < chats.endIndex else { return }
+        guard let chats = chatsByAccount[accountId], startIndex < chats.endIndex else { return }
 
-        var lookup = chatLookupByAccount[accountId] ?? [:]
-        var indexes = chatIndexByAccount[accountId] ?? [:]
-        for index in max(0, startIndex)..<chats.endIndex {
-            let chat = chats[index]
-            lookup[chat.id] = chat
-            indexes[chat.id] = index
-        }
-        chatLookupByAccount[accountId] = lookup
-        chatIndexByAccount[accountId] = indexes
+        let moved = chats[max(0, startIndex)...]
+        chatLookupByAccount[accountId, default: [:]].merge(moved.lazy.map { ($0.id, $0) }) { _, new in new }
+        chatIndexByAccount[accountId, default: [:]].merge(zip(moved.lazy.map(\.id), moved.indices)) { _, new in new }
     }
 
     func rebuildArchivedChatIndexes(forAccountId accountId: String) {
@@ -1504,18 +1497,13 @@ final class WorkspaceState {
     }
 
     func reindexArchivedChats(forAccountId accountId: String, startingAt startIndex: Int) {
-        let chats = archivedChatsByAccount[accountId] ?? []
-        guard startIndex < chats.endIndex else { return }
+        guard let chats = archivedChatsByAccount[accountId], startIndex < chats.endIndex else { return }
 
-        var lookup = archivedChatLookupByAccount[accountId] ?? [:]
-        var indexes = archivedChatIndexByAccount[accountId] ?? [:]
-        for index in max(0, startIndex)..<chats.endIndex {
-            let chat = chats[index]
-            lookup[chat.id] = chat
-            indexes[chat.id] = index
+        let moved = chats[max(0, startIndex)...]
+        archivedChatLookupByAccount[accountId, default: [:]].merge(moved.lazy.map { ($0.id, $0) }) { _, new in new }
+        archivedChatIndexByAccount[accountId, default: [:]].merge(zip(moved.lazy.map(\.id), moved.indices)) { _, new in
+            new
         }
-        archivedChatLookupByAccount[accountId] = lookup
-        archivedChatIndexByAccount[accountId] = indexes
     }
 
     func chatItem(accountId: String, chatId: String) -> ChatItem? {
@@ -1540,20 +1528,19 @@ final class WorkspaceState {
     }
 
     func upsertArchivedChat(_ chat: ChatItem, forAccountId accountId: String) {
-        let chats = archivedChatsByAccount[accountId] ?? []
-        let result = ChatListOrdering.upsertResult(
+        // Mutate the stored list and lookup in place: copying them out and back made every
+        // row update O(list size), which a live chat list pays on each delta.
+        let existingIndex = archivedChatIndex(accountId: accountId, chatId: chat.id)
+        let reindexStart = ChatListOrdering.upsert(
             chat,
-            into: chats,
-            existingIndex: archivedChatIndex(accountId: accountId, chatId: chat.id)
+            into: &archivedChatsByAccount[accountId, default: []],
+            existingIndex: existingIndex
         )
-        archivedChatsByAccount[accountId] = result.chats
 
-        if let reindexStart = result.reindexStart {
+        if let reindexStart {
             reindexArchivedChats(forAccountId: accountId, startingAt: reindexStart)
         } else {
-            var lookup = archivedChatLookupByAccount[accountId] ?? [:]
-            lookup[chat.id] = chat
-            archivedChatLookupByAccount[accountId] = lookup
+            archivedChatLookupByAccount[accountId, default: [:]][chat.id] = chat
         }
         noteChatListChanged(forAccountId: accountId)
     }

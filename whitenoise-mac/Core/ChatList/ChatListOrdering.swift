@@ -1,11 +1,6 @@
 import Foundation
 
 nonisolated enum ChatListOrdering {
-    struct UpsertResult {
-        let chats: [ChatItem]
-        let reindexStart: Int?
-    }
-
     static func sorted(_ chatItems: [ChatItem], pinnedChatIds: Set<String> = []) -> [ChatItem] {
         chatItems.sorted { lhs, rhs in
             areInDisplayOrder(lhs, rhs, pinnedChatIds: pinnedChatIds)
@@ -17,12 +12,12 @@ nonisolated enum ChatListOrdering {
         into chats: [ChatItem],
         pinnedChatIds: Set<String> = []
     ) -> [ChatItem] {
-        upsertResult(
+        upserting(
             chat,
             into: chats,
             existingIndex: chats.firstIndex(where: { $0.id == chat.id }),
             pinnedChatIds: pinnedChatIds
-        ).chats
+        )
     }
 
     static func upserting(
@@ -31,30 +26,36 @@ nonisolated enum ChatListOrdering {
         existingIndex: Int?,
         pinnedChatIds: Set<String> = []
     ) -> [ChatItem] {
-        upsertResult(chat, into: chats, existingIndex: existingIndex, pinnedChatIds: pinnedChatIds).chats
+        var result = chats
+        upsert(chat, into: &result, existingIndex: existingIndex, pinnedChatIds: pinnedChatIds)
+        return result
     }
 
-    static func upsertResult(
+    /// Places `chat` in display order, mutating `chats` in place so a caller that passes its
+    /// stored list (`&chatsByAccount[id, default: []]`) never copies the whole list per row.
+    /// Returns the first index whose position changed, or `nil` when the row was replaced where
+    /// it stood and no other row moved.
+    @discardableResult
+    static func upsert(
         _ chat: ChatItem,
-        into chats: [ChatItem],
+        into chats: inout [ChatItem],
         existingIndex: Int?,
         pinnedChatIds: Set<String> = []
-    ) -> UpsertResult {
-        var result = chats
+    ) -> Int? {
         if let index = existingIndex {
-            if canReplaceInPlace(chat, at: index, in: result, pinnedChatIds: pinnedChatIds) {
-                result[index] = chat
-                return UpsertResult(chats: result, reindexStart: nil)
+            if canReplaceInPlace(chat, at: index, in: chats, pinnedChatIds: pinnedChatIds) {
+                chats[index] = chat
+                return nil
             }
-            result.remove(at: index)
-            let nextIndex = insertionIndex(for: chat, in: result, pinnedChatIds: pinnedChatIds)
-            result.insert(chat, at: nextIndex)
-            return UpsertResult(chats: result, reindexStart: min(index, nextIndex))
+            chats.remove(at: index)
+            let nextIndex = insertionIndex(for: chat, in: chats, pinnedChatIds: pinnedChatIds)
+            chats.insert(chat, at: nextIndex)
+            return min(index, nextIndex)
         }
 
-        let nextIndex = insertionIndex(for: chat, in: result, pinnedChatIds: pinnedChatIds)
-        result.insert(chat, at: nextIndex)
-        return UpsertResult(chats: result, reindexStart: nextIndex)
+        let nextIndex = insertionIndex(for: chat, in: chats, pinnedChatIds: pinnedChatIds)
+        chats.insert(chat, at: nextIndex)
+        return nextIndex
     }
 
     static func mostRecent(in chatItems: [ChatItem]) -> ChatItem? {
