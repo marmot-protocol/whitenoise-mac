@@ -47,6 +47,9 @@ nonisolated struct GroupDraftImage: Equatable, Sendable {
         )
     }
 
+    /// Identity by content, on purpose: two drafts of the same bytes are the same picture, whatever
+    /// `PendingMediaAttachment.id` each was wrapped in. `whitenoise-ios`'s `==` compares every field;
+    /// this one does not need to, because nothing but the bytes and their type reaches the group.
     static func == (lhs: GroupDraftImage, rhs: GroupDraftImage) -> Bool {
         lhs.attachment.plaintextSHA256 == rhs.attachment.plaintextSHA256
             && lhs.attachment.mediaType == rhs.attachment.mediaType

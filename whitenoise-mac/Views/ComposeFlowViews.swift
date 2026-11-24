@@ -407,8 +407,8 @@ struct SelectedMemberChips: View {
 
 struct NameGroupPanelView: View {
     @Environment(WorkspaceState.self) private var workspace
-    /// The picture Create founds the group with. Held by the drawer rather than here, so going back
-    /// to change the members keeps it, as it keeps the name.
+    /// The picture Create founds the group with. Held by `MessengerShellView` rather than here, so
+    /// going back to change the members, or hiding the chat list, keeps it, as it keeps the name.
     @Binding var draftImage: GroupDraftImage?
     @FocusState private var isNameFocused: Bool
 

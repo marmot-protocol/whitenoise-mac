@@ -155,23 +155,25 @@ struct ChatListDrawerView: View {
     let recoveryStatus: AccountRecoveryStatusViewModel?
     let selection: ChatListSelectionViewModel?
     let search: ChatListSearchViewModel?
-    /// The New group draft's picture. Kept between the members and name panes, and dropped once
-    /// the composer leaves the group flow: closed (on Create, on cancel, on the account switch that
-    /// closes it) or back on its first pane, which is also where New Chat restarts a draft.
-    @State private var groupDraftImage: GroupDraftImage?
+    /// The New group draft's picture. Owned by `MessengerShellView` rather than this drawer, which
+    /// Hide chat list unmounts while the composer stays open: the name and members survive that on
+    /// `WorkspaceState`, and the picture has to as well.
+    @Binding var groupDraftImage: GroupDraftImage?
 
     init(
         model: ChatListViewModel? = nil,
         historyNotices: HistoryNoticesViewModel? = nil,
         recoveryStatus: AccountRecoveryStatusViewModel? = nil,
         selection: ChatListSelectionViewModel? = nil,
-        search: ChatListSearchViewModel? = nil
+        search: ChatListSearchViewModel? = nil,
+        groupDraftImage: Binding<GroupDraftImage?> = .constant(nil)
     ) {
         self.recoveryStatus = recoveryStatus
         self.model = model
         self.historyNotices = historyNotices
         self.selection = selection
         self.search = search
+        self._groupDraftImage = groupDraftImage
     }
 
     private var isShowingSettings: Bool {
@@ -374,12 +376,6 @@ struct ChatListDrawerView: View {
         // Selection would stay armed with no Done button on screen, and the conversation header
         // leaves Escape to that missing button.
         .onDisappear { selection?.end() }
-        .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
-            if !isVisible { groupDraftImage = nil }
-        }
-        .onChange(of: workspace.composePane) { _, pane in
-            if pane == .newChat { groupDraftImage = nil }
-        }
         .modifier(ChatListSelectionDialogs(model: selection))
     }
 

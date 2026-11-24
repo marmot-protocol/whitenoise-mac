@@ -11,6 +11,12 @@ import UniformTypeIdentifiers
 struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    /// The New group draft's picture. Held here, above the drawer, because Hide chat list unmounts
+    /// the drawer while the composer stays open, and the name and members it pairs with outlive
+    /// that on `WorkspaceState`. Dropped on the transitions that reset those: the composer closing
+    /// (on Create, on cancel, on the account switch that closes it) or returning to its first pane,
+    /// which is also where New Chat restarts a draft.
+    @State private var groupDraftImage: GroupDraftImage?
 
     private var productScreen: ProductScreen? {
         guard workspace.phase == .ready, workspace.activeAccount != nil else { return nil }
@@ -51,7 +57,8 @@ struct MessengerShellView: View {
                                     historyNotices: session.accountScope?.historyNotices,
                                     recoveryStatus: session.accountScope?.recoveryStatus,
                                     selection: session.accountScope?.chatListSelection,
-                                    search: session.accountScope?.chatListSearch
+                                    search: session.accountScope?.chatListSearch,
+                                    groupDraftImage: $groupDraftImage
                                 )
                                 // Deliberately un-animated: the width is dragged, so animating
                                 // it would re-wrap the non-lazy transcript on every frame of the
@@ -110,6 +117,12 @@ struct MessengerShellView: View {
             }
         }
         .ignoresSafeArea(.container, edges: ignoredEdges)
+        .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
+            if !isVisible { groupDraftImage = nil }
+        }
+        .onChange(of: workspace.composePane) { _, pane in
+            if pane == .newChat { groupDraftImage = nil }
+        }
         .task(id: productScreen) {
             guard let productScreen else { return }
             session.accountScope?.productAnalytics.record(.screen(productScreen))
