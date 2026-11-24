@@ -31,43 +31,80 @@ do not add state or features to frozen `WorkspaceState`. Every new view gets a
 ## Issue ownership
 
 [Tracker #1033](https://github.com/marmot-protocol/whitenoise-mac/issues/1033)
-and its current issue bodies describe the monochrome refresh. Old images are
-historical composition references; their theme colours, hand-built controls and
-superseded layout details are not acceptance targets.
+is the authoritative work order and completion tree. Its current child bodies
+specify what to keep, remove and introduce, acceptance criteria, source starting
+points and pattern IDs. Read current issue/PR state before implementing; historical
+comments and drawings are superseded where the tracker says so.
+
+The plan was audited against master `f0ee021` on 2026-11-24. Monochrome surfaces,
+conversation grouping/delivery/timestamps (#1088), substring highlighting (#1086),
+chat batch selection (#1084/#1089), message-selection exits (#1085) and group-image
+creation (#1087) already exist. The refresh preserves these contracts while
+replacing presentation. Open #1095–#1098 must be checked for overlap before work.
+Do not treat an open design issue as proof that no implementation exists.
+
+### Mandatory refresh work
+
+Dependencies are in the tracker and each issue. #1035 supplies bounded shared
+control/type slices; it is not a gate requiring an app-wide migration first.
+Window/focus and command contracts precede a separate Settings scene. Keep old
+entry points reachable until their native replacements work. #1039 owns the base
+transcript presentation; coordinate overlapping message/expiry/media changes.
 
 | Issue | Bounded ownership |
 | --- | --- |
-| #1034 | Monochrome semantic foundation; no visible switch, theme model, picker or preference |
-| #1035 | Apply monochrome/native surfaces and shared neutral control roles; migrate touched text styles |
-| #1036 | Native Settings scene/panes; Appearance and Language using existing preferences, no colour themes |
-| #1037 | Native sidebar, account selector, list, search placement/filter context; shell menu routing |
-| #1038 | Native conversation toolbar/title/retention summary |
-| #1039 | Transcript grouping, metadata, reply quotes and reactions; may be split |
-| #1040 | Expiry presentation from existing message retention data |
-| #1041 | GitHub cards as a separately scoped feature, including consent-gated requests |
-| #1042 | Native chat inspector and Conversation commands, existing actions only |
-| #1043 | Search result presentation and Edit > Find integration |
-| #1044 | Shared media inspector content, links, file presentation, compatible previews |
+| [#1034](https://github.com/marmot-protocol/whitenoise-mac/issues/1034) | Audit and define native monochrome semantic roles |
+| [#1035](https://github.com/marmot-protocol/whitenoise-mac/issues/1035) | Native shared controls and semantic typography |
+| [#1101](https://github.com/marmot-protocol/whitenoise-mac/issues/1101) | Native menu commands and focused-window routing |
+| [#1115](https://github.com/marmot-protocol/whitenoise-mac/issues/1115) | Native window chrome and split-view shell |
+| [#1112](https://github.com/marmot-protocol/whitenoise-mac/issues/1112) | Persistent notices, errors and empty states |
+| [#1116](https://github.com/marmot-protocol/whitenoise-mac/issues/1116) | Mac refresh prerequisite: Settings window context and presentation ownership |
+| [#1037](https://github.com/marmot-protocol/whitenoise-mac/issues/1037) | Native chat list, existing filters and account selector |
+| [#1038](https://github.com/marmot-protocol/whitenoise-mac/issues/1038) | Native conversation toolbar and contextual title |
+| [#1105](https://github.com/marmot-protocol/whitenoise-mac/issues/1105) | New Chat, direct-chat choice and group creation |
+| [#1106](https://github.com/marmot-protocol/whitenoise-mac/issues/1106) | Sign-in, sign-up, setup and profile chooser layouts |
+| [#1036](https://github.com/marmot-protocol/whitenoise-mac/issues/1036) | Separate Settings window, category navigation and Appearance |
+| [#1107](https://github.com/marmot-protocol/whitenoise-mac/issues/1107) | Profile, Profile Keys and account-action forms |
+| [#1108](https://github.com/marmot-protocol/whitenoise-mac/issues/1108) | Privacy and notification preference forms |
+| [#1109](https://github.com/marmot-protocol/whitenoise-mac/issues/1109) | Linked-device and security review presentations |
+| [#1110](https://github.com/marmot-protocol/whitenoise-mac/issues/1110) | Data Usage and Manage Storage layouts |
+| [#1111](https://github.com/marmot-protocol/whitenoise-mac/issues/1111) | Relay and advanced-settings native forms |
+| [#1102](https://github.com/marmot-protocol/whitenoise-mac/issues/1102) | Composer text, reply/edit context and staged attachments |
+| [#1103](https://github.com/marmot-protocol/whitenoise-mac/issues/1103) | Voice recording and dictation controls |
+| [#1039](https://github.com/marmot-protocol/whitenoise-mac/issues/1039) | Transcript typography, bubble surfaces and reply presentation |
+| [#1104](https://github.com/marmot-protocol/whitenoise-mac/issues/1104) | Message actions, selection and reaction popovers |
+| [#1113](https://github.com/marmot-protocol/whitenoise-mac/issues/1113) | Existing rich-message cards and media states |
+| [#1118](https://github.com/marmot-protocol/whitenoise-mac/issues/1118) | Emoji, sticker, GIF and poll composition tools |
+| [#1040](https://github.com/marmot-protocol/whitenoise-mac/issues/1040) | Per-message expiry indicator from existing retention data |
+| [#1042](https://github.com/marmot-protocol/whitenoise-mac/issues/1042) | Native chat inspector and focused information editors |
+| [#1043](https://github.com/marmot-protocol/whitenoise-mac/issues/1043) | Native sidebar search, global results and Find integration |
+| [#1044](https://github.com/marmot-protocol/whitenoise-mac/issues/1044) | Shared Media and Files library with safe native file presentation |
+| [#1022](https://github.com/marmot-protocol/whitenoise-mac/issues/1022) | Verify/fix the original reaction picker reachability bug; coordinate message-actions integration |
 
-Tracker #1033 and children #1034–#1044 were aligned with this guide on 2026-11-24.
-In particular, #1036 now specifies a native category sidebar inside the separate
-Settings window, preserving iOS relationships and supported Mac-only categories.
-`TabView` remains appropriate for a small settings surface, not every category
-in one horizontal strip.
+### Independent follow-ups
+
+These are outside the mandatory tracker tree and cannot block the existing
+Media/Files or monochrome refresh:
+
+- [#1100](https://github.com/marmot-protocol/whitenoise-mac/issues/1100): Later: Explore optional colour themes after the monochrome Mac refresh.
+- [#1041](https://github.com/marmot-protocol/whitenoise-mac/issues/1041): Optional feature: GitHub issue and PR cards with preview consent.
+- [#1114](https://github.com/marmot-protocol/whitenoise-mac/issues/1114): Mac refresh follow-up: Shared Links inventory and safe presentation.
+- [#1117](https://github.com/marmot-protocol/whitenoise-mac/issues/1117): Later: Expose shared-media expiry and complete category totals.
+
+Existing System/Light/Dark appearance remains. No theme enum, picker, persistence
+or preparatory engine belongs in the refresh. The attachment projection currently
+has neither a complete Links inventory nor per-attachment expiry/full category
+totals. Omit unsupported adornments; do not invent a host-side crawler or cache.
+Quick Look remains conditional on safe existing attachment-handoff ownership.
+
+### Layout references
 
 The [Figma layouts and common patterns](https://www.figma.com/design/6UkyXHp2ZioiNI7TBd5nhw)
-contain six high-level review proposals: main window, chat inspector, search,
-Settings, edit sheet, and common patterns. Each issue links its relevant frames.
-Use these for containment and grouping, not exact dimensions, final control
-styling, animation timing, or permission to add capabilities. Native components
-and the detailed pattern guide own implementation decisions.
-
-Read live issue/PR state before implementation. At preparation time, draft
-[PR #1088](https://github.com/marmot-protocol/whitenoise-mac/pull/1088) overlaps
-#1039 and #1038 (grouping, delivery indicators, timestamps and retention summary).
-Inspect its current diff before duplicating work; issue-open status alone does
-not prove that no code exists. #1022 is the reported reaction popover reachability
-bug, not a theme task.
+and six images attached to the tracker/related issues are rough representations
+of main window, inspector, search, Settings, editing and common patterns. They
+show containment and grouping, not final control styling, fixed dimensions,
+animation timing or new capabilities. Apple native components and the pattern
+guide own those decisions. Images and the static preview are not repository files.
 
 ## Scope and validation
 
