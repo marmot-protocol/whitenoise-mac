@@ -204,6 +204,24 @@ final class ChatListSelectionViewModel {
         selectedIds = ChatListSelection.togglingAll(selectedIds, visibleIds: Set(selectableIds))
     }
 
+    /// The Select All row's checkbox: whether none, some or every selectable chat is selected.
+    var selectAllState: ChatListSelectAllState {
+        if allSelected { return .all }
+        return selectedIds.isEmpty ? .empty : .partial
+    }
+
+    func selectAll() {
+        guard isActive, !isBusy, let selectableIds, !selectableIds.isEmpty else { return }
+        selectedIds = Set(selectableIds)
+    }
+
+    /// Clears the selection but stays in selection mode, so the next click picks a chat instead of
+    /// opening it.
+    func deselectAll() {
+        guard isActive, !isBusy else { return }
+        selectedIds = []
+    }
+
     /// The list changed under the selection — a new filter, a search, a chat that moved away.
     /// Drops selections that are no longer in the list, except while a batch is running: a chat it
     /// just archived or left is expected to leave the list, and the batch still owns it. A windowed

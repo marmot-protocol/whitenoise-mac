@@ -1,13 +1,13 @@
 import MarmotKit
 import SwiftUI
 
-/// The bar under the chat list in selection mode: how many chats are selected, and what can be
-/// done to all of them — the Mac's counterpart to iOS's `ChatListSelectionBar`. Which actions it
-/// offers follows `ChatListSelection`: Unarchive only when every selected chat is archived, Unmute
-/// only when every one is muted, Leave whenever at least one can still be left, and Delete in
-/// Leave's place when every selected chat is one already left (or whose group ended). Each of those
-/// choices is read from the selected rows, so every action stays disabled until each selected id
-/// has resolved to a row.
+/// The bar under the chat list in selection mode: what can be done to every selected chat — the
+/// Mac's counterpart to iOS's `ChatListSelectionBar`. Which actions it offers follows
+/// `ChatListSelection`: Unarchive only when every selected chat is archived, Unmute only when every
+/// one is muted, Leave whenever at least one can still be left, and Delete in Leave's place when
+/// every selected chat is one already left (or whose group ended). Each of those choices is read
+/// from the selected rows, so every action stays disabled until each selected id has resolved to
+/// a row.
 struct ChatListSelectionBar: View {
     @Environment(\.locale) private var locale
     @Environment(\.endingGroupIds) private var endingGroupIds
@@ -31,11 +31,8 @@ struct ChatListSelectionBar: View {
         let canLeave = allResolved && !leavable.isEmpty
         let canDelete = allResolved && ChatListSelection.canDeleteLocally(selected)
 
-        HStack(spacing: 8) {
-            ChatListSelectionCount(count: ids.count, isBusy: model.isBusy)
-
-            Spacer(minLength: 4)
-
+        // The count and the busy spinner sit in the Select All row at the top of the list.
+        HStack(spacing: 16) {
             ChatListSelectionActionButton(
                 title: L10n.string(archiveAction == .archive ? "Archive" : "Unarchive", locale: locale),
                 systemImage: archiveAction == .archive ? "archivebox" : "tray.and.arrow.up",
@@ -82,32 +79,12 @@ struct ChatListSelectionBar: View {
                 .disabled(!canLeave)
             }
         }
+        .frame(maxWidth: .infinity)
         .disabled(model.isBusy)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.selection.bar")
-    }
-}
-
-private struct ChatListSelectionCount: View {
-    @Environment(\.locale) private var locale
-    let count: Int
-    let isBusy: Bool
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if isBusy {
-                ProgressView()
-                    .controlSize(.small)
-            }
-            Text(L10n.plural("%lld selected", Int64(count), locale: locale))
-                .wnFont(.medium14)
-                .contentTransition(.numericText())
-                .lineLimit(1)
-                .accessibilityIdentifier("chat.selection.count")
-        }
-        .animation(.default, value: count)
     }
 }
 

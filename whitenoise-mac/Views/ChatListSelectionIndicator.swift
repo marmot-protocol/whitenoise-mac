@@ -14,10 +14,16 @@ struct ChatListSelectionIndicator: View {
 /// The mark itself, separated from the model so it can be previewed and measured on its own.
 struct ChatListSelectionMark: View {
     let isSelected: Bool
+    /// Select All's mixed state: some chats selected, not all.
+    var isPartial = false
 
     var body: some View {
         Group {
-            if isSelected {
+            if isPartial {
+                Image(systemName: "minus.circle.fill")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(WNColor.fillContentPrimary, WNColor.fillPrimary)
+            } else if isSelected {
                 Image(systemName: "checkmark.circle.fill")
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(WNColor.fillContentPrimary, WNColor.fillPrimary)
@@ -37,6 +43,7 @@ struct ChatListSelectionMark: View {
     HStack(spacing: 12) {
         ChatListSelectionMark(isSelected: false)
         ChatListSelectionMark(isSelected: true)
+        ChatListSelectionMark(isSelected: false, isPartial: true)
     }
     .padding()
 }

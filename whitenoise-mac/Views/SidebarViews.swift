@@ -207,7 +207,7 @@ struct ChatListDrawerView: View {
                 if isCollapsed {
                     CollapsedChatListHeader(isShowingArchived: isShowingArchived)
                 } else {
-                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived, selection: activeSelection)
+                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived)
                 }
 
                 GlassSeparator(axis: .horizontal)
@@ -218,6 +218,15 @@ struct ChatListDrawerView: View {
 
                 if !isCollapsed, let recoveryStatus {
                     AccountCatchingUpRow(model: recoveryStatus)
+                }
+
+                if let activeSelection {
+                    // Under the search field and beside the rows' checkmarks it acts on, rather
+                    // than in place of the title row.
+                    ChatListSelectAllRow(model: activeSelection)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 ScrollView {
@@ -460,24 +469,32 @@ private struct ChatListHeader: View {
     @Environment(WorkspaceState.self) private var workspace
     let filter: ChatListFilter
     let isShowingArchived: Bool
-    /// Set while selection mode is on; the title row gives way to the selection controls.
-    let selection: ChatListSelectionViewModel?
 
     var body: some View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 10) {
-            if let selection {
-                ChatListSelectionHeaderRow(model: selection)
-            } else {
-                HStack(spacing: 8) {
-                    Text(filter.title)
-                        .wnFont(MessagesType.paneTitle)
-                    Spacer()
+            HStack(spacing: 8) {
+                Text(filter.title)
+                    .wnFont(MessagesType.paneTitle)
+                Spacer()
+                Button {
+                    workspace.presentGlobalMessageSearch()
+                } label: {
+                    Image(systemName: "text.magnifyingglass")
+                        .wnFont(.semiBold14)
+                        .frame(width: 34, height: 34)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Search all messages"))
+                if !isShowingArchived {
                     Button {
-                        workspace.presentGlobalMessageSearch()
+                        workspace.showNewChat()
                     } label: {
-                        Image(systemName: "text.magnifyingglass")
+                        Image(systemName: "square.and.pencil")
                             .wnFont(.semiBold14)
                             .frame(width: 34, height: 34)
                             .background {
@@ -485,22 +502,8 @@ private struct ChatListHeader: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .help(L10n.string("Search all messages"))
-                    if !isShowingArchived {
-                        Button {
-                            workspace.showNewChat()
-                        } label: {
-                            Image(systemName: "square.and.pencil")
-                                .wnFont(.semiBold14)
-                                .frame(width: 34, height: 34)
-                                .background {
-                                    MessagesCircleControlBackground()
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .keyboardShortcut("n", modifiers: .command)
-                        .help(L10n.string("New chat"))
-                    }
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help(L10n.string("New chat"))
                 }
             }
 
