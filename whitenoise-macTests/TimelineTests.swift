@@ -268,7 +268,8 @@ struct TimelineTests: WorkspaceTestSupport {
         let bubbleSource = try SourceContract.declaration("MessageBubble")
 
         let chips = try #require(bubbleSource.range(of: "MessageReactionChips("))
-        let standaloneMetadata = try #require(bubbleSource.range(of: "if !message.hasBubbleContent {"))
+        let standaloneMetadata = try #require(
+            bubbleSource.range(of: "if !message.hasBubbleContent, showsBubbleMetadata {"))
         #expect(chips.lowerBound < standaloneMetadata.lowerBound)
 
         // And the overlap is decided by the placement helper above rather than by an inline

@@ -59,15 +59,35 @@ struct whitenoise_macTests: WorkspaceTestSupport {
         AppLanguage.refreshCachedLocale()
 
         let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
-        // Message times force a 12-hour clock with a meridiem while still following the selected
-        // language, so the expected value forces the same hour cycle on the Spanish locale.
+        // Message times follow the selected language on the Mac's own 12- or 24-hour clock, so the
+        // expected value puts the system's hour cycle on the Spanish locale.
         var components = Locale.Components(locale: Locale(identifier: AppLanguage.spanish.rawValue))
-        components.hourCycle = .oneToTwelve
+        components.hourCycle = Locale.autoupdatingCurrent.hourCycle
         let expected = messageDate.formatted(
             Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(components: components))
         )
 
         #expect(DisplayText.messageTimestamp(for: messageDate, now: messageDate) == expected)
+    }
+
+    @MainActor
+    @Test func messageTimestampFollowsTheSystemHourCycle() {
+        defer { AppLanguage.setSystemLocaleOverrideForTesting(nil) }
+        let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let english = Locale(identifier: "en_US")
+        let timeOnly = Date.FormatStyle(date: .omitted, time: .shortened)
+
+        for hourCycle in [Locale.HourCycle.zeroToTwentyThree, .oneToTwelve] {
+            var system = Locale.Components(locale: english)
+            system.hourCycle = hourCycle
+            AppLanguage.setSystemLocaleOverrideForTesting(Locale(components: system))
+
+            var expected = Locale.Components(locale: english)
+            expected.hourCycle = hourCycle
+            #expect(
+                DisplayText.messageTimestamp(for: messageDate, now: messageDate, locale: english)
+                    == messageDate.formatted(timeOnly.locale(Locale(components: expected))))
+        }
     }
 
     @MainActor
@@ -183,11 +203,12 @@ struct whitenoise_macTests: WorkspaceTestSupport {
         let sameDayNow = try #require(calendar.date(byAdding: .hour, value: 16, to: dayStart))
         let nextDayNow = try #require(calendar.date(byAdding: .day, value: 1, to: sameDayNow))
         let locale = Locale(identifier: "en_US")
+        let clockLocale = AppLanguage.deviceClockLocale(for: locale)
         let expectedTime = sentAt.formatted(
-            Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)
+            Date.FormatStyle(date: .omitted, time: .shortened).locale(clockLocale)
         )
         let expectedDateTime = sentAt.formatted(
-            Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale)
+            Date.FormatStyle(date: .abbreviated, time: .shortened).locale(clockLocale)
         )
 
         #expect(DisplayText.messageTimestamp(for: sentAt, now: sameDayNow, locale: locale) == expectedTime)

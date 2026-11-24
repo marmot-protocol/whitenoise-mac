@@ -172,8 +172,9 @@ private struct PendingOutgoingMessageCaption<Metadata: View>: View {
     }
 }
 
-/// Timestamp plus delivery marker, matching `MessageBubble.compactMetadata` — a pending row is a
-/// send that has not been confirmed yet, so it wears the same clock the core-committed ones do.
+/// Delivery marker plus timestamp, matching `MessageBubble.compactMetadata` — a pending row is a
+/// send that has not been confirmed yet, so it wears the same marker the core-committed ones do,
+/// and a failed one says "Not delivered" where its time would be.
 private struct PendingOutgoingMessageMetadata: View {
     let createdAt: Date
     let isFailed: Bool
@@ -182,17 +183,22 @@ private struct PendingOutgoingMessageMetadata: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(
-                DisplayText.messageTimestamp(
-                    for: createdAt,
-                    now: timestampReferenceDate,
-                    locale: timestampLocale
-                )
-            )
-            .monospacedDigit()
-
-            Image(systemName: isFailed ? "exclamationmark.circle.fill" : "clock")
+            MessageDeliveryMarker(indicator: isFailed ? .failed : .sending)
                 .foregroundStyle(isFailed ? WNColor.backgroundContentDestructiveSecondary : tint)
+
+            if isFailed {
+                Text(L10n.string("Not delivered"))
+                    .foregroundStyle(WNColor.backgroundContentDestructiveSecondary)
+            } else {
+                Text(
+                    DisplayText.messageTimestamp(
+                        for: createdAt,
+                        now: timestampReferenceDate,
+                        locale: timestampLocale
+                    )
+                )
+                .monospacedDigit()
+            }
         }
         .wnFont(.medium10)
         .foregroundStyle(tint)
@@ -405,7 +411,7 @@ private struct PendingOutgoingMediaAttachmentRow: View {
 /// Shaped by the same `MessageBubbleShape`/`sentBubble` pair as a media caption and a committed own
 /// row, so the swap to the real row does not change the row's shape. Deliberately *not* dimmed the
 /// way a pending media bubble is: there is no preview here whose readiness is in question, only the
-/// user's own sentence, and the footer clock already says it is on its way.
+/// user's own sentence, and the footer marker already says it is on its way.
 struct PendingOutgoingTextBubble: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var isHovering = false

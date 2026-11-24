@@ -3103,6 +3103,72 @@
         }
       }
     },
+    "%@, Disappearing messages: %@" : {
+      "comment" : "Conversation header, spoken. The first argument is the member count, the second the full disappearing-message duration.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, Verschwindende Nachrichten: %2$@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, Mensajes temporales: %2$@"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, Katoavat viestit: %2$@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, Messages éphémères : %2$@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, Messaggi a scomparsa: %2$@"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, Mensagens temporárias: %2$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, Исчезающие сообщения: %2$@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, Kaybolan mesajlar: %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@，阅后即焚消息：%2$@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@，限時訊息：%2$@"
+          }
+        }
+      }
+    },
     "%@: " : {
       "comment" : "A chat row snippet that highlights a search term. The argument is the search term.",
       "extractionState" : "manual",

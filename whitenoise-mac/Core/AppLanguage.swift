@@ -72,6 +72,35 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
         currentLocalePair.twelveHourLocale
     }
 
+    /// `locale` with the Mac's own 12- or 24-hour clock, for message times: the selected language
+    /// decides the words and the order, System Settings decides the hour cycle (as on iOS).
+    ///
+    /// An explicit app language is built from a bare identifier, which carries that language's
+    /// default clock rather than the user's, so the system's hour cycle is copied onto it.
+    static func deviceClockLocale(for locale: Locale) -> Locale {
+        let hourCycle = systemLocale().hourCycle
+        let key = DeviceClockKey(identifier: locale.identifier, hourCycle: hourCycle)
+        if let cached = deviceClockLocales.withLock({ $0[key] }) {
+            return cached
+        }
+        var components = Locale.Components(locale: locale)
+        components.hourCycle = hourCycle
+        let resolved = Locale(components: components)
+        deviceClockLocales.withLock { cache in
+            // A handful of keys at most (one per language and clock); clear rather than grow.
+            if cache.count > 32 { cache.removeAll() }
+            cache[key] = resolved
+        }
+        return resolved
+    }
+
+    private struct DeviceClockKey: Hashable {
+        let identifier: String
+        let hourCycle: Locale.HourCycle
+    }
+
+    private static let deviceClockLocales = OSAllocatedUnfairLock<[DeviceClockKey: Locale]>(initialState: [:])
+
     static func twelveHourLocale(for locale: Locale) -> Locale {
         let pair = currentLocalePair
         guard locale.identifier != pair.locale.identifier else {
