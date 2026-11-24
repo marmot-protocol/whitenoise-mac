@@ -7806,6 +7806,63 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func switchingChatsEndsMessageSelection() {
+        // The selection is per conversation; carrying it into another chat would leave the
+        // toolbar acting on ids that are not in the transcript on screen.
+        let state = WorkspaceState.preview()
+        #expect(state.selectedChat?.id == ChatItem.samples[0].id)
+        state.selectedTimelineMessageIds = ["design-parent"]
+        #expect(state.isTimelineSelectionMode)
+
+        state.selectChat(ChatItem.samples[1])
+
+        #expect(!state.isTimelineSelectionMode)
+    }
+
+    @MainActor
+    @Test func openingSettingsEndsMessageSelectionForGood() {
+        // Settings unmounts the conversation, so the view's own chat-change reset never runs; the
+        // selection must not be waiting for the user when they come back.
+        let state = WorkspaceState.preview()
+        let design = ChatItem.samples[0]
+        state.selectedTimelineMessageIds = ["design-parent"]
+
+        state.showSettings()
+        #expect(!state.isTimelineSelectionMode)
+
+        state.selectChat(design)
+        #expect(state.selectedChat?.id == design.id)
+        #expect(!state.isTimelineSelectionMode)
+    }
+
+    @MainActor
+    @Test func switchingAccountsEndsMessageSelection() {
+        let state = WorkspaceState.preview()
+        state.selectedTimelineMessageIds = ["design-parent"]
+
+        state.selectAccount(AccountItem.samples[1])
+        #expect(state.activeAccountId == AccountItem.samples[1].id)
+        #expect(!state.isTimelineSelectionMode)
+
+        state.selectAccount(AccountItem.samples[0])
+        #expect(!state.isTimelineSelectionMode)
+    }
+
+    @MainActor
+    @Test func leavingTheConversationEndsMessageSelectionEvenWhenTheChatIdStays() {
+        // Two of the user's accounts can share a group id, so an account switch can land on the
+        // same `selection`; the conversation teardown ends the selection regardless.
+        let state = WorkspaceState.preview()
+        let selection = state.selection
+        state.selectedTimelineMessageIds = ["design-parent"]
+
+        state.leaveActiveConversation()
+
+        #expect(state.selection == selection)
+        #expect(!state.isTimelineSelectionMode)
+    }
+
+    @MainActor
     @Test func aFailedSendOffersRemoveInsteadOfDelete() async throws {
         // Nobody received a failed send, so the menu discards it here rather than publishing a
         // delete for everyone about a message the group never had.

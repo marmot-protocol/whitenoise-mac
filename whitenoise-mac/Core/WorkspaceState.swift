@@ -188,10 +188,13 @@ final class WorkspaceState {
         didSet {
             // A pending delete-confirmation or edit-history sheet belongs to the conversation it
             // was opened in; drop both when the selection changes so a stale dialog can't act on a
-            // different chat.
+            // different chat. A message multi-selection is per conversation too: the shell's
+            // `onChange(of: chat.id)` never sees a switch that remounts the conversation (Settings
+            // and back, or a chat whose model is not ready yet), so it ends here.
             if oldValue != selection {
                 messagePendingDeletion = nil
                 messagePendingEditHistory = nil
+                cancelMessageSelection()
             }
             dismissGroupImagePickerIfSelectedChatUnavailable()
             ensureSelectedMessageTimelineStore()
