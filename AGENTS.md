@@ -3,6 +3,22 @@
 Notes for automated agents working in this repo. Keep this file current when the
 build/test workflow or the MarmotKit boundary changes.
 
+## macOS design skills
+
+- For Mac UI, UX, interaction, copy, or component work, read
+  [.agents/skills/wn-mac-design/SKILL.md](.agents/skills/wn-mac-design/SKILL.md).
+  Use the [macOS UI patterns guide](docs/macos-ui-patterns.md) for concrete HIG/API
+  choices, component grouping, interaction, and motion. Keep White Noise's iOS
+  monochrome identity, feature organization, and terminology, with the guide's
+  explicit native Mac adaptations for windows, panes, and desktop input. Colour
+  themes and accent pickers are deferred; light/dark appearance is a separate preference.
+- For a requested Mac design review, also read
+  [.agents/skills/wn-mac-design-review/SKILL.md](.agents/skills/wn-mac-design-review/SKILL.md).
+  This is a focused design review, not the iOS multi-reviewer workflow.
+- Skills and issue acceptance criteria do not authorize builds, app operation,
+  accessibility QA, commits, pushes, or GitHub publication. Follow the current
+  user's permissions; default to source review and lightweight checks.
+
 ## Running the app
 
 - When validating the macOS app, keep exactly one `White Noise Dev` instance running (the Debug
