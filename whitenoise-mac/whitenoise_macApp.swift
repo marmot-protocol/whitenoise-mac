@@ -14,6 +14,9 @@ struct whitenoise_macApp: App {
     @State private var workspace: WorkspaceState
     @State private var session: SessionState
     @State private var dockBadge = DockBadgeController()
+    /// Answers clicks on the app's banners. Installed over the workspace's own handler, which
+    /// only knows the messenger; see `NotificationResponseRouter`.
+    private let notificationResponses: NotificationResponseRouter
     private let isUIFixture: Bool
     private let isUnitTestHost: Bool
 
@@ -21,8 +24,17 @@ struct whitenoise_macApp: App {
 
     init() {
         let configuration = AppLaunchConfiguration.current
-        _workspace = State(initialValue: configuration.makeWorkspace())
-        _session = State(initialValue: SessionState())
+        let workspace = configuration.makeWorkspace()
+        let session = SessionState()
+        _workspace = State(initialValue: workspace)
+        _session = State(initialValue: session)
+        let notificationResponses = NotificationResponseRouter(workspace: workspace) { [weak session] in
+            session?.accountScope?.onboarding
+        }
+        workspace.localNotificationCenter.setResponseHandler { [weak notificationResponses] userInfo in
+            notificationResponses?.route(userInfo)
+        }
+        self.notificationResponses = notificationResponses
         isUIFixture = configuration.isUIFixture
         isUnitTestHost = configuration.isUnitTestHost
     }
@@ -79,6 +91,10 @@ struct whitenoise_macApp: App {
                 // `nil`, waiting for a subscription snapshot. If activation turned synchronous or
                 // seeded a cached total, this clear could blank a fresh, correct count with no
                 // later `applicationBadgeCount` change to repair it.
+                // A banner clicked during launch or onboarding opens its chat once the chats show.
+                .onChange(of: workspace.phase) {
+                    notificationResponses.phaseDidChange()
+                }
                 .onChange(of: workspace.activeAccountId) { previousAccountId, _ in
                     dockBadge.activeAccountDidChange(
                         from: previousAccountId,
