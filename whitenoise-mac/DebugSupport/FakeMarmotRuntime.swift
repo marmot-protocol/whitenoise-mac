@@ -366,6 +366,8 @@
         var startDirectConversationReusedGroupId: String?
         private(set) var createdGroupName: String?
         private(set) var createdGroupDescription: String?
+        /// The founding picture of the last group created through `createGroupWithInitialImage`.
+        private(set) var createdGroupInitialImage: InitialGroupImageFfi?
         /// Member refs MDK finds no published KeyPackage for, valued by the account id hex it reports.
         /// Since 0.17 `createGroup` and `inviteMembersDetailed` report each as a `missingKeyPackage`
         /// outcome (or `obsoleteKeyPackage`, below) and go ahead with everyone else;
@@ -2653,6 +2655,25 @@
             }
             await createGroupGate.passIfArmed()
             return GroupCreationResultFfi(groupIdHex: "created-group", memberOutcomes: outcomes)
+        }
+
+        func createGroupWithInitialImage(
+            accountRef: String,
+            name: String,
+            memberRefs: [String],
+            description: String?,
+            initialImage: InitialGroupImageFfi
+        ) async throws -> GroupCreationResultFfi {
+            let result = try await createGroup(
+                accountRef: accountRef, name: name, memberRefs: memberRefs, description: description)
+            guard let groupIdHex = result.groupIdHex else { return result }
+            createdGroupInitialImage = initialImage
+            let imageHashHex = MessageMediaDiskCacheKey.plaintextDigest(for: initialImage.plaintext)
+            if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+                groups[index].imageHashHex = imageHashHex
+            }
+            groupDetailsById[groupIdHex]?.group.imageHashHex = imageHashHex
+            return result
         }
 
         func releaseCreateGroupGate() {

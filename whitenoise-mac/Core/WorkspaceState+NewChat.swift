@@ -813,9 +813,12 @@ extension WorkspaceState {
         newChatRecipients.filter { unreachableDraftMemberIdHexes.contains($0.accountIdHex.lowercased()) }
     }
 
-    /// Create the group from the compose-flow draft (chosen members, required name, timer).
-    /// A timer failure keeps the group and surfaces on the background banner.
-    func createGroupFromDraft() async {
+    /// Create the group from the compose-flow draft (chosen members, required name, timer, and the
+    /// optional picture). A timer failure keeps the group and surfaces on the background banner.
+    ///
+    /// `image` founds the group with it, so it is in the group's first metadata rather than a
+    /// later commit; the New group panel owns it, since `WorkspaceState` takes no new draft state.
+    func createGroupFromDraft(image: GroupDraftImage? = nil) async {
         guard let client, let activeAccount, !isCreatingChat else { return }
         let name = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
         // Members the core has already refused are left out of the attempt. This is not a silent
@@ -836,12 +839,23 @@ extension WorkspaceState {
         let groupIdHex: String
         let report: MemberResolutionReport
         do {
-            let result = try await client.createGroup(
-                accountRef: activeAccount.accountRef,
-                name: name,
-                memberRefs: attempt.map(\.inviteRef),
-                description: nil
-            )
+            let result =
+                if let image {
+                    try await client.createGroupWithInitialImage(
+                        accountRef: activeAccount.accountRef,
+                        name: name,
+                        memberRefs: attempt.map(\.inviteRef),
+                        description: nil,
+                        initialImage: image.initialImage
+                    )
+                } else {
+                    try await client.createGroup(
+                        accountRef: activeAccount.accountRef,
+                        name: name,
+                        memberRefs: attempt.map(\.inviteRef),
+                        description: nil
+                    )
+                }
             guard activeAccountId == accountId else { return }
             report = MemberResolutionReport(outcomes: result.memberOutcomes, recipients: attempt)
             guard let created = result.groupIdHex else {

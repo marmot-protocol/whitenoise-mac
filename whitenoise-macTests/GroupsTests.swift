@@ -4755,6 +4755,50 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(state.backgroundStatus == String(format: L10n.string("Couldn’t add %@ to the group."), "Bob"))
     }
     @MainActor
+    @Test func groupDraftFoundsTheGroupWithItsPicture() async throws {
+        // The picture rides the create itself, as the encrypted group-image component: the group's
+        // first metadata carries it, and no URL is ever offered as the legacy fallback.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        let image = GroupDraftImage(
+            attachment: PendingMediaAttachment(
+                fileName: "avatar.jpg", mediaType: "image/jpeg", data: Data([0xFF, 0xD8, 0xFF, 0x01]),
+                dim: "512x512"))
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatRecipients = [Self.aliceDraftRecipient()]
+        state.newChatName = "Project Room"
+        await state.createGroupFromDraft(image: image)
+
+        let founding = try #require(runtime.createdGroupInitialImage)
+        #expect(founding.plaintext == image.attachment.data)
+        #expect(founding.mediaType == "image/jpeg")
+        #expect(founding.dim == "512x512")
+        #expect(founding.sourceUrl == nil)
+        #expect(runtime.createdGroupMemberRefs == ["npub1alyce"])
+        #expect(runtime.updateGroupImageCallCount == 0)
+        #expect(state.selection == .chat("created-group"))
+        #expect(!state.isNewChatComposerVisible)
+    }
+    @MainActor
+    @Test func groupDraftWithoutAPictureCreatesWithoutOne() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatRecipients = [Self.aliceDraftRecipient()]
+        state.newChatName = "Project Room"
+        await state.createGroupFromDraft()
+
+        #expect(runtime.createdGroupInitialImage == nil)
+        #expect(runtime.createdGroupMemberRefs == ["npub1alyce"])
+        #expect(state.selection == .chat("created-group"))
+    }
+    @MainActor
     @Test func groupDraftNamesEveryoneLeftOutInOneMessage() async throws {
         // Whatever kept them out, the banner reports it as one problem naming everyone; the create
         // itself still goes ahead with whoever MDK could add.
