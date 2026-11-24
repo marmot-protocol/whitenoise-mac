@@ -155,6 +155,10 @@ struct ChatListDrawerView: View {
     let recoveryStatus: AccountRecoveryStatusViewModel?
     let selection: ChatListSelectionViewModel?
     let search: ChatListSearchViewModel?
+    /// The New group draft's picture. Kept between the members and name panes, and dropped once
+    /// the composer leaves the group flow: closed (on Create, on cancel, on the account switch that
+    /// closes it) or back on its first pane, which is also where New Chat restarts a draft.
+    @State private var groupDraftImage: GroupDraftImage?
 
     init(
         model: ChatListViewModel? = nil,
@@ -188,7 +192,7 @@ struct ChatListDrawerView: View {
                 case .chooseMembers:
                     ChooseMembersPanelView()
                 case .nameGroup:
-                    NameGroupPanelView()
+                    NameGroupPanelView(draftImage: $groupDraftImage)
                 }
             } else {
                 let filter = workspace.chatListFilter
@@ -361,6 +365,12 @@ struct ChatListDrawerView: View {
         // Selection would stay armed with no Done button on screen, and the conversation header
         // leaves Escape to that missing button.
         .onDisappear { selection?.end() }
+        .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
+            if !isVisible { groupDraftImage = nil }
+        }
+        .onChange(of: workspace.composePane) { _, pane in
+            if pane == .newChat { groupDraftImage = nil }
+        }
         .modifier(ChatListSelectionDialogs(model: selection))
     }
 

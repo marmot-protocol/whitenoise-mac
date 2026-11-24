@@ -6,6 +6,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import MarmotKit
 import Testing
 
 @testable import whitenoise_mac
@@ -119,6 +120,23 @@ struct AvatarCropTests: WorkspaceTestSupport {
         #expect(attachment.kind == .image)
         let side = AvatarImageCropper.outputPixelSize
         #expect(attachment.dim == "\(side)x\(side)")
+    }
+
+    /// A New group picture is the editor's JPEG too, handed to MDK as the encrypted founding
+    /// image and never as a URL.
+    @Test func aGroupDraftPictureFoundsTheGroupWithTheEditorsJPEG() async throws {
+        let source = try #require(AvatarImageCropper.normalizedImage(from: Self.testPNGData(width: 300, height: 200)))
+        let cropped = try #require(
+            AvatarImageCropper.croppedJPEG(image: source, cropSide: 280, zoom: 1, offset: .zero))
+
+        let draft = try await GroupDraftImage.prepared(fromCroppedImageData: cropped)
+
+        let side = AvatarImageCropper.outputPixelSize
+        #expect(draft.initialImage.plaintext == cropped)
+        #expect(draft.initialImage.mediaType == "image/jpeg")
+        #expect(draft.initialImage.dim == "\(side)x\(side)")
+        #expect(draft.initialImage.sourceUrl == nil)
+        #expect(draft.preview.data == cropped)
     }
 
     /// Bytes the editor did not write still go through the attachment pipeline, so a JPEG that

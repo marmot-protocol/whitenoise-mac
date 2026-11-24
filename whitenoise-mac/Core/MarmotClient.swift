@@ -322,6 +322,16 @@ nonisolated protocol MarmotRuntime: Sendable {
     /// requested account either way. Read it through `MemberResolutionReport`.
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
         -> GroupCreationResultFfi
+    /// `createGroup` with a founding picture: MDK uploads it as the encrypted group-image component
+    /// and writes it into the group's first metadata, so the members never see the group without
+    /// it and no follow-up image commit is made. Same roster semantics as `createGroup`.
+    func createGroupWithInitialImage(
+        accountRef: String,
+        name: String,
+        memberRefs: [String],
+        description: String?,
+        initialImage: InitialGroupImageFfi
+    ) async throws -> GroupCreationResultFfi
     /// Reuse this account's direct chat with the peer, or create one with both accounts as
     /// founding admins (MarmotKit 0.16.0). Retry-safe: a retry after a cancellation, lost
     /// response or error reuses the same group.
@@ -1507,6 +1517,22 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             name: name,
             memberRefs: memberRefs,
             description: description
+        )
+    }
+
+    func createGroupWithInitialImage(
+        accountRef: String,
+        name: String,
+        memberRefs: [String],
+        description: String?,
+        initialImage: InitialGroupImageFfi
+    ) async throws -> GroupCreationResultFfi {
+        try await marmot.createGroupWithInitialImage(
+            accountRef: accountRef,
+            name: name,
+            memberRefs: memberRefs,
+            description: description,
+            initialImage: initialImage
         )
     }
 

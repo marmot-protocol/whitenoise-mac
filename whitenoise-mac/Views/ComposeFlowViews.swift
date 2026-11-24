@@ -407,6 +407,9 @@ struct SelectedMemberChips: View {
 
 struct NameGroupPanelView: View {
     @Environment(WorkspaceState.self) private var workspace
+    /// The picture Create founds the group with. Held by the drawer rather than here, so going back
+    /// to change the members keeps it, as it keeps the name.
+    @Binding var draftImage: GroupDraftImage?
     @FocusState private var isNameFocused: Bool
 
     private var trimmedName: String {
@@ -423,15 +426,20 @@ struct NameGroupPanelView: View {
 
             ScrollView {
                 VStack(spacing: 16) {
-                    groupAvatar
-                        .padding(.top, 8)
+                    GroupDraftImagePicker(
+                        name: workspace.newChatName,
+                        image: $draftImage,
+                        isEnabled: !workspace.isCreatingChat,
+                        onError: { workspace.reportUserActionError($0) }
+                    )
+                    .padding(.top, 8)
 
                     TextField(L10n.string("Group name (required)"), text: $workspace.newChatName)
                         .textFieldStyle(.plain)
                         .wnFont(MessagesType.rowLabel)
                         .focused($isNameFocused)
                         .onSubmit {
-                            Task { await workspace.createGroupFromDraft() }
+                            Task { await workspace.createGroupFromDraft(image: draftImage) }
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 9)
@@ -481,7 +489,7 @@ struct NameGroupPanelView: View {
             HStack {
                 Spacer()
                 Button {
-                    Task { await workspace.createGroupFromDraft() }
+                    Task { await workspace.createGroupFromDraft(image: draftImage) }
                 } label: {
                     if workspace.isCreatingChat {
                         HStack(spacing: 6) {
@@ -504,20 +512,6 @@ struct NameGroupPanelView: View {
         }
         .task {
             isNameFocused = true
-        }
-    }
-
-    @ViewBuilder
-    private var groupAvatar: some View {
-        if trimmedName.isEmpty {
-            Image(systemName: "person.2.fill")
-                .wnFont(.semiBold32)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                .frame(width: 84, height: 84)
-                .background(Circle().fill(WNColor.fillSecondary))
-                .overlay(Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
-        } else {
-            AvatarView(seed: trimmedName, initials: trimmedName, size: 84, isSelected: false)
         }
     }
 

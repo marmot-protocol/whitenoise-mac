@@ -27,7 +27,7 @@ private struct GroupImageUpdateContext {
     let consents = GroupChangeAdvisoryConsents()
 }
 
-private enum GroupImageSelectionError: LocalizedError {
+nonisolated enum GroupImageSelectionError: LocalizedError {
     case notAnImage
 
     var errorDescription: String? {
