@@ -318,7 +318,9 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
     case message(
         TimelineMessageDisplayItem,
         showsUnreadDivider: Bool,
-        isSearchMatch: Bool,
+        /// The open search, on the row of the match the reader is on; its words are marked in the
+        /// bubble. Part of the row's value so a new query redraws the row.
+        searchHighlight: MessageSearchHighlight?,
         context: TranscriptRowContext,
         /// Where the history just above came from, on the first live row after imported ones: the
         /// transcript marks where messages stop being copied from another device.
@@ -374,6 +376,7 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         pendingOutgoingRows: [PendingOutgoingMessageRow],
         unreadDividerMessageId: String?,
         searchMatchMessageId: String? = nil,
+        searchHighlight: MessageSearchHighlight? = nil,
         context: TranscriptRowContext
     ) -> [TranscriptRow] {
         var rows: [TranscriptRow] = []
@@ -386,7 +389,7 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
                 .message(
                     item,
                     showsUnreadDivider: item.message.id == unreadDividerMessageId,
-                    isSearchMatch: item.message.id == searchMatchMessageId,
+                    searchHighlight: item.message.id == searchMatchMessageId ? searchHighlight : nil,
                     context: context,
                     importedAbove: importSource == nil ? previousImport : nil
                 ))
@@ -421,7 +424,7 @@ private struct TranscriptRowCell: View {
             switch row {
             case .loadingOlder(let isLoading), .loadingNewer(let isLoading):
                 TimelinePageLoadingRow(isLoading: isLoading)
-            case .message(let item, let showsUnreadDivider, let isSearchMatch, let context, let importedAbove):
+            case .message(let item, let showsUnreadDivider, let searchHighlight, let context, let importedAbove):
                 VStack(spacing: 12) {
                     if let importedAbove {
                         ImportedHistoryDivider(
@@ -446,11 +449,7 @@ private struct TranscriptRowCell: View {
                         onOpenImageGallery: onOpenImageGallery,
                         onNavigateToMessage: onNavigateToMessage
                     )
-                    .background {
-                        if isSearchMatch {
-                            TranscriptSearchMatchHighlight()
-                        }
-                    }
+                    .environment(\.messageSearchHighlight, searchHighlight)
                 }
             case .pending(.text(let message)):
                 PendingOutgoingTextBubble(
@@ -482,28 +481,6 @@ private struct TranscriptRowCell: View {
         .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
         .environment(\.composerFocusRequester, composerFocusRequester)
     }
-}
-
-/// Marks the search match the reader is on. Drawn into the cell's own padding, so it never changes
-/// the row's measured height.
-private struct TranscriptSearchMatchHighlight: View {
-    var body: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(WNColor.intentionWarningBackground)
-            .padding(.horizontal, -12)
-            .padding(.vertical, -4)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
-
-#Preview("Search match highlight") {
-    Text(verbatim: "Lunch at noon?")
-        .padding(12)
-        .background {
-            TranscriptSearchMatchHighlight()
-        }
-        .padding(24)
 }
 
 /// How bringing a message on screen ended.
@@ -622,6 +599,7 @@ private struct ConversationView: View {
             pendingOutgoingRows: pendingOutgoingRows,
             unreadDividerMessageId: model.unreadDivider?.messageIdHex,
             searchMatchMessageId: model.search.isActive ? model.search.currentMatchMessageId : nil,
+            searchHighlight: model.search.isActive ? MessageSearchHighlight(query: model.search.query) : nil,
             context: TranscriptRowContext(
                 canVoteInPolls: canUseComposer,
                 showsDebugMetadata: workspace.streamingDebugEnabled,

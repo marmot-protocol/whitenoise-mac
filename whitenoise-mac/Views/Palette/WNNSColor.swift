@@ -155,12 +155,22 @@ nonisolated enum WNNSColor {
 
     // MARK: - Intentions
 
-    /// Informational: also the color of a link and of a search-hit highlight.
-    /// This is the palette's only blue outside the accent sets.
+    /// Informational: also the color of a link. Outside the accent sets, the only other blue is
+    /// the search highlighter below.
     static let intentionInfoBackground = NSColor.wnDynamic(
         "wn.intentionInfoBackground", light: WNColorRamp.blue50, dark: WNColorRamp.blue950)
     static let intentionInfoContent = NSColor.wnDynamic(
         "wn.intentionInfoContent", light: WNColorRamp.blue600, dark: WNColorRamp.blue500)
+    /// The highlighter mark behind the words a search matched, in a message bubble and in a
+    /// search result alike. Mac-only: the shared palette colors a hit's text, but a mark drawn
+    /// inside a bubble has to read on the sent and the received bubble in both appearances, which
+    /// no `50`/`950` wash does — the light one vanishes on the light received bubble. A
+    /// mid-saturation step against the opposite end of the ramp for its text keeps the marked
+    /// words readable whatever bubble they sit in.
+    static let searchHighlightBackground = NSColor.wnDynamic(
+        "wn.searchHighlightBackground", light: WNColorRamp.blue200, dark: WNColorRamp.blue900)
+    static let searchHighlightContent = NSColor.wnDynamic(
+        "wn.searchHighlightContent", light: WNColorRamp.blue950, dark: WNColorRamp.blue50)
 
     static let intentionSuccessBackground = NSColor.wnDynamic(
         "wn.intentionSuccessBackground", light: WNColorRamp.green50, dark: WNColorRamp.green950)

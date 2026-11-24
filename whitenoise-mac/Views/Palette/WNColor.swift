@@ -78,6 +78,8 @@ nonisolated enum WNColor {
 
     static let intentionInfoBackground = Color(nsColor: WNNSColor.intentionInfoBackground)
     static let intentionInfoContent = Color(nsColor: WNNSColor.intentionInfoContent)
+    static let searchHighlightBackground = Color(nsColor: WNNSColor.searchHighlightBackground)
+    static let searchHighlightContent = Color(nsColor: WNNSColor.searchHighlightContent)
     static let intentionSuccessBackground = Color(nsColor: WNNSColor.intentionSuccessBackground)
     static let intentionSuccessContent = Color(nsColor: WNNSColor.intentionSuccessContent)
     static let intentionWarningBackground = Color(nsColor: WNNSColor.intentionWarningBackground)

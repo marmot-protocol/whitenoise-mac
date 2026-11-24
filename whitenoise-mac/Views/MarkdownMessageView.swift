@@ -34,6 +34,7 @@ struct MarkdownMessageView: View {
 
 private struct MarkdownMessageContent: View {
     @Environment(\.customEmojiGlyphs) private var customEmoji
+    @Environment(\.messageSearchHighlight) private var searchHighlight
     let message: MessageItem
     let document: MarkdownDisplayDocument?
     let trailingMetadata: Text?
@@ -41,7 +42,10 @@ private struct MarkdownMessageContent: View {
     var body: some View {
         if let inlineParagraph = document?.inlineParagraph {
             MessageLinkText(
-                text: inlineParagraph, layoutID: "inline", trailing: trailingMetadata, glyphs: customEmoji
+                text: SearchMatchHighlightStyle.marking(inlineParagraph, with: searchHighlight),
+                layoutID: "inline",
+                trailing: trailingMetadata,
+                glyphs: customEmoji
             )
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
@@ -67,10 +71,20 @@ private struct MarkdownMessageContent: View {
             // ScrollView/LazyVStack scroll-anchor resolution into a multi-second main-thread
             // layout loop on send (Instruments: continuous SelectionOverlay.updateNSView /
             // ScrollViewAdjustedState.adjustOffsetIfNeeded). See whitenoise-mac#205.
-            textWithMetadata(CustomEmojiTextBuilder.text(message.rawBubbleDisplayBody, glyphs: customEmoji))
+            textWithMetadata(rawBody())
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// The untokenised body, marked only while it is the current search match.
+    private func rawBody() -> Text {
+        guard let searchHighlight else {
+            return CustomEmojiTextBuilder.text(message.rawBubbleDisplayBody, glyphs: customEmoji)
+        }
+        return CustomEmojiTextBuilder.text(
+            SearchMatchHighlightStyle.marking(message.rawBubbleDisplayBody, with: searchHighlight),
+            glyphs: customEmoji)
     }
 
     private func textWithMetadata(_ body: Text) -> Text {
@@ -139,13 +153,17 @@ private struct MarkdownBlockView: View {
 /// Renders a run of inline nodes as a single wrapping `Text`.
 private struct MarkdownInlineText: View {
     @Environment(\.customEmojiGlyphs) private var customEmoji
+    @Environment(\.messageSearchHighlight) private var searchHighlight
     let text: AttributedString
     let layoutID: String
 
     var body: some View {
         // No `.textSelection(.enabled)` — see the note in MarkdownMessageView.body.
-        MessageLinkText(text: text, layoutID: layoutID, glyphs: customEmoji)
-            .fixedSize(horizontal: false, vertical: true)
+        MessageLinkText(
+            text: SearchMatchHighlightStyle.marking(text, with: searchHighlight), layoutID: layoutID,
+            glyphs: customEmoji
+        )
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -175,11 +193,12 @@ nonisolated enum MarkdownCodeBlockPalette {
 }
 
 private struct MarkdownCodeBlock: View {
+    @Environment(\.messageSearchHighlight) private var searchHighlight
     let content: String
 
     var body: some View {
         // No `.textSelection(.enabled)` — see the note in MarkdownMessageView.body.
-        Text(content)
+        Text(SearchMatchHighlightStyle.marking(content, with: searchHighlight))
             .font(.system(.callout, design: .monospaced))
             .foregroundStyle(MarkdownCodeBlockPalette.content)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -228,11 +228,8 @@ private struct GlobalMessageSearchResultRow: View {
     }
 
     private var highlightedSnippet: Text {
-        Text(result.snippet.leading)
-            // The matched run takes `intentionInfoContent`, the same token the other clients
-            // highlight a search hit with.
-            + Text(result.snippet.match).wnFont(.bold12).foregroundColor(WNColor.intentionInfoContent)
-            + Text(result.snippet.trailing)
+        // The matched run takes the same highlighter mark as a match inside the conversation.
+        SearchMatchHighlightStyle.text(result.snippet)
     }
 
     private var timestamp: String {
