@@ -1265,6 +1265,8 @@ final class WorkspaceState {
         if !accounts.isEmpty {
             self.phase = .ready
         }
+        // The app shell replaces this with `NotificationResponseRouter`, which also answers clicks
+        // that arrive during launch or onboarding; this default serves workspaces built alone.
         self.localNotificationCenter.setResponseHandler { [weak self] userInfo in
             self?.handleNotificationResponse(userInfo)
         }
