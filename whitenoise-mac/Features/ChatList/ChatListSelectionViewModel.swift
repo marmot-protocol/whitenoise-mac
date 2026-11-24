@@ -98,6 +98,9 @@ final class ChatListSelectionViewModel {
     /// The MDK query the list on screen is drawn from; Select All and batches read the same one.
     @ObservationIgnored private(set) var query = ChatListSearchQuery.unfiltered(.chats)
     @ObservationIgnored private var anchorId: String?
+    /// Selected chats the search on screen does not match. They are out of `selectedIds`, so no
+    /// count or batch reaches them, and return to it when the search is narrowed back or erased.
+    @ObservationIgnored private(set) var selectionHiddenBySearch: Set<String> = []
     @ObservationIgnored private(set) var task: Task<Void, Never>?
     /// Loads `viewIds`. Replaced (and the old one cancelled) whenever the list changes under it.
     @ObservationIgnored private(set) var viewIdsTask: Task<Void, Never>?
@@ -130,6 +133,7 @@ final class ChatListSelectionViewModel {
         guard !isBusy else { return }
         isActive = true
         selectedIds = [groupIdHex]
+        selectionHiddenBySearch = []
         anchorId = groupIdHex
         loadViewIds()
     }
@@ -138,6 +142,7 @@ final class ChatListSelectionViewModel {
         guard !isBusy else { return }
         isActive = false
         selectedIds = []
+        selectionHiddenBySearch = []
         anchorId = nil
         pendingLeave = nil
         pendingDelete = nil
@@ -160,6 +165,7 @@ final class ChatListSelectionViewModel {
         if !isActive {
             isActive = true
             selectedIds = []
+            selectionHiddenBySearch = []
             anchorId = defaultAnchor
             loadViewIds()
         }
@@ -202,7 +208,9 @@ final class ChatListSelectionViewModel {
     /// Drops selections that are no longer in the list, except while a batch is running: a chat it
     /// just archived or left is expected to leave the list, and the batch still owns it. A windowed
     /// list is reconciled against the whole view once `chatListIds` answers, not against the
-    /// window, so a chat scrolled out of the window stays selected.
+    /// window, so a chat scrolled out of the window stays selected. A search only sets aside the
+    /// selected chats it does not match (`selectionHiddenBySearch`): they come back when the
+    /// search is erased, even after one that matched nothing.
     ///
     /// The window's rows change on every message, reorder and page, so a windowed list does not
     /// read the whole view for each. A new query reads at once. Under the same query the ids
@@ -641,9 +649,15 @@ final class ChatListSelectionViewModel {
 
     private func reconcile(with ids: [String]) {
         guard isActive, !isBusy else { return }
-        let reconciled = ChatListSelection.reconcile(selectedIds, visibleIds: Set(ids))
-        if reconciled != selectedIds {
-            selectedIds = reconciled
+        let reconciled = ChatListSelection.reconcile(
+            selectedIds,
+            hiddenBySearch: selectionHiddenBySearch,
+            visibleIds: Set(ids),
+            isSearch: ChatListSearchQuery.isTextSearch(query)
+        )
+        selectionHiddenBySearch = reconciled.hiddenBySearch
+        if reconciled.selected != selectedIds {
+            selectedIds = reconciled.selected
         }
     }
 

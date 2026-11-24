@@ -34,6 +34,22 @@ nonisolated enum ChatListSelection {
         selected.intersection(visibleIds)
     }
 
+    /// `reconcile`, for a list a search may have narrowed. A search is a lens, not a decision: a
+    /// selected chat it hides leaves the selection, so a bulk action still never touches a chat
+    /// the user cannot see, but it is set aside in `hiddenBySearch` and comes back once a later
+    /// list shows it again — erasing a search that matched nothing returns the whole selection.
+    /// Only the search holds a chat aside: once the list is no longer a search, whatever it does
+    /// not show is dropped for good, as `reconcile` drops it.
+    static func reconcile(
+        _ selected: Set<String>,
+        hiddenBySearch: Set<String>,
+        visibleIds: Set<String>,
+        isSearch: Bool
+    ) -> (selected: Set<String>, hiddenBySearch: Set<String>) {
+        let picked = selected.union(hiddenBySearch)
+        return (picked.intersection(visibleIds), isSearch ? picked.subtracting(visibleIds) : [])
+    }
+
     static func allSelected(_ selected: Set<String>, visibleIds: Set<String>) -> Bool {
         !visibleIds.isEmpty && visibleIds.isSubset(of: selected)
     }

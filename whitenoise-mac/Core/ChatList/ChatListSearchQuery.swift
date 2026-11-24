@@ -48,6 +48,17 @@ nonisolated enum ChatListSearchQuery {
         )
     }
 
+    /// Whether `query` is a text search (`matches(text:view:condition:)`), as opposed to a tab's
+    /// whole list, which may carry a condition but never text.
+    static func isTextSearch(_ query: ChatListViewQueryFfi) -> Bool {
+        query.filter.contains { node in
+            switch node {
+            case .text, .messageText: true
+            default: false
+            }
+        }
+    }
+
     /// The window that draws the matches. A window refuses `MessageText`, so it lists the ids
     /// the matching query returned instead, capped at `maxShownMatches`. With a `condition`, a
     /// listed chat that stops meeting it (an invite accepted from the results) leaves the window.
