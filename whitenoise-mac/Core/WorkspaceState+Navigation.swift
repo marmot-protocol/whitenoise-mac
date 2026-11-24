@@ -23,7 +23,10 @@ extension WorkspaceState {
     /// visible way to stop it (#311) and a transcript export cannot keep paginating FFI
     /// calls for a conversation the user has left (#316).
     /// Centralizing the teardown keeps the cancellation from being silently omitted on new paths.
+    /// It also ends a message multi-selection, which covers an account switch that lands on the
+    /// same group id (one group, two of the user's accounts) where `selection` does not change.
     func leaveActiveConversation() {
+        cancelMessageSelection()
         cancelVoiceRecording()
         cancelGroupTranscriptExport()
         pendingMessageNavigation = nil
