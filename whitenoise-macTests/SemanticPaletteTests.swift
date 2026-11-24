@@ -113,6 +113,8 @@ struct SemanticPaletteTests {
             ("intentionSuccess", WNNSColor.intentionSuccessBackground, WNNSColor.intentionSuccessContent, 3.0),
             ("intentionWarning", WNNSColor.intentionWarningBackground, WNNSColor.intentionWarningContent, 3.0),
             ("intentionError", WNNSColor.intentionErrorBackground, WNNSColor.intentionErrorContent, 3.0),
+            // The search highlighter marks words of running text, so it is held to the body bar.
+            ("searchHighlight", WNNSColor.searchHighlightBackground, WNNSColor.searchHighlightContent, 4.5),
             // The delivery footer's warning glyph sits directly on a bubble, not on a wash, so it is
             // held to the 3:1 non-text bar against both bubbles. The shared warning token measures
             // 2.80 on the dark-mode sent bubble, which is why the sent side takes its own token.

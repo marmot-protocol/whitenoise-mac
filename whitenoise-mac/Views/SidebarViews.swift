@@ -1196,14 +1196,11 @@ struct ChatRowContent: View {
             }
             return Self.attributedPreview(for: chat)
         }
-        // The emphasised runs name the Bold rung outright instead of taking `.bold()`: a rung
-        // carries its own weight, and `.bold()` on top of one is a weight the ladder no
-        // longer controls.
+        // The sender names the Bold rung outright instead of taking `.bold()`: a rung carries its
+        // own weight, and `.bold()` on top of one is a weight the ladder no longer controls. The
+        // match takes the highlighter mark a match gets inside the conversation.
         return Text(verbatim: "\(searchResult.senderName): ").wnFont(.bold12)
-            + Text(searchResult.snippet.leading)
-            + Text(searchResult.snippet.match).wnFont(.bold12)
-            .foregroundColor(WNColor.intentionInfoContent)
-            + Text(searchResult.snippet.trailing)
+            + SearchMatchHighlightStyle.text(searchResult.snippet)
     }
 
     /// The last-message line with the sender it is attributed to set in Bold, the way the
