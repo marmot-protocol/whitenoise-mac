@@ -130,6 +130,39 @@ struct ChatListSelectionTests {
     }
 
     @MainActor
+    @Test func selectAllRowReportsItsStateAndSelectsOrClearsOutright() {
+        let model = ChatListSelectionViewModel(accountRef: "account", runtime: nil)
+        model.updateVisibleChats(["a", "b", "c"])
+
+        model.begin(with: "a")
+        #expect(model.selectAllState == .partial)
+
+        model.selectAll()
+        #expect(model.selectedIds == ["a", "b", "c"])
+        #expect(model.selectAllState == .all)
+
+        // Deselect All clears the selection but keeps selection mode, so the next click picks.
+        model.deselectAll()
+        #expect(model.selectedIds.isEmpty)
+        #expect(model.isActive)
+        #expect(model.selectAllState == .empty)
+
+        // The checkbox goes from empty or partial to all, and from all back to empty.
+        model.toggleAll()
+        #expect(model.selectAllState == .all)
+        model.toggle("b")
+        model.toggleAll()
+        #expect(model.selectAllState == .all)
+        model.toggleAll()
+        #expect(model.selectAllState == .empty)
+
+        // Outside selection mode neither does anything.
+        model.end()
+        model.selectAll()
+        #expect(model.selectedIds.isEmpty)
+    }
+
+    @MainActor
     @Test func shiftClickOutsideSelectionModeRangesFromTheOpenChat() {
         let model = ChatListSelectionViewModel(accountRef: "account", runtime: nil)
         model.updateVisibleChats(["a", "b", "c", "d"])
