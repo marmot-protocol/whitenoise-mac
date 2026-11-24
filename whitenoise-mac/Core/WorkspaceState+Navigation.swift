@@ -25,6 +25,8 @@ extension WorkspaceState {
     /// Centralizing the teardown keeps the cancellation from being silently omitted on new paths.
     /// It also ends a message multi-selection, which covers an account switch that lands on the
     /// same group id (one group, two of the user's accounts) where `selection` does not change.
+    /// Re-selecting the open chat (its sidebar row, or a notification for it) also ends it: like
+    /// the closed profile and details panes, that lands the user back on a plain transcript.
     func leaveActiveConversation() {
         cancelMessageSelection()
         cancelVoiceRecording()

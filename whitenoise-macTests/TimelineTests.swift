@@ -7864,6 +7864,32 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func assigningSelectionDirectlyEndsMessageSelection() {
+        // Landing on a created or existing chat (New Chat), the initial chat pick and account exit
+        // assign `selection` without `leaveActiveConversation()`; the selection still ends.
+        let state = WorkspaceState.preview()
+        state.selectedTimelineMessageIds = ["design-parent"]
+
+        state.selection = .chat(ChatItem.samples[1].id)
+
+        #expect(!state.isTimelineSelectionMode)
+    }
+
+    @MainActor
+    @Test func reselectingTheOpenChatEndsMessageSelection() throws {
+        // Decided on purpose: re-selecting the chat on screen lands on its plain transcript, the
+        // way it already closes the profile and details panes.
+        let state = WorkspaceState.preview()
+        let open = try #require(state.selectedChat)
+        state.selectedTimelineMessageIds = ["design-parent"]
+
+        state.selectChat(open)
+
+        #expect(state.selectedChat?.id == open.id)
+        #expect(!state.isTimelineSelectionMode)
+    }
+
+    @MainActor
     @Test func aFailedSendOffersRemoveInsteadOfDelete() async throws {
         // Nobody received a failed send, so the menu discards it here rather than publishing a
         // delete for everyone about a message the group never had.
