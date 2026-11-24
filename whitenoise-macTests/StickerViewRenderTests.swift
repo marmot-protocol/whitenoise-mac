@@ -128,8 +128,15 @@ import Testing
             StickerPickerPopover(library: library, send: { _ in }, onDismiss: {}), size: Self.popoverSize)
         defer { host.close() }
 
-        #expect(await host.settle { library.hasLoadedInstalled && runtime.syncStickerPacksCallCount == 1 })
-        let empty = try #require(host.snapshot())
+        // The call count rises when the sync starts; the picker shows a spinner until the sync and
+        // the default-pack install after it finish. Back lands on the empty state, so that is the
+        // drawing to compare against, not the spinner.
+        #expect(
+            await host.settle {
+                library.hasLoadedInstalled && runtime.syncStickerPacksCallCount == 1 && !library.isSyncing
+                    && !library.isInstallingDefaults
+            })
+        let empty = try #require(await host.steadyDrawing())
         #expect(DrawnPixels.fixturePixels(in: empty) == 0)
 
         // The header's Sticker Packs button opens the browser, which lists the pack as text: more

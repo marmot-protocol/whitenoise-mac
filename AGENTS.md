@@ -139,6 +139,12 @@ pass `--strict`. Keys with no words in them (`"%lld / %lld"`, `"99+"`) are
 skipped automatically — `just locales --verbose` lists them — and marking a key
 "Don't Translate" in Xcode (`shouldTranslate: false`) also excludes it.
 
+The app looks strings up through `L10n` (`string` and `plural`), which Xcode's
+extractor cannot see, so every key is `extractionState: "manual"`. A key added
+without it passes the check until Xcode next saves the catalog, which then marks
+it `stale` even though the code still uses it; give every new key `manual` when
+you add it.
+
 ## Test coverage
 
 `just coverage` (CI job "Coverage", part of `just precommit`) reports Swift line

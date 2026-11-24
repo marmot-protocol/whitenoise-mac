@@ -17,7 +17,9 @@
 # Errors (exit code 1):
 #   missing       language has no entry at all for the key
 #   untranslated  entry exists but is `state: "new"` or has an empty value
-#   stale         source string no longer exists in code (`extractionState`)
+#   stale         Xcode found no use of the key (`extractionState`). The app reads
+#                 strings through `L10n.string`, which Xcode cannot see, so every
+#                 key in use must be `manual`; delete the key only if nothing uses it
 #   plural        a substitution or one of its plural categories is absent/empty
 #   unknown-lang  catalog carries a language the project does not declare
 #
@@ -234,7 +236,7 @@ def language_issues($entry; $key; $language; $source_subs):
           | .key as $key
           | .entry as $entry
           | ( if $entry.extractionState == "stale" then
-                [ [ "issue", "stale", "-", $key, "source string no longer found in code" ] ]
+                [ [ "issue", "stale", "-", $key, "Xcode sees no use of it -- if the app still looks it up (L10n lookups or a key built at runtime), set extractionState to manual; delete it only if nothing uses it" ] ]
               else empty end ),
             ( (($entry.localizations[$source].substitutions // {}) | keys) as $source_subs
               | $langs[]
