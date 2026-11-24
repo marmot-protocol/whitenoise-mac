@@ -41,6 +41,28 @@ struct ChatListSelectionTests {
         #expect(ChatListSelection.reconcile(["a", "b"], visibleIds: ["b", "c"]) == ["b"])
     }
 
+    @Test func aSearchSetsAsideTheSelectionItHidesAndGivesItBackWhenErased() {
+        // A search that matches nothing hides the whole selection, but keeps it.
+        let hidden = ChatListSelection.reconcile(["a", "b"], hiddenBySearch: [], visibleIds: [], isSearch: true)
+        #expect(hidden.selected.isEmpty)
+        #expect(hidden.hiddenBySearch == ["a", "b"])
+
+        // Narrowing back to a search that matches one of them returns that one.
+        let narrowed = ChatListSelection.reconcile(
+            hidden.selected, hiddenBySearch: hidden.hiddenBySearch, visibleIds: ["b", "c"], isSearch: true)
+        #expect(narrowed.selected == ["b"])
+        #expect(narrowed.hiddenBySearch == ["a"])
+
+        // Erasing the search returns every one the list shows, and forgets the rest.
+        let erased = ChatListSelection.reconcile(
+            narrowed.selected, hiddenBySearch: narrowed.hiddenBySearch, visibleIds: ["a", "b", "c"], isSearch: false)
+        #expect(erased.selected == ["a", "b"])
+        #expect(erased.hiddenBySearch.isEmpty)
+        let gone = ChatListSelection.reconcile(["b"], hiddenBySearch: ["a"], visibleIds: ["b"], isSearch: false)
+        #expect(gone.selected == ["b"])
+        #expect(gone.hiddenBySearch.isEmpty)
+    }
+
     @Test func shiftClickSelectsTheRangeInListOrderInEitherDirection() {
         let order = ["a", "b", "c", "d", "e"]
         #expect(ChatListSelection.extending([], from: "b", to: "d", in: order) == ["b", "c", "d"])

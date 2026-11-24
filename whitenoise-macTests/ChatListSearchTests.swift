@@ -460,6 +460,79 @@ struct ChatListSearchTests {
         #expect(selection.orderedSelection == ["a", "b", "d"])
     }
 
+    /// Selecting chats, typing a search that matches none of them, then erasing it used to come
+    /// back to an empty selection: the no-match list reconciled every pick away.
+    @MainActor
+    @Test func erasingASearchThatMatchedNothingRestoresTheSelection() async throws {
+        let runtime = searchRuntime(groupIds: ["a", "b", "c"])
+        let inbox = ChatListSearchQuery.unfiltered(.chats)
+        let noMatch = try #require(ChatListSearchQuery.matches(text: "zzz", view: .chats))
+        runtime.chatListQueryIdsByQuery[noMatch] = []
+        let selection = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        selection.updateVisibleChats(["a", "b", "c"], query: inbox, isWindowed: true)
+        selection.begin(with: "a")
+        selection.toggle("b")
+        await selection.viewIdsTask?.value
+        #expect(selection.selectedIds == ["a", "b"])
+
+        selection.updateVisibleChats([], query: noMatch, isWindowed: true)
+        await selection.viewIdsTask?.value
+        // Nothing on screen is selected, so no count or batch reaches the hidden chats.
+        #expect(selection.selectedIds.isEmpty)
+        #expect(selection.orderedSelection.isEmpty)
+        #expect(selection.isActive)
+
+        selection.updateVisibleChats(["a", "b", "c"], query: inbox, isWindowed: true)
+        await selection.viewIdsTask?.value
+
+        #expect(selection.selectedIds == ["a", "b"])
+        #expect(selection.selectionHiddenBySearch.isEmpty)
+    }
+
+    @MainActor
+    @Test func erasingASearchRestoresTheSelectedChatsItDidNotMatch() async throws {
+        let runtime = searchRuntime(groupIds: ["a", "b", "c"])
+        let inbox = ChatListSearchQuery.unfiltered(.chats)
+        let query = try #require(ChatListSearchQuery.matches(text: "chat", view: .chats))
+        runtime.chatListQueryIdsByQuery[query] = ["b", "c"]
+        let selection = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        selection.updateVisibleChats(["a", "b", "c"], query: inbox, isWindowed: true)
+        selection.begin(with: "a")
+        selection.toggle("b")
+        await selection.viewIdsTask?.value
+
+        selection.updateVisibleChats(["b", "c"], query: query, isWindowed: true)
+        await selection.viewIdsTask?.value
+        #expect(selection.selectedIds == ["b"])
+        selection.toggle("c")
+
+        selection.updateVisibleChats(["a", "b", "c"], query: inbox, isWindowed: true)
+        await selection.viewIdsTask?.value
+
+        #expect(selection.selectedIds == ["a", "b", "c"])
+    }
+
+    @MainActor
+    @Test func endingSelectionDuringASearchForgetsTheChatsItHid() async throws {
+        let runtime = searchRuntime(groupIds: ["a", "b"])
+        let inbox = ChatListSearchQuery.unfiltered(.chats)
+        let noMatch = try #require(ChatListSearchQuery.matches(text: "zzz", view: .chats))
+        runtime.chatListQueryIdsByQuery[noMatch] = []
+        let selection = ChatListSelectionViewModel(accountRef: "account", runtime: runtime)
+        selection.updateVisibleChats(["a", "b"], query: inbox, isWindowed: true)
+        selection.begin(with: "a")
+        await selection.viewIdsTask?.value
+        selection.updateVisibleChats([], query: noMatch, isWindowed: true)
+        await selection.viewIdsTask?.value
+
+        selection.end()
+        selection.updateVisibleChats(["a", "b"], query: inbox, isWindowed: true)
+        selection.begin(with: "b")
+        await selection.viewIdsTask?.value
+
+        #expect(selection.selectedIds == ["b"])
+    }
+
     @MainActor
     @Test func aBulkActionDuringASearchRevalidatesWithTheSameQueryAndDropsVanishedChats() async throws {
         let runtime = searchRuntime(groupIds: ["a", "b"])
