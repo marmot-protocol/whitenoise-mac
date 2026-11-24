@@ -1296,7 +1296,7 @@ struct ImportedHistoryTests {
             context: Self.context
         )
         let marked = rows.compactMap { row -> (String, MessageImportSource?)? in
-            guard case .message(let item, _, _, _, let importedAbove) = row else { return nil }
+            guard case .message(let item, _, _, _, let importedAbove, _) = row else { return nil }
             return (item.message.id, importedAbove)
         }
         #expect(marked.map(\.0) == ["old-1", "old-2", "live", "later"])

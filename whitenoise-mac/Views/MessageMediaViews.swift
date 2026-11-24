@@ -81,6 +81,8 @@ struct ConversationMessageRow: View {
     var showsDebugMetadata = false
     var timestampReferenceDate = Date()
     var timestampLocale = AppLanguage.currentLocale
+    /// Where the row sits in its run of messages from one person.
+    var cluster: MessageClusterPosition = .standalone
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
     let onNavigateToMessage: (String) -> Void
 
@@ -130,6 +132,7 @@ struct ConversationMessageRow: View {
                 showsDebugMetadata: showsDebugMetadata,
                 timestampReferenceDate: timestampReferenceDate,
                 timestampLocale: timestampLocale,
+                cluster: cluster,
                 onOpenImageGallery: onOpenImageGallery,
                 onNavigateToMessage: onNavigateToMessage
             )
@@ -137,8 +140,7 @@ struct ConversationMessageRow: View {
             PollMessageRow(
                 poll: conversationModel.displayedPoll(poll, messageIdHex: message.id),
                 isOutgoing: message.isOutgoing,
-                senderName: MessageBubble.showsSenderIdentity(for: message, in: workspace.selectedChat)
-                    ? message.senderName : nil,
+                senderName: showsSenderName ? message.senderName : nil,
                 timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
                 onVote: canVoteInPolls && message.invalidationStatus == nil ? vote(for: poll) : nil,
                 onViewVotes: poll.participants > 0 ? viewVotes(for: poll) : nil
@@ -148,8 +150,7 @@ struct ConversationMessageRow: View {
                 UnsupportedEventRow(
                     event: event,
                     isOutgoing: message.isOutgoing,
-                    senderName: MessageBubble.showsSenderIdentity(for: message, in: workspace.selectedChat)
-                        ? message.senderName : nil,
+                    senderName: showsSenderName ? message.senderName : nil,
                     timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
                     onCopyJSON: { [workspace] json in workspace.copyText(json) }
                 )
@@ -169,6 +170,11 @@ struct ConversationMessageRow: View {
 }
 
 extension ConversationMessageRow {
+    /// A poll or unsupported-event card names its sender only at the start of a run, like a bubble.
+    fileprivate var showsSenderName: Bool {
+        cluster.startsCluster && MessageBubble.showsSenderIdentity(for: message, in: workspace.selectedChat)
+    }
+
     /// `poll` is MDK's tally, not the in-flight overlay: the sheet lists what MDK projected.
     fileprivate func viewVotes(for poll: MessagePoll) -> () -> Void {
         { [conversationModel, message] in
@@ -304,6 +310,9 @@ struct MessageBubble: View {
     let showsDebugMetadata: Bool
     let timestampReferenceDate: Date
     let timestampLocale: Locale
+    /// Where the row sits in its run of messages from one person: the sender's name heads the run,
+    /// their avatar and the routine timestamp close it.
+    var cluster: MessageClusterPosition = .standalone
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
     let onNavigateToMessage: (String) -> Void
 
@@ -320,7 +329,7 @@ struct MessageBubble: View {
         // single deterministic pass with the same result: bubble pinned to its side, ≥72pt
         // gutter opposite. See whitenoise-mac#205 (scroll-layout hangs).
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: Self.contentSpacing) {
-            if showsSenderIdentity {
+            if showsSenderIdentity, cluster.startsCluster {
                 if showsSenderContactLink {
                     Button {
                         Task { await workspace.showContactDetails(for: message) }
@@ -418,7 +427,7 @@ struct MessageBubble: View {
             // After the chips, not before them: the pill rides up onto whatever precedes it, and a
             // caption-less row's metadata is a bare line of text rather than a surface with an edge
             // to spare. Emitted first, it was what the pill overlapped.
-            if !message.hasBubbleContent {
+            if !message.hasBubbleContent, showsBubbleMetadata {
                 compactMetadata
                     .padding(.horizontal, 5)
             }
@@ -434,10 +443,11 @@ struct MessageBubble: View {
         .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
         .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
         .padding(message.isOutgoing ? .leading : .trailing, 72)
-        // Sender avatar in a leading gutter for incoming group messages (never DMs or own).
+        // Sender avatar in a leading gutter for incoming group messages (never DMs or own). Every
+        // row of a run keeps the gutter so its bubbles line up; only the run's last row fills it.
         .padding(.leading, showsSenderIdentity ? 36 : 0)
         .overlay(alignment: .bottomLeading) {
-            if showsSenderIdentity {
+            if showsSenderIdentity, cluster.endsCluster {
                 Button {
                     Task { await workspace.showContactDetails(for: message) }
                 } label: {
@@ -910,10 +920,10 @@ struct MessageBubble: View {
                         trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
                     )
                     .wnFont(.medium16)
-                    .foregroundStyle(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
+                    .foregroundStyle(bodyColor)
                     // A mention is a link run without a color, so the tint is what it draws in: the
                     // bubble's own content, as on iOS. Real links color themselves blue per run.
-                    .tint(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
+                    .tint(bodyColor)
                     .multilineTextAlignment(.leading)
                 }
 
@@ -944,6 +954,7 @@ struct MessageBubble: View {
         .padding(.horizontal, bubbleHorizontalInset)
         .padding(.vertical, bubbleVerticalInset)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
+        .modifier(HiddenMessageMetadata(isHidden: !showsBubbleMetadata, label: hiddenMetadataLabel))
         // Attach controls before the positioning frame so short messages use the visible
         // bubble edge instead of the frame's maximum width.
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
@@ -952,8 +963,46 @@ struct MessageBubble: View {
         .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
     }
 
+    /// Whether the row draws its timestamp footer: a run of messages shows the routine time once,
+    /// on its last row (`MessageClusterPosition.showsFooter`).
     private var showsBubbleMetadata: Bool {
-        !message.isDeleted
+        cluster.showsFooter(
+            isDeleted: message.isDeleted,
+            isEdited: message.isEdited,
+            hasReports: message.hasReports,
+            indicator: footerIndicator
+        )
+    }
+
+    /// The marker the footer draws. A deleted message keeps its time but carries no delivery
+    /// state: there is nothing left of it to deliver.
+    private var footerIndicator: MessageDeliveryIndicator {
+        message.isDeleted ? .none : deliveryIndicator
+    }
+
+    /// A send that did not go out says so where its time would be; the Retry link under the bubble
+    /// is the action. An edited or reported failure keeps its time beside the notice.
+    private var showsFailureNotice: Bool {
+        footerIndicator == .failed
+    }
+
+    private var showsFooterTime: Bool {
+        !showsFailureNotice || message.isEdited || message.hasReports
+    }
+
+    private var showsEditedLabel: Bool {
+        message.isEdited && !message.isDeleted
+    }
+
+    /// The deleted label is quieter than a message, as on iOS.
+    private var bodyColor: Color {
+        guard message.isDeleted else { return MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing) }
+        return message.isOutgoing ? WNColor.fillContentSecondary : WNColor.backgroundContentSecondary
+    }
+
+    /// What a hidden footer would have said, kept for VoiceOver and the bubble's hover tooltip.
+    private var hiddenMetadataLabel: String {
+        message.metadataLabel(at: timestampReferenceDate, indicator: footerIndicator, locale: timestampLocale)
     }
 
     /// The first fetchable link in the message, while "Show Link Previews" is on.
@@ -983,44 +1032,27 @@ struct MessageBubble: View {
     /// visible copy so their widths track; interaction (the edit-history control) lives on
     /// the overlay, so this carries no link.
     private var inlineMetadataSpacer: Text {
+        var parts: [Text] = []
+        if let systemImage = MessageDeliveryMarker.systemImage(for: footerIndicator) {
+            parts.append(Text(Image(systemName: systemImage)).wnFont(.medium10))
+        }
+        if showsFailureNotice {
+            parts.append(Text(L10n.string("Not delivered")).wnFont(.medium10))
+        }
+        if showsFooterTime {
+            parts.append(
+                Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
+                    .wnFont(.medium10.monospacedDigit()))
+        }
+        if showsEditedLabel {
+            parts.append(Text(L10n.string("Edited")).wnFont(.medium10))
+        }
         var result = Text(verbatim: "  ")
-        if message.isEdited {
-            result =
-                result
-                + Text(L10n.string("Edited")).wnFont(.medium10)
-                + Text(verbatim: " ")
-        }
-        if message.hasFiniteRetentionExpiry {
-            result = result + Text(Image(systemName: "timer")).wnFont(.medium10) + Text(verbatim: " ")
-        }
-        result =
-            result
-            + Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
-            .wnFont(.medium10.monospacedDigit())
-        if let systemImage = Self.deliveryMarkerSystemImage(for: deliveryIndicator) {
-            result =
-                result + Text(verbatim: " ")
-                + Text(Image(systemName: systemImage))
-                .wnFont(.medium10)
+        for (index, part) in parts.enumerated() {
+            if index > 0 { result = result + Text(verbatim: " ") }
+            result = result + part
         }
         return result.foregroundColor(.clear)
-    }
-
-    /// The footer glyph for each delivery marker, or nil for the rows that carry none. Shared with
-    /// `inlineMetadataSpacer` so the transparent replica reserves exactly the visible width.
-    private static func deliveryMarkerSystemImage(for indicator: MessageDeliveryIndicator) -> String? {
-        switch indicator {
-        case .none:
-            return nil
-        case .sending:
-            return "clock"
-        case .delivered:
-            return "checkmark"
-        case .warning:
-            return "exclamationmark.triangle.fill"
-        case .failed:
-            return "exclamationmark.circle.fill"
-        }
     }
 
     private static func deliveryMarkerColor(
@@ -1060,32 +1092,39 @@ struct MessageBubble: View {
         WNColor.backgroundContentTertiary
     }
 
+    /// The footer, in iOS's order: delivery marker, then the time (or the failure notice), then
+    /// Edited. The disappearing-message timer lives in the conversation header, not on every
+    /// bubble; the message's own expiry stays in the time's tooltip and the spoken label.
     private var compactMetadata: some View {
         HStack(spacing: 4) {
-            if message.isEdited {
-                Button(L10n.string("Edited")) { workspace.messagePendingEditHistory = message }
-                    .buttonStyle(.plain)
-                    .help(L10n.string("View edit history"))
-            }
-            if let retentionLabel = message.retentionExpirationLabel(locale: timestampLocale) {
-                Image(systemName: "timer")
-                    .help(retentionLabel)
-                    .accessibilityLabel(retentionLabel)
-            }
-            Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
-                .monospacedDigit()
-            if let systemImage = Self.deliveryMarkerSystemImage(for: deliveryIndicator) {
-                Image(systemName: systemImage)
+            if MessageDeliveryMarker.systemImage(for: footerIndicator) != nil {
+                MessageDeliveryMarker(indicator: footerIndicator)
                     // Only a real failure earns the alarm color, and a message some members may lack
                     // the warning color; an in-flight send stays in the metadata's own tint.
                     .foregroundStyle(
                         Self.deliveryMarkerColor(
-                            for: deliveryIndicator,
+                            for: footerIndicator,
                             isOutgoing: message.isOutgoing,
                             otherwise: metadataColor
                         )
                     )
                     .help(deliveryMarkerHelp)
+            }
+            if showsFailureNotice {
+                Text(L10n.string("Not delivered"))
+                    .foregroundStyle(
+                        Self.deliveryMarkerColor(for: .failed, isOutgoing: message.isOutgoing, otherwise: metadataColor)
+                    )
+            }
+            if showsFooterTime {
+                Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
+                    .monospacedDigit()
+                    .help(message.retentionExpirationLabel(locale: timestampLocale) ?? "")
+            }
+            if showsEditedLabel {
+                Button(L10n.string("Edited")) { workspace.messagePendingEditHistory = message }
+                    .buttonStyle(.plain)
+                    .help(L10n.string("View edit history"))
             }
         }
         .wnFont(.medium10)
@@ -1093,10 +1132,32 @@ struct MessageBubble: View {
         .accessibilityLabel(
             message.metadataLabel(
                 at: timestampReferenceDate,
-                indicator: deliveryIndicator,
+                indicator: footerIndicator,
                 locale: timestampLocale
             )
         )
+    }
+}
+
+/// Keeps a run's hidden timestamp reachable: VoiceOver still reads it, and hovering the bubble
+/// shows it as a tooltip — the pointer's answer to a footer only the run's last row draws.
+private struct HiddenMessageMetadata: ViewModifier {
+    let isHidden: Bool
+    let label: String
+
+    // No `if` around `content`: a run gaining a row flips the row above it, and a branch would
+    // rebuild that bubble's whole subtree instead of updating it.
+    func body(content: Content) -> some View {
+        content
+            .help(isHidden ? label : "")
+            .overlay(alignment: .bottomTrailing) {
+                if isHidden {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityRepresentation { Text(label) }
+                        .allowsHitTesting(false)
+                }
+            }
     }
 }
 

@@ -115,24 +115,81 @@ nonisolated enum DisappearingMessageOption: Hashable, Identifiable, Sendable {
     }
 }
 
-/// The shared subtitle used below conversation and group-detail titles. Active timers render as
-/// an icon plus compact duration; inactive timers retain the surface-specific fallback text.
+/// The subtitle under the conversation title. With disappearing messages on, the member count
+/// stays and a compact timer sits beside it ("3 members · ⏱ 1d"), as on iOS; the spoken label
+/// names both in full. With the timer off it is just the subtitle.
 struct DisappearingMessageHeaderSubtitle: View {
     let durationSeconds: UInt64?
-    let fallback: String
+    /// The member count, or the direct chat's subtitle; may be empty.
+    let subtitle: String
 
     @ViewBuilder
     var body: some View {
         Group {
             if let durationSeconds, durationSeconds > 0 {
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                        Text(verbatim: "·")
+                    }
                     Image(systemName: "timer")
-                    Text(DisappearingMessageOption.option(for: durationSeconds).label)
+                    Text(DisappearingMessageDuration.compactLabel(seconds: durationSeconds))
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(Self.accessibilityLabel(subtitle: subtitle, durationSeconds: durationSeconds))
             } else {
-                Text(fallback)
+                Text(subtitle)
             }
         }
         .foregroundStyle(WNColor.backgroundContentSecondary)
     }
+
+    static func accessibilityLabel(subtitle: String, durationSeconds: UInt64) -> String {
+        let duration = DisappearingMessageOption.option(for: durationSeconds).label
+        guard !subtitle.isEmpty else {
+            return String(format: L10n.string("Disappearing messages: %@"), duration)
+        }
+        return String(format: L10n.string("%@, Disappearing messages: %@"), subtitle, duration)
+    }
+}
+
+/// Short spellings of a disappearing-message duration, for places with no room for "1 week".
+nonisolated enum DisappearingMessageDuration {
+    /// "1w", "1d", "8h", "1h 30m": weeks for exact multiples of seven days, otherwise at most two
+    /// of days, hours, minutes and seconds. Matches iOS's header timer.
+    static func compactLabel(seconds: UInt64, locale: Locale = AppLanguage.currentLocale) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+        let formatter = DateComponentsFormatter()
+        formatter.calendar = calendar
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+
+        let week: UInt64 = 604_800
+        let clamped = min(seconds, UInt64(Int.max))
+        if clamped > 0, clamped.isMultiple(of: week) {
+            formatter.allowedUnits = [.weekOfMonth]
+            if let label = formatter.string(from: DateComponents(weekOfMonth: Int(clamped / week))) {
+                return label
+            }
+        }
+        formatter.allowedUnits = [.day, .hour, .minute, .second]
+        let components = DateComponents(
+            day: Int(clamped / 86_400),
+            hour: Int(clamped % 86_400 / 3_600),
+            minute: Int(clamped % 3_600 / 60),
+            second: Int(clamped % 60)
+        )
+        return formatter.string(from: components) ?? DisappearingMessageOption.option(for: seconds).label
+    }
+}
+
+#Preview("Header subtitle") {
+    VStack(alignment: .leading, spacing: 8) {
+        DisappearingMessageHeaderSubtitle(durationSeconds: 86_400, subtitle: "3 members")
+        DisappearingMessageHeaderSubtitle(durationSeconds: 604_800, subtitle: "")
+        DisappearingMessageHeaderSubtitle(durationSeconds: 0, subtitle: "3 members")
+    }
+    .wnFont(.medium10)
+    .padding()
 }

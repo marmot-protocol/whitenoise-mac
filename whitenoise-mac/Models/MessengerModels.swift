@@ -993,14 +993,10 @@ struct ConversationMetadata: Hashable {
     let disappearingMessageSecs: UInt64
     let isSelfAdmin: Bool
 
+    /// The member count. The disappearing-message timer is drawn beside it by the header
+    /// (`DisappearingMessageHeaderSubtitle`) rather than replacing it.
     var subtitle: String {
-        if disappearingMessageSecs > 0 {
-            return String(
-                format: L10n.string("Disappearing messages: %@"),
-                DisappearingMessageOption.option(for: disappearingMessageSecs).label
-            )
-        }
-        return L10n.plural("%lld members", Int64(memberCount))
+        L10n.plural("%lld members", Int64(memberCount))
     }
 }
 
@@ -4385,13 +4381,15 @@ nonisolated enum DisplayText {
         return date.formatted(monthDayStyle.locale(locale))
     }
 
+    /// A message's time, on the Mac's own 12- or 24-hour clock (`AppLanguage.deviceClockLocale`).
     static func messageTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale)
         -> String
     {
+        let clockLocale = AppLanguage.deviceClockLocale(for: locale)
         if calendar.isDate(date, inSameDayAs: now) {
-            return date.formatted(timeOnlyStyle.locale(AppLanguage.twelveHourLocale(for: locale)))
+            return date.formatted(timeOnlyStyle.locale(clockLocale))
         }
-        return dateTimeTimestamp(for: date, locale: locale)
+        return date.formatted(dateTimeStyle.locale(clockLocale))
     }
 
     static func dateTimeTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {

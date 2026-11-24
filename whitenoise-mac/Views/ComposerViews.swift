@@ -1922,8 +1922,8 @@ struct ConversationHeader: View {
     var escapeEndsMessageSelection = true
 
     /// Under the chat title: "Catching up" while MDK is still fetching this chat's history,
-    /// otherwise the disappearing-message timer as a bare clock icon + duration (no "Disappearing
-    /// messages:" label) when it's on, otherwise the usual member/DM subtitle.
+    /// otherwise the member/DM subtitle, with a compact disappearing-message timer beside it when
+    /// one is on.
     private var headerSubtitle: some View {
         let metadata = workspace.conversationMetadataByChat[chat.id]
         return Group {
@@ -1932,7 +1932,7 @@ struct ConversationHeader: View {
             } else {
                 DisappearingMessageHeaderSubtitle(
                     durationSeconds: metadata?.disappearingMessageSecs,
-                    fallback: metadata?.subtitle ?? chat.subtitle
+                    subtitle: metadata?.subtitle ?? chat.subtitle
                 )
             }
         }

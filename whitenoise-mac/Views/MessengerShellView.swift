@@ -324,10 +324,12 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         context: TranscriptRowContext,
         /// Where the history just above came from, on the first live row after imported ones: the
         /// transcript marks where messages stop being copied from another device.
-        importedAbove: MessageImportSource? = nil
+        importedAbove: MessageImportSource? = nil,
+        /// Where the row sits in its run of messages from one person (`MessageClusterProjection`).
+        cluster: MessageClusterPosition = .standalone
     )
     case loadingNewer(isLoading: Bool)
-    case pending(PendingOutgoingMessageRow)
+    case pending(PendingOutgoingMessageRow, cluster: MessageClusterPosition = .standalone)
     case footer
 
     /// Loading indicators and the foot do not travel with the messages, so they never anchor the
@@ -342,9 +344,9 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
     var id: String {
         switch self {
         case .loadingOlder: "transcript-loading-older"
-        case .message(let item, _, _, _, _): item.message.id
+        case .message(let item, _, _, _, _, _): item.message.id
         case .loadingNewer: "transcript-loading-newer"
-        case .pending(let row): "transcript-pending-\(row.id.uuidString)"
+        case .pending(let row, _): "transcript-pending-\(row.id.uuidString)"
         case .footer: "transcript-footer"
         }
     }
@@ -354,13 +356,13 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         case (.loadingOlder(let a), .loadingOlder(let b)), (.loadingNewer(let a), .loadingNewer(let b)):
             return a == b
         case (
-            .message(let a, let dividerA, let matchA, let contextA, let importedA),
-            .message(let b, let dividerB, let matchB, let contextB, let importedB)
+            .message(let a, let dividerA, let matchA, let contextA, let importedA, let clusterA),
+            .message(let b, let dividerB, let matchB, let contextB, let importedB, let clusterB)
         ):
             return a.message == b.message && a.dayLabel == b.dayLabel && dividerA == dividerB
-                && matchA == matchB && contextA == contextB && importedA == importedB
-        case (.pending(let a), .pending(let b)):
-            return a == b
+                && matchA == matchB && contextA == contextB && importedA == importedB && clusterA == clusterB
+        case (.pending(let a, let clusterA), .pending(let b, let clusterB)):
+            return a == b && clusterA == clusterB
         case (.footer, .footer):
             return true
         default:
@@ -396,10 +398,66 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
             previousImport = importSource
         }
         if paging.hasMoreAfter { rows.append(.loadingNewer(isLoading: paging.isLoadingAfter)) }
-        rows += pendingOutgoingRows.map(TranscriptRow.pending)
+        rows += pendingOutgoingRows.map { TranscriptRow.pending($0) }
         rows.append(.footer)
-        return rows
+        let positions = MessageClusterProjection.positions(for: rows.map(\.clusterEntry))
+        return zip(rows, positions).map { $0.placed(in: $1) }
     }
+
+    /// What this row groups as, or nil when it breaks a run of messages.
+    private var clusterEntry: MessageClusterProjection.Entry? {
+        switch self {
+        case .message(let item, let showsUnreadDivider, _, _, let importedAbove, _):
+            MessageClusterProjection.Entry(
+                message: item.message,
+                followsBoundary: showsUnreadDivider || importedAbove != nil
+            )
+        case .pending(let row, _):
+            MessageClusterProjection.Entry(author: .me, sentAt: row.createdAt)
+        case .loadingOlder, .loadingNewer, .footer:
+            nil
+        }
+    }
+
+    private func placed(in cluster: MessageClusterPosition) -> TranscriptRow {
+        switch self {
+        case .message(let item, let showsUnreadDivider, let searchHighlight, let context, let importedAbove, _):
+            .message(
+                item,
+                showsUnreadDivider: showsUnreadDivider,
+                searchHighlight: searchHighlight,
+                context: context,
+                importedAbove: importedAbove,
+                cluster: cluster
+            )
+        case .pending(let row, _):
+            .pending(row, cluster: cluster)
+        case .loadingOlder, .loadingNewer, .footer:
+            self
+        }
+    }
+
+    /// Room above and below the row's content. Rows in one run sit close together and a run keeps
+    /// a wider gap from whatever comes next, as on iOS; every other row keeps the standard gap.
+    var verticalInsets: (top: CGFloat, bottom: CGFloat) {
+        let cluster: MessageClusterPosition
+        switch self {
+        case .message(_, _, _, _, _, let position), .pending(_, let position):
+            cluster = position
+        case .loadingOlder, .loadingNewer, .footer:
+            return (Self.standardInset, Self.standardInset)
+        }
+        return (
+            cluster.startsCluster ? Self.clusterEdgeInset : Self.withinClusterInset,
+            cluster.endsCluster ? Self.clusterEdgeInset : Self.withinClusterInset
+        )
+    }
+
+    /// Half the gap between two rows of one run (3pt in all) and between two runs (16pt in all),
+    /// iOS's standard-density spacing.
+    static let withinClusterInset: CGFloat = 1.5
+    static let clusterEdgeInset: CGFloat = 8
+    static let standardInset: CGFloat = 6
 }
 
 /// One transcript row's SwiftUI content, hosted in a table cell. A cell's `NSHostingView` does not
@@ -424,7 +482,9 @@ private struct TranscriptRowCell: View {
             switch row {
             case .loadingOlder(let isLoading), .loadingNewer(let isLoading):
                 TimelinePageLoadingRow(isLoading: isLoading)
-            case .message(let item, let showsUnreadDivider, let searchHighlight, let context, let importedAbove):
+            case .message(
+                let item, let showsUnreadDivider, let searchHighlight, let context, let importedAbove, let cluster
+            ):
                 VStack(spacing: 12) {
                     if let importedAbove {
                         ImportedHistoryDivider(
@@ -446,18 +506,19 @@ private struct TranscriptRowCell: View {
                         showsDebugMetadata: context.showsDebugMetadata,
                         timestampReferenceDate: timestampReferenceDate,
                         timestampLocale: locale,
+                        cluster: cluster,
                         onOpenImageGallery: onOpenImageGallery,
                         onNavigateToMessage: onNavigateToMessage
                     )
                     .environment(\.messageSearchHighlight, searchHighlight)
                 }
-            case .pending(.text(let message)):
+            case .pending(.text(let message), _):
                 PendingOutgoingTextBubble(
                     message: message,
                     timestampReferenceDate: timestampReferenceDate,
                     timestampLocale: locale
                 )
-            case .pending(.media(let message)):
+            case .pending(.media(let message), _):
                 PendingOutgoingMessageBubble(
                     message: message,
                     timestampReferenceDate: timestampReferenceDate,
@@ -468,7 +529,8 @@ private struct TranscriptRowCell: View {
             }
         }
         .padding(.horizontal, 28)
-        .padding(.vertical, 6)
+        .padding(.top, row.verticalInsets.top)
+        .padding(.bottom, row.verticalInsets.bottom)
         .frame(maxWidth: .infinity)
         .textSelection(.disabled)
         .tint(WNColor.fillPrimary)

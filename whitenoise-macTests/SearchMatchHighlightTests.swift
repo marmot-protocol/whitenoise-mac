@@ -84,7 +84,7 @@ struct SearchMatchHighlightTests {
                 referenceDay: 0)
         )
         let highlights = rows.compactMap { row -> MessageSearchHighlight?? in
-            guard case .message(_, _, let searchHighlight, _, _) = row else { return nil }
+            guard case .message(_, _, let searchHighlight, _, _, _) = row else { return nil }
             return .some(searchHighlight)
         }
         #expect(highlights == [nil, highlight, nil])
