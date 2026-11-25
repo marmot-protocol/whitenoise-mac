@@ -67,6 +67,7 @@ struct GroupProfileEditorSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave || isSaving)
             }
+            .wnSheetFooterButtons()
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
         }

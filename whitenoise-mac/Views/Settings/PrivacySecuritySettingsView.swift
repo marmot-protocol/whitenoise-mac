@@ -75,6 +75,7 @@ struct PrivacySecuritySettingsView: View {
                     )
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(workspace.isAccountMutationInProgress)
             }
         }
@@ -303,6 +304,7 @@ private struct StoredDiagnosticLogsSection: View {
                         )
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
                     .disabled(model.isUploadingAuditLogs)
 
                     Button {
@@ -316,6 +318,7 @@ private struct StoredDiagnosticLogsSection: View {
                         )
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
                     .disabled(model.isDeletingAuditLogs)
                 }
 

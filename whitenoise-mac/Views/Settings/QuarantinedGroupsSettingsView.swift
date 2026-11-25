@@ -41,6 +41,7 @@ struct QuarantinedGroupsSettingsView: View {
                         Task { await model.load() }
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
                     .disabled(model.isLoading)
                 }
             }
@@ -78,6 +79,7 @@ private struct QuarantinedGroupSettingsRow: View {
                     )
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(isRetrying)
             } else {
                 Text(L10n.string("Quit and reopen White Noise to restore this group."))

@@ -139,9 +139,6 @@ private struct HelpImproveWhiteNoiseChoices: View {
     }
 }
 
-/// `WNPrimaryButton` at `.small`: the component owns the type rung, padding and border shape
-/// together, and the sheet's content is two switches and a footer, so a full-height slab would
-/// claim more of the card than the decision warrants.
 private struct HelpImproveWhiteNoiseFooter: View {
     let isDisabled: Bool
     let onDone: () -> Void
@@ -149,12 +146,14 @@ private struct HelpImproveWhiteNoiseFooter: View {
     var body: some View {
         HStack {
             Spacer()
-            WNPrimaryButton(size: .small, action: onDone) {
-                Text(L10n.string("Done")).frame(minWidth: 96)
+            Button(action: onDone) {
+                Text(L10n.string("Done"))
             }
+            .wnPrimaryButtonStyle()
             .keyboardShortcut(.defaultAction)
             .disabled(isDisabled)
         }
+        .wnSheetFooterButtons()
         .padding(16)
     }
 }

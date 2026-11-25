@@ -334,6 +334,7 @@ struct ProfileKeysBackupSection: View {
                         Label(L10n.string("Back Up With a Password"), systemImage: "lock.doc")
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
 
                     Button {
                         isConfirmingRawExport = true
@@ -341,6 +342,7 @@ struct ProfileKeysBackupSection: View {
                         Label(L10n.string("Back Up Without a Password"), systemImage: "arrow.down.doc")
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
                 }
                 .disabled(isExporting)
             }

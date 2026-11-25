@@ -120,6 +120,7 @@ struct SignOutSheet: View {
                 .wnDestructiveButtonStyle()
                 .disabled(stage == nil && !canSignOut)
             }
+            .wnSheetFooterButtons()
 
             if let error = settings?.lastError {
                 SettingsErrorView(error: error)

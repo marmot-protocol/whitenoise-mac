@@ -98,6 +98,7 @@ struct LaunchAtLoginStatusRows: View {
                 controller.openSystemSettings()
             }
             .wnSecondaryButtonStyle()
+            .wnSettingsRowButton()
 
         case .notFound:
             SettingsStatusNote(
@@ -175,6 +176,7 @@ struct QuickReactionsSettingsSection: View {
                 workspace.restoreDefaultQuickReactions()
             }
             .wnSecondaryButtonStyle()
+            .wnSettingsRowButton()
             .disabled(workspace.quickReactions == ChatReactionDefaults.quick)
         }
     }

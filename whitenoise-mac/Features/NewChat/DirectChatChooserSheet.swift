@@ -155,6 +155,7 @@ private struct DirectChatChooserFooter: View {
             .wnSecondaryButtonStyle()
             .accessibilityIdentifier("compose.chooser.startNew")
         }
+        .wnSheetFooterButtons()
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
     }

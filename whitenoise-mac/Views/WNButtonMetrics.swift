@@ -12,23 +12,13 @@ import SwiftUI
 
 /// The outline a push button's ground is cut to.
 ///
-/// Two shapes rather than a free radius, because the choice is not per-button taste: it is which
-/// *screen* a button is standing on. Everything inside the app's chrome draws `rounded` — a
-/// sheet's confirm, an invite's `Accept`, a row's action — because that is `WnButton`
-/// (`lib/widgets/wn_button.dart`), and those buttons sit among cards and fields that are all cut
-/// the same way.
-///
-/// `capsule` is the onboarding shape, and it comes from `wn-ios-prototype`'s `WelcomeView`, which
-/// reaches for `.buttonStyle(.glass)` and `.glassProminent` and then names **no**
-/// `buttonBorderShape` at all. That omission is the design: Liquid Glass's own default border
-/// shape is a capsule, so the prototype's two welcome actions are pills. The mac pane used to
-/// override that back to a 12pt rounded rectangle, which is the whole of the mismatch.
+/// Use capsules for sheet footer actions, Settings row text buttons and onboarding.
 ///
 /// Not `nonisolated` on purpose — see `WNButtonMetrics` below.
 enum WNButtonShape: Sendable {
     /// The app's default: a rounded rectangle at `WNButtonMetrics.cornerRadius(for:)`.
     case rounded
-    /// A pill. The onboarding pane, and anywhere else a button stands alone on a bare surface.
+    /// A pill for text actions in sheets, Settings and onboarding.
     case capsule
     /// A circle. Icon-only controls in the composer, voice recording, and dictation bars.
     case circle
@@ -120,6 +110,22 @@ enum WNButtonMetrics {
 }
 
 extension View {
+    /// Apply to the action row so primary, secondary and destructive buttons share one size.
+    func wnSheetFooterButtons() -> some View {
+        self
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .wnButtonShape(.capsule)
+            .controlSize(.large)
+    }
+
+    /// Apply directly to a Settings row’s text button, leaving its neighboring controls alone.
+    func wnSettingsRowButton() -> some View {
+        self
+            .wnButtonShape(.capsule)
+            .controlSize(.regular)
+    }
+
     /// Native primary push button (`.borderedProminent`) with scoped monochrome tint (C01).
     func wnPrimaryButtonStyle() -> some View {
         modifier(WNPrimaryButtonChrome())

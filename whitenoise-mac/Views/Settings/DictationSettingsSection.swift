@@ -36,6 +36,7 @@ struct DictationSettingsSection: View {
                         installer.install(localeIdentifiers: languages())
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
                 }
             }
         }

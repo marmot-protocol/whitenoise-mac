@@ -229,6 +229,7 @@ private struct AvatarCropFooter: View {
             .disabled(!model.canSave)
             .accessibilityIdentifier("avatar-crop.done")
         }
+        .wnSheetFooterButtons()
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
     }

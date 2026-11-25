@@ -112,9 +112,10 @@ private struct NewDeviceLinkFooter: View {
             }
             .wnSecondaryButtonStyle()
             .disabled(model.isBusy(.cancelLink))
-            WNPrimaryButton(L10n.string("They Match"), systemImage: "checkmark") {
+            Button(L10n.string("They Match"), systemImage: "checkmark") {
                 Task { await model.confirmMatch() }
             }
+            .wnPrimaryButtonStyle()
             .disabled(model.isBusy(.confirmMatch))
         case .waitingForAnswer, .waitingForOtherDevice, .joining:
             Button(L10n.string("Cancel Linking")) {
@@ -126,12 +127,14 @@ private struct NewDeviceLinkFooter: View {
             Button(L10n.string("Done")) { model.closeSheet() }
                 .wnSecondaryButtonStyle()
                 .keyboardShortcut(.cancelAction)
-            WNPrimaryButton(L10n.string("Try Again"), systemImage: "arrow.clockwise") {
+            Button(L10n.string("Try Again"), systemImage: "arrow.clockwise") {
                 Task { await model.startLink() }
             }
+            .wnPrimaryButtonStyle()
             .disabled(model.isBusy(.startLink))
         case .linked:
-            WNPrimaryButton(L10n.string("Done"), systemImage: "checkmark") { model.closeSheet() }
+            Button(L10n.string("Done"), systemImage: "checkmark") { model.closeSheet() }
+                .wnPrimaryButtonStyle()
                 .keyboardShortcut(.defaultAction)
         case nil:
             // Before the first answer, or after `startDeviceLink` was refused.
@@ -139,9 +142,10 @@ private struct NewDeviceLinkFooter: View {
                 .wnSecondaryButtonStyle()
                 .keyboardShortcut(.cancelAction)
             if model.actionError != nil {
-                WNPrimaryButton(L10n.string("Try Again"), systemImage: "arrow.clockwise") {
+                Button(L10n.string("Try Again"), systemImage: "arrow.clockwise") {
                     Task { await model.startLink() }
                 }
+                .wnPrimaryButtonStyle()
                 .disabled(model.isBusy(.startLink))
             }
         }
@@ -179,9 +183,10 @@ struct DeviceLinkSuggestionSheet: View {
             Button(L10n.string("Not Now")) { model.closeSheet() }
                 .wnSecondaryButtonStyle()
                 .keyboardShortcut(.cancelAction)
-            WNPrimaryButton(L10n.string("Link This Mac"), systemImage: "link") {
+            Button(L10n.string("Link This Mac"), systemImage: "link") {
                 Task { await model.startLink() }
             }
+            .wnPrimaryButtonStyle()
             .disabled(model.isBusy(.startLink))
         }
     }
@@ -303,7 +308,8 @@ struct DeviceLinkPromptSheet: View {
             ) {
                 EmptyView()
             } footer: {
-                WNPrimaryButton(L10n.string("Done"), systemImage: "checkmark") { model.closeSheet() }
+                Button(L10n.string("Done"), systemImage: "checkmark") { model.closeSheet() }
+                    .wnPrimaryButtonStyle()
             }
         }
     }
@@ -400,7 +406,8 @@ private struct DeviceLinkPromptFooter: View {
             }
             .wnSecondaryButtonStyle()
             .disabled(model.isBusy(declineAction))
-            WNPrimaryButton(L10n.string("Link Device"), systemImage: "link") { onLink() }
+            Button(L10n.string("Link Device"), systemImage: "link") { onLink() }
+                .wnPrimaryButtonStyle()
                 .disabled(!canLink || model.isBusy(.link(promptId: prompt.promptId)))
         case .preparing, .competingRequests, .rateLimited, .cannotLink, .tooManyDevices:
             Button(L10n.string("Not Now")) {
@@ -413,7 +420,8 @@ private struct DeviceLinkPromptFooter: View {
                 .wnSecondaryButtonStyle()
                 .keyboardShortcut(.cancelAction)
         case .linked, .addedElsewhere, .ended:
-            WNPrimaryButton(L10n.string("Done"), systemImage: "checkmark") { model.closePrompt(prompt.promptId) }
+            Button(L10n.string("Done"), systemImage: "checkmark") { model.closePrompt(prompt.promptId) }
+                .wnPrimaryButtonStyle()
                 .keyboardShortcut(.defaultAction)
         }
     }
@@ -524,6 +532,7 @@ private struct DeviceLinkSheetFrame<Content: View, Footer: View>: View {
                 Spacer(minLength: 0)
                 footer
             }
+            .wnSheetFooterButtons()
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }

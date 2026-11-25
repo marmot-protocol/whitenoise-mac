@@ -142,6 +142,7 @@ private struct ChatAdminHandoffFooter: View {
             // than shouting at a user whose alternative is being stuck in the group forever.
             .disabled(isConfirmDisabled)
         }
+        .wnSheetFooterButtons()
         .padding(16)
     }
 }

@@ -83,6 +83,7 @@ struct ReportMessageSheet: View {
                 .wnPrimaryButtonStyle()
                 .disabled(!model.canSubmit)
             }
+            .wnSheetFooterButtons()
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }

@@ -103,6 +103,7 @@ struct NotificationPermissionSection: View {
                     Label(L10n.string("Allow Notifications"), systemImage: "checkmark.circle")
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
             }
 
         case .denied:
@@ -115,6 +116,7 @@ struct NotificationPermissionSection: View {
                     Label(L10n.string("Open System Settings"), systemImage: "gear")
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
             }
 
         case .authorized, .provisional, .ephemeral:

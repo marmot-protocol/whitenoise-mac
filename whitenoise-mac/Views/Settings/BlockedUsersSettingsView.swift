@@ -66,6 +66,7 @@ private struct BlockedUserSettingsRow: View {
                 )
             }
             .wnSecondaryButtonStyle()
+            .wnSettingsRowButton()
             .disabled(isSaving)
         }
     }

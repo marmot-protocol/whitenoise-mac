@@ -122,6 +122,7 @@ private struct GroupRejoinInvitationSheet: View {
                 .wnPrimaryButtonStyle()
                 .disabled(model.isApplyingRecoveryDecision)
             }
+            .wnSheetFooterButtons()
         }
         .padding(24)
         .frame(width: 480)

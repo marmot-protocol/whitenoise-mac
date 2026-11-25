@@ -208,9 +208,9 @@ struct DeleteProfileConfirmationForm: View {
                     }
                     Text(L10n.string(model.isDeleting ? "Deleting…" : "Delete Profile"))
                 }
-                .frame(maxWidth: .infinity)
             }
             .wnDestructiveButtonStyle()
+            .wnButtonShape(.capsule)
             .controlSize(.large)
             // Stays red with its spinner while the deletion runs, as iOS's loading button does,
             // rather than greying out as though the gate had closed. `submit` still ignores taps:

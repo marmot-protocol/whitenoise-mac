@@ -84,6 +84,7 @@ private struct DeviceWarningsSection: View {
                             Task { await model.dismissCompromiseWarning() }
                         }
                         .wnSecondaryButtonStyle()
+                        .wnSettingsRowButton()
                         .disabled(model.isBusy(.dismissCompromise))
                     }
                 }
@@ -98,6 +99,7 @@ private struct DeviceWarningsSection: View {
                         )
                         Button(L10n.string("Reset Device List…")) { confirmingReset = true }
                             .wnSecondaryButtonStyle()
+                            .wnSettingsRowButton()
                             .disabled(model.isBusy(.reset))
                     }
                 }
@@ -213,6 +215,7 @@ private struct LinkedDeviceRow: View {
                     Task { await model.update(slotIdHex: device.slotIdHex, keepWhileInactive: true) }
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(model.isBusy(.device(slotIdHex: device.slotIdHex)))
             }
             Image(systemName: "chevron.right")
@@ -279,6 +282,7 @@ private struct DeviceLinkSection: View {
                     Label(L10n.string("Add a New Device…"), systemImage: "plus")
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(linking)
                 Button {
                     Task { await model.startLink() }
@@ -290,6 +294,7 @@ private struct DeviceLinkSection: View {
                     )
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(linking || model.isBusy(.startLink))
             }
             if !model.otherDevices.isEmpty {
@@ -350,6 +355,7 @@ private struct DeviceLinkStatusRow: View {
             Spacer(minLength: 0)
             Button(actionTitle, action: action)
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
         }
     }
 }
@@ -414,12 +420,14 @@ private struct SignInsSection: View {
                     )
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(model.isBusy(.checkSignIns))
                 if offersStartFresh {
                     Button(L10n.string("I Don’t Have Those Devices")) {
                         Task { await model.startFresh() }
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
                     .disabled(model.isBusy(.startFresh))
                 }
             }
@@ -460,20 +468,24 @@ private struct SignInRow: View {
                             Task { await model.answer(slotIdHex: signIn.slotIdHex, response: .notNow) }
                         }
                         .wnSecondaryButtonStyle()
+                        .wnSettingsRowButton()
                         .disabled(busy)
                     }
                     // Linking starts on that device; this explains how and waits for its request.
                     Button(L10n.string("Link This Device…")) { model.showAddNewDevice() }
                         .wnSecondaryButtonStyle()
+                        .wnSettingsRowButton()
                         .disabled(busy)
                     Button(L10n.string("This Wasn’t Me…"), role: .destructive) { confirmingReject = true }
                         .wnDestructiveButtonStyle()
+                        .wnSettingsRowButton()
                         .disabled(busy)
                 case .linkedElsewhere, .rejectedElsewhere:
                     Button(L10n.string("Dismiss")) {
                         Task { await model.answer(slotIdHex: signIn.slotIdHex, response: .dismiss) }
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
                     .disabled(busy)
                 }
             }
@@ -527,6 +539,7 @@ struct LinkedDeviceSheet: View {
                         .wnSecondaryButtonStyle()
                         .keyboardShortcut(.cancelAction)
                 }
+                .wnSheetFooterButtons()
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
                 .confirmationDialog(
@@ -554,6 +567,7 @@ struct LinkedDeviceSheet: View {
                             .wnSecondaryButtonStyle()
                             .keyboardShortcut(.cancelAction)
                     }
+                    .wnSheetFooterButtons()
                 }
                 .padding(20)
             }
@@ -636,6 +650,7 @@ private struct LinkedDeviceSheetForm: View {
                         Task { await model.rename(slotIdHex: device.slotIdHex, label: label) }
                     }
                     .wnPrimaryButtonStyle()
+                    .wnSettingsRowButton()
                     .disabled(!canSave)
                 }
 

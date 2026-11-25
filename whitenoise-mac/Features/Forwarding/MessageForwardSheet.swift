@@ -73,6 +73,7 @@ struct MessageForwardSheet: View {
                 .keyboardShortcut(.cancelAction)
                 .disabled(model.isSending)
             }
+            .wnSheetFooterButtons()
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }

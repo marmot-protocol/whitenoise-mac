@@ -79,16 +79,18 @@ struct EncryptedPrivateKeyExportSheet: View {
                 .keyboardShortcut(.cancelAction)
                 .disabled(workspace.isExportingPrivateKey)
 
-                WNPrimaryButton(action: { Task { await export() } }) {
+                Button(action: { Task { await export() } }) {
                     if workspace.isExportingPrivateKey {
                         ProgressView().controlSize(.small)
                     } else {
                         Text(L10n.string("Export"))
                     }
                 }
+                .wnPrimaryButtonStyle()
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isReady || workspace.isExportingPrivateKey)
             }
+            .wnSheetFooterButtons()
 
             if let error = settings?.lastError {
                 SettingsErrorView(error: error)

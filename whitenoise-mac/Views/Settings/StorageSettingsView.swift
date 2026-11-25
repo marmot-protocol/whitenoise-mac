@@ -115,6 +115,7 @@ private struct StorageDownloadsSection: View {
 
             Button(L10n.string("Change Folder"), systemImage: "folder", action: onChangeFolder)
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
 
             WNToggle(
                 L10n.string("Always ask where to save"),
@@ -154,6 +155,7 @@ private struct StorageLimitsSection: View {
                             Task { await model.load() }
                         }
                         .wnSecondaryButtonStyle()
+                        .wnSettingsRowButton()
                         .disabled(model.isLoading)
                     }
                 } else {
@@ -203,6 +205,7 @@ private struct StorageLimitsSection: View {
                     }
                 }
                 .wnPrimaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(model.isSaving || !hasUnsavedChanges)
 
                 if let error = model.error {
@@ -249,6 +252,7 @@ private struct StorageMediaCacheSection: View {
             // to contradict that. The confirmation dialog it opens is system-rendered, so the
             // irreversible step is still the one drawn in red.
             .wnSecondaryButtonStyle()
+            .wnSettingsRowButton()
             .disabled(isClearingCache || isLoadingFootprint || footprintBytes == 0)
 
             if let reclaimed = reclaimedBytes {

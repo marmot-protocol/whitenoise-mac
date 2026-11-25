@@ -104,6 +104,8 @@ struct RelayListSettingsView: View {
                 } label: {
                     Label(L10n.string("Add relay"), systemImage: "plus.circle")
                 }
+                .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(model.isSaving)
             }
 
@@ -113,6 +115,8 @@ struct RelayListSettingsView: View {
                 } label: {
                     Text(L10n.string("Restore default relays"))
                 }
+                .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(
                     model.isSaving || model.settings.isDefaultRelayConfiguration
                 )

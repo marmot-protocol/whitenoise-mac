@@ -169,6 +169,7 @@ private struct ManageStorageCacheSection: View {
                 )
             }
             .wnSecondaryButtonStyle()
+            .wnSettingsRowButton()
             .disabled(model.usage == nil || model.usage?.cacheBytes == 0)
             if model.failedOperation == .clearCache {
                 SettingsStatusNote(text: L10n.string("Couldn't clear the cache. Try again."), intention: .failure)
@@ -337,6 +338,7 @@ private struct ManageStorageChatActionsHeader: View {
                     )
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 ManageStorageRemoveOlderMenu(
                     pendingRemoval: $pendingRemoval,
                     inProgress: model.operation == .removeOlder(scope)
@@ -611,6 +613,7 @@ private struct ManageStorageTableFooterBar: View {
                     }
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(isLoadingMore)
                 .accessibilityIdentifier("settings.manageStorage.loadMore")
             }
@@ -628,6 +631,7 @@ private struct ManageStorageTableFooterBar: View {
                     )
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
             }
         }
         .padding(.horizontal, 20)
@@ -791,6 +795,7 @@ struct ManageStorageRetryRow: View {
             SettingsStatusNote(text: message, intention: .failure)
             Button(L10n.string("Try Again"), action: retry)
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
         }
     }
 }

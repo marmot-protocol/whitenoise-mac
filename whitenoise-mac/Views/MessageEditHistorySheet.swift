@@ -137,6 +137,7 @@ struct MessageEditHistoryContentView: View {
                     .wnSecondaryButtonStyle()
                     .keyboardShortcut(.cancelAction)
             }
+            .wnSheetFooterButtons()
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }

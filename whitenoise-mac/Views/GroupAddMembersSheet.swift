@@ -271,6 +271,7 @@ private struct GroupAddMembersFooter: View {
             .wnPrimaryButtonStyle()
             .disabled(isDisabled)
         }
+        .wnSheetFooterButtons()
         .padding(16)
     }
 }

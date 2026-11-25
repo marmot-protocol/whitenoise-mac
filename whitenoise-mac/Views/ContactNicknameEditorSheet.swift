@@ -156,6 +156,7 @@ private struct ContactNicknameEditorFooter: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)
         }
+        .wnSheetFooterButtons()
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
     }

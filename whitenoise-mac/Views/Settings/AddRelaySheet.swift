@@ -183,6 +183,7 @@ private struct AddRelaySheetFooter: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canAdd)
         }
+        .wnSheetFooterButtons()
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
     }

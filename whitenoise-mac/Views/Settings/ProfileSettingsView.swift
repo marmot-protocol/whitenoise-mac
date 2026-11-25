@@ -177,6 +177,7 @@ struct ProfileEditingActions: View {
                     workspace.discardProfileEdits()
                 }
                 .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(isBusy)
                 .accessibilityIdentifier("settings.profile.cancel")
 
@@ -195,6 +196,7 @@ struct ProfileEditingActions: View {
                     }
                 }
                 .wnPrimaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(isBusy || !workspace.canSaveProfileEdits)
                 .accessibilityIdentifier("settings.profile.save")
             }
@@ -232,6 +234,7 @@ struct ProfileIdentityHeaderView: View {
                 Text(L10n.string(hasPhoto ? "Change photo" : "Add photo"))
             }
             .wnSecondaryButtonStyle()
+            .wnSettingsRowButton()
             .accessibilityIdentifier("settings.profile.photo")
 
             if workspace.isUploadingProfileImage {

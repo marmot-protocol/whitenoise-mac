@@ -30,6 +30,7 @@ struct KeyPackageSettingsView: View {
                         )
                     }
                     .wnSecondaryButtonStyle()
+                    .wnSettingsRowButton()
                     .disabled(model.isRefreshing)
 
                     Spacer()

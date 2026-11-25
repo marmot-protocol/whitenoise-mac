@@ -81,6 +81,8 @@ struct RelayDetailSettingsView: View {
                 } label: {
                     Text(L10n.string("Remove relay"))
                 }
+                .wnSecondaryButtonStyle()
+                .wnSettingsRowButton()
                 .disabled(!lockedRoles.isEmpty || model.isSaving)
             }
 

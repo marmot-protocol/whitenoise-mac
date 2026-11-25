@@ -267,6 +267,7 @@ private struct ProfileImagePickerConfirmationBar: View {
                 .disabled(selectedResult == nil || isUploading)
                 .accessibilityIdentifier("profile-image-picker.done")
         }
+        .wnSheetFooterButtons()
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
     }
