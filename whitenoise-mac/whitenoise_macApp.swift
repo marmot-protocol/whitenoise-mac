@@ -103,6 +103,7 @@ struct whitenoise_macApp: App {
         // Account lifetime belongs to the app scene, including when Settings is the only open
         // window. Both windows use the same scope and observe the same account event streams.
         .onChange(of: workspace.phase) {
+            settings.synchronize()
             notificationResponses.phaseDidChange()
         }
         .onChange(of: workspace.showsMessengerChrome, initial: true) { settings.synchronize() }

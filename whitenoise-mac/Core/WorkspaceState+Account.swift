@@ -613,15 +613,36 @@ extension WorkspaceState {
     /// which then only clears it here. Either way its report is returned for the shell to show. An
     /// account the user signed out has nothing left to tell the network, so it is removed locally
     /// and returns nil.
+    enum AccountRemovalErrorTarget {
+        case settings
+        case mainWindow
+        case none
+    }
+
     @discardableResult
-    func removeAccount(_ account: AccountItem, reportErrorsToSettings: Bool = true) async -> WipeOutcomeFfi? {
-        guard let client, !isAccountMutationInProgress else { return nil }
+    func removeAccount(_ account: AccountItem, errorTarget: AccountRemovalErrorTarget = .settings) async
+        -> WipeOutcomeFfi?
+    {
+        await removeAccountResult(account, errorTarget: errorTarget).outcome
+    }
+
+    /// Removes `account` and returns both its wipe report and any failure message directly to the
+    /// caller, so Settings' Delete Profile flow never has to inspect or clear a shared error channel
+    /// that another profile may have written to while removal was in flight.
+    func removeAccountResult(
+        _ account: AccountItem,
+        errorTarget: AccountRemovalErrorTarget = .settings
+    ) async -> (outcome: WipeOutcomeFfi?, errorMessage: String?) {
+        guard let client, !isAccountMutationInProgress else { return (nil, nil) }
 
         let originAccountId = activeAccountId
-        if reportErrorsToSettings {
+        switch errorTarget {
+        case .settings:
             setSettingsError(nil, accountId: originAccountId)
-        } else {
+        case .mainWindow:
             lastError = nil
+        case .none:
+            break
         }
         isRemovingAccount = true
         defer { isRemovingAccount = false }
@@ -711,7 +732,7 @@ extension WorkspaceState {
                 clearEnteredLoginIdentity()
                 phase = .onboarding
                 notificationSettings = .defaults
-                return outcome
+                return (outcome, nil)
             }
 
             // Reselecting and reloading is only required when the account currently
@@ -732,7 +753,7 @@ extension WorkspaceState {
                     WorkspaceAccountPresentation.settingsHandoff.post(from: self)
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
-                    return outcome
+                    return (outcome, nil)
                 }
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
@@ -740,7 +761,7 @@ extension WorkspaceState {
                 notificationSettings = .defaults
                 selection = nil
                 WorkspaceAccountPresentation.settingsHandoff.post(from: self)
-                return outcome
+                return (outcome, nil)
             }
 
             if activeAccountInvalid {
@@ -751,18 +772,21 @@ extension WorkspaceState {
                 await loadSettingsData()
                 await reloadChats()
             }
-            return outcome
+            return (outcome, nil)
         } catch {
             if wasActive, activeAccountId == removedAccountId {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
             let errorMessage = UserFacingError.message(for: error)
-            if reportErrorsToSettings {
+            switch errorTarget {
+            case .settings:
                 setSettingsError(errorMessage, accountId: originAccountId)
-            } else {
+            case .mainWindow:
                 lastError = errorMessage
+            case .none:
+                break
             }
-            return outcome
+            return (outcome, errorMessage)
         }
     }
 

@@ -178,7 +178,7 @@ private struct ConversationMenuItems: View {
                 case .leave:
                     Task {
                         guard isCurrent() else { return }
-                        await actions.performDestructive(.leave, endingGroupIDs: endingGroupIDs)
+                        await actions.requestLeave(endingGroupIDs: endingGroupIDs)
                     }
                 }
             }

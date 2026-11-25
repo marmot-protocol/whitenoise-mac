@@ -165,12 +165,9 @@ struct ChatMenuActions {
         workspace.requestChatLocalDelete(for: chat)
     }
 
-    func performDestructive(_ action: ChatDestructiveActions.Action, endingGroupIDs: Set<String>) async {
-        guard canPerformDestructive(action, endingGroupIDs: endingGroupIDs) else { return }
-        switch action {
-        case .leave: await workspace.prepareChatLeave(for: chat)
-        case .deleteLocally: workspace.requestChatLocalDelete(for: chat)
-        }
+    func requestLeave(endingGroupIDs: Set<String>) async {
+        guard canPerformDestructive(.leave, endingGroupIDs: endingGroupIDs) else { return }
+        await workspace.prepareChatLeave(for: chat)
     }
 }
 

@@ -305,6 +305,7 @@ nonisolated struct ChatLocalDeleteTarget: Equatable, Identifiable {
     let groupIdHex: String
     let subject: ChatConfirmationSubject
     var lifecycle: GroupLifecycle = .active
+    var accountId: String? = nil
 
     var id: String { groupIdHex }
     var confirmationMessage: String {

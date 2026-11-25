@@ -2569,10 +2569,10 @@
 
         func removeAccount(accountRef: String) async throws {
             removedAccountRefs.append(accountRef)
-            if let removeAccountError { throw removeAccountError }
             if let onRemoveAccountMidFlight {
                 await onRemoveAccountMidFlight(accountRef)
             }
+            if let removeAccountError { throw removeAccountError }
             storedAccounts.removeAll { $0.label == accountRef }
         }
 

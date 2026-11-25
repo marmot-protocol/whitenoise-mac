@@ -228,19 +228,113 @@ struct ShellCommandTests: WorkspaceTestSupport {
         var settingsOpens = 0
         coordinator.installPresentationActions(showSettings: { settingsOpens += 1 }, showMain: {})
 
+        // Start with Settings open on the soon-to-be-unlinked profile.
+        coordinator.open(at: .relays)
+        #expect(settingsOpens == 1)
+
         let unlinked = try #require(workspace.activeAccount)
         runtime.unlinkFromAnotherDevice(accountRef: unlinked.accountRef)
         await AccountExit.leaveSignedOutAccount(
             accountIdHex: unlinked.accountIdHex.lowercased(),
             in: workspace
         )
+        coordinator.synchronize()
         #expect(workspace.activeAccountId == nil)
-        #expect(settingsOpens == 0)
+        #expect(settingsOpens == 1)
 
         let survivor = try #require(workspace.signedInAccounts.first)
         workspace.selectAccountFromSettings(survivor)
         #expect(workspace.activeAccountId == survivor.id)
-        #expect(settingsOpens == 0)
+        #expect(settingsOpens == 1)
+    }
+
+    @Test func confirmChatLocalDeleteRejectsTargetFromPreviousAccount() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "d", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "e", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let firstAccount = try #require(workspace.accounts.first { $0.id == "First" })
+        let secondAccount = try #require(workspace.accounts.first { $0.id == "Second" })
+        workspace.switchActiveAccount(firstAccount, finalSelection: nil)
+
+        workspace.requestChatLocalDelete(groupIdHex: "shared-group", subject: .namedGroup("Shared"))
+        let capturedTarget = try #require(workspace.chatPendingLocalDelete)
+        #expect(capturedTarget.accountId == firstAccount.id)
+
+        // Simulate switching to profile B before the confirmation button's Task executes.
+        workspace.switchActiveAccount(secondAccount, finalSelection: nil)
+        await workspace.confirmChatLocalDelete(capturedTarget)
+
+        #expect(runtime.locallyDeletedGroupIds.isEmpty)
+    }
+
+    @Test func failedDeleteProfileDuringSwitchPreservesNewProfilesSettingsError() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "f", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "0", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let gate = AsyncFfiGate()
+        gate.isEnabled = true
+        runtime.onRemoveAccountMidFlight = { _ in await gate.passIfArmed() }
+        runtime.removeAccountError = MarmotKitError.Runtime(details: "wipe failed")
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let firstAccount = try #require(workspace.accounts.first { $0.id == "First" })
+        let secondAccount = try #require(workspace.accounts.first { $0.id == "Second" })
+        workspace.switchActiveAccount(firstAccount, finalSelection: nil)
+
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        coordinator.open(at: .profile)
+
+        let remover = DeleteProfileRemoval.remover(for: workspace, settings: coordinator)
+        let removal = Task { await remover(firstAccount) }
+        await gate.waitUntilReached()
+
+        // Switch to profile B and post an unrelated Settings error owned by B before A's wipe fails.
+        workspace.switchActiveAccount(secondAccount, finalSelection: nil)
+        coordinator.synchronize()
+        workspace.setSettingsError("Second profile relay error", accountId: secondAccount.id)
+        #expect(coordinator.lastError == "Second profile relay error")
+
+        gate.release()
+        let failure = await removal.value
+
+        #expect(failure != nil && failure?.isEmpty == false)
+        #expect(coordinator.lastError == "Second profile relay error")
     }
 
     @Test func removingActiveProfileWhileSwitchedToAnotherProfilePreservesNewActiveSession() async throws {

@@ -45,9 +45,12 @@ final class SettingsWindowCoordinator {
                 case .settingsHandoff:
                     self.routeAccountMutation()
                 case .remoteUnlinkChooser:
-                    if self.accountID == nil, self.pendingPage == nil, self.interruptedPage == nil {
-                        self.suppressNextSettingsChooserHandoff = true
-                    }
+                    // A remote unlink entering the profile chooser must not reopen Settings when
+                    // the user picks a survivor, even if Settings had been open on the unlinked
+                    // profile.
+                    self.pendingPage = nil
+                    self.interruptedPage = nil
+                    self.suppressNextSettingsChooserHandoff = true
                 case .cancelledAddProfile:
                     self.returnFromAddProfile()
                 case .focusMainWindow:
@@ -219,7 +222,7 @@ final class SettingsWindowCoordinator {
 
         if workspace.showsMessengerChrome {
             pendingPage = nil
-            if suppressNextSettingsChooserHandoff, destination == nil {
+            if suppressNextSettingsChooserHandoff {
                 suppressNextSettingsChooserHandoff = false
                 return
             }

@@ -770,7 +770,7 @@ private struct ChatSidebarRowMenuItems: View {
                     let originAccountId = workspace.activeAccountId
                     Task {
                         guard workspace.activeAccountId == originAccountId else { return }
-                        await actions.performDestructive(.leave, endingGroupIDs: endingGroupIds)
+                        await actions.requestLeave(endingGroupIDs: endingGroupIds)
                     }
                 }
             } label: {
