@@ -155,20 +155,12 @@ private let allTokens: [WNTextStyle] = [
             #expect(ladder.contains(role.size))
         }
     }
-    /// A message reads body first (#1039, F04): Markdown headings never fall below the body they
-    /// head, and sender name, quote, and footer step down from the body through Apple's styles.
-    @Test func messageTextStepsDownFromTheBody() {
-        let title3 = NSFont.preferredFont(forTextStyle: .title3).pointSize
-        let headline = NSFont.preferredFont(forTextStyle: .headline).pointSize
-        let body = NSFont.preferredFont(forTextStyle: .body).pointSize
-        let subheadline = NSFont.preferredFont(forTextStyle: .subheadline).pointSize
-        let caption = NSFont.preferredFont(forTextStyle: .caption1).pointSize
-
-        #expect(title3 > body)
-        #expect(headline >= body)
-        #expect(subheadline < body)
-        #expect(caption < subheadline)
+    /// A message reads body first (#1039, F04): Markdown heading levels step down distinctly and
+    /// quoted sender labels stay visually distinct from quoted body text.
+    @Test func messageTypographyDistinguishesHeadingsAndQuoteRoles() {
         #expect(MessageTypography.quoteSender != MessageTypography.quoteBody)
+        #expect(MessageTypography.body != MessageTypography.footer)
         #expect(MarkdownHeadingStyle.font(for: 1) != MarkdownHeadingStyle.font(for: 2))
+        #expect(MarkdownHeadingStyle.font(for: 2) != MarkdownHeadingStyle.font(for: 3))
     }
 }

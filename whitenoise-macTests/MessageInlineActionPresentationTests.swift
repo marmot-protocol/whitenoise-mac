@@ -31,13 +31,13 @@ import Testing
     @Test func thePickerKeepsItsStripWhileThePointerLeavesTheRowForIt() {
         var presentation = MessageInlineActionPresentation()
         presentation.isHoveringRow = true
-        #expect(presentation.showsStrip(supportsChatActions: true))
+        #expect(presentation.showsStrip(supportsChatActions: true, isSelectionMode: false))
 
         presentation.setPresented(true, .reactionPicker, for: Self.message)
         presentation.isHoveringRow = false
         presentation.isHoveringStrip = false
 
-        #expect(presentation.showsStrip(supportsChatActions: true))
+        #expect(presentation.showsStrip(supportsChatActions: true, isSelectionMode: false))
         #expect(presentation.isPresented(.reactionPicker, for: Self.message))
     }
 
@@ -50,7 +50,7 @@ import Testing
         presentation.setPresented(false, .reactionPicker, for: Self.message)
 
         #expect(!presentation.isPresented(.reactionPicker, for: Self.message))
-        #expect(!presentation.showsStrip(supportsChatActions: true))
+        #expect(!presentation.showsStrip(supportsChatActions: true, isSelectionMode: false))
     }
 
     /// A short bubble's strip overhangs its row. Pointing at the overhang keeps the strip up,
@@ -59,8 +59,20 @@ import Testing
         var presentation = MessageInlineActionPresentation()
         presentation.isHoveringStrip = true
 
-        #expect(presentation.showsStrip(supportsChatActions: true))
-        #expect(!presentation.showsStrip(supportsChatActions: false))
+        #expect(presentation.showsStrip(supportsChatActions: true, isSelectionMode: false))
+        #expect(!presentation.showsStrip(supportsChatActions: false, isSelectionMode: false))
+    }
+
+    /// Hovering a row or its strip while multi-message selection mode is already active never
+    /// exposes React or More, so the user cannot open a reaction picker during selection mode.
+    @Test func hoveringARowAlreadyInSelectionModeNeverShowsTheStrip() {
+        var presentation = MessageInlineActionPresentation()
+        presentation.isHoveringRow = true
+        #expect(!presentation.showsStrip(supportsChatActions: true, isSelectionMode: true))
+
+        presentation.isHoveringRow = false
+        presentation.isHoveringStrip = true
+        #expect(!presentation.showsStrip(supportsChatActions: true, isSelectionMode: true))
     }
 
     /// SwiftUI may write `false` to a popover's binding that is not the open one, for example
@@ -127,7 +139,7 @@ import Testing
 
         #expect(!presentation.isPresented(.reactionPicker, for: Self.message))
         #expect(!presentation.isPresented(.reactionPicker, for: Self.other))
-        #expect(!presentation.showsStrip(supportsChatActions: true))
+        #expect(!presentation.showsStrip(supportsChatActions: true, isSelectionMode: false))
     }
 
     /// A message that can no longer take reactions, for example because it was deleted, loses

@@ -535,7 +535,10 @@ struct MessageBubble: View {
     }
 
     private var showsInlineActions: Bool {
-        inlineActionPresentation.showsStrip(supportsChatActions: message.supportsChatActions)
+        inlineActionPresentation.showsStrip(
+            supportsChatActions: message.supportsChatActions,
+            isSelectionMode: workspace.isTimelineSelectionMode
+        )
     }
 
     private var inlineActionEligibility: MessageInlineActionPresentation.Eligibility {
@@ -943,7 +946,7 @@ struct MessageBubble: View {
                 }
 
                 if showsReservedMetadataRow {
-                    compactMetadata(onBubble: true).hidden()
+                    compactMetadata(onBubble: true, isPlaceholder: true).hidden()
                 }
             }
             .padding(.horizontal, textHorizontalInset)
@@ -1158,7 +1161,7 @@ struct MessageBubble: View {
     /// Edited. A message with its own finite expiry shows its twelve-step countdown just before the
     /// time. The chat's timer setting stays in the conversation header, and the exact expiry stays
     /// in the tooltip and the spoken label.
-    private func compactMetadata(onBubble: Bool) -> some View {
+    private func compactMetadata(onBubble: Bool, isPlaceholder: Bool = false) -> some View {
         let tint = metadataColor(onBubble: onBubble)
         return HStack(spacing: 4) {
             if showsClusterFooter, MessageDeliveryMarker.systemImage(for: footerIndicator) != nil {
@@ -1181,8 +1184,13 @@ struct MessageBubble: View {
                     )
             }
             if let retentionCountdown {
-                MessageRetentionIndicator(countdown: retentionCountdown)
-                    .help(message.retentionExpirationLabel(locale: timestampLocale) ?? "")
+                if isPlaceholder {
+                    // Reserves the indicator's exact symbol frame without scheduling a second timeline.
+                    Image(systemName: "circle")
+                } else {
+                    MessageRetentionIndicator(countdown: retentionCountdown)
+                        .help(message.retentionExpirationLabel(locale: timestampLocale) ?? "")
+                }
             }
             if showsFooterTime {
                 Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))

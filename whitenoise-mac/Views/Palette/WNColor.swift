@@ -24,13 +24,7 @@ nonisolated enum WNColor {
 
     // MARK: - Message bubbles (F02, T02, T07)
 
-    static let messageReceivedFill = Color(nsColor: WNNSColor.messageReceivedFill)
     static let messageReceivedSecondaryContent = Color(nsColor: WNNSColor.messageReceivedSecondaryContent)
-    static let messageReceivedQuoteFill = Color(nsColor: WNNSColor.messageReceivedQuoteFill)
-    static let messageReceivedLink = Color(nsColor: WNNSColor.messageReceivedLink)
-    static let messageSentSecondaryContent = Color(nsColor: WNNSColor.messageSentSecondaryContent)
-    static let messageSentQuoteFill = Color(nsColor: WNNSColor.messageSentQuoteFill)
-    static let messageSentLink = Color(nsColor: WNNSColor.messageSentLink)
 
     // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 

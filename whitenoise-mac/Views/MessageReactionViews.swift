@@ -234,10 +234,11 @@ nonisolated struct MessageInlineActionPresentation: Equatable, Sendable {
     }
 
     /// The strip shows while the pointer is over the row or the strip, and for as long as one of
-    /// its popovers is open. Leaving the row on the way into the picker does not remove the
+    /// its popovers is open, except during multi-message selection mode where per-message hover
+    /// actions are suppressed. Leaving the row on the way into the picker does not remove the
     /// picker's anchor.
-    func showsStrip(supportsChatActions: Bool) -> Bool {
-        supportsChatActions && (isHoveringRow || isHoveringStrip || popover != nil)
+    func showsStrip(supportsChatActions: Bool, isSelectionMode: Bool) -> Bool {
+        supportsChatActions && !isSelectionMode && (isHoveringRow || isHoveringStrip || popover != nil)
     }
 
     /// Whether a pick from the open picker may be sent to `messageID`.
