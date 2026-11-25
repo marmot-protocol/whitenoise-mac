@@ -40,10 +40,6 @@ struct ChatListDrawerView: View {
     let onOpenSettings: () -> Void
     let onOpenDevicesSettings: () -> Void
     let onOpenGlobalSearchResult: (GlobalMessageSearchResult, String) -> Void
-    /// The New group draft's picture. Kept between the members and name panes, and dropped once
-    /// the composer leaves the group flow: closed (on Create, on cancel, on the account switch that
-    /// closes it) or back on its first pane, which is also where New Chat restarts a draft.
-    @State private var groupDraftImage: GroupDraftImage?
     @State private var sidebarSearchFocusRequest: UUID?
 
     init(
@@ -82,15 +78,8 @@ struct ChatListDrawerView: View {
                     onBack: { globalSearch.dismiss() },
                     onOpenResult: onOpenGlobalSearchResult
                 )
-            } else if workspace.isNewChatComposerVisible {
-                switch workspace.composePane {
-                case .newChat:
-                    NewChatPanelView()
-                case .chooseMembers:
-                    ChooseMembersPanelView()
-                case .nameGroup:
-                    NameGroupPanelView(draftImage: $groupDraftImage)
-                }
+            } else if workspace.isNewChatComposerVisible && workspace.composePane == .newChat {
+                NewChatPanelView()
             } else {
                 let filter = workspace.chatListFilter
                 let isShowingArchived = filter == .archived
@@ -354,12 +343,7 @@ struct ChatListDrawerView: View {
         .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
             if isVisible {
                 globalSearch?.dismiss()
-            } else {
-                groupDraftImage = nil
             }
-        }
-        .onChange(of: workspace.composePane) { _, pane in
-            if pane == .newChat { groupDraftImage = nil }
         }
         .modifier(ChatListSelectionDialogs(model: selection))
     }

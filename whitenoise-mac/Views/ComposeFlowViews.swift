@@ -194,6 +194,35 @@ struct NewChatPanelView: View {
     }
 }
 
+struct NewGroupSheet: View {
+    let workspace: WorkspaceState
+    @State private var draftImage: GroupDraftImage?
+    @State private var step: ComposePane = .chooseMembers
+
+    var body: some View {
+        Group {
+            if step == .nameGroup {
+                NameGroupPanelView(draftImage: $draftImage)
+            } else {
+                ChooseMembersPanelView()
+            }
+        }
+        .frame(width: 460, height: 500)
+        .interactiveDismissDisabled(workspace.isCreatingChat)
+        .onChange(of: workspace.composePane, initial: true) { _, pane in
+            // Closing the composer resets its pane before the sheet finishes dismissing.
+            if pane != .newChat { step = pane }
+        }
+    }
+}
+
+#Preview("New group sheet") {
+    let workspace = WorkspaceState.preview()
+    NewGroupSheet(workspace: workspace)
+        .environment(workspace)
+        .environment(SessionState())
+}
+
 // MARK: - Choose members
 
 struct ChooseMembersPanelView: View {
@@ -201,7 +230,7 @@ struct ChooseMembersPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ComposePaneHeader(title: L10n.string("Choose members")) {
+            ComposePaneHeader(title: L10n.string("Choose members"), inSheet: true) {
                 workspace.composeGoBack()
             }
 
@@ -234,6 +263,10 @@ struct ChooseMembersPanelView: View {
                     .monospacedDigit()
                     .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 Spacer()
+                Button(L10n.string("Cancel")) { workspace.closeNewChatComposer() }
+                    .wnSecondaryButtonStyle()
+                    .disabled(workspace.isCreatingChat)
+                    .accessibilityIdentifier("compose.cancel")
                 Button(L10n.string("Next")) {
                     workspace.composeShowNameGroup()
                 }
@@ -419,7 +452,7 @@ struct SelectedMemberChips: View {
 
 struct NameGroupPanelView: View {
     @Environment(WorkspaceState.self) private var workspace
-    /// The picture Create founds the group with. Held by the drawer rather than here, so going back
+    /// The picture Create founds the group with. Held by the sheet so going back
     /// to change the members keeps it, as it keeps the name.
     @Binding var draftImage: GroupDraftImage?
     @FocusState private var isNameFocused: Bool
@@ -432,7 +465,7 @@ struct NameGroupPanelView: View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 0) {
-            ComposePaneHeader(title: L10n.string("Name group")) {
+            ComposePaneHeader(title: L10n.string("Name group"), inSheet: true) {
                 workspace.composeGoBack()
             }
 
@@ -527,9 +560,7 @@ struct NameGroupPanelView: View {
             }
             .padding(12)
         }
-        // Focus-scoped rather than window-wide `.keyboardShortcut(.cancelAction)`: the adjacent
-        // conversation pane stays interactive (e.g., Search messages), so Escape must only affect
-        // Name group when focus is inside this pane, and returns to Choose members keeping the draft.
+        // Escape returns to member selection with the draft intact while this step has focus.
         .onExitCommand {
             workspace.composeGoBack()
         }
@@ -835,6 +866,7 @@ private struct ComposeIdentifierResults: View {
 
 private struct ComposePaneHeader: View {
     let title: String
+    var inSheet = false
     let onBack: () -> Void
 
     var body: some View {
@@ -868,8 +900,17 @@ private struct ComposePaneHeader: View {
                 .frame(width: MessagesLayout.circleControlSize, height: MessagesLayout.circleControlSize)
         }
         .padding(.horizontal, 12)
-        .sidebarTitlebarClearance()
+        .padding(.top, inSheet ? 16 : 0)
+        .modifier(ComposeHeaderClearance(inSheet: inSheet))
         .padding(.bottom, 12)
+    }
+}
+
+private struct ComposeHeaderClearance: ViewModifier {
+    let inSheet: Bool
+
+    func body(content: Content) -> some View {
+        if inSheet { content } else { content.sidebarTitlebarClearance() }
     }
 }
 

@@ -148,6 +148,19 @@ struct MessengerShellView: View {
                 MediaDownloadFeedbackToast()
             }
         }
+        .sheet(
+            isPresented: Binding(
+                get: { workspace.isNewChatComposerVisible && workspace.composePane != .newChat },
+                set: { presents in
+                    if !presents, workspace.composePane != .newChat, !workspace.isCreatingChat {
+                        workspace.closeNewChatComposer()
+                    }
+                }
+            )
+        ) {
+            NewGroupSheet(workspace: workspace)
+                .environment(\.locale, workspace.preferredLocale)
+        }
         .focusedSceneValue(
             \.messengerCommands,
             workspace.activeAccountId.map {

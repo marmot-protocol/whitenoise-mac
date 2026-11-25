@@ -175,16 +175,14 @@ import Testing
         #expect(workspace.newChatName == "Field Notes")
         #expect(workspace.newChatRecipients == [member])
 
-        // Header Back (leading control in `ComposePaneHeader` with 12pt horizontal padding and
-        // zero titlebar clearance under `hasWindowTopNoticeBand == true`) returns to Choose
-        // members while preserving the staged draft.
-        host.click(at: CGPoint(x: 24, y: 16))
+        // The sheet header adds 16 points above its Back control.
+        host.click(at: CGPoint(x: 24, y: 32))
         #expect(await host.settle { workspace.composePane == .chooseMembers })
         #expect(workspace.isNewChatComposerVisible)
         #expect(workspace.newChatName == "Field Notes")
         #expect(workspace.newChatRecipients == [member])
 
-        // Re-entering Name group and clicking Cancel (bottom-leading of the 340pt sidebar with
+        // Re-entering Name group and clicking Cancel (bottom-leading of the test window with
         // 12pt padding) closes the composer and discards the draft.
         workspace.composeShowNameGroup()
         _ = await host.steadyDrawing()

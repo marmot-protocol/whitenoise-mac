@@ -187,7 +187,8 @@ struct whitenoise_macApp: App {
         .commands {
             CommandGroup(replacing: .appSettings) {
                 SettingsCommandButton(
-                    isEnabled: workspace.showsMessengerChrome,
+                    isEnabled: workspace.showsMessengerChrome
+                        && !(workspace.isNewChatComposerVisible && workspace.composePane != .newChat),
                     locale: workspace.preferredLocale,
                     coordinator: settings
                 )
