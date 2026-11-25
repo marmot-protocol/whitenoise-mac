@@ -906,27 +906,48 @@ extension WorkspaceState {
         return L10n.string("Remove this message for everyone in the group, or hide it just for you.")
     }
 
-    /// `discardFailedSend` takes the selected sends that never got out: nobody received them, so
-    /// they are discarded locally (MarmotKit 0.17 `discardFailedSend`) rather than deleted for
-    /// everyone, exactly as the row menu's Remove does.
-    func deleteSelectedMessages(discardFailedSend: (MessageItem) async -> Void) async {
-        // Multi-select acts only on messages the user may delete for everyone — it must not
-        // silently mix in local hides; single-message delete-for-me goes through the confirmation.
-        let targets = selectedTimelineMessagesForAction.compactMap { message -> MessageDeletionTarget? in
+    var selectedMessageDeletionTargets: [MessageDeletionTarget] {
+        selectedTimelineMessagesForAction.compactMap { message in
             guard let target = messageDeletionTarget(for: message),
                 messageDeletionCapability(target).canDeleteForEveryone
             else { return nil }
             return target
         }
-        guard !targets.isEmpty else { return }
-        for target in targets {
-            if target.message.isLocalPublishFailure {
+    }
+
+    /// Only act on the selection shown in the confirmation. A failed send that has since
+    /// been delivered must never become a shared deletion on the strength of local consent.
+    func deleteSelectedMessages(
+        confirming targets: [MessageDeletionTarget],
+        discardFailedSend: (MessageItem) async -> Void
+    ) async {
+        let confirmed = targets.compactMap { target -> MessageDeletionTarget? in
+            let id = target.message.id
+            guard activeAccountId == target.accountId, selectedChat?.id == target.groupIdHex,
+                selectedTimelineMessageIds.contains(id),
+                let message = timelineMessage(groupIdHex: target.groupIdHex, messageId: id),
+                let current = messageDeletionTarget(for: message),
+                messageDeletionCapability(current).canDeleteForEveryone,
+                message.isLocalPublishFailure == target.message.isLocalPublishFailure
+            else { return nil }
+            return current
+        }
+        // Once confirmed, this batch belongs to the captured account and conversation.
+        // Release its selection before suspending so edits to a later selection survive.
+        selectedTimelineMessageIds.subtract(confirmed.map(\.message.id))
+        for target in confirmed {
+            // A send can fail or be retried while a previous deletion is suspended.
+            // Look it up in its original conversation before dispatching either operation.
+            guard activeAccountId == target.accountId else { return }
+            guard let current = timelineMessage(groupIdHex: target.groupIdHex, messageId: target.message.id),
+                current.isLocalPublishFailure == target.message.isLocalPublishFailure
+            else { continue }
+            if current.isLocalPublishFailure {
                 await discardFailedSend(target.message)
             } else {
                 await deleteForEveryone(target)
             }
         }
-        cancelMessageSelection()
     }
 
     /// Copies `text` to the system pasteboard.

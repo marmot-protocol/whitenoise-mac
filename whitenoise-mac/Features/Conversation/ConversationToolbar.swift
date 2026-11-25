@@ -395,13 +395,13 @@ private struct ConversationSelectionToolbarActions: View {
     let conversationModel: ConversationViewModel
     let escapeEndsMessageSelection: Bool
 
+    @State private var pendingDeletion: SelectionDeletion?
+
     var body: some View {
         let workspace = messenger.workspace
         let messages = workspace.selectedTimelineMessagesForAction
         let canForward = messages.contains(where: \.canForward)
-        // Must match `WorkspaceState.deleteSelectedMessages`: bulk deletion acts only on messages
-        // the user may delete for everyone (never silently mixing in local hides).
-        let canDelete = messages.contains { workspace.messageDeletionCapability($0).canDeleteForEveryone }
+        let deletionTargets = workspace.selectedMessageDeletionTargets
 
         Button {
             guard messenger.activeChat(matching: chatId) != nil else { return }
@@ -414,25 +414,76 @@ private struct ConversationSelectionToolbarActions: View {
         .accessibilityIdentifier("conversation.selection.forward")
 
         Button(role: .destructive) {
-            Task {
-                guard messenger.activeChat(matching: chatId) != nil else { return }
-                await workspace.deleteSelectedMessages { message in
-                    await FailedSendDiscard.run(message, model: conversationModel, workspace: workspace)
-                }
-            }
+            guard messenger.activeChat(matching: chatId) != nil else { return }
+            pendingDeletion = SelectionDeletion(
+                targets: deletionTargets, selectionCount: workspace.selectedTimelineMessageIds.count)
         } label: {
             Label(L10n.string("Delete", locale: locale), systemImage: "trash")
         }
         .help(L10n.string("Delete", locale: locale))
-        .disabled(!canDelete)
+        .disabled(deletionTargets.isEmpty)
         .accessibilityIdentifier("conversation.selection.delete")
+        .confirmationDialog(
+            pendingDeletion?.title(locale: locale) ?? "",
+            isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingDeletion
+        ) { selection in
+            Button(L10n.string(selection.actionKey, locale: locale), role: .destructive) {
+                Task {
+                    await workspace.deleteSelectedMessages(confirming: selection.targets) { message in
+                        await FailedSendDiscard.run(message, model: conversationModel, workspace: workspace)
+                    }
+                }
+            }
+            Button(L10n.string("Cancel", locale: locale), role: .cancel) {}
+        } message: { selection in
+            Text(verbatim: selection.summary(locale: locale))
+        }
 
         Button(L10n.string("Cancel", locale: locale)) {
             workspace.cancelMessageSelection()
         }
-        .keyboardShortcut(escapeEndsMessageSelection ? .cancelAction : nil)
+        .keyboardShortcut(escapeEndsMessageSelection && pendingDeletion == nil ? .cancelAction : nil)
         .help(L10n.string("Cancel selection", locale: locale))
         .accessibilityIdentifier("conversation.selection.cancel")
+    }
+}
+
+private struct SelectionDeletion {
+    let targets: [MessageDeletionTarget]
+    let selectionCount: Int
+
+    var localCount: Int { targets.filter { $0.message.isLocalPublishFailure }.count }
+    var sharedCount: Int { targets.count - localCount }
+
+    var actionKey: String {
+        if localCount == 0 { return "Delete for everyone" }
+        if sharedCount == 0 { return "Remove From This Device" }
+        return "Delete"
+    }
+
+    func title(locale: Locale) -> String {
+        if sharedCount == 1 && localCount == 0 { return L10n.string("Delete message?", locale: locale) }
+        if sharedCount > 0 && localCount > 0 {
+            return [
+                L10n.string("Delete for everyone", locale: locale),
+                L10n.string("Remove From This Device", locale: locale),
+            ]
+            .joined(separator: " / ")
+        }
+        return L10n.string(actionKey, locale: locale)
+    }
+
+    func summary(locale: Locale) -> String {
+        let rows = [
+            ("Delete for everyone", sharedCount),
+            ("Remove From This Device", localCount),
+            ("Skipped", selectionCount - targets.count),
+        ]
+        return rows.filter { $0.1 > 0 }.map { label, count in
+            "\(L10n.string(label, locale: locale)) · \(count.formatted(.number.locale(locale)))"
+        }.joined(separator: "\n")
     }
 }
 

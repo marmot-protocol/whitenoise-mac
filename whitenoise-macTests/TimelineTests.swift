@@ -7793,15 +7793,27 @@ struct TimelineTests: WorkspaceTestSupport {
                 senderName: "Desktop Account", body: id, sentAt: .now, invalidationStatus: invalidationStatus,
                 isOutgoing: true)
         }
-        state.messageTimelineStores["group"] = .loaded(with: [
-            own("failed", invalidationStatus: "local_publish_failed"), own("delivered", invalidationStatus: nil),
-        ])
-        state.selectedTimelineMessageIds = ["failed", "delivered"]
-        #expect(state.selectedTimelineMessagesForAction.count == 2)
+        let failed = own("failed", invalidationStatus: "local_publish_failed")
+        let delivered = own("delivered", invalidationStatus: nil)
+        let added = own("added-later", invalidationStatus: nil)
+        let retrying = own("retried", invalidationStatus: "local_publish_failed")
+        let pending = own("pending", invalidationStatus: nil)
+        let store = MessageTimelineStore.loaded(with: [failed, delivered, added, retrying, pending])
+        state.messageTimelineStores["group"] = store
+        state.selectedTimelineMessageIds = ["failed", "delivered", "retried", "pending"]
+        let confirmed = state.selectedMessageDeletionTargets
         var discarded: [String] = []
 
-        await state.deleteSelectedMessages { discarded.append($0.id) }
-
+        // A retry succeeded while the confirmation was open. Another send fails while
+        // the batch is in flight. Neither change authorizes a new shared deletion.
+        let retried = own("retried", invalidationStatus: nil)
+        store.replace(with: [failed, delivered, added, retried, pending])
+        await state.deleteSelectedMessages(confirming: confirmed) { message in
+            discarded.append(message.id)
+            state.selectedTimelineMessageIds.insert(added.id)
+            store.replace(with: [delivered, added, retried, own("pending", invalidationStatus: "local_publish_failed")])
+        }
+        #expect(state.selectedTimelineMessageIds == ["retried", "added-later"])
         #expect(discarded == ["failed"])
         #expect(runtime.deletedMessage == DeletedMessage(groupIdHex: "group", targetMessageId: "delivered"))
     }
