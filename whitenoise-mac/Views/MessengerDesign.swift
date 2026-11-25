@@ -340,11 +340,11 @@ nonisolated enum AttachmentRowPalette {
     static let incomingContent = MessageBubblePolarity.received.content
 
     static func fill(isOutgoing: Bool) -> Color {
-        isOutgoing ? outgoingFill : incomingFill
+        Color(nsColor: nsFill(isOutgoing: isOutgoing))
     }
 
     static func content(isOutgoing: Bool) -> Color {
-        isOutgoing ? outgoingContent : incomingContent
+        Color(nsColor: nsContent(isOutgoing: isOutgoing))
     }
 
     /// The disc behind a play/status glyph, and the unplayed waveform. Derived from the row's own
@@ -398,7 +398,7 @@ nonisolated enum AttachmentRowPalette {
     }
 
     static func detailContent(isOutgoing: Bool) -> Color {
-        content(isOutgoing: isOutgoing).opacity(detailContentOpacity)
+        Color(nsColor: nsDetailContent(isOutgoing: isOutgoing))
     }
 }
 

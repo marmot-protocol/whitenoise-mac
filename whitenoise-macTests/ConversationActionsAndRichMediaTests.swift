@@ -229,6 +229,10 @@ struct ConversationActionsAndRichMediaTests {
         #expect(model.phase == MessageForwardViewModel.Phase.preparing(chatId: targetChat.id))
         #expect(!model.isSending)
 
+        // Start waiting on the in-flight preparation task before Escape clears the model's handle,
+        // then cancel via Escape (.cancelAction) while preparation is still paused.
+        let idleWait = Task { await model.waitUntilIdle() }
+
         let escapeEvent = try #require(
             NSEvent.keyEvent(
                 with: .keyDown,
@@ -246,32 +250,46 @@ struct ConversationActionsAndRichMediaTests {
         #expect(host.window.performKeyEquivalent(with: escapeEvent))
         #expect(await host.settle { closed })
 
-        // Even after the paused fetch resumes with real attachment bytes, the cancelled task must
-        // never transition into sending or deliver any message.
+        // Even after the paused fetch resumes with real attachment bytes and the task exits, the
+        // cancelled forward must never transition into sending or deliver any message.
         gate.release()
-        try? await Task.sleep(for: .milliseconds(60))
+        await idleWait.value
         #expect(sendCount == 0)
     }
 
     @Test func forwardSheetDisablesCancelWhileSending() async throws {
         let sendGate = AsyncFfiGate()
         sendGate.isEnabled = true
-        let message = MessageItem(
-            id: "m-text",
+        let firstMessage = MessageItem(
+            id: "m-text-1",
             senderName: "Alice",
-            body: "Hello",
+            body: "First",
             sentAt: Date(timeIntervalSince1970: 1_760_000_000),
             isOutgoing: false
         )
+        let secondMessage = MessageItem(
+            id: "m-text-2",
+            senderName: "Alice",
+            body: "Second",
+            sentAt: Date(timeIntervalSince1970: 1_760_000_001),
+            isOutgoing: false
+        )
         let targetChat = try #require(ChatItem.samples.first)
+        var sentBodies: [String] = []
+        var finished = false
         let model = MessageForwardViewModel(
-            messages: [message],
+            messages: [firstMessage, secondMessage],
             dependencies: MessageForwardDependencies(
                 fetchAttachment: { _, _ in nil },
-                sendText: { _, _ in await sendGate.passIfArmed() },
+                sendText: { body, _ in
+                    if body == "First" {
+                        await sendGate.passIfArmed()
+                    }
+                    sentBodies.append(body)
+                },
                 sendMedia: { _, _ in },
                 reportError: { _ in },
-                finish: {}
+                finish: { finished = true }
             )
         )
         var closed = false
@@ -303,9 +321,12 @@ struct ConversationActionsAndRichMediaTests {
             )
         )
         _ = host.window.performKeyEquivalent(with: escapeEvent)
-        try? await Task.sleep(for: .milliseconds(50))
         #expect(!closed)
+
         sendGate.release()
+        await model.waitUntilIdle()
+        #expect(sentBodies == ["First", "Second"])
+        #expect(finished)
     }
 
     @Test func reportSheetReturnDoesNotAccidentallySubmitReport() async throws {

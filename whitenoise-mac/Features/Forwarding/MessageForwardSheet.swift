@@ -65,6 +65,7 @@ struct MessageForwardSheet: View {
             HStack {
                 Spacer()
                 Button(L10n.string("Cancel")) {
+                    guard !model.isSending else { return }
                     model.cancel()
                     onClose()
                 }
