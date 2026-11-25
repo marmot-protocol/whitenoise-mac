@@ -1314,8 +1314,8 @@ struct VoiceRecordingComposerView: View {
                     .labelStyle(.iconOnly)
                     .frame(width: 20, height: 20)
             }
-            .wnButtonShape(.circle)
             .wnPrimaryButtonStyle()
+            .wnButtonShape(.circle)
             .controlSize(.regular)
             .help(L10n.string("Finish recording"))
             .accessibilityLabel(L10n.string("Finish recording"))
@@ -1415,15 +1415,18 @@ struct VoiceMessageDraftComposerView: View {
             )
             .frame(height: 30)
 
-            Text(MediaDurationLabel.string(for: isPlaying ? elapsedSeconds : (attachment.durationSeconds ?? 0)))
-                .font(.caption.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 44, alignment: .trailing)
+            ZStack(alignment: .trailing) {
+                Text(MediaDurationLabel.string(for: isPlaying ? elapsedSeconds : (attachment.durationSeconds ?? 0)))
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .opacity(uploadState == .uploading || isSending ? 0 : 1)
 
-            if uploadState == .uploading || isSending {
-                ProgressView()
-                    .controlSize(.small)
+                if uploadState == .uploading || isSending {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
+            .frame(minWidth: 44, alignment: .trailing)
 
             // Discard sits with Send rather than at the far left: the two decisions the bar asks
             // for — throw it away or send it — belong next to each other, past the recording.

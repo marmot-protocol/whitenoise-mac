@@ -217,6 +217,7 @@ private struct EmojiSetBrowserPage: View {
     @State private var isLoading = false
     @State private var syncError: String?
     @State private var isLookingUp = false
+    @State private var lookupRequest: EmojiSetLookupRequest?
     @State private var errorMessage: String?
     @State private var reloadRequest = 0
 
@@ -308,6 +309,10 @@ private struct EmojiSetBrowserPage: View {
         .task(id: EmojiSetDiscoverRequest(search: search, reload: reloadRequest)) {
             await reloadDiscovered(debounce: !search.isEmpty, forceSync: reloadRequest > 0)
         }
+        .task(id: lookupRequest) {
+            guard let request = lookupRequest else { return }
+            await performLookup(request.input)
+        }
     }
 
     private var shownDiscovered: [EmojiSetFfi] {
@@ -351,19 +356,31 @@ private struct EmojiSetBrowserPage: View {
         guard let input = EmojiSetPresentation.lookupInput(link), !isLookingUp else { return }
         isLookingUp = true
         errorMessage = nil
-        Task {
-            defer { isLookingUp = false }
-            do {
-                let set = try await library.lookUp(input)
-                link = ""
-                onOpen(set)
-            } catch is CancellationError {
-                return
-            } catch {
-                errorMessage = UserFacingError.message(for: error)
-            }
+        lookupRequest = EmojiSetLookupRequest(input: input)
+    }
+
+    private func performLookup(_ input: String) async {
+        defer {
+            isLookingUp = false
+            lookupRequest = nil
+        }
+        do {
+            let set = try await library.lookUp(input)
+            guard !Task.isCancelled else { return }
+            link = ""
+            onOpen(set)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = UserFacingError.message(for: error)
         }
     }
+}
+
+private struct EmojiSetLookupRequest: Equatable {
+    let id = UUID()
+    let input: String
 }
 
 private struct EmojiSetDiscoverList: View {

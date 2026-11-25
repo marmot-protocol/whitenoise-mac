@@ -1182,6 +1182,7 @@ private struct ConversationView: View {
                             .frame(width: 20, height: 20)
                     }
                     .wnSecondaryButtonStyle()
+                    .wnButtonShape(.circle)
                     .controlSize(.regular)
                     .disabled(workspace.isSending)
                     .help(L10n.string("Emoji"))
@@ -1296,6 +1297,13 @@ private struct ConversationView: View {
                 .background {
                     MessagesComposerFieldBackground()
                 }
+                .overlay(alignment: .trailing) {
+                    if workspace.isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(.trailing, 10)
+                    }
+                }
                 .accessibilityIdentifier("composer.message")
 
                 if DictationSupport.isSupportedOS, DictationPreference.shared.isEnabled {
@@ -1315,6 +1323,7 @@ private struct ConversationView: View {
                             .frame(width: 20, height: 20)
                     }
                     .wnSecondaryButtonStyle()
+                    .wnButtonShape(.circle)
                     .controlSize(.regular)
                     .disabled(workspace.isSending)
                     .help(L10n.string("Cancel edit"))
@@ -1328,6 +1337,7 @@ private struct ConversationView: View {
                             .frame(width: 20, height: 20)
                     }
                     .wnSecondaryButtonStyle()
+                    .wnButtonShape(.circle)
                     .controlSize(.regular)
                     .disabled(workspace.isSending || !workspace.canRecordVoiceMessage)
                     .help(voiceRecordingButtonHelp)
@@ -1337,11 +1347,6 @@ private struct ConversationView: View {
                 let sendTitle =
                     workspace.editingMessageContext == nil
                     ? L10n.string("Send") : L10n.string("Save edit")
-                if workspace.isSending {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 24, height: 24)
-                }
                 Button(action: sendComposer) {
                     Label(
                         sendTitle,
@@ -1351,12 +1356,12 @@ private struct ConversationView: View {
                     .frame(width: 20, height: 20)
                 }
                 .wnPrimaryButtonStyle()
+                .wnButtonShape(.circle)
                 .controlSize(.regular)
                 .disabled(!workspace.canSend)
                 .help(sendTitle)
                 .accessibilityLabel(sendTitle)
             }
-            .wnButtonShape(.circle)
         }
     }
 

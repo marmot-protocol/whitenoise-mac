@@ -307,7 +307,12 @@ struct PollComposerSheet: View {
             .frame(minHeight: 320, idealHeight: 360, maxHeight: 520)
 
             if let footerError = sendError ?? questionIssueMessage ?? optionsIssueMessage {
-                SettingsErrorView(error: footerError)
+                Text(footerError)
+                    .font(.subheadline)
+                    .foregroundStyle(WNColor.intentionErrorContent)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
             }

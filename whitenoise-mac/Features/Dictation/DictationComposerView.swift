@@ -28,8 +28,8 @@ struct DictationComposerView: View {
                     .labelStyle(.iconOnly)
                     .frame(width: 20, height: 20)
             }
-            .wnButtonShape(.circle)
             .wnSecondaryButtonStyle()
+            .wnButtonShape(.circle)
             .controlSize(.regular)
             .keyboardShortcut(claimsReturnAndEscape ? .cancelAction : nil)
             .help(L10n.string("Cancel dictation"))
@@ -49,8 +49,8 @@ struct DictationComposerView: View {
                 }
                 .frame(width: 20, height: 20)
             }
-            .wnButtonShape(.circle)
             .wnPrimaryButtonStyle()
+            .wnButtonShape(.circle)
             .controlSize(.regular)
             .keyboardShortcut(claimsReturnAndEscape ? .defaultAction : nil)
             .disabled(state == .finishing)

@@ -13,8 +13,8 @@ struct ComposerDictationButton: View {
                 .labelStyle(.iconOnly)
                 .frame(width: 20, height: 20)
         }
-        .wnButtonShape(.circle)
         .wnSecondaryButtonStyle()
+        .wnButtonShape(.circle)
         .controlSize(.regular)
         .disabled(isDisabled)
         .help(L10n.string("Dictate"))

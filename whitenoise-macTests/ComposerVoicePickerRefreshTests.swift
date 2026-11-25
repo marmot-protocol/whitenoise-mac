@@ -113,6 +113,35 @@ import Testing
         // Trailing Finish button inside 10pt trailing padding.
         listeningHost.click(at: CGPoint(x: size.width - 10 - 16, y: size.height / 2))
         #expect(await listeningHost.settle { didFinish })
+
+        var finishingDidCancel = false
+        var finishingDidFinish = false
+        let finishingHost = HostedViewWindow(
+            DictationComposerView(
+                state: .finishing,
+                transcript: DictationTranscript(finalized: "Hello world", volatile: ""),
+                claimsReturnAndEscape: false,
+                onCancel: { finishingDidCancel = true },
+                onFinish: { finishingDidFinish = true }
+            )
+            .frame(width: size.width),
+            size: size
+        )
+        defer { finishingHost.close() }
+        let finishingShot = try #require(await finishingHost.steadyDrawing())
+        #expect(
+            DrawnText.contains("Hello world", in: finishingShot),
+            "read: \(DrawnText.recognized(in: finishingShot))"
+        )
+
+        // While finishing, Finish is disabled and cannot fire, while Cancel remains clickable.
+        finishingHost.click(at: CGPoint(x: size.width - 10 - 16, y: size.height / 2))
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(!finishingDidFinish)
+
+        // Cancel sits immediately to the left of Finish (trailing 10pt + 32pt Finish + 10pt spacing + 16pt center).
+        finishingHost.click(at: CGPoint(x: size.width - 10 - 32 - 10 - 16, y: size.height / 2))
+        #expect(await finishingHost.settle { finishingDidCancel })
     }
 
     // MARK: - Pickers and poll composer (#1118)

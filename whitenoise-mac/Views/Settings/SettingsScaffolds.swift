@@ -222,10 +222,9 @@ struct SettingsErrorView: View {
     var body: some View {
         if let error {
             Text(error)
-                .font(.subheadline)
-                .foregroundStyle(WNColor.intentionErrorContent)
+                .wnFont(.medium12)
+                .foregroundStyle(WNColor.backgroundContentDestructive)
                 .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

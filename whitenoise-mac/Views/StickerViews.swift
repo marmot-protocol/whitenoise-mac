@@ -397,6 +397,7 @@ private struct StickerPackBrowserPage: View {
     @State private var isLoading = false
     @State private var syncError: String?
     @State private var isLookingUp = false
+    @State private var lookupRequest: StickerLookupRequest?
     @State private var errorMessage: String?
     @State private var reloadRequest = 0
 
@@ -473,6 +474,10 @@ private struct StickerPackBrowserPage: View {
         .task(id: StickerDiscoverRequest(search: search, reload: reloadRequest)) {
             await reloadDiscovered(debounce: !search.isEmpty, forceSync: reloadRequest > 0)
         }
+        .task(id: lookupRequest) {
+            guard let request = lookupRequest else { return }
+            await performLookup(request.input)
+        }
     }
 
     private func reloadDiscovered(debounce: Bool, forceSync: Bool) async {
@@ -506,19 +511,31 @@ private struct StickerPackBrowserPage: View {
         guard let input = StickerPackPresentation.lookupInput(link), !isLookingUp else { return }
         isLookingUp = true
         errorMessage = nil
-        Task {
-            defer { isLookingUp = false }
-            do {
-                let pack = try await library.lookUp(input)
-                link = ""
-                onOpen(pack)
-            } catch is CancellationError {
-                return
-            } catch {
-                errorMessage = UserFacingError.message(for: error)
-            }
+        lookupRequest = StickerLookupRequest(input: input)
+    }
+
+    private func performLookup(_ input: String) async {
+        defer {
+            isLookingUp = false
+            lookupRequest = nil
+        }
+        do {
+            let pack = try await library.lookUp(input)
+            guard !Task.isCancelled else { return }
+            link = ""
+            onOpen(pack)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = UserFacingError.message(for: error)
         }
     }
+}
+
+private struct StickerLookupRequest: Equatable {
+    let id = UUID()
+    let input: String
 }
 
 private struct StickerDiscoverRequest: Equatable {
