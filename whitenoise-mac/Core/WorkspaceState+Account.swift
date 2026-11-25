@@ -195,6 +195,9 @@ extension WorkspaceState {
         // Settings → Profile is showing account A's name in an open editor and a seal earned by
         // account A's address. Neither survives the switch: B's settings load writes the new draft,
         // and an edit session left open over it would let A's baseline be restored onto B.
+        // The web image picker is shared across profiles too, so close and clear it before B can
+        // inherit A's search or selected tile.
+        closeProfileImagePicker()
         resetProfileEditingState()
         closeNewChatComposer()
         resetComposeContacts()
@@ -828,6 +831,7 @@ extension WorkspaceState {
         // -action dialogs have to be dropped here too — they name a group id belonging to the
         // account being torn down.
         clearPendingChatDestructiveActions()
+        closeProfileImagePicker()
         profileDraft = ProfileDraft()
         resetProfileEditingState()
     }

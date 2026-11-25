@@ -62,6 +62,15 @@ struct MessengerShellView: View {
                                 ideal: max(workspace.chatListWidth, ChatListWidthPolicy.minimumExpandedWidth),
                                 max: ChatListWidthPolicy.maximumWidth
                             )
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.size.width.rounded()
+                            } action: { newWidth in
+                                guard workspace.isChatListVisible,
+                                    newWidth >= ChatListWidthPolicy.minimumExpandedWidth,
+                                    newWidth <= ChatListWidthPolicy.maximumWidth
+                                else { return }
+                                workspace.resizeChatListDrawer(toProposedWidth: newWidth)
+                            }
                         } detail: {
                             DetailPaneView(settings: settings)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)

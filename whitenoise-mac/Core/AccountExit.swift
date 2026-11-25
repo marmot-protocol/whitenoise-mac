@@ -44,6 +44,11 @@ enum AccountExit {
             workspace.stopChatListListener()
             workspace.resetActiveAccountUIState()
             workspace.activeAccountId = nil
+            // Install chooser suppression immediately before any await so picking a survivor while
+            // recovery is suspended still keeps Settings closed.
+            if workspace.signedInAccounts.count >= 2 {
+                WorkspaceAccountPresentation.remoteUnlinkChooser.post(from: workspace)
+            }
         }
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)

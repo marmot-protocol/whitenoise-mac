@@ -388,7 +388,6 @@ struct ShellCommandTests: WorkspaceTestSupport {
         let cropModel = AvatarCropViewModel(
             loadData: { pngData },
             commit: { [workspace] data in
-                guard workspace.activeAccountId == originatingAccountId else { return }
                 try await workspace.setProfileImage(
                     croppedImageData: data,
                     expectedAccountId: originatingAccountId
@@ -414,6 +413,71 @@ struct ShellCommandTests: WorkspaceTestSupport {
 
         #expect(runtime.uploadedProfileImageData == nil)
         #expect(workspace.profileDraft.picture == "https://example.invalid/second.jpg")
+    }
+
+    @Test func switchingAccountsClosesProfileImagePickerAndClearsSelection() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "a", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "b", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let firstAccount = try #require(workspace.accounts.first { $0.id == "First" })
+        let secondAccount = try #require(workspace.accounts.first { $0.id == "Second" })
+        workspace.switchActiveAccount(firstAccount, finalSelection: nil)
+
+        workspace.showProfileImagePicker()
+        let picked = GroupImageSearchResult(
+            id: "img-1",
+            title: "Marmot",
+            imageURL: "https://example.invalid/marmot.jpg",
+            thumbnailURL: "https://example.invalid/marmot-thumb.jpg",
+            creator: nil,
+            license: nil,
+            attribution: nil,
+            sourceURL: nil,
+            width: nil,
+            height: nil
+        )
+        workspace.selectProfileImage(picked)
+        #expect(workspace.isProfileImagePickerPresented)
+        #expect(workspace.selectedProfileImageResult == picked)
+
+        workspace.switchActiveAccount(secondAccount, finalSelection: nil)
+
+        #expect(!workspace.isProfileImagePickerPresented)
+        #expect(workspace.selectedProfileImageResult == nil)
+        #expect(workspace.profileImageResults.isEmpty)
+    }
+
+    @Test func nativeSidebarResizePersistsWidthAcrossWorkspaceReconstruction() {
+        let previousWidth = UserDefaults.standard.object(forKey: WorkspaceState.chatListWidthKey)
+        defer { restoreDefault(previousWidth, forKey: WorkspaceState.chatListWidthKey) }
+        UserDefaults.standard.removeObject(forKey: WorkspaceState.chatListWidthKey)
+
+        let targetWidth = ChatListWidthPolicy.minimumExpandedWidth + 22
+        let first = WorkspaceState()
+        first.resizeChatListDrawer(toProposedWidth: targetWidth)
+        #expect(first.chatListWidth == targetWidth)
+
+        let recreated = WorkspaceState()
+        #expect(recreated.chatListWidth == targetWidth)
     }
 
     @Test func removingActiveProfileWhileSwitchedToAnotherProfilePreservesNewActiveSession() async throws {

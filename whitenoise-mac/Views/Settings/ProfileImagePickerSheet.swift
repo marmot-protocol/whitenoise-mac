@@ -119,7 +119,6 @@ struct ProfileImagePickerSheet: View {
         cropModel = AvatarCropViewModel(
             loadData: { try await AvatarImageCropSource.data(for: selected, using: loader) },
             commit: { [workspace] data in
-                if let expectedAccountId, workspace.activeAccountId != expectedAccountId { return }
                 try await workspace.setProfileImage(croppedImageData: data, expectedAccountId: expectedAccountId)
             }
         )

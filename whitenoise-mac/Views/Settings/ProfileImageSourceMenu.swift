@@ -137,7 +137,7 @@ struct ProfileImageSourceMenu<Label: View>: View {
     /// over the wait instead of closing on a picture that was never saved.
     private func cropFile(at url: URL) {
         let destination = destination
-        let expectedAccountId = destination == .activeAccount ? (filePickerAccountId ?? workspace.activeAccountId) : nil
+        let expectedAccountId = destination == .activeAccount ? filePickerAccountId : nil
         filePickerAccountId = nil
         if destination == .activeAccount {
             guard let expectedAccountId, workspace.activeAccountId == expectedAccountId else { return }
