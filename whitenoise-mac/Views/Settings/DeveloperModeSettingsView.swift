@@ -18,7 +18,7 @@ struct DeveloperModeSettingsView: View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: L10n.string("Developer mode"),
+            title: L10n.string("Developer Tools"),
             subtitle: L10n.string("Storage and diagnostics.")
         ) {
             SettingsSection(title: L10n.string("Developer")) {
@@ -142,15 +142,20 @@ struct AuditLogFilesSection: View {
                         .buttonStyle(.borderless)
                         .disabled(file.sizeBytes == 0 || exportingPath != nil)
                         .help("\(L10n.string("Export")) \(file.fileName)")
+                        .accessibilityLabel("\(L10n.string("Export")) \(file.fileName)")
                     }
                 }
             }
 
-            if let exportError {
-                SettingsErrorView(error: exportError)
+            if let errorMessage = exportError ?? model.error?.message {
+                Text(errorMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(WNColor.intentionErrorContent)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .task {
+        .task(id: ObjectIdentifier(model)) {
             await model.loadAuditLogs()
         }
     }
@@ -191,12 +196,13 @@ struct AuditLogFileRow: View {
                     .truncationMode(.middle)
                 Spacer()
                 Text(AuditLogByteCount.string(file.sizeBytes))
-                    .wnFont(.medium10.monospacedDigit())
+                    .font(.caption)
+                    .monospacedDigit()
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             Text(details)
-                .wnFont(.medium10)
+                .font(.caption)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .lineLimit(1)
 

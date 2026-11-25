@@ -51,35 +51,73 @@ struct AddRelaySheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            AddRelaySheetHeader()
             Divider()
-            form
+            AddRelaySheetForm(
+                relayURL: $relayURL,
+                selectedRoles: $selectedRoles,
+                isURLFocused: $isURLFocused,
+                validationError: validationError,
+                onSubmit: add
+            )
             Divider()
-            footer
+            AddRelaySheetFooter(
+                canAdd: canAdd,
+                onCancel: { dismiss() },
+                onAdd: add
+            )
         }
-        // Tall enough for the field, both role groups and their footers at the longest of the
-        // ten languages (the two explanations wrap to two lines in six of them), and no taller —
-        // at 480 the sheet closed on 100pt of empty space under the last footer.
-        .frame(width: 480, height: 440)
+        .frame(minWidth: 440, idealWidth: 480, minHeight: 360, idealHeight: 420)
         .onAppear { isURLFocused = true }
     }
 
-    private var header: some View {
-        HStack {
-            Text(L10n.string("Add relay"))
-                .wnFont(.semiBold14)
-            Spacer()
-            GlassCircleCloseButton(appearance: .outline) {
-                dismiss()
-            }
+    private var validationError: String? {
+        if isDuplicate {
+            return L10n.string("This account already uses this relay.")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        if isMalformed {
+            return L10n.string("Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost).")
+        }
+        return nil
     }
 
-    private var form: some View {
+    private func add() {
+        guard canAdd else { return }
+        let relay = normalizedURL
+        let roles = selectedRoles
+        dismiss()
+        Task { await model.addRelay(relay, roles: roles) }
+    }
+}
+
+private struct AddRelaySheetHeader: View {
+    var body: some View {
+        HStack {
+            Text(L10n.string("Add relay"))
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(WNColor.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+    }
+}
+
+private struct AddRelaySheetForm: View {
+    @Binding var relayURL: String
+    @Binding var selectedRoles: Set<RelayRole>
+    var isURLFocused: FocusState<Bool>.Binding
+    let validationError: String?
+    let onSubmit: () -> Void
+
+    var body: some View {
         Form {
-            SettingsSection(title: L10n.string("Relay URL"), footer: urlFooter) {
+            SettingsSection(
+                title: L10n.string("Relay URL"),
+                footer: validationError == nil ? L10n.string("Enter a relay URL beginning with wss://.") : nil
+            ) {
                 TextField(
                     L10n.string("Relay URL"),
                     text: $relayURL,
@@ -87,8 +125,15 @@ struct AddRelaySheet: View {
                 )
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
-                .focused($isURLFocused)
-                .onSubmit(add)
+                .focused(isURLFocused)
+                .onSubmit(onSubmit)
+
+                if let validationError {
+                    Text(validationError)
+                        .font(.caption)
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             // The same one-section-per-role shape `RelayDetailSettingsView` uses, so the choice
@@ -118,49 +163,28 @@ struct AddRelaySheet: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
     }
+}
 
-    /// The helper under the field, or what is wrong with what has been typed. One line, in the
-    /// place the reader is already looking, rather than an alert after the press.
-    private var urlFooter: String {
-        if isDuplicate {
-            return L10n.string("This account already uses this relay.")
-        }
-        if isMalformed {
-            return L10n.string("Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost).")
-        }
-        return L10n.string("Enter a relay URL beginning with wss://.")
-    }
+private struct AddRelaySheetFooter: View {
+    let canAdd: Bool
+    let onCancel: () -> Void
+    let onAdd: () -> Void
 
-    private var footer: some View {
-        HStack(spacing: 10) {
+    var body: some View {
+        HStack(spacing: 8) {
             Spacer()
 
-            // Capsule to match `Add`: the two sit side by side, so an 8pt rect beside a pill
-            // read as two unrelated controls rather than one choice offered twice. Secondary
-            // actions use native `.bordered` chrome via `.wnSecondaryButtonStyle()`.
-            Button(L10n.string("Cancel")) {
-                dismiss()
-            }
-            .wnSecondaryButtonStyle()
-            .wnButtonShape(.capsule)
-            .keyboardShortcut(.cancelAction)
+            Button(L10n.string("Cancel"), action: onCancel)
+                .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
 
-            WNPrimaryButton(size: .small, action: add) {
-                Text(L10n.string("Add")).frame(minWidth: 72)
-            }
-            .wnButtonShape(.capsule)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!canAdd)
+            Button(L10n.string("Add"), action: onAdd)
+                .wnPrimaryButtonStyle()
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canAdd)
         }
-        .padding(16)
-    }
-
-    private func add() {
-        guard canAdd else { return }
-        let relay = normalizedURL
-        let roles = selectedRoles
-        dismiss()
-        Task { await model.addRelay(relay, roles: roles) }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 }
 

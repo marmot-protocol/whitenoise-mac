@@ -35,6 +35,7 @@ struct SettingsPanelView: View {
             case .devices:
                 DevicesSettingsView(
                     model: deviceLinking,
+                    profileName: workspace.activeAccount?.displayName,
                     otherProfileRequests: session.linkRequests.requests(
                         excluding: workspace.activeAccount?.accountIdHex, accounts: workspace.signedInAccounts),
                     onReviewOtherProfile: { request in

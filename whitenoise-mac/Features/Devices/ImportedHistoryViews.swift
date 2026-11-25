@@ -77,3 +77,9 @@ struct ChatHistoryReceivingNotice: View {
     .padding(28)
     .frame(width: 420)
 }
+
+#Preview("Receiving notice") {
+    ChatHistoryReceivingNotice(model: .preview(), groupIdHex: "a")
+        .padding(16)
+        .frame(width: 420)
+}

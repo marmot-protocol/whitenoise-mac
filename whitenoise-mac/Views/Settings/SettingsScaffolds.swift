@@ -216,6 +216,7 @@ struct SettingsErrorView: View {
                 .font(.subheadline)
                 .foregroundStyle(WNColor.intentionErrorContent)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

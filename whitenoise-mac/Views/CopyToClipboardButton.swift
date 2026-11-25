@@ -20,14 +20,28 @@ final class CopyConfirmation {
 
     /// Shows the confirmation and schedules its reset. A repeated copy restarts the window rather
     /// than letting the earlier call's pending reset clear it out from under the new copy.
-    func confirm() {
+    func confirm(reduceMotion: Bool = false) {
         resetTask?.cancel()
-        withAnimation(.smooth(duration: 0.15)) { isConfirming = true }
+        if reduceMotion {
+            isConfirming = true
+        } else {
+            withAnimation(.smooth(duration: 0.15)) { isConfirming = true }
+        }
         resetTask = Task { [duration] in
             try? await Task.sleep(for: duration)
             guard !Task.isCancelled else { return }
-            withAnimation(.smooth(duration: 0.2)) { isConfirming = false }
+            if reduceMotion {
+                isConfirming = false
+            } else {
+                withAnimation(.smooth(duration: 0.2)) { isConfirming = false }
+            }
         }
+    }
+
+    func reset() {
+        resetTask?.cancel()
+        resetTask = nil
+        isConfirming = false
     }
 }
 
@@ -40,6 +54,7 @@ final class CopyConfirmation {
 /// decides whether to also swap its title.
 struct CopyToClipboardButton<Label: View>: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The full value written to the pasteboard.
     let value: String
@@ -55,7 +70,7 @@ struct CopyToClipboardButton<Label: View>: View {
     var body: some View {
         Button {
             workspace.copyText(value, concealed: concealed)
-            confirmation.confirm()
+            confirmation.confirm(reduceMotion: reduceMotion)
             // The checkmark is invisible to VoiceOver, so announce the same result it conveys.
             AccessibilityNotification.Announcement(L10n.string("Copied")).post()
         } label: {
@@ -63,5 +78,8 @@ struct CopyToClipboardButton<Label: View>: View {
         }
         .help(actionDescription)
         .accessibilityLabel(actionDescription)
+        .onDisappear {
+            confirmation.reset()
+        }
     }
 }

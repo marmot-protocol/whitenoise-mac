@@ -33,6 +33,7 @@ struct SettingsWindowView: View {
                 .navigationTitle(coordinator.page.title(in: workspace.preferredLocale))
                 .deviceLinkSheet(
                     coordinator.hostsDeviceLinkSheet ? scope.deviceLinking : nil,
+                    profileName: account.displayName,
                     locale: workspace.preferredLocale,
                     suggestionAllowed: scope.onboarding.canEnterChats && scope.onboarding.hasShownIncompleteSetup
                 )

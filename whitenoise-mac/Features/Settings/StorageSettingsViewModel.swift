@@ -73,4 +73,16 @@ final class StorageSettingsViewModel {
     static func preview() -> StorageSettingsViewModel {
         StorageSettingsViewModel(accountRef: "preview", runtime: nil, attachmentPolicyController: nil)
     }
+
+    #if DEBUG
+        static func preview(
+            policy: AttachmentDownloadPolicyFfi?,
+            error: StorageSettingsError? = nil
+        ) -> StorageSettingsViewModel {
+            let model = StorageSettingsViewModel(accountRef: "preview", runtime: nil, attachmentPolicyController: nil)
+            model.policy = policy
+            model.error = error
+            return model
+        }
+    #endif
 }

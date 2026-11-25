@@ -41,6 +41,7 @@ struct ContentView: View {
             // while both screens show the code.
             .deviceLinkSheet(
                 settings.hostsDeviceLinkSheet ? nil : currentAccountScope?.deviceLinking,
+                profileName: workspace.activeAccount?.displayName,
                 locale: workspace.preferredLocale,
                 suggestionAllowed: currentAccountScope.map {
                     $0.onboarding.canEnterChats && $0.onboarding.hasShownIncompleteSetup

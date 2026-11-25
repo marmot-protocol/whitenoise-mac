@@ -83,6 +83,15 @@ struct RelayDetailSettingsView: View {
                 }
                 .disabled(!lockedRoles.isEmpty || model.isSaving)
             }
+
+            if let error = model.error?.message {
+                SettingsSection {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                        .textSelection(.enabled)
+                }
+            }
         }
         .confirmationDialog(
             String(format: L10n.string("Remove %@?"), relay.displayName),
@@ -167,9 +176,18 @@ struct RelayPublishStateLabel: View {
 
     var body: some View {
         Label(state.label, systemImage: state.symbol)
-            .wnFont(.medium12)
+            .font(.subheadline)
             .foregroundStyle(
                 state == .published ? WNColor.intentionSuccessContent : WNColor.intentionWarningContent
             )
+    }
+}
+
+#Preview("Relay detail") {
+    let model = RelaySettingsViewModel(accountRef: "preview", runtime: nil)
+    if let first = model.endpoints.first {
+        RelayDetailSettingsView(model: model, relay: first) {}
+            .environment(WorkspaceState.preview())
+            .frame(width: 760, height: 640)
     }
 }

@@ -88,6 +88,7 @@
                 relay: true
             ),
         ]
+        var attachmentDownloadPolicyError: Error?
         var attachmentPolicy = AttachmentDownloadPolicyFfi(
             automatic: false,
             retainedBytes: 2 * 1_024 * 1_024 * 1_024,
@@ -1823,7 +1824,8 @@
         }
 
         func attachmentDownloadPolicy(accountRef: String) async throws -> AttachmentDownloadPolicyFfi {
-            attachmentPolicy
+            if let error = attachmentDownloadPolicyError { throw error }
+            return attachmentPolicy
         }
 
         func setAttachmentDownloadPolicy(accountRef: String, policy: AttachmentDownloadPolicyFfi) async throws {
@@ -1965,12 +1967,30 @@
             return ChatStoragePageFfi(chats: Array(chatStorageUsage.prefix(Int(limit))), nextCursor: nil)
         }
 
+        private final class FakeRetainedAttachmentsCursor: RetainedAttachmentsCursor, @unchecked Sendable {
+            let offset: Int
+
+            init(offset: Int) {
+                self.offset = offset
+                super.init(noPointer: .init())
+            }
+
+            @available(*, unavailable)
+            required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+                fatalError("FakeRetainedAttachmentsCursor is test-only")
+            }
+        }
+
         func largestRetainedAttachments(
             accountRef: String, groupIdHex: String?, limit: UInt32, cursor: RetainedAttachmentsCursor?
         ) async throws -> RetainedAttachmentsPageFfi {
             largestRetainedAttachmentReads.append(groupIdHex)
             let matching = retainedAttachmentSummaries.filter { groupIdHex == nil || $0.groupIdHex == groupIdHex }
-            return RetainedAttachmentsPageFfi(attachments: Array(matching.prefix(Int(limit))), nextCursor: nil)
+            let start = min((cursor as? FakeRetainedAttachmentsCursor)?.offset ?? 0, matching.count)
+            let end = min(start + Int(limit), matching.count)
+            let next: RetainedAttachmentsCursor? =
+                end < matching.count ? FakeRetainedAttachmentsCursor(offset: end) : nil
+            return RetainedAttachmentsPageFfi(attachments: Array(matching[start..<end]), nextCursor: next)
         }
 
         func removeChatAttachments(accountRef: String, groupIdHex: String) async throws -> UInt64 {

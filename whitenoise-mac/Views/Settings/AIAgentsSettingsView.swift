@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct AIAgentsSettingsView: View {
@@ -17,7 +16,9 @@ struct AIAgentsSettingsView: View {
                         "These are installation prompts. Choose your agent, copy its prompt, and paste it into that agent to connect it to White Noise. The prompt includes your npub (a public key, not a secret) and asks the agent to explain how the connector works before requesting your approval to install it. Only use an agent you run and trust; your private key is never included."
                     )
                 )
+                .font(.subheadline)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             SettingsSection(title: L10n.string("Connectors")) {
@@ -31,9 +32,22 @@ struct AIAgentsSettingsView: View {
 
             SettingsSection(title: L10n.string("Manual Setup")) {
                 if let npub = model.publicNpub {
-                    SettingsValueRow(title: "npub", value: npub, isSelectable: true)
+                    HStack(spacing: 8) {
+                        SettingsValueRow(title: "npub", value: npub, monospaced: true, isSelectable: true)
+                        CopyToClipboardButton(
+                            value: npub,
+                            actionDescription: L10n.string("Copy npub"),
+                            concealed: false
+                        ) { isConfirming in
+                            Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
+                                .foregroundStyle(isConfirming ? WNColor.intentionSuccessContent : WNColor.textPrimary)
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        .wnSecondaryButtonStyle()
+                    }
                 } else {
                     Text(L10n.string("No active account."))
+                        .font(.subheadline)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
 
@@ -51,39 +65,44 @@ private struct AIAgentConnectorSettingsRow: View {
     @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(connector.name)
-                        Text(connector.subtitle)
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                    }
+        DisclosureGroup(isExpanded: $isExpanded) {
+            if let npub {
+                Text(connector.prompt(npub: npub))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .padding(.top, 6)
+            } else {
+                Text(L10n.string("No active account."))
+                    .font(.caption)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 6)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(connector.name)
+                        .font(.body)
+                    Text(connector.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button {
-                    guard let npub else { return }
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(connector.prompt(npub: npub), forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
+                CopyToClipboardButton(
+                    value: npub.map { connector.prompt(npub: $0) } ?? "",
+                    actionDescription: L10n.string("Copy"),
+                    concealed: false
+                ) { isConfirming in
+                    Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
+                        .foregroundStyle(isConfirming ? WNColor.intentionSuccessContent : WNColor.textPrimary)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .wnSecondaryButtonStyle()
                 .disabled(npub == nil)
-                .help(L10n.string("Copy"))
-            }
-
-            if isExpanded, let npub {
-                Text(connector.prompt(npub: npub))
-                    .font(.caption.monospaced())
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 3)
@@ -95,3 +114,11 @@ private struct AIAgentConnectorSettingsRow: View {
         .environment(WorkspaceState.preview())
         .frame(width: 760, height: 640)
 }
+
+#if DEBUG
+    #Preview("No active account") {
+        AIAgentsSettingsView(model: .preview(publicNpub: nil))
+            .environment(WorkspaceState.preview())
+            .frame(width: 760, height: 640)
+    }
+#endif
