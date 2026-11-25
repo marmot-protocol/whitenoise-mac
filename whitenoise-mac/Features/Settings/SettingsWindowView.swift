@@ -17,8 +17,14 @@ struct SettingsWindowView: View {
                 scope.account.id == coordinator.accountID
             {
                 NavigationSplitView {
-                    SettingsSidebarView(coordinator: coordinator)
-                        .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 300)
+                    SettingsSidebarView(
+                        coordinator: coordinator,
+                        account: scope.account,
+                        devicesAvailable: scope.deviceLinking.isAvailable,
+                        isAccountMutationInProgress: workspace.isAccountMutationInProgress,
+                        preferredLocale: workspace.preferredLocale
+                    )
+                    .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 300)
                 } detail: {
                     SettingsPanelView(
                         model: scope.settingsModel, deviceLinking: scope.deviceLinking, page: coordinator.page)

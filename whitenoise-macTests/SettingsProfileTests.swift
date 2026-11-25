@@ -40,16 +40,91 @@ import Testing
         }
     }
 
-    @Test func settingsSidebarAccessibilityIdentifiersAreUnique() {
-        let allPages: [SettingsPage] = [
-            .overview, .preferences, .profile, .identityKeys, .devices, .relays, .keyPackages, .appearance,
-            .privacySecurity, .blockedUsers, .notifications, .storage, .manageStorage, .agents, .support,
-            .donate, .developerMode, .quarantinedGroups, .deleteProfile,
+    @Test func settingsSidebarOrdersCategoriesFiltersDevicesAndGuardsDeleteDuringMutation() {
+        let expectedOrder: [SettingsPage] = [
+            .profile, .identityKeys, .devices, .notifications, .appearance, .privacySecurity,
+            .storage, .relays, .agents, .preferences, .support, .donate, .developerMode,
         ]
-        let identifiers = allPages.map(\.sidebarAccessibilityIdentifier)
-        #expect(Set(identifiers).count == allPages.count)
-        #expect(SettingsPage.storage.sidebarAccessibilityIdentifier == "settings.sidebar.data-usage")
-        #expect(SettingsPage.developerMode.sidebarAccessibilityIdentifier == "settings.sidebar.developer-tools")
+        #expect(SettingsPage.sidebarPages == expectedOrder)
+
+        let withDevices = SettingsPage.sidebarGroups.flatMap {
+            SettingsSidebarView.visiblePages(in: $0, devicesAvailable: true)
+        }
+        let withoutDevices = SettingsPage.sidebarGroups.flatMap {
+            SettingsSidebarView.visiblePages(in: $0, devicesAvailable: false)
+        }
+        #expect(withDevices.contains(.devices))
+        #expect(!withoutDevices.contains(.devices))
+        #expect(withoutDevices.count == expectedOrder.count - 1)
+
+        let workspace = WorkspaceState.preview()
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        coordinator.open(at: .profile)
+
+        let mutatingSidebar = SettingsSidebarView(
+            coordinator: coordinator,
+            account: AccountItem.samples[0],
+            devicesAvailable: true,
+            isAccountMutationInProgress: true,
+            preferredLocale: .current
+        )
+        mutatingSidebar.select(.deleteProfile)
+        #expect(coordinator.page == .profile)
+
+        let idleSidebar = SettingsSidebarView(
+            coordinator: coordinator,
+            account: AccountItem.samples[0],
+            devicesAvailable: true,
+            isAccountMutationInProgress: false,
+            preferredLocale: .current
+        )
+        idleSidebar.select(.deleteProfile)
+        #expect(coordinator.page == .deleteProfile)
+    }
+
+    @Test func clickingSelectedParentRowInSettingsSidebarReturnsFromNestedSubpage() async {
+        let workspace = WorkspaceState.preview()
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        coordinator.open(at: .manageStorage)
+        #expect(coordinator.page == .manageStorage)
+        #expect(coordinator.parentPage == .storage)
+
+        let sidebar = SettingsSidebarView(
+            coordinator: coordinator,
+            account: AccountItem.samples[0],
+            devicesAvailable: true,
+            isAccountMutationInProgress: false,
+            preferredLocale: Locale(identifier: "en")
+        )
+        let host = HostedViewWindow(
+            sidebar
+                .environment(workspace)
+                .environment(\.locale, Locale(identifier: "en")),
+            size: CGSize(width: 260, height: 640)
+        )
+        defer { host.close() }
+
+        var selectedRowTarget: (tableView: NSTableView, row: Int)?
+        _ = await host.settle {
+            guard let contentView = host.window.contentView,
+                let tableView = Self.tableView(in: contentView),
+                tableView.selectedRow >= 0
+            else { return false }
+            selectedRowTarget = (tableView, tableView.selectedRow)
+            return true
+        }
+        guard let selectedRowTarget, let contentView = host.window.contentView else {
+            Issue.record("Expected selected parent row in native Settings sidebar list")
+            return
+        }
+
+        let rowRect = selectedRowTarget.tableView.rect(ofRow: selectedRowTarget.row)
+        let windowRect = selectedRowTarget.tableView.convert(rowRect, to: nil)
+        let topLeftPoint = CGPoint(x: windowRect.midX, y: contentView.bounds.height - windowRect.midY)
+        host.click(at: topLeftPoint)
+        let returned = await host.settle { coordinator.page == .storage }
+        #expect(returned)
+        #expect(coordinator.page == .storage)
     }
 
     @Test func appearanceAndLanguageLabelsFollowRequestedLocale() {
@@ -66,73 +141,56 @@ import Testing
         #expect(AppLanguage.german.displayName(in: spanish) == "Deutsch")
     }
 
-    @Test func settingsSidebarAndPanesLayoutCleanlyInNativeSplitView() {
-        let workspace = WorkspaceState.preview()
-        let session = SessionState()
-        let coordinator = SettingsWindowCoordinator(workspace: workspace)
-        coordinator.open(at: .appearance)
-
-        let sidebarSize = Self.fittingSize(
-            SettingsSidebarView(coordinator: coordinator)
-                .environment(workspace)
-                .environment(session)
-                .frame(width: 260, height: 640)
-        )
-        #expect(sidebarSize.width > 0 && sidebarSize.height > 0)
-
-        let appearanceSize = Self.fittingSize(
-            AppearanceSettingsView()
-                .environment(workspace)
-                .environment(coordinator)
-                .frame(width: 540, height: 420)
-        )
-        #expect(appearanceSize.width > 0 && appearanceSize.height > 0)
-
-        coordinator.navigate(to: .blockedUsers)
-        #expect(coordinator.parentPage == .privacySecurity)
-        coordinator.navigate(to: .manageStorage)
-        #expect(coordinator.parentPage == .storage)
-    }
-
     // MARK: - #1107 Profile grouped form behavior
 
-    @Test func profileSettingsFormRendersEditableFieldsAndTracksUnsavedChanges() throws {
-        let workspace = WorkspaceState.preview()
-        workspace.profileDraft.displayName = "Alice"
-        workspace.profileDraft.about = "Hello"
-        workspace.profileDraft.nip05 = "alice@example.com"
-        let published = workspace.profileDraft
-
-        let host = NSHostingView(
-            rootView: ProfileSettingsView()
-                .environment(workspace)
-                .frame(width: 560, height: 640)
+    @Test func profileSettingsFormRendersEditableFieldsAndTracksUnsavedChanges() async {
+        let account = AccountSummaryFfi(
+            label: "Alice",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
         )
-        host.frame = NSRect(x: 0, y: 0, width: 560, height: 640)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+        await workspace.loadSettingsData()
 
-        let editableFields = Self.textFields(in: host).filter(\.isEditable)
-        #expect(editableFields.count == 3)
+        let host = HostedViewWindow(
+            ProfileSettingsView().environment(workspace),
+            size: CGSize(width: 560, height: 640)
+        )
+        defer { host.close() }
 
-        // Mutating the draft exposes unsaved edits and invalid NIP-05 disables saving.
+        let renderedFields = await host.settle {
+            guard let contentView = host.window.contentView else { return false }
+            return Self.textFields(in: contentView).filter(\.isEditable).count == 3
+        }
+        #expect(renderedFields)
+        #expect(!workspace.hasUnsavedProfileEdits)
+
+        // Mutating the draft exposes unsaved edits, and invalid NIP-05 disables saving.
         workspace.profileDraft.nip05 = "not-a-valid-address"
+        #expect(workspace.hasUnsavedProfileEdits)
         #expect(!workspace.isProfileNostrAddressDraftValid)
         #expect(!workspace.canSaveProfileEdits)
 
         workspace.profileDraft.nip05 = "alice@whitenoise.chat"
+        #expect(workspace.hasUnsavedProfileEdits)
         #expect(workspace.isProfileNostrAddressDraftValid)
         #expect(workspace.canSaveProfileEdits)
 
-        // Restoring published values clears unsaved edits cleanly.
-        workspace.profileDraft = published
-        #expect(workspace.profileDraft == published)
+        // Discarding restores the published draft and clears unsaved edits.
+        workspace.discardProfileEdits()
+        #expect(!workspace.hasUnsavedProfileEdits)
+        #expect(workspace.profileDraft.nip05.isEmpty)
     }
 
     // MARK: - #1108 Privacy & Notifications safe rendering
 
-    @Test func privacyAndNotificationsViewsRenderWithoutMutatingPreferencesOrRequestingPermissions() {
+    @Test func privacyAndNotificationsViewsRenderWithoutMutatingPreferencesOrRequestingPermissions() async {
         let suiteName = "settings-profile-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -144,33 +202,64 @@ import Testing
         #expect(!stickerPreference.automaticallyLoads)
         #expect(!linkPreference.showsPreviews)
 
-        let workspace = WorkspaceState.preview()
-        let privacySize = Self.fittingSize(
-            PrivacySecuritySettingsView(model: .preview())
-                .environment(workspace)
-                .frame(width: 560, height: 700)
+        let account = AccountSummaryFfi(
+            label: "Alice",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
         )
-        #expect(privacySize.width > 0 && privacySize.height > 0)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let notificationCenter = FakeLocalNotificationCenter(status: .notDetermined)
+        let workspace = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            clientFactory: { runtime }
+        )
+        await workspace.bootstrap()
 
-        let notificationsSize = Self.fittingSize(
-            NotificationsSettingsView()
-                .environment(workspace)
-                .frame(width: 560, height: 560)
+        let privacyHost = HostedViewWindow(
+            PrivacySecuritySettingsView(
+                model: .preview(),
+                gifPreference: gifPreference,
+                stickerPreference: stickerPreference,
+                linkPreviewPreference: linkPreference
+            )
+            .environment(workspace),
+            size: CGSize(width: 560, height: 700)
         )
-        #expect(notificationsSize.width > 0 && notificationsSize.height > 0)
+        defer { privacyHost.close() }
+        _ = await privacyHost.steadyDrawing()
+
+        let notificationsHost = HostedViewWindow(
+            NotificationsSettingsView().environment(workspace),
+            size: CGSize(width: 560, height: 560)
+        )
+        defer { notificationsHost.close() }
+        _ = await notificationsHost.steadyDrawing()
+        await workspace.refreshNotificationPermissionState()
+
+        #expect(!gifPreference.automaticallyLoads)
+        #expect(!stickerPreference.automaticallyLoads)
+        #expect(!linkPreference.showsPreviews)
+        #expect(!notificationCenter.didRequestAuthorization)
+        #expect(workspace.notificationAuthorizationStatus == .notDetermined)
         #expect(!workspace.notificationSettings.localNotificationsEnabled)
         #expect(!workspace.notificationSettings.nativePushEnabled)
     }
 
     // MARK: - Helpers
 
-    private static func fittingSize(_ view: some View) -> CGSize {
-        let host = NSHostingView(rootView: view)
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize
-    }
-
     private static func textFields(in view: NSView) -> [NSTextField] {
         ((view as? NSTextField).map { [$0] } ?? []) + view.subviews.flatMap(textFields(in:))
+    }
+
+    private static func tableView(in view: NSView) -> NSTableView? {
+        if let tableView = view as? NSTableView { return tableView }
+        for subview in view.subviews {
+            if let found = tableView(in: subview) { return found }
+        }
+        return nil
     }
 }

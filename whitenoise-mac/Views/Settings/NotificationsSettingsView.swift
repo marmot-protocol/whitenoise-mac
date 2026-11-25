@@ -47,8 +47,7 @@ struct NotificationsSettingsView: View {
                         set: { enabled in
                             Task { await workspace.setLocalNotificationsEnabled(enabled) }
                         }
-                    ),
-                    presentation: .switch
+                    )
                 )
             }
             // The permission is the switch's precondition, not a consequence of flipping it: with

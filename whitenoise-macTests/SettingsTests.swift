@@ -287,17 +287,17 @@ struct SettingsTests: WorkspaceTestSupport {
 
     @Test func settingsDrawerLocalizesThroughEnvironmentLocale() throws {
         // The re-render on a language switch comes from a SwiftUI dependency, which only a
-        // source contract can guard: both the drawer and its rows must read `\.locale` and
-        // localize through it. Dropping either read reintroduces the stale-label bug.
-        let drawerSource = try SourceContract.declaration("SettingsListDrawerView")
-        let rowSource = try SourceContract.declaration("SettingsSidebarRow")
+        // source contract can guard: the shipped sidebar rows must read `\.locale` and
+        // localize through it. Dropping the read reintroduces the stale-label bug.
+        let categoryRowSource = try SourceContract.declaration("SettingsSidebarCategoryRow")
+        let destructiveSectionSource = try SourceContract.declaration("SettingsSidebarDestructiveSection")
 
-        for viewSource in [drawerSource, rowSource] {
+        for viewSource in [categoryRowSource, destructiveSectionSource] {
             let normalized = viewSource.components(separatedBy: .whitespacesAndNewlines).joined()
             #expect(normalized.contains("@Environment(\\.locale)privatevarlocale"))
         }
-        #expect(drawerSource.contains("L10n.string(\"Settings\", locale: locale)"))
-        #expect(rowSource.contains("title: page.title(in: locale)"))
+        #expect(categoryRowSource.contains("page.title(in: locale)"))
+        #expect(destructiveSectionSource.contains("L10n.string(\"Sign Out\", locale: locale)"))
     }
 
     @MainActor
@@ -905,10 +905,11 @@ struct SettingsTests: WorkspaceTestSupport {
         state.searchText = "relay"
         state.draftText = "half-written"
 
-        state.selectAccountFromSettings(AccountItem.samples[1])
+        state.selectAccount(AccountItem.samples[1])
+        router.synchronize()
 
         #expect(state.activeAccountId == AccountItem.samples[1].id)
-        #expect(state.selection == nil)
+        #expect(!state.isShowingSettings)
         #expect(router.accountID == AccountItem.samples[1].id)
         #expect(router.page == .relays)
         #expect(state.searchText.isEmpty)

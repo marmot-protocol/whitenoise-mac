@@ -11,18 +11,17 @@ import SwiftUI
 
 struct SettingsSidebarView: View {
     let coordinator: SettingsWindowCoordinator
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(SessionState.self) private var session
-    // Localizing through `\.locale` (not the stored preference) re-renders sidebar labels
-    // immediately on a language switch in Settings.
-    @Environment(\.locale) private var locale
+    let account: AccountItem
+    let devicesAvailable: Bool
+    let isAccountMutationInProgress: Bool
+    let preferredLocale: Locale
 
     private var selection: Binding<SettingsPage?> {
         Binding(
             get: { coordinator.parentPage },
             set: { destination in
                 guard let destination else { return }
-                coordinator.navigate(to: destination)
+                select(destination)
             }
         )
     }
@@ -30,29 +29,42 @@ struct SettingsSidebarView: View {
     var body: some View {
         List(selection: selection) {
             Section {
-                SettingsSidebarActiveProfileRow()
+                SettingsSidebarActiveProfileRow(
+                    account: account,
+                    preferredLocale: preferredLocale
+                )
                 SettingsSidebarAddProfileRow(onAddProfile: coordinator.beginAddProfile)
             }
 
-            ForEach(Array(SettingsPage.sidebarGroups.map(visiblePages).enumerated()), id: \.offset) {
-                _, group in
+            ForEach(
+                Array(
+                    SettingsPage.sidebarGroups.map {
+                        Self.visiblePages(in: $0, devicesAvailable: devicesAvailable)
+                    }.enumerated()
+                ),
+                id: \.offset
+            ) { _, group in
                 Section {
                     ForEach(group) { page in
-                        SettingsSidebarCategoryRow(page: page)
-                            .tag(page)
+                        SettingsSidebarCategoryRow(
+                            page: page,
+                            hasOpenChild: coordinator.page != page && coordinator.parentPage == page,
+                            onReselect: {
+                                coordinator.navigate(to: page)
+                            }
+                        )
+                        .tag(page)
                     }
                 }
             }
 
-            if let account = workspace.activeAccount {
-                SettingsSidebarDestructiveSection(
-                    account: account,
-                    isDisabled: workspace.isAccountMutationInProgress
-                )
-            }
+            SettingsSidebarDestructiveSection(
+                account: account,
+                isDisabled: isAccountMutationInProgress,
+                preferredLocale: preferredLocale
+            )
         }
         .listStyle(.sidebar)
-        .disabled(workspace.activeAccount == nil)
         .accessibilityIdentifier("settings.sidebar")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SettingsVersionFooter()
@@ -61,74 +73,72 @@ struct SettingsSidebarView: View {
         }
     }
 
+    /// Navigates from the sidebar, refusing Delete Profile while an account mutation is active.
+    func select(_ destination: SettingsPage) {
+        if destination == .deleteProfile && isAccountMutationInProgress {
+            return
+        }
+        coordinator.navigate(to: destination)
+    }
+
     /// Devices is listed only when linking is available on the active runtime.
-    private func visiblePages(_ group: [SettingsPage]) -> [SettingsPage] {
-        let devicesAvailable = session.accountScope?.deviceLinking.isAvailable == true
-        return group.filter { $0 != .devices || devicesAvailable }
+    static func visiblePages(in group: [SettingsPage], devicesAvailable: Bool) -> [SettingsPage] {
+        group.filter { $0 != .devices || devicesAvailable }
     }
 }
 
 private struct SettingsSidebarActiveProfileRow: View {
-    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
+    let account: AccountItem
+    let preferredLocale: Locale
     @State private var isQRPresented = false
 
     var body: some View {
-        Group {
-            if let account = workspace.activeAccount {
-                Button {
-                    isQRPresented = true
-                } label: {
-                    HStack(spacing: 10) {
-                        ProfileImageAvatarView(
-                            seed: account.accountIdHex,
-                            initials: account.initials,
-                            sanitizedPictureURL: account.sanitizedPictureURL,
-                            size: MessagesLayout.settingsProfileAvatarSize,
-                            isSelected: false
-                        )
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(account.displayName)
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(WNColor.textPrimary)
-                                .lineLimit(1)
-
-                            CopyableKeyLabel(
-                                accountIdHex: account.accountIdHex,
-                                head: 8,
-                                tail: 6,
-                                showsCopyButton: false
-                            )
-                        }
-
-                        Spacer(minLength: 0)
-
-                        Image(systemName: "qrcode")
-                            .font(.body)
-                            .foregroundStyle(WNColor.textPrimary)
-                            .accessibilityHidden(true)
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Show npub QR code", locale: locale))
-                .accessibilityIdentifier("settings.sidebar.active-profile")
-                .sheet(isPresented: $isQRPresented) {
-                    PublicIdentityQRCodeSheet(
-                        account: account,
-                        displayName: account.displayName
-                    )
-                    .environment(\.locale, workspace.preferredLocale)
-                }
-            } else {
-                Label(
-                    L10n.string("No account", locale: locale),
-                    systemImage: "person.crop.circle.badge.exclamationmark"
+        Button {
+            isQRPresented = true
+        } label: {
+            HStack(spacing: 10) {
+                ProfileImageAvatarView(
+                    seed: account.accountIdHex,
+                    initials: account.initials,
+                    sanitizedPictureURL: account.sanitizedPictureURL,
+                    size: MessagesLayout.settingsProfileAvatarSize,
+                    isSelected: false
                 )
-                .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.displayName)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(WNColor.textPrimary)
+                        .lineLimit(1)
+
+                    CopyableKeyLabel(
+                        accountIdHex: account.accountIdHex,
+                        head: 8,
+                        tail: 6,
+                        showsCopyButton: false
+                    )
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "qrcode")
+                    .font(.body)
+                    .foregroundStyle(WNColor.textPrimary)
+                    .accessibilityHidden(true)
             }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(L10n.string("Show npub QR code", locale: locale))
+        .accessibilityIdentifier("settings.sidebar.active-profile")
+        .sheet(isPresented: $isQRPresented) {
+            PublicIdentityQRCodeSheet(
+                account: account,
+                displayName: account.displayName
+            )
+            .environment(\.locale, preferredLocale)
         }
     }
 }
@@ -154,18 +164,33 @@ private struct SettingsSidebarAddProfileRow: View {
 private struct SettingsSidebarCategoryRow: View {
     @Environment(\.locale) private var locale
     let page: SettingsPage
+    let hasOpenChild: Bool
+    let onReselect: () -> Void
 
     var body: some View {
-        Label(page.title(in: locale), systemImage: page.systemImage)
+        if hasOpenChild {
+            // Clicking an already-selected parent row (for example Data Usage while viewing
+            // Manage Storage) does not change `List(selection:)`, so wrap the active parent in a
+            // plain button to return from the nested sub-page.
+            Button(action: onReselect) {
+                Label(page.title(in: locale), systemImage: page.systemImage)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             .accessibilityIdentifier(page.sidebarAccessibilityIdentifier)
+        } else {
+            Label(page.title(in: locale), systemImage: page.systemImage)
+                .accessibilityIdentifier(page.sidebarAccessibilityIdentifier)
+        }
     }
 }
 
 private struct SettingsSidebarDestructiveSection: View {
-    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     let account: AccountItem
     let isDisabled: Bool
+    let preferredLocale: Locale
 
     @State private var isSigningOut = false
 
@@ -178,6 +203,7 @@ private struct SettingsSidebarDestructiveSection: View {
             .foregroundStyle(WNColor.intentionErrorContent)
             .tag(SettingsPage.deleteProfile)
             .disabled(isDisabled)
+            .selectionDisabled(isDisabled)
             .accessibilityIdentifier(SettingsPage.deleteProfile.sidebarAccessibilityIdentifier)
 
             Button {
@@ -196,7 +222,7 @@ private struct SettingsSidebarDestructiveSection: View {
             .accessibilityIdentifier("settings.sidebar.sign-out")
             .sheet(isPresented: $isSigningOut) {
                 SignOutSheet(account: account)
-                    .environment(\.locale, workspace.preferredLocale)
+                    .environment(\.locale, preferredLocale)
             }
         }
     }
@@ -205,8 +231,13 @@ private struct SettingsSidebarDestructiveSection: View {
 #Preview("Settings sidebar") {
     let workspace = WorkspaceState.preview()
     let coordinator = SettingsWindowCoordinator(workspace: workspace)
-    SettingsSidebarView(coordinator: coordinator)
-        .environment(workspace)
-        .environment(SessionState())
-        .frame(width: 260, height: 640)
+    SettingsSidebarView(
+        coordinator: coordinator,
+        account: AccountItem.samples[0],
+        devicesAvailable: true,
+        isAccountMutationInProgress: false,
+        preferredLocale: .current
+    )
+    .environment(workspace)
+    .frame(width: 260, height: 640)
 }

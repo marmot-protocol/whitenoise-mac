@@ -50,6 +50,7 @@ enum SourceContract {
         case profileKeysSettings
         case publicIdentity
         case settingsAccountSwitcher
+        case settingsSidebar
         case settingsSidebarGroupCard
         case sidebar
         case signOutSheet
@@ -100,6 +101,7 @@ enum SourceContract {
             case .profileKeysSettings: ["Settings/ProfileKeysSettingsView.swift"]
             case .publicIdentity: ["Settings/PublicIdentityViews.swift"]
             case .settingsAccountSwitcher: ["Settings/SettingsAccountSwitcherViews.swift"]
+            case .settingsSidebar: ["../Features/Settings/SettingsSidebarView.swift"]
             case .settingsSidebarGroupCard: ["Settings/SettingsSidebarGroupCard.swift"]
             case .sidebar: ["SidebarViews.swift"]
             case .signOutSheet: ["Settings/SignOutSheet.swift"]
@@ -121,7 +123,7 @@ enum SourceContract {
     }
 
     static func urls(of unit: ViewUnit) -> [URL] {
-        unit.paths.map { viewsDirectory.appending(path: $0) }
+        unit.paths.map { viewsDirectory.appending(path: $0).standardizedFileURL }
     }
 
     /// The full text of a unit. A unit written across several files reads as their concatenation,

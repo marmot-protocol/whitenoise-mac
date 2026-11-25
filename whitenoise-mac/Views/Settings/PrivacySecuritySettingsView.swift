@@ -26,6 +26,9 @@ import SwiftUI
 struct PrivacySecuritySettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     let model: DiagnosticsSettingsViewModel
+    var gifPreference: RemoteGIFLoadingPreference = .shared
+    var stickerPreference: StickerLoadingPreference = .shared
+    var linkPreviewPreference: LinkPreviewPreference = .shared
     @State private var showClearLogsConfirmation = false
     @State private var showEraseAppDataConfirmation = false
 
@@ -35,11 +38,11 @@ struct PrivacySecuritySettingsView: View {
                 SettingsNavigationRow(page: .blockedUsers)
             }
 
-            RemoteGIFLoadingSection(preference: .shared)
+            RemoteGIFLoadingSection(preference: gifPreference)
 
-            StickerLoadingSection(preference: .shared)
+            StickerLoadingSection(preference: stickerPreference)
 
-            LinkPreviewSettingsSection(preference: .shared)
+            LinkPreviewSettingsSection(preference: linkPreviewPreference)
 
             DiagnosticsAndImprovementsSections(model: model)
 
@@ -126,8 +129,7 @@ struct RemoteGIFLoadingSection: View {
                 isOn: Binding(
                     get: { preference.automaticallyLoads },
                     set: { preference.setAutomaticallyLoads($0) }
-                ),
-                presentation: .switch
+                )
             )
         }
     }
@@ -160,8 +162,7 @@ struct StickerLoadingSection: View {
                 isOn: Binding(
                     get: { preference.automaticallyLoads },
                     set: { preference.setAutomaticallyLoads($0) }
-                ),
-                presentation: .switch
+                )
             )
         }
     }
@@ -195,8 +196,7 @@ struct LinkPreviewSettingsSection: View {
                 isOn: Binding(
                     get: { preference.showsPreviews },
                     set: { preference.setShowsPreviews($0) }
-                ),
-                presentation: .switch
+                )
             )
         }
     }

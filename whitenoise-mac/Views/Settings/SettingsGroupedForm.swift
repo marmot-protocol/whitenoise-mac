@@ -142,39 +142,6 @@ struct SettingsNavigationRow: View {
     }
 }
 
-/// A `WNSelect` with the group and the note around it, the shape a settings page reaches for.
-///
-/// A pop-up hides every option but the chosen one, which is the wrong trade for a setting
-/// whose options are the explanation — appearance, or how much of a message a notification
-/// may repeat. The alternatives are laid out in the group so the choice and the options it
-/// was made from are read together. Keep it to a handful; a long list wants the menu back.
-///
-/// The rows are written out rather than left to `Picker(.inline)`, which is the one thing the
-/// grouped `Form` draws differently from the shape this surface is designed against. An inline
-/// `Picker` on macOS puts a grey radio dot on *every* row, so three options cost three controls
-/// and the reader has to compare their fills to find the live one. The reference design marks
-/// only the selection, with a trailing checkmark — one mark on the page, in the column the eye
-/// is already scanning for it.
-///
-/// Writing them out is `WNSelect`'s job, not this type's, for the same reason the switch is
-/// `WNToggle`'s: settings is not the only surface that offers a choice. Reach past this to
-/// `WNSelect` directly only for a group that has something else to say *inside* the card — the
-/// notification preview, whose chosen mode is spelled out as the notification it would post,
-/// under the row that picks it.
-struct SettingsChoiceSection<Value: Hashable>: View {
-    var title: String?
-    var footer: String?
-    let choices: [Value]
-    @Binding var selection: Value
-    let label: (Value) -> String
-
-    var body: some View {
-        SettingsSection(title: title, footer: footer) {
-            WNSelect(options: choices, selection: $selection, label: label)
-        }
-    }
-}
-
 /// How a read-only value is reported beside its name: the name at the row's weight, the
 /// value de-emphasised at the trailing edge.
 ///

@@ -34,8 +34,7 @@ struct PreferencesSettingsView: View {
                     isOn: Binding(
                         get: { launchAtLogin.isEnabled },
                         set: { launchAtLogin.setEnabled($0) }
-                    ),
-                    presentation: .switch
+                    )
                 )
 
                 LaunchAtLoginStatusRows(controller: launchAtLogin)
@@ -52,8 +51,7 @@ struct PreferencesSettingsView: View {
                     isOn: Binding(
                         get: { workspace.restoreLastSelectedChat },
                         set: { workspace.setRestoreLastSelectedChat($0) }
-                    ),
-                    presentation: .switch
+                    )
                 )
             }
 

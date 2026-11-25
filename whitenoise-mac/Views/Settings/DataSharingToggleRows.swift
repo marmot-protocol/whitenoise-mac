@@ -15,8 +15,7 @@ struct DataSharingToggleRows: View {
             isOn: Binding(
                 get: { model.settings?.decision == .granted },
                 set: { enabled in Task { await model.setEnabled(enabled) } }
-            ),
-            presentation: .switch
+            )
         ) {
             DataSharingToggleLabel(
                 title: L10n.string("Share usage and telemetry"),
@@ -32,8 +31,7 @@ struct DataSharingToggleRows: View {
             isOn: Binding(
                 get: { model.auditSettings?.enabled == true },
                 set: { enabled in Task { await model.setAuditEnabled(enabled) } }
-            ),
-            presentation: .switch
+            )
         ) {
             DataSharingToggleLabel(
                 title: L10n.string("Share group diagnostic logs"),

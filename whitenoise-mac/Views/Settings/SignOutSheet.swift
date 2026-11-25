@@ -11,7 +11,7 @@ import SwiftUI
 /// Signing out of the active account, with or without wiping it off this Mac.
 struct SignOutSheet: View {
     /// Which teardown is running, once one is.
-    fileprivate enum Stage: Equatable {
+    private enum Stage: Equatable {
         case signingOut
         case wiping
 
@@ -142,6 +142,8 @@ struct SignOutSheet: View {
 
     private func signOut() async {
         guard canSignOut else { return }
+        // Captured before the teardown: once it succeeds the host may hand this sheet another
+        // account, and `.onChange(of: account.id)` resets the toggle under the await.
         let wipes = wipesLocalData
         if wipes {
             stage = .wiping
@@ -151,6 +153,19 @@ struct SignOutSheet: View {
             await workspace.signOutAccount(account)
         }
         stage = nil
+        // Dismiss only when the teardown actually ran, read off the account list it left behind —
+        // the rule `DeleteProfileRemoval` follows — and never off `lastError`. There are three
+        // outcomes, and `lastError` cannot tell the last two apart:
+        //  - Nothing was torn down (the core refused, or another account change held the gate):
+        //    the account is still signed in. The sheet stays, so the error it draws in its
+        //    `SettingsErrorView` is read rather than dismissed with it.
+        //  - The exit ran and the app moved on, to the profile chooser or onboarding: dismissing
+        //    covers the first, and is harmless in the second, which takes the sheet with it.
+        //  - The exit ran and the app switched straight into the only profile left, whose
+        //    settings then failed to load. That error is the survivor's and stays on `lastError`
+        //    for its settings page; it is no reason to keep this sheet up. The host re-renders it
+        //    for the now-active survivor, so staying would put a Sign Out button for the wrong
+        //    identity under the reader's cursor.
         guard Self.exitSucceeded(for: account, wipedLocalData: wipes, in: workspace.accounts) else {
             return
         }
