@@ -108,9 +108,9 @@ import Testing
         #expect(!workspace.isNewChatComposerVisible)
     }
 
-    /// `NameGroupPanelView` keeps Escape and Return scoped to its own pane so an adjacent
-    /// conversation search field is never hijacked by window-wide Cancel/Create shortcuts; inside
-    /// the pane, header Back and Escape preserve the staged draft while explicit Cancel discards it.
+    /// `NameGroupPanelView` registers no window-wide Escape or Return shortcut (so an adjacent
+    /// conversation search field is never hijacked), header Back preserves the staged draft, and
+    /// explicit Cancel discards it.
     @Test func nameGroupPanelDoesNotHijackAdjacentEscapeAndPreservesDraftOnBack() async throws {
         let workspace = WorkspaceState.preview()
         let member = NewChatRecipient(
@@ -127,20 +127,12 @@ import Testing
         workspace.composeShowNameGroup()
         workspace.newChatName = "Field Notes"
 
-        var adjacentEscapeHandled = false
-        let size = CGSize(width: 660, height: 520)
+        let size = CGSize(width: 340, height: 520)
         let host = HostedViewWindow(
-            HStack(spacing: 0) {
-                NameGroupPanelView(draftImage: .constant(nil))
-                    .environment(workspace)
-                    .environment(\.hasWindowTopNoticeBand, true)
-                    .frame(width: 340, height: size.height)
-
-                AdjacentConversationPaneProbe {
-                    adjacentEscapeHandled = true
-                }
-                .frame(width: 320, height: size.height)
-            },
+            NameGroupPanelView(draftImage: .constant(nil))
+                .environment(workspace)
+                .environment(\.hasWindowTopNoticeBand, true)
+                .frame(width: size.width, height: size.height),
             size: size
         )
         defer { host.close() }
@@ -159,17 +151,6 @@ import Testing
                 keyCode: 53
             )
         )
-
-        // With an adjacent conversation search surface claiming Escape, `NameGroupPanelView` must
-        // NOT register a window-wide `.cancelAction` or `.defaultAction` that hijacks Escape or
-        // Return and discards the staged group draft.
-        #expect(host.window.performKeyEquivalent(with: escapeEvent))
-        #expect(await host.settle { adjacentEscapeHandled })
-        #expect(workspace.isNewChatComposerVisible)
-        #expect(workspace.composePane == .nameGroup)
-        #expect(workspace.newChatName == "Field Notes")
-        #expect(workspace.newChatRecipients == [member])
-
         let returnEvent = try #require(
             NSEvent.keyEvent(
                 with: .keyDown,
@@ -184,8 +165,15 @@ import Testing
                 keyCode: 36
             )
         )
+
+        // With no competing sibling, neither Escape nor Return is claimed as a window-wide
+        // `.cancelAction` / `.defaultAction` shortcut, so the staged draft stays intact.
+        #expect(!host.window.performKeyEquivalent(with: escapeEvent))
         #expect(!host.window.performKeyEquivalent(with: returnEvent))
+        #expect(workspace.isNewChatComposerVisible)
         #expect(workspace.composePane == .nameGroup)
+        #expect(workspace.newChatName == "Field Notes")
+        #expect(workspace.newChatRecipients == [member])
 
         // Header Back (leading control in `ComposePaneHeader` with 12pt horizontal padding and
         // zero titlebar clearance under `hasWindowTopNoticeBand == true`) returns to Choose
@@ -199,7 +187,7 @@ import Testing
         // Re-entering Name group and clicking Cancel (bottom-leading of the 340pt sidebar with
         // 12pt padding) closes the composer and discards the draft.
         workspace.composeShowNameGroup()
-        _ = await host.settle(timeout: .milliseconds(100)) { false }
+        _ = await host.steadyDrawing()
         host.click(at: CGPoint(x: 42, y: size.height - 24))
         #expect(await host.settle { !workspace.isNewChatComposerVisible })
         #expect(workspace.newChatName.isEmpty)
@@ -283,21 +271,5 @@ import Testing
             result.append(contentsOf: descendants(of: subview, as: type))
         }
         return result
-    }
-}
-
-private struct AdjacentConversationPaneProbe: View {
-    let onEscape: () -> Void
-    @State private var query = "search"
-
-    var body: some View {
-        VStack {
-            TextField("Search messages", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .padding()
-            Button("Close search", action: onEscape)
-                .keyboardShortcut(.cancelAction)
-            Spacer()
-        }
     }
 }

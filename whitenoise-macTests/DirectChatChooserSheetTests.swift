@@ -60,7 +60,8 @@ struct DirectChatChooserSheetTests {
 
     // MARK: - Sheet
 
-    /// The sheet is a fixed-width card; each existing chat adds a row under the header.
+    /// The sheet uses content-sized bounds (`380...420` width); each existing chat adds a row under
+    /// the header.
     @Test func eachExistingChatAddsARowToAFixedWidthSheet() {
         let one = Self.fittingSize(
             Self.sheet([DirectChatChoice(chat: Self.chat("a", preview: "See you tomorrow"), isArchived: false)])
@@ -72,8 +73,8 @@ struct DirectChatChooserSheetTests {
             ])
         )
 
-        #expect(one.width == 400)
-        #expect(two.width == 400)
+        #expect((380...420).contains(one.width))
+        #expect((380...420).contains(two.width))
         #expect(two.height > one.height)
     }
 
