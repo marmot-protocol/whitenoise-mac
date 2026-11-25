@@ -118,30 +118,12 @@ struct NostrEventPreviewCardContent: View {
     /// Reserved as soon as an article names an image, so the card does not grow when it arrives.
     let showsImageSlot: Bool
 
-    private var surfaceFill: Color {
-        bubblePolarity?.quoteFill ?? WNColor.backgroundPrimary
-    }
-
-    private var primaryContent: Color {
-        bubblePolarity?.content ?? WNColor.textPrimary
-    }
-
-    private var secondaryContent: Color {
-        bubblePolarity?.secondaryContent ?? WNColor.messageReceivedSecondaryContent
-    }
-
-    private var imageSlotFill: Color {
-        bubblePolarity.map { $0.content.opacity(0.08) } ?? WNColor.fillSecondary
-    }
-
-    private var hairlineStroke: Color {
-        bubblePolarity.map { $0.content.opacity(0.12) } ?? WNColor.borderTertiary
-    }
+    private var palette: MessageEmbeddedCardPalette { MessageEmbeddedCardPalette(polarity: bubblePolarity) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if case .article(_, _, let imageURL) = preview.body, imageURL != nil, showsImageSlot {
-                imageSlotFill
+                palette.imageSlotFill
                     .aspectRatio(LinkPreviewCardContent.imageAspectRatio, contentMode: .fit)
                     .overlay {
                         if let image {
@@ -159,13 +141,13 @@ struct NostrEventPreviewCardContent: View {
                     NostrEventAuthorLine(
                         preview: preview,
                         author: author,
-                        primaryContent: primaryContent,
-                        secondaryContent: secondaryContent
+                        primaryContent: palette.primaryContent,
+                        secondaryContent: palette.secondaryContent
                     )
                     if !text.isEmpty {
                         Text(verbatim: text)
                             .font(.subheadline)
-                            .foregroundStyle(primaryContent)
+                            .foregroundStyle(palette.primaryContent)
                             .lineLimit(8)
                             .multilineTextAlignment(.leading)
                     }
@@ -173,32 +155,32 @@ struct NostrEventPreviewCardContent: View {
                     if let title {
                         Text(verbatim: title)
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(primaryContent)
+                            .foregroundStyle(palette.primaryContent)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                     if let summary {
                         Text(verbatim: summary)
                             .font(.subheadline)
-                            .foregroundStyle(secondaryContent)
+                            .foregroundStyle(palette.secondaryContent)
                             .lineLimit(3)
                             .multilineTextAlignment(.leading)
                     }
                     NostrEventAuthorLine(
                         preview: preview,
                         author: author,
-                        primaryContent: primaryContent,
-                        secondaryContent: secondaryContent
+                        primaryContent: palette.primaryContent,
+                        secondaryContent: palette.secondaryContent
                     )
                 case .other:
                     Text(L10n.string("Nostr event"))
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(primaryContent)
+                        .foregroundStyle(palette.primaryContent)
                     NostrEventAuthorLine(
                         preview: preview,
                         author: author,
-                        primaryContent: primaryContent,
-                        secondaryContent: secondaryContent
+                        primaryContent: palette.primaryContent,
+                        secondaryContent: palette.secondaryContent
                     )
                 }
                 Label {
@@ -208,7 +190,7 @@ struct NostrEventPreviewCardContent: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
-                .foregroundStyle(secondaryContent)
+                .foregroundStyle(palette.secondaryContent)
                 .lineLimit(1)
             }
             .padding(.horizontal, 10)
@@ -216,11 +198,11 @@ struct NostrEventPreviewCardContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-        .background(surfaceFill)
+        .background(palette.surfaceFill)
         .clipShape(.rect(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(hairlineStroke, lineWidth: 1)
+                .strokeBorder(palette.hairlineStroke, lineWidth: 1)
         }
         .contentShape(.rect(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .combine)

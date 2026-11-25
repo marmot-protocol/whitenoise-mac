@@ -307,6 +307,18 @@ nonisolated enum MessageTypography {
 ///
 /// Unlike the reply quote, these rows sit *beside* the bubble in `MessageBubble`'s stack rather than
 /// inside it, so they never inherit `BubbleBackground`'s fill and have to bring their own.
+/// Shared color roles for cards embedded inside a message bubble (link previews, Nostr event
+/// previews), falling back to standard surface tokens when rendered outside a bubble (#1113).
+nonisolated struct MessageEmbeddedCardPalette {
+    let polarity: MessageBubblePolarity?
+
+    var surfaceFill: Color { polarity?.quoteFill ?? WNColor.backgroundPrimary }
+    var primaryContent: Color { polarity?.content ?? WNColor.textPrimary }
+    var secondaryContent: Color { polarity?.secondaryContent ?? WNColor.messageReceivedSecondaryContent }
+    var imageSlotFill: Color { polarity.map { $0.content.opacity(0.08) } ?? WNColor.fillSecondary }
+    var hairlineStroke: Color { polarity.map { $0.content.opacity(0.12) } ?? WNColor.borderTertiary }
+}
+
 nonisolated enum AttachmentRowPalette {
     /// The same fill the sent bubble uses, which is what `outgoingContent` is drawn for.
     ///
@@ -365,9 +377,6 @@ nonisolated enum AttachmentRowPalette {
     static func waveformPlayedBar(isOutgoing: Bool) -> Color {
         content(isOutgoing: isOutgoing).opacity(waveformPlayedBarOpacity)
     }
-
-    /// Legacy detail opacity constant retained for contrast-floor reference.
-    static let detailContentOpacity = 0.72
 
     /// Detail text inside an attachment row — file size, duration — paired with the bubble
     /// polarity so sent and received rows match text bubbles' secondary metadata contrast.

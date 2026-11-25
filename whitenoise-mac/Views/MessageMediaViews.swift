@@ -138,13 +138,15 @@ struct ConversationMessageRow: View {
                 onNavigateToMessage: onNavigateToMessage
             )
         } else if message.presentation == .poll, let poll = message.poll {
+            // Pass MDK's confirmed `poll` directly so bars, vote counts, and "Final results" never
+            // claim an unconfirmed optimistic tally; `pendingSelection` only marks in-flight changes
+            // while the poll is still open.
             PollMessageRow(
-                poll: conversationModel.displayedPoll(poll, messageIdHex: message.id),
+                poll: poll,
                 isOutgoing: message.isOutgoing,
                 senderName: showsSenderName ? message.senderName : nil,
                 timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
-                confirmedSelection: Set(poll.localSelection),
-                isVotePending: conversationModel.pendingPollSelections[message.id] != nil,
+                pendingSelection: conversationModel.pendingPollSelections[message.id],
                 onVote: canVoteInPolls && message.invalidationStatus == nil ? vote(for: poll) : nil,
                 onViewVotes: poll.participants > 0 ? viewVotes(for: poll) : nil
             )
@@ -1827,7 +1829,7 @@ struct MessageMediaAttachmentView: View {
 /// Resolves a native macOS file-type icon via `UTType` and `NSWorkspace.shared.icon(for:)` (D02).
 /// Used only for loaded document cards — never in place of a meaningful failed or loading state.
 nonisolated enum AttachmentFileTypeIcon {
-    static func contentType(mediaType: String, fileName: String) -> UTType? {
+    static func contentType(mediaType: String, fileName: String) -> UTType {
         let trimmedMediaType = mediaType.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedMediaType.isEmpty,
             let mimeType = UTType(mimeType: trimmedMediaType),
@@ -1839,15 +1841,11 @@ nonisolated enum AttachmentFileTypeIcon {
         if !ext.isEmpty, let extType = UTType(filenameExtension: ext) {
             return extType
         }
-        if !trimmedMediaType.isEmpty, let mimeType = UTType(mimeType: trimmedMediaType) {
-            return mimeType
-        }
         return .data
     }
 
-    static func icon(mediaType: String, fileName: String) -> NSImage? {
-        guard let type = contentType(mediaType: mediaType, fileName: fileName) else { return nil }
-        return NSWorkspace.shared.icon(for: type)
+    static func icon(mediaType: String, fileName: String) -> NSImage {
+        NSWorkspace.shared.icon(for: contentType(mediaType: mediaType, fileName: fileName))
     }
 }
 
@@ -2985,7 +2983,7 @@ struct MessageInlineActionIcon: View {
             .foregroundStyle(
                 isHovering ? WNColor.textPrimary : WNColor.messageReceivedSecondaryContent
             )
-            .frame(width: 32, height: 32)
+            .frame(width: 40, height: 40)
             .background {
                 Circle()
                     .fill(isHovering ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
@@ -3381,28 +3379,33 @@ struct MessageOverflowPopover: View {
 /// (`PendingOutgoingMessageOverflowButton`) opens the same menu rather than a lookalike — it
 /// builds its actions from a message the core has never seen, but a failed row is a failed row and
 /// the two must not drift into different shapes.
+/// Partitions message actions into non-destructive and destructive groups while preserving relative
+/// order within each group (K02, K03).
+nonisolated enum MessageRowActionGrouping {
+    static func split(_ actions: [MessageRowAction]) -> (standard: [MessageRowAction], destructive: [MessageRowAction])
+    {
+        (
+            standard: actions.filter { $0.role != .destructive },
+            destructive: actions.filter { $0.role == .destructive }
+        )
+    }
+}
+
 struct MessageOverflowMenu: View {
     let actions: [MessageRowAction]
 
-    private var primaryActions: [MessageRowAction] {
-        actions.filter { $0.role != .destructive }
-    }
-
-    private var destructiveActions: [MessageRowAction] {
-        actions.filter { $0.role == .destructive }
-    }
-
     var body: some View {
+        let grouped = MessageRowActionGrouping.split(actions)
         VStack(spacing: 2) {
-            ForEach(primaryActions) { action in
+            ForEach(grouped.standard) { action in
                 MessageOverflowMenuItem(action: action)
             }
-            if !primaryActions.isEmpty, !destructiveActions.isEmpty {
+            if !grouped.standard.isEmpty, !grouped.destructive.isEmpty {
                 Divider()
                     .padding(.vertical, 4)
                     .padding(.horizontal, 6)
             }
-            ForEach(destructiveActions) { action in
+            ForEach(grouped.destructive) { action in
                 MessageOverflowMenuItem(action: action)
             }
         }
@@ -3504,27 +3507,27 @@ struct MessageContextMenuItems: View {
                 Divider()
             }
 
-            let rowActions = MessageRowAction.all(
-                for: message,
-                workspace: workspace,
-                moderation: moderation,
-                discardFailedSend: discardFailedSend,
-                focusComposer: composerFocusRequester.request
+            let grouped = MessageRowActionGrouping.split(
+                MessageRowAction.all(
+                    for: message,
+                    workspace: workspace,
+                    moderation: moderation,
+                    discardFailedSend: discardFailedSend,
+                    focusComposer: composerFocusRequester.request
+                )
             )
-            let standardActions = rowActions.filter { $0.role != .destructive }
-            let destructiveActions = rowActions.filter { $0.role == .destructive }
 
-            ForEach(standardActions) { action in
+            ForEach(grouped.standard) { action in
                 Button(role: action.role, action: action.run) {
                     Label(action.title, systemImage: action.systemImage)
                 }
             }
 
-            if !standardActions.isEmpty, !destructiveActions.isEmpty {
+            if !grouped.standard.isEmpty, !grouped.destructive.isEmpty {
                 Divider()
             }
 
-            ForEach(destructiveActions) { action in
+            ForEach(grouped.destructive) { action in
                 Button(role: action.role, action: action.run) {
                     Label(action.title, systemImage: action.systemImage)
                 }

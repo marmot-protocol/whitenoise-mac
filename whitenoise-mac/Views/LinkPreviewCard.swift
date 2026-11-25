@@ -98,30 +98,12 @@ struct LinkPreviewCardContent: View {
         return PeerDisplayText.sanitize(display).map { String($0.prefix(64)) }
     }
 
-    private var surfaceFill: Color {
-        bubblePolarity?.quoteFill ?? WNColor.backgroundPrimary
-    }
-
-    private var primaryContent: Color {
-        bubblePolarity?.content ?? WNColor.textPrimary
-    }
-
-    private var secondaryContent: Color {
-        bubblePolarity?.secondaryContent ?? WNColor.messageReceivedSecondaryContent
-    }
-
-    private var imageSlotFill: Color {
-        bubblePolarity.map { $0.content.opacity(0.08) } ?? WNColor.fillSecondary
-    }
-
-    private var hairlineStroke: Color {
-        bubblePolarity.map { $0.content.opacity(0.12) } ?? WNColor.borderTertiary
-    }
+    private var palette: MessageEmbeddedCardPalette { MessageEmbeddedCardPalette(polarity: bubblePolarity) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showsImageSlot {
-                imageSlotFill
+                palette.imageSlotFill
                     .aspectRatio(Self.imageAspectRatio, contentMode: .fit)
                     .overlay {
                         if let image {
@@ -137,14 +119,14 @@ struct LinkPreviewCardContent: View {
                 if let title {
                     Text(verbatim: title)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(primaryContent)
+                        .foregroundStyle(palette.primaryContent)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
                 if let host {
                     Text(verbatim: host)
                         .font(.caption)
-                        .foregroundStyle(secondaryContent)
+                        .foregroundStyle(palette.secondaryContent)
                         .lineLimit(1)
                 }
             }
@@ -153,11 +135,11 @@ struct LinkPreviewCardContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-        .background(surfaceFill)
+        .background(palette.surfaceFill)
         .clipShape(.rect(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(hairlineStroke, lineWidth: 1)
+                .strokeBorder(palette.hairlineStroke, lineWidth: 1)
         }
         .contentShape(.rect(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .combine)

@@ -83,7 +83,6 @@ struct ReportMessageSheet: View {
                 }
                 .wnPrimaryButtonStyle()
                 .disabled(!model.canSubmit)
-                .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)

@@ -11,6 +11,7 @@ import MarmotKit
 import SwiftUI
 import Testing
 import UniformTypeIdentifiers
+import Vision
 
 @testable import whitenoise_mac
 
@@ -32,321 +33,330 @@ struct ConversationActionsAndRichMediaTests {
         #expect(AttachmentFileTypeIcon.contentType(mediaType: "", fileName: "README") == .data)
 
         let pdfIcon = AttachmentFileTypeIcon.icon(mediaType: "application/pdf", fileName: "report.pdf")
-        #expect(pdfIcon != nil)
-        #expect((pdfIcon?.size.width ?? 0) > 0)
+        #expect(pdfIcon.size.width > 0)
     }
 
-    // MARK: - Attachment rows across polarities & states (D02, T02, #1113)
+    // MARK: - Poll option confirmation & closed-poll finality (T10, #1113)
 
-    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func attachmentStatusRowsRenderLoadedLoadingAndFailedStatesAcrossPolarities(
-        appearance: NSAppearance.Name
-    ) throws {
-        let pdfIcon = AttachmentFileTypeIcon.icon(mediaType: "application/pdf", fileName: "spec.pdf")
-        for isOutgoing in [false, true] {
-            let loaded = try Self.rasterize(
-                MessageAttachmentStatusRow(
-                    systemImage: "doc",
-                    fileIcon: pdfIcon,
-                    title: "spec.pdf",
-                    detail: "1.2 MB",
-                    isOutgoing: isOutgoing
-                )
-                .padding(8)
-                .background(WNColor.backgroundPrimary),
-                in: appearance
-            )
-            let failed = try Self.rasterize(
-                MessageAttachmentStatusRow(
-                    systemImage: "exclamationmark.triangle",
-                    title: "spec.pdf",
-                    detail: L10n.string("Attachment unavailable"),
-                    isOutgoing: isOutgoing,
-                    retryAction: {}
-                )
-                .padding(8)
-                .background(WNColor.backgroundPrimary),
-                in: appearance
-            )
-            let loading = try Self.rasterize(
-                MessageAttachmentStatusRow(
-                    systemImage: "arrow.down.circle",
-                    title: "spec.pdf",
-                    detail: "application/pdf",
-                    isOutgoing: isOutgoing,
-                    isLoading: true
-                )
-                .padding(8)
-                .background(WNColor.backgroundPrimary),
-                in: appearance
-            )
+    @Test func pollOptionVisualStateDistinguishesConfirmedPendingAndClosedStates() {
+        let confirmed: Set<String> = ["0"]
 
-            #expect(loaded.pixelsWide > 0 && loaded.pixelsHigh > 0)
-            #expect(failed.pixelsWide > 0 && failed.pixelsHigh > 0)
-            #expect(loading.pixelsWide > 0 && loading.pixelsHigh > 0)
-        }
+        // No pending vote: confirmed option is selected, others are not, nothing is pending.
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "0", confirmedSelection: confirmed, pendingSelection: nil, isOpen: true
+            ) == PollOptionVisualState(isConfirmedSelection: true, isPendingChange: false)
+        )
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "1", confirmedSelection: confirmed, pendingSelection: nil, isOpen: true
+            ) == PollOptionVisualState(isConfirmedSelection: false, isPendingChange: false)
+        )
+
+        // Single-choice switch from 0 -> 1 in flight: 0 stays confirmed-selected while pending
+        // removal, 1 is NOT confirmed-selected yet and is pending addition.
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "0", confirmedSelection: confirmed, pendingSelection: ["1"], isOpen: true
+            ) == PollOptionVisualState(isConfirmedSelection: true, isPendingChange: true)
+        )
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "1", confirmedSelection: confirmed, pendingSelection: ["1"], isOpen: true
+            ) == PollOptionVisualState(isConfirmedSelection: false, isPendingChange: true)
+        )
+
+        // Multi-choice adding 1 while keeping 0: 0 is confirmed and untouched, 1 is pending add.
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "0", confirmedSelection: confirmed, pendingSelection: ["0", "1"], isOpen: true
+            ) == PollOptionVisualState(isConfirmedSelection: true, isPendingChange: false)
+        )
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "1", confirmedSelection: confirmed, pendingSelection: ["0", "1"], isOpen: true
+            ) == PollOptionVisualState(isConfirmedSelection: false, isPendingChange: true)
+        )
+
+        // Removing confirmed option 0 in flight: 0 stays confirmed until MDK settles, marked pending.
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "0", confirmedSelection: confirmed, pendingSelection: [], isOpen: true
+            ) == PollOptionVisualState(isConfirmedSelection: true, isPendingChange: true)
+        )
+
+        // Closed poll with a vote still in flight: pending markers vanish and only MDK's confirmed
+        // selection remains selected.
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "0", confirmedSelection: confirmed, pendingSelection: ["1"], isOpen: false
+            ) == PollOptionVisualState(isConfirmedSelection: true, isPendingChange: false)
+        )
+        #expect(
+            PollOptionVisualState.resolve(
+                optionID: "1", confirmedSelection: confirmed, pendingSelection: ["1"], isOpen: false
+            ) == PollOptionVisualState(isConfirmedSelection: false, isPendingChange: false)
+        )
     }
 
-    // MARK: - Poll pending-vote & read-only rendering (T10, #1113)
-
-    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func pollCardRendersConfirmedPendingAndClosedStatesAcrossPolarities(
-        appearance: NSAppearance.Name
-    ) throws {
-        let poll = MessagePoll(
-            question: "Deploy today?",
+    @Test func closedPollWithInFlightVoteDrawsConfirmedFinalResultsWithoutAllowingVotes() async throws {
+        // MDK's confirmed tally: 1 participant voted for "Yes" (option 0), 0 for "No" (option 1).
+        let closedPoll = MessagePoll(
+            question: "Ship tonight?",
             options: [
-                .init(id: "0", label: "Yes", votes: 2),
-                .init(id: "1", label: "Wait", votes: 1),
+                .init(id: "0", label: "Yes", votes: 1),
+                .init(id: "1", label: "No", votes: 0),
             ],
             kind: .singleChoice,
-            participants: 3,
+            participants: 1,
             localSelection: ["0"],
-            endsAt: nil,
-            isOpen: true
+            endsAt: 1,
+            isOpen: false
+        )
+        var votedOptions: [String] = []
+        let size = CGSize(width: 340, height: 220)
+        let host = HostedViewWindow(
+            PollMessageCard(
+                poll: closedPoll,
+                isOutgoing: false,
+                timeLabel: "10:00",
+                // A local vote for option 1 was still in flight when the poll closed.
+                pendingSelection: ["1"],
+                onVote: { votedOptions.append($0) },
+                onViewVotes: nil
+            )
+            .padding(12),
+            size: size
+        )
+        defer { host.close() }
+
+        let drawn = try #require(await host.steadyDrawing())
+        #expect(
+            DrawnText.contains("Final results", in: drawn),
+            "read: \(DrawnText.recognized(in: drawn))"
+        )
+        #expect(
+            DrawnText.contains("1 vote", in: drawn),
+            "read: \(DrawnText.recognized(in: drawn))"
         )
 
-        for isOutgoing in [false, true] {
-            let confirmed = try Self.rasterize(
-                PollMessageRow(
-                    poll: poll,
-                    isOutgoing: isOutgoing,
-                    senderName: isOutgoing ? nil : "Alice",
-                    timeLabel: "10:00",
-                    confirmedSelection: ["0"],
-                    isVotePending: false,
-                    onVote: { _ in },
-                    onViewVotes: {}
-                )
-                .frame(width: 460)
-                .background(WNColor.backgroundPrimary),
-                in: appearance
-            )
-            let pending = try Self.rasterize(
-                PollMessageRow(
-                    poll: poll,
-                    isOutgoing: isOutgoing,
-                    senderName: isOutgoing ? nil : "Alice",
-                    timeLabel: "10:00",
-                    confirmedSelection: [],
-                    isVotePending: true,
-                    onVote: { _ in },
-                    onViewVotes: {}
-                )
-                .frame(width: 460)
-                .background(WNColor.backgroundPrimary),
-                in: appearance
-            )
-            let closed = try Self.rasterize(
-                PollMessageRow(
-                    poll: MessagePoll(
-                        question: poll.question,
-                        options: poll.options,
-                        kind: poll.kind,
-                        participants: poll.participants,
-                        localSelection: poll.localSelection,
-                        endsAt: nil,
-                        isOpen: false
-                    ),
-                    isOutgoing: isOutgoing,
-                    senderName: isOutgoing ? nil : "Alice",
-                    timeLabel: "10:00",
-                    onVote: nil,
-                    onViewVotes: {}
-                )
-                .frame(width: 460)
-                .background(WNColor.backgroundPrimary),
-                in: appearance
-            )
-
-            #expect(confirmed.pixelsWide > 0 && confirmed.pixelsHigh > 0)
-            #expect(pending.pixelsWide > 0 && pending.pixelsHigh > 0)
-            #expect(closed.pixelsWide > 0 && closed.pixelsHigh > 0)
-        }
+        // Clicking an option row on a closed poll must not fire `onVote`.
+        host.click(at: CGPoint(x: size.width / 2, y: 120))
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(votedOptions.isEmpty)
     }
 
-    // MARK: - Link & Nostr preview cards across bubble polarities (T02, T07, #1113)
+    // MARK: - Action grouping (K02, K03, #1104)
 
-    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func linkAndNostrPreviewCardsRenderAcrossBothBubblePolarities(
-        appearance: NSAppearance.Name
-    ) throws {
-        let preview = NostrEventPreview(
-            authorIdHex: String(repeating: "ab", count: 32),
-            createdAt: Date(timeIntervalSince1970: 1_760_000_000),
-            body: .note(text: "Encrypted messaging over Nostr.")
-        )
-        let author = NostrEventPreviewStore.Author(name: "Alice", pictureURL: nil)
+    @Test func messageRowActionGroupingSeparatesStandardAndDestructiveWhilePreservingOrder() {
+        let actions: [MessageRowAction] = [
+            MessageRowAction(kind: .info, title: "Message Info", systemImage: "info.circle", role: nil) {},
+            MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {},
+            MessageRowAction(kind: .copy, title: "Copy Text", systemImage: "doc.on.doc", role: nil) {},
+            MessageRowAction(kind: .report, title: "Report", systemImage: "flag", role: .destructive) {},
+            MessageRowAction(kind: .forward, title: "Forward", systemImage: "arrowshape.turn.up.right", role: nil) {},
+        ]
 
-        for polarity in [MessageBubblePolarity.received, .sent] {
-            let linkCard = try Self.rasterize(
-                LinkPreviewCardContent(
-                    title: "White Noise Protocol",
-                    host: "example.com",
-                    image: nil,
-                    showsImageSlot: false
-                )
-                .padding(10)
-                .background(polarity.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .environment(\.messageBubblePolarity, polarity)
-                .frame(width: 340)
-                .background(WNColor.backgroundPrimary),
-                in: appearance
-            )
-            let nostrCard = try Self.rasterize(
-                NostrEventPreviewCardContent(
-                    preview: preview,
-                    author: author,
-                    image: nil,
-                    showsImageSlot: false
-                )
-                .padding(10)
-                .background(polarity.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .environment(\.messageBubblePolarity, polarity)
-                .frame(width: 340)
-                .background(WNColor.backgroundPrimary),
-                in: appearance
-            )
-
-            #expect(linkCard.pixelsWide > 0 && linkCard.pixelsHigh > 0)
-            #expect(nostrCard.pixelsWide > 0 && nostrCard.pixelsHigh > 0)
-        }
+        let grouped = MessageRowActionGrouping.split(actions)
+        #expect(grouped.standard.map(\.kind) == [.info, .copy, .forward])
+        #expect(grouped.destructive.map(\.kind) == [.delete, .report])
     }
 
-    // MARK: - Refreshed sheets & action controls (#1104)
+    // MARK: - Task sheet behaviors (P01, C05, E03, #1104)
 
-    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func editHistoryForwardAndReportSheetsRenderCleanly(appearance: NSAppearance.Name) throws {
-        let editHistory = try Self.rasterize(
-            MessageEditHistoryContentView(
-                versions: [
-                    TimelineEditVersionFfi(
-                        messageIdHex: "v2",
-                        editedAt: 1_760_003_600,
-                        plaintext: "Updated text"
-                    ),
-                    TimelineEditVersionFfi(
-                        messageIdHex: "v1",
-                        editedAt: 1_760_000_000,
-                        plaintext: "Original text"
-                    ),
-                ],
-                isLoading: false,
-                errorMessage: "Storage busy",
-                hasMore: true,
-                onLoadMore: {},
-                onClose: {}
+    @Test func forwardSheetCancelRemainsActiveDuringAttachmentPreparation() async throws {
+        let gate = AsyncFfiGate()
+        gate.isEnabled = true
+        let attachment = MessageMediaAttachment(
+            id: "m1#0",
+            reference: mediaAttachmentReference(
+                sourceEpoch: 1,
+                mediaType: "application/pdf",
+                fileName: "file.pdf",
+                ciphertextSha256: String(repeating: "1", count: 64),
+                plaintextSha256: String(repeating: "2", count: 64)
             )
-            .frame(width: 420, height: 380)
-            .background(WNColor.backgroundPrimary),
-            in: appearance
         )
-        let forwardSheet = try Self.rasterize(
+        let message = MessageItem(
+            id: "m1",
+            senderName: "Alice",
+            body: "Check this doc",
+            sentAt: Date(timeIntervalSince1970: 1_760_000_000),
+            isOutgoing: false,
+            mediaAttachments: [attachment]
+        )
+        let targetChat = try #require(ChatItem.samples.first)
+        var sendCount = 0
+        let model = MessageForwardViewModel(
+            messages: [message],
+            dependencies: MessageForwardDependencies(
+                fetchAttachment: { _, _ in
+                    await gate.passIfArmed()
+                    return nil
+                },
+                sendText: { _, _ in sendCount += 1 },
+                sendMedia: { _, _ in sendCount += 1 },
+                reportError: { _ in },
+                finish: {}
+            )
+        )
+        var closed = false
+        let size = CGSize(width: 420, height: 520)
+        let host = HostedViewWindow(
             MessageForwardSheet(
-                model: MessageForwardViewModel(messages: [], dependencies: .inert),
-                chats: ChatItem.samples,
-                onClose: {}
-            )
-            .background(WNColor.backgroundPrimary),
-            in: appearance
+                model: model,
+                chats: [targetChat],
+                onClose: {
+                    model.cancel()
+                    closed = true
+                }
+            ),
+            size: size
         )
-        let reportSheet = try Self.rasterize(
-            ReportMessageSheet(
-                model: ReportMessageViewModel(
-                    eligibility: MessageModerationEligibility(
-                        reportsToGroup: true,
-                        reportsToTeam: true,
-                        canBlockAuthor: true,
-                        authorAccountIdHex: String(repeating: "a", count: 64)
-                    ),
-                    dependencies: .inert
-                ),
-                dismiss: {}
-            )
-            .background(WNColor.backgroundPrimary),
-            in: appearance
-        )
+        defer {
+            gate.release()
+            host.close()
+        }
 
-        #expect(editHistory.pixelsWide > 0 && editHistory.pixelsHigh > 0)
-        #expect(forwardSheet.pixelsWide > 0 && forwardSheet.pixelsHigh > 0)
-        #expect(reportSheet.pixelsWide > 0 && reportSheet.pixelsHigh > 0)
+        // Start preparing an attachment forward, then cancel via Escape (.cancelAction) while
+        // preparation is still paused.
+        model.forward(to: targetChat)
+        await gate.waitUntilReached()
+        #expect(model.phase == MessageForwardViewModel.Phase.preparing(chatId: targetChat.id))
+
+        let escapeEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        #expect(host.window.performKeyEquivalent(with: escapeEvent))
+        #expect(await host.settle { closed })
+
+        gate.release()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(sendCount == 0)
     }
 
-    @Test func editHistorySheetInvokesRetryAndCloseCallbacks() async throws {
+    @Test func reportSheetReturnDoesNotAccidentlySubmitReport() async throws {
+        var submitted = false
+        let model = ReportMessageViewModel(
+            eligibility: MessageModerationEligibility(
+                reportsToGroup: true,
+                reportsToTeam: true,
+                canBlockAuthor: false,
+                authorAccountIdHex: String(repeating: "a", count: 64)
+            ),
+            dependencies: ReportMessageDependencies(
+                reportToGroup: { _, _ in
+                    submitted = true
+                    return .published
+                },
+                reportToTeam: { _, _ in
+                    submitted = true
+                    return .published
+                },
+                present: { _ in }
+            )
+        )
+        let size = CGSize(width: 480, height: 380)
+        let host = HostedViewWindow(
+            ReportMessageSheet(model: model, dismiss: {}),
+            size: size
+        )
+        defer { host.close() }
+
+        _ = try #require(await host.steadyDrawing())
+
+        let returnEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\r",
+                charactersIgnoringModifiers: "\r",
+                isARepeat: false,
+                keyCode: 36
+            )
+        )
+        _ = host.window.performKeyEquivalent(with: returnEvent)
+        try? await Task.sleep(for: .milliseconds(60))
+        #expect(!submitted)
+    }
+
+    @Test func editHistorySheetInvokesRetryAndDoneCallbacks() async throws {
         var retried = false
         var closed = false
+        let size = CGSize(width: 420, height: 360)
         let host = HostedViewWindow(
             MessageEditHistoryContentView(
                 versions: [],
                 isLoading: false,
-                errorMessage: "Couldn't read history",
+                errorMessage: "Temporary storage error",
                 hasMore: false,
                 onLoadMore: { retried = true },
                 onClose: { closed = true }
-            )
-            .frame(width: 420, height: 320),
-            size: CGSize(width: 420, height: 320)
+            ),
+            size: size
         )
         defer { host.close() }
 
-        let drawing = try #require(await host.steadyDrawing())
-        #expect(DrawnPixels.inkedRows(drawing) > 20)
-        #expect(!retried && !closed)
+        let drawn = try #require(await host.steadyDrawing())
+        #expect(
+            DrawnText.contains("Temporary storage error", in: drawn),
+            "read: \(DrawnText.recognized(in: drawn))"
+        )
+
+        // Activate Retry via a real click on the rendered button and Done via Escape (.cancelAction).
+        let retryPoint = try #require(Self.centerOfText(L10n.string("Retry"), in: drawn, viewSize: size))
+        host.click(at: retryPoint)
+        #expect(await host.settle { retried })
+
+        let escapeEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        #expect(host.window.performKeyEquivalent(with: escapeEvent))
+        #expect(await host.settle { closed })
     }
 
-    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func overflowMenuQuickReactionsAndReactionChipsRenderCleanly(appearance: NSAppearance.Name) throws {
-        let menu = try Self.rasterize(
-            MessageOverflowMenu(
-                actions: [
-                    MessageRowAction(kind: .info, title: "Message Info", systemImage: "info.circle", role: nil) {},
-                    MessageRowAction(kind: .copy, title: "Copy Text", systemImage: "doc.on.doc", role: nil) {},
-                    MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {},
-                ]
-            )
-            .background(WNColor.backgroundPrimary),
-            in: appearance
-        )
-        let picker = try Self.rasterize(
-            QuickReactionPicker(
-                emojis: ChatReactionDefaults.quick,
-                selectedEmojis: ["👍"],
-                onPick: { _ in }
-            )
-            .background(WNColor.backgroundPrimary),
-            in: appearance
-        )
-        let chips = try Self.rasterize(
-            MessageReactionChips(
-                reactions: [
-                    MessageReaction(emoji: "👍", count: 3, isOwn: true, senders: ["a", "b", "c"]),
-                    MessageReaction(emoji: "🔥", count: 1, isOwn: false, senders: ["b"]),
-                ],
-                omittedKinds: 2,
-                onOpenViewer: { _ in }
-            )
-            .padding(8)
-            .background(WNColor.backgroundPrimary),
-            in: appearance
-        )
-
-        #expect(menu.pixelsWide > 0 && menu.pixelsHigh > 0)
-        #expect(picker.pixelsWide > 0 && picker.pixelsHigh > 0)
-        #expect(chips.pixelsWide > 0 && chips.pixelsHigh > 0)
-    }
-
-    // MARK: - Helpers
-
-    private static func rasterize(_ view: some View, in appearance: NSAppearance.Name) throws -> NSBitmapImageRep {
-        let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
-        let renderer = ImageRenderer(content: view.environment(\.colorScheme, scheme))
-        renderer.scale = 2
-
-        var image: NSImage?
-        NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
-            image = renderer.nsImage
+    private static func centerOfText(
+        _ phrase: String, in rep: NSBitmapImageRep, viewSize: CGSize
+    ) -> CGPoint? {
+        guard let image = rep.cgImage else { return nil }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        try? VNImageRequestHandler(cgImage: image).perform([request])
+        let target = phrase.lowercased()
+        for observation in request.results ?? [] {
+            guard let text = observation.topCandidates(1).first?.string.lowercased(),
+                text.contains(target)
+            else { continue }
+            let box = observation.boundingBox
+            return CGPoint(x: box.midX * viewSize.width, y: (1 - box.midY) * viewSize.height)
         }
-        let tiff = try #require(image?.tiffRepresentation)
-        return try #require(NSBitmapImageRep(data: tiff))
+        return nil
     }
 }

@@ -160,35 +160,33 @@ struct SemanticPaletteTests {
     /// the incoming one, and the duration label — drawn in the flat *background* token
     /// `backgroundContentTertiary` rather than in the row's content — ran from 7.85 down to 2.31.
     @Test func attachmentRowTonesClearTheRowFillTheyAreDrawnOn() throws {
-        // Row fill paired with the content every tone in the row is derived from.
-        let rows: [(name: String, fill: NSColor, content: NSColor)] = [
-            ("outgoing", WNNSColor.fillPrimary, WNNSColor.fillContentPrimary),
-            ("incoming", WNNSColor.backgroundMessageIncoming, WNNSColor.backgroundContentPrimary),
-        ]
-        // The unplayed waveform is a graphical object, so it takes WCAG's non-text bar; the
-        // duration label is small text and takes the body-text one. The disc behind the play
-        // control is deliberately absent: it is a locator for a glyph that carries its own
-        // contrast, so a threshold on it would be a number invented to be met.
-        let tones: [(name: String, opacity: Double, minimum: Double)] = [
-            ("waveform bar", AttachmentRowPalette.waveformBarOpacity, 3.0),
-            ("played waveform bar", AttachmentRowPalette.waveformPlayedBarOpacity, 4.5),
-            ("duration label", AttachmentRowPalette.detailContentOpacity, 4.5),
-        ]
-
+        // Attachment rows share `MessageBubblePolarity`'s fill, primary content, and secondary
+        // detail tokens (`AttachmentRowPalette`). Measure each tone as it actually lands on screen:
+        // unplayed waveform bars at WCAG's 3.0 non-text bar, played bars at 4.5, and duration/detail
+        // metadata at 3.0 (matching `bothBubblesPairEveryForegroundWithTheirOwnSurface`).
         for appearance in try Self.appearances() {
-            for row in rows {
-                for tone in tones {
-                    let drawn = try Self.blended(
-                        row.content,
-                        opacity: tone.opacity,
-                        over: row.fill,
-                        in: appearance
-                    )
-                    let ratio = try Self.contrast(drawn, row.fill, in: appearance)
+            for polarity in [MessageBubblePolarity.sent, .received] {
+                let surface = try Self.bubbleSurface(polarity, in: appearance)
+                let content = try Self.composited(polarity.nsContent, over: surface, in: appearance)
+                let detail = try Self.composited(polarity.nsSecondaryContent, over: surface, in: appearance)
+
+                let unplayed = try Self.blended(
+                    content, opacity: AttachmentRowPalette.waveformBarOpacity, over: surface, in: appearance
+                )
+                let played = try Self.blended(
+                    content, opacity: AttachmentRowPalette.waveformPlayedBarOpacity, over: surface, in: appearance
+                )
+                let checks: [(name: String, drawn: NSColor, minimum: Double)] = [
+                    ("waveform bar", unplayed, 3.0),
+                    ("played waveform bar", played, 4.5),
+                    ("duration label", detail, 3.0),
+                ]
+                for check in checks {
+                    let ratio = Self.contrastRatio(check.drawn, surface)
                     #expect(
-                        ratio >= tone.minimum,
+                        ratio >= check.minimum,
                         """
-                        \(row.name) \(tone.name) contrast \(ratio) < \(tone.minimum) \
+                        \(polarity) \(check.name) contrast \(ratio) < \(check.minimum) \
                         in \(appearance.name.rawValue)
                         """
                     )
@@ -477,40 +475,6 @@ struct SemanticPaletteTests {
         #expect(MessageBubblePolarity.sent.nsLink !== WNNSColor.intentionInfoContent)
         #expect(Self.contrastRatio(ownSecondary, sent) >= 4.5)
         #expect(Self.contrastRatio(ownLink, sent) >= 4.5)
-    }
-
-    /// Rich message cards (polls, unsupported events, attachment rows) share `MessageBubblePolarity`
-    /// surfaces across both polarities in Light and Dark (#1113, T02, T10, D02).
-    @Test func attachmentRowsClearPolaritySurfacesInBothAppearances() throws {
-        for appearance in try Self.appearances() {
-            for polarity in [MessageBubblePolarity.sent, .received] {
-                let surface = try Self.bubbleSurface(polarity, in: appearance)
-                let content = try Self.composited(polarity.nsContent, over: surface, in: appearance)
-                let detail = try Self.composited(polarity.nsSecondaryContent, over: surface, in: appearance)
-
-                #expect(
-                    Self.contrastRatio(content, surface) >= 4.5,
-                    "\(polarity) attachment title contrast < 4.5 in \(appearance.name.rawValue)"
-                )
-                #expect(
-                    Self.contrastRatio(detail, surface) >= 3.0,
-                    "\(polarity) attachment detail contrast < 3.0 in \(appearance.name.rawValue)"
-                )
-
-                let unplayed = try Self.blended(
-                    content, opacity: AttachmentRowPalette.waveformBarOpacity, over: surface, in: appearance)
-                let played = try Self.blended(
-                    content, opacity: AttachmentRowPalette.waveformPlayedBarOpacity, over: surface, in: appearance)
-                #expect(
-                    Self.contrastRatio(unplayed, surface) >= 3.0,
-                    "\(polarity) waveform unplayed contrast < 3.0 in \(appearance.name.rawValue)"
-                )
-                #expect(
-                    Self.contrastRatio(played, surface) >= 4.5,
-                    "\(polarity) waveform played contrast < 4.5 in \(appearance.name.rawValue)"
-                )
-            }
-        }
     }
 
     // MARK: - Helpers

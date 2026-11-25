@@ -93,14 +93,12 @@ struct MessageForwardSheet: View {
                 Spacer()
                 Button(L10n.string("Cancel"), action: onClose)
                     .wnSecondaryButtonStyle()
-                    .disabled(model.isBusy)
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
         .frame(width: 420, height: 520)
-        .interactiveDismissDisabled(model.isBusy)
         .onAppear { isSearchFocused = true }
         .alert(
             L10n.string("Files unavailable"),
