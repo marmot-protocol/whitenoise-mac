@@ -59,13 +59,13 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
             isMessengerWindowTarget: { true }
         )
         var usedSelection: String?
+        var liveSelection: String? = "alpha"
         let command = ConversationSearchCommand(
             accountID: activeAccountId,
             chatID: selectedChat.id,
             model: searchModel,
             open: {},
-            selectedText: "alpha",
-            selectedTextForFind: { "alpha" },
+            selectedTextForFind: { liveSelection },
             useSelectionForFind: { usedSelection = $0 }
         )
 
@@ -86,11 +86,17 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
         #expect(searchModel.currentMatchMessageId == "m3")
         #expect(!ConversationFindCommandPolicy.canFindNext(messenger: messenger, conversation: command))
 
-        // Use Selection for Find (⌘E) routes the selected query.
+        // Use Selection for Find (⌘E) routes the live selection and disables immediately when focus leaves.
         #expect(
             ConversationFindCommandPolicy.selectedQueryForFind(messenger: messenger, conversation: command) == "alpha")
         ConversationFindCommandPolicy.useSelectionForFind(messenger: messenger, conversation: command)
         #expect(usedSelection == "alpha")
+
+        liveSelection = nil
+        usedSelection = nil
+        #expect(ConversationFindCommandPolicy.selectedQueryForFind(messenger: messenger, conversation: command) == nil)
+        ConversationFindCommandPolicy.useSelectionForFind(messenger: messenger, conversation: command)
+        #expect(usedSelection == nil)
 
         // Stale chat or unavailable messenger target disables Find commands.
         let staleChatCommand = ConversationSearchCommand(
@@ -109,7 +115,7 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
         #expect(!ConversationFindCommandPolicy.canUseConversation(messenger: inactiveWindow, conversation: command))
     }
 
-    @Test func messengerCommandContextRoutesGlobalSearchCallbackWithoutDiscardingNewGroupDraft() throws {
+    @Test func openSidebarGlobalSearchPreservesNewGroupDraft() throws {
         let workspace = WorkspaceState.preview()
         let activeAccountId = try #require(workspace.activeAccountId)
         workspace.showNewChat()
@@ -121,8 +127,7 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
             workspace: workspace,
             accountID: activeAccountId,
             onSearchAllMessages: {
-                workspace.isChatListVisible = true
-                globalSearch.activate(initialQuery: workspace.searchText)
+                SidebarGlobalSearchViewModel.open(in: workspace, globalSearch: globalSearch)
             },
             isMessengerWindowTarget: { true }
         )
@@ -178,19 +183,28 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
         }
     }
 
-    @Test func useSelectionForFindExtractsTextFromTextViewAndSkipsSecureField() {
-        let textView = NSTextView()
-        textView.string = "Hello   world\nagain"
-        textView.setSelectedRange(NSRange(location: 0, length: 19))
-        #expect(ConversationFindSelection.selectedQuery(from: textView) == "Hello world again")
+    @Test func useSelectionForFindAcceptsTranscriptSelectionAndRejectsComposerAndSecureField() {
+        let transcriptTable = TranscriptNSTableView()
+        let transcriptTextView = NSTextView()
+        transcriptTable.addSubview(transcriptTextView)
+        transcriptTextView.string = "Hello   world\nagain"
+        transcriptTextView.setSelectedRange(NSRange(location: 0, length: 19))
+        #expect(ConversationFindSelection.selectedQuery(from: transcriptTextView) == "Hello world again")
 
-        textView.setSelectedRange(NSRange(location: 0, length: 0))
-        #expect(ConversationFindSelection.selectedQuery(from: textView) == nil)
+        transcriptTextView.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(ConversationFindSelection.selectedQuery(from: transcriptTextView) == nil)
 
-        let punctuationOnly = NSTextView()
-        punctuationOnly.string = "   ...  "
-        punctuationOnly.setSelectedRange(NSRange(location: 0, length: 8))
-        #expect(ConversationFindSelection.selectedQuery(from: punctuationOnly) == nil)
+        transcriptTextView.string = "   ...  "
+        transcriptTextView.setSelectedRange(NSRange(location: 0, length: 8))
+        #expect(ConversationFindSelection.selectedQuery(from: transcriptTextView) == nil)
+
+        // A composer or sidebar text view outside `TranscriptNSTableView` must never feed `⌘E`.
+        let composerContainer = NSView()
+        let composerTextView = NSTextView()
+        composerContainer.addSubview(composerTextView)
+        composerTextView.string = "unsent draft text"
+        composerTextView.setSelectedRange(NSRange(location: 0, length: 12))
+        #expect(ConversationFindSelection.selectedQuery(from: composerTextView) == nil)
 
         let secureField = NSSecureTextField()
         secureField.stringValue = "topsecret"
@@ -290,31 +304,93 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
         #expect(model.selectedResultID == hit.id)
         #expect(model.selectedResult() == hit)
 
-        let target = GlobalMessageNavigationTarget(requestId: UUID(), groupId: hit.groupId, messageId: hit.messageId)
-        let otherMessageInSameChat = GlobalMessageNavigationTarget(
-            requestId: UUID(), groupId: hit.groupId, messageId: "m99"
-        )
-        let otherChat = GlobalMessageNavigationTarget(requestId: UUID(), groupId: "other", messageId: hit.messageId)
+        // Reordering chats without changing membership keeps results and selection untouched.
+        model.handleVisibleChatsChanged(visibleGroupIds: ["g1", "g2"])
+        let resultsAfterFirstSet = await waitForSearchIdle(model)
+        #expect(resultsAfterFirstSet == [hit])
+        #expect(model.moveSelection(down: true))
+        #expect(model.selectedResultID == hit.id)
 
-        model.recordConversationSearchJump(target: target, query: model.query)
-        // A different chat or a superseded navigation in the same chat cannot steal the pending Find query.
-        #expect(model.consumeConversationSearchJump(for: otherChat) == nil)
-        #expect(model.consumeConversationSearchJump(for: otherMessageInSameChat) == nil)
-        let consumed = model.consumeConversationSearchJump(for: target)
-        #expect(consumed == "release")
-        #expect(model.consumeConversationSearchJump(for: target) == nil)
+        var runnerCalls = 0
+        let reorderModel = SidebarGlobalSearchViewModel(
+            debounce: .zero,
+            searchRunner: { query, _ in
+                runnerCalls += 1
+                return query == "release" ? [hit] : []
+            }
+        )
+        reorderModel.handleVisibleChatsChanged(visibleGroupIds: ["g1", "g2"])
+        reorderModel.activate(initialQuery: "release")
+        _ = await waitForSearchIdle(reorderModel)
+        #expect(runnerCalls == 1)
+        #expect(reorderModel.moveSelection(down: true))
+        #expect(reorderModel.selectedResultID == hit.id)
+
+        // Same membership in any order does not clear results, reset selection, or re-run search.
+        reorderModel.handleVisibleChatsChanged(visibleGroupIds: ["g2", "g1"])
+        #expect(runnerCalls == 1)
+        #expect(reorderModel.results == [hit])
+        #expect(reorderModel.selectedResultID == hit.id)
+
+        // Removing a chat invalidates and re-runs the search.
+        reorderModel.handleVisibleChatsChanged(visibleGroupIds: ["g2"])
+        _ = await waitForSearchIdle(reorderModel)
+        #expect(runnerCalls == 2)
 
         // Stopping (as AccountScope.cancelAll does on account switch) resets everything cleanly.
-        model.recordConversationSearchJump(target: target, query: "release")
         model.stop()
         #expect(!model.isActive)
         #expect(model.query.isEmpty)
         #expect(model.results.isEmpty)
         #expect(model.selectedResultID == nil)
-        #expect(model.pendingConversationSearch == nil)
     }
 
-    @Test func openGlobalMessageSearchResultReturnsNilWithoutRecordingJumpWhenChatIsMissing() async {
+    @Test func lateResultOpenCannotDismissNewerSearchSession() async {
+        let hit = GlobalMessageSearchResult(
+            messageId: "m42",
+            groupId: "g1",
+            chatTitle: "Design",
+            senderName: "Alice",
+            timelineAt: 1_700_000_000,
+            snippet: GlobalMessageSearchSnippet(leading: "Ship the ", match: "release", trailing: " checklist")
+        )
+        let model = SidebarGlobalSearchViewModel(
+            debounce: .zero,
+            searchRunner: { _, _ in [hit] }
+        )
+        model.activate(initialQuery: "release")
+        _ = await waitForSearchIdle(model)
+
+        var resumeNavigate: CheckedContinuation<GlobalMessageNavigationTarget?, Never>?
+        model.openResult(hit, query: "release") { result, query in
+            await withCheckedContinuation { continuation in
+                resumeNavigate = continuation
+            }
+        }
+        // Let the openResult task suspend at navigate.
+        await Task.yield()
+
+        // User backs out and opens a fresh search session while the old open is still suspended.
+        model.dismiss()
+        model.activate(initialQuery: "newer")
+        _ = await waitForSearchIdle(model)
+        #expect(model.isActive)
+        #expect(model.query == "newer")
+
+        // The stale navigation completes now; it must NOT dismiss the newer search session.
+        resumeNavigate?.resume(
+            returning: GlobalMessageNavigationTarget(
+                requestId: UUID(), groupId: hit.groupId, messageId: hit.messageId, searchQuery: "release"
+            )
+        )
+        await Task.yield()
+        await Task.yield()
+
+        #expect(model.isActive)
+        #expect(model.query == "newer")
+    }
+
+    @Test func openGlobalMessageSearchResultReturnsNilWhenChatIsMissingAndCarriesQueryWhenPresent() async throws {
         let workspace = WorkspaceState.preview()
         let missing = GlobalMessageSearchResult(
             messageId: "m1",
@@ -325,33 +401,176 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
             snippet: GlobalMessageSearchSnippet(leading: "", match: "needle", trailing: "")
         )
 
-        let target = await workspace.openGlobalMessageSearchResult(missing)
-        #expect(target == nil)
+        let missingTarget = await workspace.openGlobalMessageSearchResult(missing, searchQuery: "needle")
+        #expect(missingTarget == nil)
         #expect(workspace.pendingMessageNavigation == nil)
+
+        let chat = try #require(workspace.activeChats.first)
+        workspace.selectChat(chat)
+        workspace.timelineTaskGroupId = chat.id
+        let present = GlobalMessageSearchResult(
+            messageId: String(repeating: "b", count: 64),
+            groupId: chat.id,
+            chatTitle: chat.title,
+            senderName: "Alice",
+            timelineAt: 10,
+            snippet: GlobalMessageSearchSnippet(leading: "", match: "needle", trailing: "")
+        )
+        let target = await workspace.openGlobalMessageSearchResult(present, searchQuery: "  needle  ")
+        #expect(target?.groupId == chat.id)
+        #expect(target?.messageId == present.messageId)
+        #expect(target?.searchQuery == "needle")
+        #expect(workspace.pendingMessageNavigation == target)
     }
 
-    @Test func attachmentViewModelKeepsTransferObservationAliveAcrossCoexistingMediaSurfaces() async throws {
+    @Test func attachmentViewModelReopeningInspectorDoesNotEraseInFlightLoadMorePages() async throws {
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
-        let target = AttachmentLocalTargetFfi(
-            messageIdHex: "m1",
-            sourceMessageIdHex: "m1",
-            attachmentIndex: 0
+        let entry1 = Self.sharedImageEntry(messageId: "m1", fileName: "one.png", timelineAt: 200)
+        let entry2 = Self.sharedImageEntry(messageId: "m2", fileName: "two.png", timelineAt: 100)
+        let page1 = AttachmentPageReadFfi.page(
+            page: AttachmentPageFfi(
+                entries: [entry1],
+                version: AttachmentHistoryVersion(noPointer: .init()),
+                nextCursor: nil,
+                hasMore: true
+            )
         )
-        runtime.attachmentTransferDelayNanoseconds = 500_000_000
+        let page2 = AttachmentPageReadFfi.page(
+            page: AttachmentPageFfi(
+                entries: [entry2],
+                version: AttachmentHistoryVersion(noPointer: .init()),
+                nextCursor: nil,
+                hasMore: false
+            )
+        )
+        runtime.attachmentHistoryPageQueue = [page1, page2]
         let model = AttachmentViewModel(accountRef: "Desktop Account", groupIdHex: "g1", runtime: runtime)
+        await model.refreshHistory()
+        #expect(model.items.map(\.messageIdHex) == ["m1"])
 
+        // Pause page 2 in flight and simulate reopening Chat Info calling refreshHistory().
+        let enteredPage2 = AsyncStream<Void>.makeStream()
+        let releasePage2 = AsyncStream<Void>.makeStream()
+        runtime.attachmentHistoryPageHook = {
+            enteredPage2.continuation.yield(())
+            var iterator = releasePage2.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+
+        let loadMoreTask = Task { await model.loadMore() }
+        var enteredIterator = enteredPage2.stream.makeAsyncIterator()
+        _ = await enteredIterator.next()
+
+        // Calling refreshHistory while loadMore is in flight must NOT wipe entries/cursor/version.
+        await model.refreshHistory()
+        #expect(model.items.map(\.messageIdHex) == ["m1"])
+
+        releasePage2.continuation.yield(())
+        await loadMoreTask.value
+        #expect(model.items.map(\.messageIdHex) == ["m1", "m2"])
+    }
+
+    @Test func attachmentViewModelTransferObservationSurvivesFirstCloseAndDoesNotRestartAfterFinalClose() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let entry = Self.sharedImageEntry(messageId: "m1", fileName: "one.png", timelineAt: 200)
+        let target = AttachmentLocalTargetFfi(messageIdHex: "m1", sourceMessageIdHex: "m1", attachmentIndex: 0)
+        runtime.attachmentHistoryPageResult = .page(
+            page: AttachmentPageFfi(
+                entries: [entry],
+                version: AttachmentHistoryVersion(noPointer: .init()),
+                nextCursor: nil,
+                hasMore: false
+            )
+        )
+        runtime.attachmentTransferSnapshots = [
+            AttachmentTransferSnapshotFfi(items: [
+                AttachmentTransferStatusFfi(
+                    reference: "ref-1",
+                    state: .downloading,
+                    attempt: 1,
+                    received: 64,
+                    total: 128,
+                    retryAt: nil
+                )
+            ])
+        ]
+        runtime.attachmentTransferDelayNanoseconds = 60_000_000
+
+        let model = AttachmentViewModel(accountRef: "Desktop Account", groupIdHex: "g1", runtime: runtime)
         let inspectorOwner = model.beginTransferObservation()
         let libraryOwner = model.beginTransferObservation()
-        model.observeTransfers(for: [target])
-        #expect(model.isObservingTransfers)
+        await model.refreshHistory()
 
-        // Closing the inspector while the Shared Media library stays open must keep transfers live.
+        // Close the first surface while the transfer snapshot is still pending.
         model.endTransferObservation(inspectorOwner)
-        #expect(model.isObservingTransfers)
+        #expect(runtime.attachmentTransferCancellationCount == 0)
 
-        // Closing the final surface stops the subscription.
+        // The second surface still receives the snapshot!
+        let deadline = ContinuousClock.now + .seconds(5)
+        while model.transfersByTarget[target]?.state != .downloading && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(model.transfersByTarget[target]?.state == .downloading)
+
+        // Now pause an explicit refreshLocalAssets() in flight, close the FINAL owner, then let the
+        // refresh finish: it must NOT start a replacement transfer subscription with zero owners!
+        let subscriptionsBeforeFinalClose = runtime.attachmentTransferSubscriptionCount
+        let enteredRefresh = AsyncStream<Void>.makeStream()
+        let releaseRefresh = AsyncStream<Void>.makeStream()
+        runtime.attachmentLocalAssetsHook = {
+            enteredRefresh.continuation.yield(())
+            var iterator = releaseRefresh.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+
+        let refreshTask = Task { await model.refreshLocalAssets() }
+        var enteredRefreshIterator = enteredRefresh.stream.makeAsyncIterator()
+        _ = await enteredRefreshIterator.next()
+
         model.endTransferObservation(libraryOwner)
-        #expect(!model.isObservingTransfers)
+        #expect(runtime.attachmentTransferCancellationCount >= 1)
+
+        releaseRefresh.continuation.yield(())
+        await refreshTask.value
+        #expect(runtime.attachmentTransferSubscriptionCount == subscriptionsBeforeFinalClose)
+    }
+
+    private static func sharedImageEntry(messageId: String, fileName: String, timelineAt: UInt64)
+        -> AttachmentEntryFfi
+    {
+        AttachmentEntryFfi(
+            messageIdHex: messageId,
+            sourceMessageIdHex: messageId,
+            sender: "alice",
+            timelineAt: timelineAt,
+            receivedAt: timelineAt,
+            sourceEpoch: 1,
+            category: .image,
+            role: .shared,
+            attachment: .accepted(
+                attachmentIndex: 0,
+                reference: MediaAttachmentReferenceFfi(
+                    locators: [],
+                    ciphertextSha256: "ciphertext-\(messageId)",
+                    plaintextSha256: "plaintext-\(messageId)",
+                    nonceHex: "nonce-\(messageId)",
+                    fileName: fileName,
+                    mediaType: "image/png",
+                    version: .v2,
+                    sourceEpoch: 1,
+                    dim: nil,
+                    thumbhash: nil
+                )
+            )
+        )
+    }
+
+    private func waitForSearchIdle(_ model: SidebarGlobalSearchViewModel) async -> [GlobalMessageSearchResult] {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while model.isSearching && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        return model.results
     }
 
     // MARK: - #1044: Shared Media & Files icons, truthful metadata, categories

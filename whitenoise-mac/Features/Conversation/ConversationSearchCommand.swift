@@ -6,11 +6,10 @@ struct ConversationSearchCommand {
     let chatID: String
     let model: ConversationSearchViewModel
     let open: () -> Void
-    /// Latest selected-text snapshot observed in the focused messenger window, refreshed on text
-    /// selection changes so Edit › Find › Use Selection for Find (`⌘E`) updates its enabled state.
-    var selectedText: String? = nil
-    /// Live selected-text reader invoked when `⌘E` executes so the command always acts on the
-    /// current responder selection.
+    /// Monotonic token incremented on responder/selection changes so SwiftUI menu validation
+    /// re-evaluates `selectedTextForFind()` without caching stale text across focus changes.
+    var selectionRevision: Int = 0
+    /// Live transcript-scoped selected-text reader invoked for both `⌘E` enablement and action.
     var selectedTextForFind: () -> String? = { nil }
     var useSelectionForFind: (String) -> Void = { _ in }
 }

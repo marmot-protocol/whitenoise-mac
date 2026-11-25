@@ -115,25 +115,27 @@ struct ContactDetailsView: View {
     }
 }
 
-#Preview("Contact inspector") {
-    let workspace = WorkspaceState.preview()
-    ContactDetailsView(
-        contact: NewChatRecipient(
-            sourceQuery: "alice",
-            memberRef: "npub1alice",
-            accountIdHex: "a1ce",
-            npub: "npub1a1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1ce",
-            displayName: "Alice",
-            pictureURL: nil,
-            about: "Product designer."
-        ),
-        blockedUsersModel: BlockedUsersViewModel(
-            accountRef: "preview",
-            runtime: FakeMarmotRuntime(accounts: [], storageRootPath: NSTemporaryDirectory())
-        ),
-        returnsToGroupInfo: true
-    )
-    .environment(workspace)
-    .environment(SessionState())
-    .frame(width: 320, height: 540)
-}
+#if DEBUG
+    #Preview("Contact inspector") {
+        let workspace = WorkspaceState.preview()
+        ContactDetailsView(
+            contact: NewChatRecipient(
+                sourceQuery: "alice",
+                memberRef: "npub1alice",
+                accountIdHex: "a1ce",
+                npub: "npub1a1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1ce",
+                displayName: "Alice",
+                pictureURL: nil,
+                about: "Product designer."
+            ),
+            blockedUsersModel: BlockedUsersViewModel(
+                accountRef: "preview",
+                runtime: FakeMarmotRuntime(accounts: [], storageRootPath: NSTemporaryDirectory())
+            ),
+            returnsToGroupInfo: true
+        )
+        .environment(workspace)
+        .environment(SessionState())
+        .frame(width: 320, height: 540)
+    }
+#endif

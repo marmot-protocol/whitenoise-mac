@@ -88,11 +88,6 @@ struct SharedMediaViewerOverlay: View {
             }
         }
         .onExitCommand(perform: onClose)
-        // Re-anchor when the user clicks a different thumbnail while the viewer is already open.
-        .onChange(of: presentation.id) { _, _ in
-            selectedIndex = presentation.initialIndex
-            zoom.reset()
-        }
         // Each page starts fitted, as in the message gallery.
         .onChange(of: selectedIndex) { zoom.reset() }
         .retainedAttachmentErrorAlert($saveError)

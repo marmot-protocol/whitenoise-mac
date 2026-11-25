@@ -142,14 +142,15 @@ nonisolated enum ConversationSearchEngine {
     }
 }
 
-/// Extracts a searchable query from the currently focused AppKit text selection for Edit › Find ›
-/// Use Selection for Find (`⌘E`, K04, #1043). Ignores secure text fields and whitespace/punctuation-only
-/// selections so secrets are never leaked into Find and empty selections keep `⌘E` disabled.
+/// Extracts a searchable query from the currently focused transcript text selection for Edit › Find ›
+/// Use Selection for Find (`⌘E`, K04, #1043). Restricted to text views hosted inside the
+/// conversation transcript (`TranscriptNSTableView`) so composer drafts, search fields, and
+/// secure inputs never leak into Find, and empty/punctuation-only selections keep `⌘E` disabled.
 @MainActor
 enum ConversationFindSelection {
     static func selectedQuery(from responder: NSResponder?) -> String? {
         if responder is NSSecureTextField { return nil }
-        guard let text = responder as? NSText else { return nil }
+        guard let text = responder as? NSText, isInsideTranscript(text) else { return nil }
         if NSStringFromClass(type(of: text)).contains("SecureText") { return nil }
         if let textView = responder as? NSTextView, textView.delegate is NSSecureTextField {
             return nil
@@ -159,6 +160,15 @@ enum ConversationFindSelection {
         let full = text.string as NSString
         guard NSMaxRange(range) <= full.length else { return nil }
         return normalizedQuery(from: full.substring(with: range))
+    }
+
+    private static func isInsideTranscript(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate is TranscriptNSTableView { return true }
+            current = candidate.superview
+        }
+        return false
     }
 
     nonisolated static func normalizedQuery(from rawSelection: String) -> String? {

@@ -59,14 +59,9 @@ struct MessengerShellView: View {
                             onOpenSettings: { settings.open() },
                             onOpenDevicesSettings: { settings.open(at: .devices) },
                             onOpenGlobalSearchResult: { result, query in
-                                guard let globalSearch = session.accountScope?.globalMessageSearch else { return }
-                                Task {
-                                    if let target = await workspace.openGlobalMessageSearchResult(result) {
-                                        globalSearch.dismiss()
-                                        globalSearch.recordConversationSearchJump(target: target, query: query)
-                                    } else {
-                                        globalSearch.invalidate(clearQuery: false, restartIfActive: true)
-                                    }
+                                session.accountScope?.globalMessageSearch.openResult(result, query: query) {
+                                    result, searchQuery in
+                                    await workspace.openGlobalMessageSearchResult(result, searchQuery: searchQuery)
                                 }
                             }
                         )
@@ -133,9 +128,9 @@ struct MessengerShellView: View {
         .onChange(of: workspace.showsMessengerChrome) { _, shows in
             if !shows { session.accountScope?.globalMessageSearch.dismiss() }
         }
-        .onChange(of: workspace.activeChats.map(\.id)) { oldIds, newIds in
+        .onChange(of: Set(workspace.activeChats.map(\.id))) { oldIds, newIds in
             guard oldIds != newIds else { return }
-            session.accountScope?.globalMessageSearch.handleVisibleChatsChanged(visibleGroupIds: Set(newIds))
+            session.accountScope?.globalMessageSearch.handleVisibleChatsChanged(visibleGroupIds: newIds)
         }
         .task(id: productScreen) {
             guard let productScreen else { return }
@@ -144,8 +139,7 @@ struct MessengerShellView: View {
     }
 
     private func openSidebarGlobalSearch() {
-        workspace.isChatListVisible = true
-        session.accountScope?.globalMessageSearch.activate(initialQuery: workspace.searchText)
+        SidebarGlobalSearchViewModel.open(in: workspace, globalSearch: session.accountScope?.globalMessageSearch)
     }
 }
 
@@ -215,8 +209,7 @@ private struct DetailPaneView: View {
                                 accountDevicesModel: scope.accountDevicesModel(groupIdHex: chat.id),
                                 deviceLinking: scope.deviceLinking,
                                 blockedUsersModel: scope.blockedUsers,
-                                avatarAssets: scope.avatarAssets,
-                                globalSearch: scope.globalMessageSearch
+                                avatarAssets: scope.avatarAssets
                             )
                         } else {
                             EmptyDetailView()
@@ -641,7 +634,7 @@ private struct ConversationView: View {
     @State private var isSharedMediaLibraryPresented = false
     @State private var sharedMediaCategory: SharedMediaLibraryCategory = .media
     @State private var sharedMediaViewer: SharedMediaViewerPresentation?
-    @State private var selectedFindText: String?
+    @State private var findSelectionRevision = 0
     /// Hover-scoped text-selection gate for chat bubbles. Not read by `body` — bubbles
     /// register local `isSelectable` state so hover only updates the previous and active row
     /// (whitenoise-mac#397).
@@ -668,7 +661,6 @@ private struct ConversationView: View {
     /// Avatar bytes for the snapshot's identities, so the mention picker draws the same pictures
     /// the transcript does.
     let avatarAssets: AvatarAssetStore
-    let globalSearch: SidebarGlobalSearchViewModel
 
     private var inspectorPresented: Binding<Bool> {
         Binding(
@@ -857,9 +849,7 @@ private struct ConversationView: View {
                             land()
                         }
                     }
-                    if let query = globalSearch.consumeConversationSearchJump(for: target),
-                        case .shown = outcome
-                    {
+                    if let query = target.searchQuery, case .shown = outcome {
                         openSearch(withQuery: query, anchorMessageId: target.messageId)
                     }
                     workspace.completePendingMessageNavigation(target)
@@ -1057,10 +1047,16 @@ private struct ConversationView: View {
             escapeEndsMessageSelection: session.accountScope?.chatListSelection.isActive != true
         )
         .onReceive(NotificationCenter.default.publisher(for: NSTextView.didChangeSelectionNotification)) { _ in
-            selectedFindText = ConversationFindSelection.selectedQuery(from: NSApp.keyWindow?.firstResponder)
+            findSelectionRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSText.didBeginEditingNotification)) { _ in
+            findSelectionRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSText.didEndEditingNotification)) { _ in
+            findSelectionRevision &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
-            selectedFindText = ConversationFindSelection.selectedQuery(from: NSApp.keyWindow?.firstResponder)
+            findSelectionRevision &+= 1
         }
         .task(id: chat.id) {
             await workspace.refreshConversationMetadata(for: chat)
@@ -1128,7 +1124,7 @@ private struct ConversationView: View {
         isSharedMediaLibraryPresented = false
         sharedMediaCategory = .media
         sharedMediaViewer = nil
-        selectedFindText = nil
+        findSelectionRevision &+= 1
         composerMentionContext = nil
         composerMentionInsertion = nil
         workspace.cancelMessageSelection()
@@ -1522,7 +1518,7 @@ private struct ConversationView: View {
             chatID: chat.id,
             model: model.search,
             open: openSearch,
-            selectedText: selectedFindText,
+            selectionRevision: findSelectionRevision,
             selectedTextForFind: {
                 ConversationFindSelection.selectedQuery(from: NSApp.keyWindow?.firstResponder)
             },

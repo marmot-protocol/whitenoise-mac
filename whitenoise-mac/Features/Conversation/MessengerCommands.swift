@@ -85,7 +85,7 @@ enum ConversationFindCommandPolicy {
         guard canUseConversation(messenger: messenger, conversation: conversation), let conversation else {
             return nil
         }
-        return conversation.selectedText ?? conversation.selectedTextForFind()
+        return conversation.selectedTextForFind()
     }
 
     static func findNext(
@@ -110,7 +110,7 @@ enum ConversationFindCommandPolicy {
     ) {
         guard canUseConversation(messenger: messenger, conversation: conversation),
             let conversation,
-            let query = conversation.selectedTextForFind() ?? conversation.selectedText
+            let query = conversation.selectedTextForFind()
         else { return }
         conversation.useSelectionForFind(query)
     }

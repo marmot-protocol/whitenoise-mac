@@ -44,7 +44,11 @@ struct RetainedSharedMediaSection: View {
             }
         }
         .task(id: model.groupIdHex) {
-            await model.refreshHistory()
+            if model.items.isEmpty {
+                await model.refreshHistory()
+            } else {
+                await model.refreshLocalAssets()
+            }
         }
         .retainedAttachmentTransferObservation(model)
     }
@@ -96,9 +100,6 @@ private struct RetainedAttachmentTransferObservationModifier: ViewModifier {
             .onChange(of: ObjectIdentifier(model)) { _, _ in
                 detach()
                 attach(to: model)
-            }
-            .onChange(of: model.transfers) {
-                Task { await model.refreshLocalAssets() }
             }
             .onDisappear {
                 detach()

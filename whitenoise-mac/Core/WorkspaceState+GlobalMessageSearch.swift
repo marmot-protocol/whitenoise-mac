@@ -29,6 +29,14 @@ struct GlobalMessageNavigationTarget: Equatable, Sendable {
     let requestId: UUID
     let groupId: String
     let messageId: String
+    let searchQuery: String?
+
+    init(requestId: UUID, groupId: String, messageId: String, searchQuery: String? = nil) {
+        self.requestId = requestId
+        self.groupId = groupId
+        self.messageId = messageId
+        self.searchQuery = searchQuery
+    }
 }
 
 nonisolated struct GlobalMessageSearchScope: Sendable {
@@ -468,7 +476,10 @@ extension WorkspaceState {
     }
 
     @discardableResult
-    func openGlobalMessageSearchResult(_ result: GlobalMessageSearchResult) async -> GlobalMessageNavigationTarget? {
+    func openGlobalMessageSearchResult(
+        _ result: GlobalMessageSearchResult,
+        searchQuery: String? = nil
+    ) async -> GlobalMessageNavigationTarget? {
         guard let account = activeAccount,
             let chat = activeChats.first(where: { $0.id == result.groupId })
         else {
@@ -499,10 +510,12 @@ extension WorkspaceState {
             lastError = L10n.string("The selected message is no longer available.")
             return nil
         }
+        let trimmedQuery = searchQuery?.trimmingCharacters(in: .whitespacesAndNewlines)
         let target = GlobalMessageNavigationTarget(
             requestId: UUID(),
             groupId: chat.id,
-            messageId: result.messageId
+            messageId: result.messageId,
+            searchQuery: trimmedQuery?.isEmpty == false ? trimmedQuery : nil
         )
         pendingMessageNavigation = target
         return target
