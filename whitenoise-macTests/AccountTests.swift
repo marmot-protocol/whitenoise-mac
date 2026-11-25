@@ -3124,7 +3124,8 @@ struct AccountTests: WorkspaceTestSupport {
         }
     }
 
-    @Test func theDetailPaneOffersNoChooserOfDeactivatedIdentities() throws {
+    @MainActor
+    @Test func theDetailPaneOffersNoChooserOfDeactivatedIdentities() async throws {
         // With nothing signed in, the pane used to be a `SignedOutAccountsView`: the deactivated
         // identities on this Mac, each row a click from `signInAccount` — a sign-in that asked
         // for no key — under a `Use another account` button. Getting into an identity is Sign In
@@ -3149,20 +3150,21 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(paneSource.contains("ProfileChooserView("))
         #expect(paneSource.contains("accounts: workspace.signedInAccounts"))
 
-        // Comments stripped and whitespace-normalized, so the assertion pins the branch rather
-        // than an indentation level or the prose above it: with nothing signed in the pane renders
-        // the login surface, the same one the `.onboarding` phase above it draws.
-        let normalized =
-            paneSource
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String($0) }
-            .joined(separator: "\n")
-            .components(separatedBy: .whitespacesAndNewlines).joined()
-        #expect(
-            normalized.contains(
-                "if!workspace.showsMessengerChrome{OnboardingView(model:session.accountScope?.onboarding)}else{"
-            )
+        var signedOut = desktopAccount()
+        signedOut.signedOut = true
+        let workspace = WorkspaceState(accounts: [AccountItem(summary: signedOut)])
+        workspace.phase = .ready
+        let host = HostedViewWindow(
+            MessengerShellView(settings: SettingsWindowCoordinator(workspace: workspace), showsAddProfileSheet: false)
+                .environment(workspace)
+                .environment(SessionState()),
+            size: CGSize(width: 940, height: 620)
         )
+        defer { host.close() }
+        let drawing = try #require(await host.steadyDrawing())
+        #expect(DrawnText.contains(L10n.string("Sign In"), in: drawing))
+        #expect(DrawnText.contains(L10n.string("Sign Up"), in: drawing))
+        #expect(!DrawnText.contains(signedOut.label, in: drawing))
     }
 
     @MainActor
