@@ -1210,7 +1210,7 @@ private struct PendingMediaUploadStatusBadge: View {
         case .uploaded:
             EmptyView()
         case .failed:
-            Button(role: .destructive, action: onRetry) {
+            Button(action: onRetry) {
                 Label(L10n.string("Retry upload"), systemImage: "arrow.clockwise")
                     .labelStyle(.iconOnly)
                     .font(.caption.weight(.bold))
@@ -1443,13 +1443,14 @@ struct VoiceMessageDraftComposerView: View {
             .accessibilityIdentifier("composer.voiceDraft.delete")
 
             if uploadState == .failed {
-                Button(role: .destructive, action: onRetryUpload) {
+                Button(action: onRetryUpload) {
                     Label(L10n.string("Retry upload"), systemImage: "arrow.clockwise")
                         .labelStyle(.iconOnly)
+                        .foregroundStyle(WNColor.intentionErrorContent)
                         .frame(width: 20, height: 20)
                 }
                 .buttonBorderShape(.circle)
-                .wnDestructiveButtonStyle()
+                .wnSecondaryButtonStyle()
                 .controlSize(.regular)
                 .help(L10n.string("Retry upload"))
                 .accessibilityLabel(L10n.string("Retry upload"))
@@ -1471,7 +1472,7 @@ struct VoiceMessageDraftComposerView: View {
             .buttonBorderShape(.circle)
             .wnPrimaryButtonStyle()
             .controlSize(.regular)
-            .disabled(!canSend)
+            .disabled(!canSend && !isSending)
             .help(sendHelp)
             .accessibilityLabel(sendHelp)
             .accessibilityIdentifier("composer.voiceDraft.send")
@@ -1507,6 +1508,7 @@ struct VoiceMessageDraftComposerView: View {
     }
 
     private func send() {
+        guard !isSending else { return }
         stopPlayback()
         onSend()
     }

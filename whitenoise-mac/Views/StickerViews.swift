@@ -445,28 +445,11 @@ private struct StickerPackBrowserPage: View {
                             "Sticker packs are public and aren’t reviewed by White Noise. Your installed packs are listed publicly on your relays."
                         )
                     ) {
-                        HStack(spacing: 6) {
-                            TextField(L10n.string("Search sticker packs"), text: $search)
-                                .textFieldStyle(.roundedBorder)
-                                .onExitCommand {
-                                    if !search.isEmpty {
-                                        search = ""
-                                    } else {
-                                        onBack()
-                                    }
-                                }
-                            if !search.isEmpty {
-                                Button {
-                                    search = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.borderless)
-                                .help(L10n.string("Clear search"))
-                                .accessibilityLabel(L10n.string("Clear search"))
-                            }
-                        }
+                        PickerSearchField(
+                            prompt: L10n.string("Search sticker packs"),
+                            text: $search,
+                            showsSearchIcon: false
+                        )
                         StickerDiscoverList(
                             state: StickerPackPresentation.discoveryState(
                                 isLoading: isLoading, packCount: discovered.count, search: search,
@@ -478,6 +461,13 @@ private struct StickerPackBrowserPage: View {
                     }
                 }
                 .padding(14)
+            }
+        }
+        .pickerEscapeHandler {
+            if !search.isEmpty {
+                search = ""
+            } else {
+                onBack()
             }
         }
         .task(id: StickerDiscoverRequest(search: search, reload: reloadRequest)) {

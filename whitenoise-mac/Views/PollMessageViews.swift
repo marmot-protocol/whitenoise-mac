@@ -310,12 +310,8 @@ struct PollComposerSheet: View {
             .scrollContentBackground(.hidden)
             .frame(minHeight: 320, idealHeight: 360, maxHeight: 520)
 
-            if let sendError {
-                Text(sendError)
-                    .font(.subheadline)
-                    .foregroundStyle(WNColor.intentionErrorContent)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let footerError = sendError ?? questionIssueMessage ?? optionsIssueMessage {
+                SettingsErrorView(error: footerError)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
             }
@@ -362,6 +358,12 @@ struct PollComposerSheet: View {
         switch draft.validated(now: .now) {
         case .failure(let failure):
             issue = failure
+            switch failure {
+            case .missingQuestion, .questionTooLong:
+                focusedField = .question
+            case .tooFewOptions, .optionTooLong, .duplicateOption:
+                focusedField = .option(0)
+            }
         case .success(let submission):
             isSending = true
             sendError = nil

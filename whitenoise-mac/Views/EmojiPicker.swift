@@ -115,9 +115,12 @@ private struct ChatEmojiCategory: Identifiable {
 }
 
 @MainActor
-private final class ChatEmojiPickerModel: ObservableObject {
+final class ChatEmojiPickerModel: ObservableObject {
     @Published private(set) var catalog = ChatEmojiCatalog.empty
     @Published private(set) var searchResults: [ChatEmojiCatalogEntry] = []
+    /// The trimmed query `searchResults` was computed for, so the grid never flashes "No Results"
+    /// while a newly typed query is still running on the background task (E01).
+    @Published private(set) var completedQuery = ""
     @Published private(set) var didFail = false
 
     private static var cachedCatalog: ChatEmojiCatalog?
@@ -157,8 +160,10 @@ private final class ChatEmojiPickerModel: ObservableObject {
     }
 
     func search(query: String) async {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
             searchResults = []
+            completedQuery = ""
             return
         }
         let catalog = self.catalog
@@ -167,6 +172,7 @@ private final class ChatEmojiPickerModel: ObservableObject {
         }.value
         guard !Task.isCancelled else { return }
         searchResults = results
+        completedQuery = trimmed
     }
 }
 
@@ -206,6 +212,7 @@ struct ChatEmojiPicker: View {
     @State private var selectedRail: ChatEmojiRailSelection = .category(0)
     @State private var recentEmoji = ChatReactionDefaults.quick
     @State private var isBrowsingEmojiSets = false
+    @Environment(\.dismiss) private var dismiss
 
     init(
         disabledEmoji: Set<String> = [],
@@ -224,7 +231,13 @@ struct ChatEmojiPicker: View {
             } else {
                 ScrollViewReader { proxy in
                     VStack(spacing: 0) {
-                        ChatEmojiSearchField(query: $query)
+                        PickerSearchField(
+                            prompt: L10n.string("Search emoji"),
+                            text: $query,
+                            focusOnAppear: true
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
                         Divider()
                         ChatEmojiGridContent(
                             model: model,
@@ -247,6 +260,13 @@ struct ChatEmojiPicker: View {
                         )
                     }
                 }
+                .pickerEscapeHandler {
+                    if !query.isEmpty {
+                        query = ""
+                    } else {
+                        dismiss()
+                    }
+                }
             }
         }
         .frame(width: 420, height: 430)
@@ -260,45 +280,6 @@ struct ChatEmojiPicker: View {
             await model.load()
             await model.search(query: query)
         }
-    }
-}
-
-private struct ChatEmojiSearchField: View {
-    @Binding var query: String
-    @FocusState private var isFocused: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField(L10n.string("Search emoji"), text: $query)
-                .textFieldStyle(.roundedBorder)
-                .focused($isFocused)
-                .onExitCommand {
-                    if !query.isEmpty {
-                        query = ""
-                    } else {
-                        dismiss()
-                    }
-                }
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                    isFocused = true
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help(L10n.string("Clear search"))
-                .accessibilityLabel(L10n.string("Clear search"))
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .onAppear { isFocused = true }
     }
 }
 
@@ -320,7 +301,8 @@ private struct ChatEmojiGridContent: View {
         } else {
             let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
             let customMatches = trimmed.isEmpty ? [] : (custom?.matching(query) ?? [])
-            if !trimmed.isEmpty, customMatches.isEmpty, model.searchResults.isEmpty {
+            let standardMatches = model.completedQuery == trimmed ? model.searchResults : []
+            if !trimmed.isEmpty, model.completedQuery == trimmed, customMatches.isEmpty, standardMatches.isEmpty {
                 WNEmptyStateView(
                     title: L10n.string("No Results"),
                     systemImage: "magnifyingglass"
@@ -369,10 +351,10 @@ private struct ChatEmojiGridContent: View {
                                 )
                                 .id("category-\(category.id)")
                             }
-                        } else if !model.searchResults.isEmpty {
+                        } else if !standardMatches.isEmpty {
                             ChatEmojiSection(
                                 title: L10n.string("Search results"),
-                                entries: model.searchResults,
+                                entries: standardMatches,
                                 disabledEmoji: disabledEmoji,
                                 onPick: onPickStandard
                             )

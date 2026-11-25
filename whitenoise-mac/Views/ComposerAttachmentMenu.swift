@@ -107,6 +107,7 @@ struct ComposerAttachmentMenu: View {
         } label: {
             Label(L10n.string("Add attachment"), systemImage: "plus")
                 .labelStyle(.iconOnly)
+                .frame(width: 20, height: 20)
         }
         .menuLabelIcons()
         .menuStyle(.button)

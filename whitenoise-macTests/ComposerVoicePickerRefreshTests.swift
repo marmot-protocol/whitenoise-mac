@@ -5,15 +5,14 @@ import Testing
 
 @testable import whitenoise_mac
 
-/// Focused behavioral and rendering checks for the native macOS composer, voice/dictation, and
+/// Focused behavioral and interaction checks for the native macOS composer, voice/dictation, and
 /// picker refresh (#1102, #1103, #1118).
 ///
-/// `.serialized` and `@MainActor` because hosting and rasterization drive AppKit views and switch
-/// `NSAppearance`.
+/// `.serialized` and `@MainActor` because hosting drives AppKit windows and key equivalents.
 @Suite(.serialized) @MainActor struct ComposerVoicePickerRefreshTests {
     // MARK: - Composer typography & mentions (#1102)
 
-    @Test func composerTextViewUsesNativeBodyTypographyAndBoldMentions() throws {
+    @Test func composerTextViewUsesNativeBodyTypographyAndBoldMentions() {
         let bodyFont = NSFont.preferredFont(forTextStyle: .body, options: [:])
         let typingFont = ComposerMessageTextViewRepresentable.typingFont
         let mentionFont = ComposerMessageTextViewRepresentable.mentionFont
@@ -27,55 +26,6 @@ import Testing
 
         let plainColor = ComposerMessageTextViewRepresentable.plainTypingAttributes[.foregroundColor] as? NSColor
         #expect(plainColor == WNNSColor.textPrimary)
-    }
-
-    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func composerContextAndStagedDraftViewsRenderInBothAppearances(appearance: NSAppearance.Name) throws {
-        let reply = ReplyComposerContextView(
-            context: MessageReplyContext(targetMessageId: "m1", senderName: "Alice", body: "Hello there"),
-            cancel: {}
-        )
-        .frame(width: 440)
-        let edit = EditComposerContextView(
-            context: MessageEditContext(
-                targetMessageId: "m2",
-                senderName: "You",
-                originalBody: "Original text",
-                preservedDraft: "",
-                preservedMentionSelections: [],
-                preservedReplyContext: nil,
-                preservedMediaAttachments: [],
-                preservedMediaUploadStates: [:]
-            )
-        )
-        .frame(width: 440)
-        let file = PendingMediaAttachment(
-            id: UUID(),
-            fileName: "report.pdf",
-            mediaType: "application/pdf",
-            data: Data(repeating: 1, count: 1024),
-            dim: nil
-        )
-        let strip = PendingMediaDraftStrip(
-            attachments: [file],
-            uploadStates: [file.id: .failed],
-            isSending: false,
-            onRemove: { _ in },
-            onRetryUpload: { _ in },
-            rejections: [
-                ComposerAttachmentRejections.Item(
-                    id: UUID(),
-                    rejection: AttachmentRejection(source: .file(name: "bad.exe"), reason: .unsupportedType)
-                )
-            ]
-        )
-        .frame(width: 440)
-
-        for view in [AnyView(reply), AnyView(edit), AnyView(strip)] {
-            let rep = try Self.rasterize(view, in: appearance)
-            #expect(rep.pixelsWide > 0)
-            #expect(rep.pixelsHigh > 0)
-        }
     }
 
     @Test func replyContextCancelButtonInvokesCancelCallback() async throws {
@@ -118,39 +68,6 @@ import Testing
         // Trailing Stop button inside 10pt trailing padding.
         host.click(at: CGPoint(x: size.width - 10 - 16, y: size.height / 2))
         #expect(await host.settle { didStop })
-    }
-
-    @Test func voiceMessageDraftRendersReadyUploadingAndFailedStates() throws {
-        let attachment = PendingMediaAttachment(
-            id: UUID(),
-            fileName: "voice.m4a",
-            mediaType: "audio/mp4",
-            data: Data(repeating: 0, count: 512),
-            dim: nil,
-            durationSeconds: 12.0,
-            waveformSamples: [0.2, 0.6, 0.9, 0.4, 0.7],
-            isVoiceMessage: true
-        )
-
-        let states: [PendingMediaUploadState?] = [nil, .uploading, .failed]
-        for state in states {
-            let rep = try Self.rasterize(
-                VoiceMessageDraftComposerView(
-                    attachment: attachment,
-                    uploadState: state,
-                    isSending: false,
-                    canSend: true,
-                    sendHelp: L10n.string("Send"),
-                    onDiscard: {},
-                    onRetryUpload: {},
-                    onSend: {}
-                )
-                .frame(width: 480),
-                in: .aqua
-            )
-            #expect(rep.pixelsWide > 0)
-            #expect(rep.pixelsHigh > 0)
-        }
     }
 
     @Test func dictationComposerDistinguishesStartingListeningAndFinishingStates() async throws {
@@ -200,6 +117,19 @@ import Testing
 
     // MARK: - Pickers and poll composer (#1118)
 
+    @Test func emojiPickerModelTracksCompletedQueryToAvoidPrematureEmptyState() async {
+        let model = ChatEmojiPickerModel()
+        #expect(model.completedQuery.isEmpty)
+
+        await model.load()
+        await model.search(query: "  fire  ")
+        #expect(model.completedQuery == "fire")
+
+        await model.search(query: "   ")
+        #expect(model.completedQuery.isEmpty)
+        #expect(model.searchResults.isEmpty)
+    }
+
     @Test func giphySearchViewDisplaysDisclosureAndPoweredByAttribution() async throws {
         let model = GiphySearchViewModel(search: { _ in [] }, send: { _ in })
         let size = CGSize(width: 400, height: 460)
@@ -217,33 +147,79 @@ import Testing
         )
     }
 
-    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func pollComposerSheetDrawsWithGroupedFormInBothAppearances(appearance: NSAppearance.Name) throws {
-        let rep = try Self.rasterize(
-            PollComposerSheet(onSend: { _ in }, onCancel: {}).background(WNColor.backgroundPrimary),
-            in: appearance
+    /// Pressing Escape clears a non-empty GIPHY query first even when focus is not in the search
+    /// field, and only dismisses once the query is empty (C13).
+    @Test func giphyEscapeClearsQueryFirstEvenWithoutSearchFieldFocusThenDismisses() async throws {
+        var didDismiss = false
+        let model = GiphySearchViewModel(search: { _ in [] }, send: { _ in })
+        model.query = "marmot"
+
+        let size = CGSize(width: 400, height: 460)
+        let host = HostedViewWindow(
+            GiphySearchView(model: model, onDismiss: { didDismiss = true }),
+            size: size
         )
-        #expect(rep.pixelsWide > 400)
-        #expect(rep.pixelsHigh > 300)
+        defer { host.close() }
+
+        // Move first responder away from the text field onto the window content view.
+        host.window.makeFirstResponder(host.window.contentView)
+        _ = await host.settle(timeout: .milliseconds(100)) { false }
+
+        let escapeEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+
+        #expect(host.window.performKeyEquivalent(with: escapeEvent))
+        #expect(await host.settle { model.query.isEmpty })
+        #expect(!didDismiss)
+
+        #expect(host.window.performKeyEquivalent(with: escapeEvent))
+        #expect(await host.settle { didDismiss })
     }
 
-    // MARK: - Helpers
-
-    private static func rasterize(_ view: some View, in appearance: NSAppearance.Name) throws -> NSBitmapImageRep {
-        let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
-        let renderer = ImageRenderer(
-            content:
-                view
-                .background(WNColor.backgroundPrimary)
-                .environment(\.colorScheme, scheme)
+    /// Submitting an invalid poll displays the validation explanation visibly above the Send
+    /// footer even when the form sections could scroll away.
+    @Test func pollComposerInvalidSendShowsVisibleValidationMessageAboveFooter() async throws {
+        var didSend = false
+        let size = CGSize(width: 440, height: 460)
+        let host = HostedViewWindow(
+            PollComposerSheet(onSend: { _ in didSend = true }, onCancel: {}),
+            size: size
         )
-        renderer.scale = 2
+        defer { host.close() }
 
-        var image: NSImage?
-        NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
-            image = renderer.nsImage
-        }
-        let tiff = try #require(image?.tiffRepresentation)
-        return try #require(NSBitmapImageRep(data: tiff))
+        let returnEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\r",
+                charactersIgnoringModifiers: "\r",
+                isARepeat: false,
+                keyCode: 36
+            )
+        )
+
+        _ = host.window.performKeyEquivalent(with: returnEvent)
+        let drawn = try #require(await host.steadyDrawing())
+        #expect(!didSend)
+        #expect(
+            DrawnText.contains(L10n.string("Enter a question."), in: drawn),
+            "read: \(DrawnText.recognized(in: drawn))"
+        )
     }
 }

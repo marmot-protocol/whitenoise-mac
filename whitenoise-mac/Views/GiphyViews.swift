@@ -389,7 +389,6 @@ private struct GiphyPlaybackContent: View {
 struct GiphySearchView: View {
     @Bindable var model: GiphySearchViewModel
     let onDismiss: () -> Void
-    @FocusState private var isSearchFocused: Bool
 
     private let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -400,32 +399,12 @@ struct GiphySearchView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                TextField(L10n.string("Search GIPHY"), text: $model.query)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isSearchFocused)
-                    .onExitCommand {
-                        if !model.query.isEmpty {
-                            model.query = ""
-                        } else {
-                            onDismiss()
-                        }
-                    }
-                    .accessibilityIdentifier("giphy.search")
-                if !model.query.isEmpty {
-                    Button {
-                        model.query = ""
-                        isSearchFocused = true
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(L10n.string("Clear search"))
-                    .accessibilityLabel(L10n.string("Clear search"))
-                }
+                PickerSearchField(
+                    prompt: L10n.string("Search GIPHY"),
+                    text: $model.query,
+                    focusOnAppear: true,
+                    accessibilityIdentifier: "giphy.search"
+                )
                 if model.isLoading {
                     ProgressView()
                         .controlSize(.small)
@@ -460,7 +439,13 @@ struct GiphySearchView: View {
         }
         .padding(14)
         .frame(width: 400)
-        .onAppear { isSearchFocused = true }
+        .pickerEscapeHandler {
+            if !model.query.isEmpty {
+                model.query = ""
+            } else {
+                onDismiss()
+            }
+        }
         .task(id: model.query) { await model.searchAfterDebounce() }
     }
 }

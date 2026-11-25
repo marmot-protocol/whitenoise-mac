@@ -276,28 +276,11 @@ private struct EmojiSetBrowserPage: View {
                     }
 
                     StickerBrowserSection(title: L10n.string("Discover")) {
-                        HStack(spacing: 6) {
-                            TextField(L10n.string("Search emoji sets or paste an npub"), text: $search)
-                                .textFieldStyle(.roundedBorder)
-                                .onExitCommand {
-                                    if !search.isEmpty {
-                                        search = ""
-                                    } else {
-                                        onBack()
-                                    }
-                                }
-                            if !search.isEmpty {
-                                Button {
-                                    search = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.borderless)
-                                .help(L10n.string("Clear search"))
-                                .accessibilityLabel(L10n.string("Clear search"))
-                            }
-                        }
+                        PickerSearchField(
+                            prompt: L10n.string("Search emoji sets or paste an npub"),
+                            text: $search,
+                            showsSearchIcon: false
+                        )
                         EmojiSetDiscoverList(
                             state: StickerPackPresentation.discoveryState(
                                 isLoading: isLoading, packCount: shownDiscovered.count, search: search,
@@ -311,6 +294,13 @@ private struct EmojiSetBrowserPage: View {
                     }
                 }
                 .padding(14)
+            }
+        }
+        .pickerEscapeHandler {
+            if !search.isEmpty {
+                search = ""
+            } else {
+                onBack()
             }
         }
         .task { await library.loadInstalledIfNeeded() }
