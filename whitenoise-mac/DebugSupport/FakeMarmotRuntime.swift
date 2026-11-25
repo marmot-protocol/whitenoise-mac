@@ -102,9 +102,13 @@
         /// Served in order before falling back to `attachmentHistoryPageResult`, for multi-page reads.
         var attachmentHistoryPageQueue: [AttachmentPageReadFfi] = []
         private(set) var attachmentHistoryPageReadCount = 0
+        var attachmentHistoryPageHook: (@Sendable () async -> Void)?
         var attachmentLocalAssetResults: [AttachmentLocalAssetFfi] = []
+        var attachmentLocalAssetsHook: (@Sendable () async -> Void)?
         var attachmentTransferSnapshots: [AttachmentTransferSnapshotFfi] = []
         var attachmentTransferDelayNanoseconds: UInt64 = 0
+        private(set) var attachmentTransferSubscriptionCount = 0
+        private(set) var attachmentTransferCancellationCount = 0
         var automaticAttachmentResult = AutomaticAttachmentRequestFfi(
             status: AttachmentTransferStatusFfi(
                 reference: nil, state: .notRequested, attempt: 0, received: 0, total: nil, retryAt: nil
@@ -1848,6 +1852,9 @@
             accountRef: String, groupIdHex: String, limit: UInt32, cursor: AttachmentHistoryCursor?
         ) async throws -> AttachmentPageReadFfi {
             attachmentHistoryPageReadCount += 1
+            if let hook = attachmentHistoryPageHook {
+                await hook()
+            }
             if !attachmentHistoryPageQueue.isEmpty { return attachmentHistoryPageQueue.removeFirst() }
             return attachmentHistoryPageResult
         }
@@ -1855,6 +1862,9 @@
         func attachmentLocalAssets(
             accountRef: String, groupIdHex: String, targets: [AttachmentLocalTargetFfi]
         ) async throws -> [AttachmentLocalAssetFfi] {
+            if let hook = attachmentLocalAssetsHook {
+                await hook()
+            }
             if attachmentLocalAssetResults.isEmpty {
                 return targets.map { _ in AttachmentLocalAssetFfi(reference: nil, byteCount: 0) }
             }
@@ -1870,7 +1880,8 @@
         func subscribeAttachmentTransfers(
             accountRef: String, groupIdHex: String, targets: [AttachmentLocalTargetFfi]
         ) async throws -> AttachmentTransferSubscription {
-            FakeAttachmentTransferSubscription(
+            attachmentTransferSubscriptionCount += 1
+            return FakeAttachmentTransferSubscription(
                 snapshots: attachmentTransferSnapshots,
                 updateDelayNanoseconds: attachmentTransferDelayNanoseconds
             )
@@ -1883,6 +1894,7 @@
         }
 
         func cancelAttachmentTransfers(subscription: AttachmentTransferSubscription) {
+            attachmentTransferCancellationCount += 1
             subscription.cancel()
         }
 

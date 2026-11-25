@@ -49,9 +49,7 @@ enum SourceContract {
         case primaryButtonSize
         case profileKeysSettings
         case publicIdentity
-        case settingsAccountSwitcher
         case settingsSidebar
-        case settingsSidebarGroupCard
         case sidebar
         case signOutSheet
 
@@ -77,7 +75,6 @@ enum SourceContract {
                     "GroupDetails/GroupDetailsHero.swift",
                     "GroupDetails/GroupDetailsIdentitySection.swift",
                     "GroupDetails/GroupDetailsLeaveSection.swift",
-                    "GroupDetails/GroupDetailsQuickAction.swift",
                     "GroupDetails/GroupDetailsQuickActionsRow.swift",
                     "GroupDetails/GroupDetailsSettingsSection.swift",
                     "GroupDetails/GroupDetailsSheet.swift",
@@ -100,9 +97,7 @@ enum SourceContract {
             case .primaryButtonSize: ["WNPrimaryButtonSize.swift"]
             case .profileKeysSettings: ["Settings/ProfileKeysSettingsView.swift"]
             case .publicIdentity: ["Settings/PublicIdentityViews.swift"]
-            case .settingsAccountSwitcher: ["Settings/SettingsAccountSwitcherViews.swift"]
             case .settingsSidebar: ["../Features/Settings/SettingsSidebarView.swift"]
-            case .settingsSidebarGroupCard: ["Settings/SettingsSidebarGroupCard.swift"]
             case .sidebar: ["SidebarViews.swift"]
             case .signOutSheet: ["Settings/SignOutSheet.swift"]
             }

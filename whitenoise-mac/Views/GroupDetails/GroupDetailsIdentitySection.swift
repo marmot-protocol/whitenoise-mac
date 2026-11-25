@@ -22,7 +22,7 @@ struct GroupDetailsIdentitySection: View {
     let snapshot: GroupDetailsSnapshot
     let permissions: GroupDetailsPermissions
     let onEditProfile: () -> Void
-    let onAddMembers: () -> Void
+    var onSearchInChat: (() -> Void)? = nil
 
     private var isGroupCommitInFlight: Bool {
         GroupCommitGuard.isInFlight(
@@ -32,7 +32,7 @@ struct GroupDetailsIdentitySection: View {
     var body: some View {
         Section {
         } header: {
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 GroupDetailsHero(
                     title: snapshot.headerTitle(rememberedPeerName: chat.rememberedDirectPeerTitle),
                     subtitle: subtitle,
@@ -53,9 +53,7 @@ struct GroupDetailsIdentitySection: View {
 
                 GroupDetailsQuickActionsRow(
                     chat: chat,
-                    snapshot: snapshot,
-                    permissions: permissions,
-                    onAddMembers: onAddMembers
+                    onSearchInChat: onSearchInChat
                 )
             }
             .frame(maxWidth: .infinity)
@@ -72,7 +70,6 @@ struct GroupDetailsIdentitySection: View {
     }
 
     private func presentGroupImagePicker() {
-        workspace.closeGroupDetails()
         workspace.showGroupImagePicker(for: chat)
     }
 }

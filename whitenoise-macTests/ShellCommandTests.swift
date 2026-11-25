@@ -63,8 +63,13 @@ struct ShellCommandTests: WorkspaceTestSupport {
         let workspace = WorkspaceState.preview()
         let accountID = try #require(workspace.activeAccountId)
         let original = try #require(workspace.selectedChat)
+        var searchAllMessagesInvocations = 0
         let commands = MessengerCommandContext(
-            workspace: workspace, accountID: accountID, isMessengerWindowTarget: { true })
+            workspace: workspace,
+            accountID: accountID,
+            onSearchAllMessages: { searchAllMessagesInvocations += 1 },
+            isMessengerWindowTarget: { true }
+        )
         #expect(commands.activeChat(matching: original.id)?.id == original.id)
 
         let other = try #require(workspace.activeChats.first(where: { $0.id != original.id }))
@@ -74,7 +79,7 @@ struct ShellCommandTests: WorkspaceTestSupport {
 
         workspace.activeAccountId = try #require(workspace.signedInAccounts.first(where: { $0.id != accountID })).id
         commands.searchAllMessages()
-        #expect(!workspace.isGlobalMessageSearchPresented)
+        #expect(searchAllMessagesInvocations == 0)
         #expect(commands.activeChat(matching: other.id) == nil)
     }
 

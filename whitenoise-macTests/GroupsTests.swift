@@ -412,14 +412,10 @@ struct GroupsTests: WorkspaceTestSupport {
     }
 
     @Test func detailsPaneHeadersPlaceBackButtonAtLeadingEdge() throws {
-        // The group-info and contact-info panes slide in over the transcript, so their
-        // chevron is a *back* control and belongs on the leading edge — where the
-        // compose pane and the settings header already put theirs — not trailing next
-        // to the add-members button, which reads as an unrelated right-hand action.
-        // Both panes draw their header in `GroupDetailsTopBar`, with the avatar down in the
-        // centred hero.
+        // Both Group Info / Contact Info inspector headers and Shared Media library headers draw
+        // their return/close action at the leading edge via `GroupDetailsTopBar`, before `Spacer(`.
         let header = try SourceContract.viewBody("GroupDetailsTopBar")
-        let backIndex = try #require(header.range(of: #"symbol: "chevron.backward""#)?.lowerBound)
+        let backIndex = try #require(header.range(of: "systemImage: backSymbol")?.lowerBound)
         let spacerIndex = try #require(header.range(of: "Spacer(")?.lowerBound)
         #expect(backIndex < spacerIndex, "the back button must sit before the spacer")
 

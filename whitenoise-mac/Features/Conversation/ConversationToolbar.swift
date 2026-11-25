@@ -76,12 +76,15 @@ struct ConversationToolbarModifier: ViewModifier {
                             Label(L10n.string("Search messages", locale: locale), systemImage: "magnifyingglass")
                         }
                         .help(L10n.string("Find in Conversation…", locale: locale))
-                        .disabled(isDetailsPanePresented)
                         .accessibilityIdentifier("conversation.search.open")
 
+                        let infoTitle = L10n.string(
+                            isDetailsPanePresented ? "Hide Chat Info" : "Show Chat Info",
+                            locale: locale
+                        )
                         Button {
                             guard let currentChat = messenger.activeChat(matching: chat.id) else { return }
-                            if isGroupDetailsPresented {
+                            if isDetailsPanePresented {
                                 workspace.closeGroupDetails()
                             } else {
                                 Task {
@@ -92,11 +95,10 @@ struct ConversationToolbarModifier: ViewModifier {
                                 }
                             }
                         } label: {
-                            Label(L10n.string("Show Chat Info", locale: locale), systemImage: "info.circle")
-                                .symbolVariant(isGroupDetailsPresented ? .fill : .none)
+                            Label(infoTitle, systemImage: "info.circle")
+                                .symbolVariant(isDetailsPanePresented ? .fill : .none)
                         }
-                        .help(L10n.string("Show Chat Info", locale: locale))
-                        .disabled(isDetailsPanePresented && !isGroupDetailsPresented)
+                        .help(infoTitle)
                         .accessibilityIdentifier("conversation.info.open")
 
                         Menu {
@@ -114,7 +116,6 @@ struct ConversationToolbarModifier: ViewModifier {
                             Label(L10n.string("More", locale: locale), systemImage: "ellipsis.circle")
                         }
                         .help(L10n.string("More", locale: locale))
-                        .disabled(isDetailsPanePresented)
                         .accessibilityIdentifier("conversation.more.menu")
                     }
                 }

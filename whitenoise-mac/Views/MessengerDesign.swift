@@ -53,10 +53,8 @@ struct AvatarChromeModifier: ViewModifier {
     static let neutralRing = WNColor.borderTertiary
 
     /// How much the selected avatar grows. Size is the affordance that reads in both appearances,
-    /// so it carries selection on its own where the ring cannot. Kept small enough that the account
-    /// rail's avatar still fits inside its frame (`accountRailAvatarSize` inside
-    /// `accountRailAvatarFrameSize`), and applied as a scale so no neighbour is pushed around when
-    /// the selection moves.
+    /// so it carries selection on its own where the ring cannot, and is applied as a scale so no
+    /// neighbour is pushed around when the selection moves.
     static let selectedScale: CGFloat = 1.15
 
     /// Blur radius of the drop shadow. Named because `overhang(forAvatarSize:)` has to add it —
@@ -69,9 +67,7 @@ struct AvatarChromeModifier: ViewModifier {
     /// Both effects draw beyond the frame they are applied to, so an avatar seated flush against
     /// a clipping container's edge loses that much of its ring — a circle with a flat side, which
     /// is what it looks like rather than a subtle one. Any container that clips (a `ScrollView`,
-    /// a `clipShape`) has to leave this much slack around an avatar on its edge. The account rail
-    /// buys the slack with a bigger frame (`accountRailAvatarSize` inside
-    /// `accountRailAvatarFrameSize`).
+    /// a `clipShape`) has to leave this much slack around an avatar on its edge.
     static func overhang(forAvatarSize size: CGFloat) -> CGFloat {
         size * (selectedScale - 1) / 2 + shadowRadius
     }
@@ -384,10 +380,6 @@ nonisolated enum AttachmentRowPalette {
 }
 
 enum MessagesLayout {
-    static let accountRailWidth: CGFloat = 80
-    static let accountRailControlSize: CGFloat = 44
-    static let accountRailAvatarSize: CGFloat = 46
-    static let accountRailAvatarFrameSize: CGFloat = 58
     /// Room a top-of-window header leaves for the traffic lights, which float over the content
     /// in a `.hiddenTitleBar` window.
     static let sidebarTitlebarTopPadding: CGFloat = 42
@@ -405,28 +397,16 @@ enum MessagesLayout {
     /// slides the text right rather than under the buttons.
     static let windowTrafficLightZoneWidth: CGFloat = 78
     static let chatRowAvatarSize: CGFloat = 46
-    /// The active profile's avatar in Settings' first card.
+    /// The active profile's avatar in Settings' sidebar.
     ///
-    /// Deliberately the same value as `chatRowAvatarSize` and `accountRailAvatarSize`: those three
-    /// are the app's identity rows, and an identity should not be a different size depending on
-    /// which list it is standing in. It was 34pt, which made the one row about *you* the smallest
-    /// avatar on screen — `wn-ios-prototype`'s hub gives the same row its largest (56pt on a 393pt
-    /// iPhone; 46 on this 250–300pt drawer is the same share of the width).
+    /// Deliberately the same value as `chatRowAvatarSize`: those are the app's identity rows, and
+    /// an identity should not be a different size depending on which list it is standing in.
     static let settingsProfileAvatarSize: CGFloat = 46
-    /// Grab width of the drawer's resize handle. The divider itself stays 1pt in layout —
-    /// the grab area is an overlay, so widening it never opens a gutter between the drawer
-    /// and the detail pane; it only reaches a few points into each.
-    static let chatListResizeGrabWidth: CGFloat = 11
-    static let chatListResizeGrabberHeight: CGFloat = 34
     /// Footprint of `GlassCircleCloseButton`. Named because a pane header has to reserve the
     /// same width on the opposite side to keep its title centred in the pane.
     static let circleControlSize: CGFloat = 28
-    /// The group's avatar at the top of group info — the size `ProfileIdentityHeaderView` gives
-    /// your own, since both are the one identity a page is about.
-    static let groupDetailsAvatarSize: CGFloat = 96
-    /// The round buttons in group info's quick-action row. Larger than `circleControlSize`
-    /// because each is a primary action with a caption, not chrome beside a title.
-    static let groupDetailsQuickActionSize: CGFloat = 40
+    /// The group's avatar at the top of group info.
+    static let groupDetailsAvatarSize: CGFloat = 72
 
     /// Top padding for a header on the window's top edge, given whether a window-level notice
     /// band is already there holding the traffic lights.
@@ -612,42 +592,6 @@ struct MessagesTranscriptBackground: View {
     }
 }
 
-/// The two sidebar columns. Both sit *off* the primary surface, one step further than the
-/// transcript, which is how the other clients separate navigation from content — the account
-/// rail takes the deeper of the two.
-struct MessagesSidebarBackground: View {
-    enum Level {
-        case rail
-        case drawer
-        /// The settings drawer, which is a grouped list rather than a list of chats.
-        ///
-        /// Its own level because a grouped list is only legible when its cards read as raised off
-        /// the background, and `.drawer`'s `backgroundSecondary` is one ramp step from the card
-        /// surface: `FAFAFA` under white in light, `0A0A0A` under black in dark. Stepping to
-        /// `backgroundTertiary` takes that to `F5F5F5`/`171717` — a tenth of the ramp in light,
-        /// which is the margin iOS's own grouped background keeps, and more than twice the
-        /// separation in dark. The chat drawer stays on `.drawer`: its rows are not carded, so it
-        /// wants the quieter backdrop.
-        case settingsDrawer
-    }
-
-    let level: Level
-
-    var body: some View {
-        Rectangle()
-            .fill(backgroundColor)
-            .ignoresSafeArea()
-    }
-
-    private var backgroundColor: Color {
-        switch level {
-        case .rail: WNColor.backgroundTertiary
-        case .drawer: WNColor.backgroundSecondary
-        case .settingsDrawer: WNColor.backgroundTertiary
-        }
-    }
-}
-
 /// The conversation header, which reads as part of the transcript below it.
 struct MessagesHeaderBackground: View {
     var body: some View {
@@ -680,12 +624,6 @@ struct GlassSeparator: View {
                 width: axis == .vertical ? 1 : nil,
                 height: axis == .horizontal ? 1 : nil
             )
-    }
-}
-
-struct GlassToolbarBackground: View {
-    var body: some View {
-        GlassFill(material: .ultraThinMaterial, darkOpacity: 0.24, lightOpacity: 0.34)
     }
 }
 

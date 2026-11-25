@@ -22,7 +22,7 @@ struct GroupMembershipStatusSections: View {
                             "Accept this invite to confirm membership, or decline it to remove the group from your chat list."
                         )
                     )
-                    .wnFont(.medium12)
+                    .font(.callout)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -42,10 +42,10 @@ struct GroupMembershipStatusSections: View {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(endedDescription)
-                            .wnFont(.semiBold12)
+                            .font(.callout.weight(.semibold))
 
                         Text(ChatSelfMembership.endedHistoryExplanation)
-                            .wnFont(.medium12)
+                            .font(.callout)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }

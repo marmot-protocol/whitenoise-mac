@@ -208,16 +208,9 @@ final class WorkspaceState {
     var isSearchingSidebarMessages = false
     @ObservationIgnored var sidebarMessageSearchTask: Task<Void, Never>?
     @ObservationIgnored var sidebarMessageSearchGeneration: UInt64 = 0
-    var isGlobalMessageSearchPresented = false
     /// Whether the one-time data-sharing prompt is up over Chats. See `WorkspaceState+ImprovementsPrompt`.
     var isImprovementsPromptPresented = false
-    var globalMessageSearchQuery = ""
-    var globalMessageSearchResults: [GlobalMessageSearchResult] = []
-    var isSearchingAllMessages = false
-    var globalMessageSearchError: String?
     var pendingMessageNavigation: GlobalMessageNavigationTarget?
-    @ObservationIgnored var globalMessageSearchTask: Task<Void, Never>?
-    @ObservationIgnored var globalMessageSearchGeneration: UInt64 = 0
     var chatListFilter: ChatListFilter = .active
     var archivingChatId: String?
     /// Group currently running a confirmed leave, or `nil`. Per-chat rather than global so a leave

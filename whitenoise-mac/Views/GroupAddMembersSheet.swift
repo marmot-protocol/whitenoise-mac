@@ -45,7 +45,7 @@ struct GroupAddMembersSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            GroupAddMembersHeader(onCancel: { dismiss() })
             Divider()
             VStack(spacing: 10) {
                 // Off `lastError`: the group details pane behind the sheet renders it for its own
@@ -66,7 +66,7 @@ struct GroupAddMembersSheet: View {
             .padding(16)
             if let inviteError {
                 Text(inviteError)
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.backgroundContentDestructive)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
@@ -76,8 +76,8 @@ struct GroupAddMembersSheet: View {
             // something different: who can't be added is an answer, not an error.
             if let unreachableNotice {
                 Text(unreachableNotice)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
@@ -92,7 +92,16 @@ struct GroupAddMembersSheet: View {
                 onToggle: toggle
             )
             Divider()
-            footer
+            GroupAddMembersFooter(
+                inviteLabel: inviteLabel,
+                returnInvites: returnInvites,
+                isDisabled: (reachableStaged.isEmpty && pendingIdentifier == nil)
+                    || isGroupCommitInFlight
+                    || workspace.isResolvingNewChat
+                    || isFoldingIdentifier,
+                onCancel: { dismiss() },
+                onInvite: { inviteTask = Task { await inviteStaged() } }
+            )
         }
         .frame(width: 420, height: 520)
         // A fresh staging session asks the core again rather than inheriting marks from the last
@@ -111,37 +120,6 @@ struct GroupAddMembersSheet: View {
         }
         // The error was about the text it was raised for; editing that text retires it.
         .onChange(of: workspace.newChatQuery) { inviteError = nil }
-    }
-
-    private var header: some View {
-        HStack {
-            Text(L10n.string("Add members"))
-                .wnFont(.semiBold14)
-            Spacer()
-            Button(L10n.string("Cancel")) { dismiss() }
-                .wnSecondaryButtonStyle()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
-    private var footer: some View {
-        HStack {
-            Spacer()
-            Button {
-                inviteTask = Task { await inviteStaged() }
-            } label: {
-                Text(inviteLabel).frame(minWidth: 96)
-            }
-            .keyboardShortcut(returnInvites ? .defaultAction : nil)
-            .wnPrimaryButtonStyle()
-            .disabled(
-                (reachableStaged.isEmpty && pendingIdentifier == nil)
-                    || isGroupCommitInFlight
-                    || workspace.isResolvingNewChat
-                    || isFoldingIdentifier)
-        }
-        .padding(16)
     }
 
     /// Staged people the core hasn't refused — the roster an invite would actually carry.
@@ -255,6 +233,45 @@ struct GroupAddMembersSheet: View {
         }
         guard workspace.hasUnnamedInviteRefusal else { return nil }
         return L10n.string("Someone you picked isn't on White Noise yet, so they can't be added.")
+    }
+}
+
+private struct GroupAddMembersHeader: View {
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack {
+            Text(L10n.string("Add members"))
+                .font(.headline)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct GroupAddMembersFooter: View {
+    let inviteLabel: String
+    let returnInvites: Bool
+    let isDisabled: Bool
+    let onCancel: () -> Void
+    let onInvite: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Spacer()
+            Button(L10n.string("Cancel"), role: .cancel, action: onCancel)
+                .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
+
+            Button(action: onInvite) {
+                Text(inviteLabel).frame(minWidth: 72)
+            }
+            .keyboardShortcut(returnInvites ? .defaultAction : nil)
+            .wnPrimaryButtonStyle()
+            .disabled(isDisabled)
+        }
+        .padding(16)
     }
 }
 

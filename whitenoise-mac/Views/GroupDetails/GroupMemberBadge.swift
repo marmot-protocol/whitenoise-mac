@@ -49,7 +49,7 @@ struct GroupMemberBadge: View {
 
     var body: some View {
         Text(kind.title)
-            .wnFont(.semiBold10)
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(kind.content)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)

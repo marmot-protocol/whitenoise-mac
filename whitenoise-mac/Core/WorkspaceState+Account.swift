@@ -175,7 +175,6 @@ extension WorkspaceState {
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
     ) {
-        dismissGlobalMessageSearch()
         invalidateSidebarMessageSearch(clearQuery: true)
         leaveActiveConversation()
         stopTimelineListener()

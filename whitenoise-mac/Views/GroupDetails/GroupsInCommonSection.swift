@@ -42,17 +42,17 @@ struct GroupsInCommonSection: View {
                             )
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(commonGroup.title)
-                                    .wnFont(.semiBold12)
+                                    .font(.callout.weight(.semibold))
                                     .foregroundStyle(WNColor.backgroundContentPrimary)
                                     .lineLimit(1)
                                 Text(commonGroup.subtitle)
-                                    .wnFont(.medium10)
+                                    .font(.caption)
                                     .foregroundStyle(WNColor.backgroundContentSecondary)
                                     .lineLimit(1)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .wnFont(.semiBold10)
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(WNColor.backgroundContentTertiary)
                         }
                         .contentShape(Rectangle())
@@ -63,7 +63,7 @@ struct GroupsInCommonSection: View {
 
             if hadFailures {
                 Text(L10n.string("Some groups could not be checked."))
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         }

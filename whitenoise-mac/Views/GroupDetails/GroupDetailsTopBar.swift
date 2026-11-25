@@ -8,38 +8,41 @@
 
 import SwiftUI
 
-/// Group info's title bar — and a contact profile's — in the shape of the iOS navigation bar it
-/// replaces.
-///
-/// Both corner controls are `GlassCircleCloseButton` in its outline form — the app's one back
-/// control, and the same disc for Edit — so the corners weigh the same. When there is no Edit,
-/// the trailing corner reserves the control's width anyway, which keeps the title centred in the
-/// pane rather than in whatever space the back button left.
+/// Native header bar for the trailing inspector, contact drill-down, and shared-media library
+/// destination (N06, N07, #1042, #1044).
 struct GroupDetailsTopBar: View {
+    @Environment(\.locale) private var locale
     let title: String
     var isLoading = false
-    /// Where the chevron returns to, as a catalog key. A contact's profile can open over group
-    /// info as well as over the chat, and the shared-media library is pushed inside group info,
-    /// so both say "Back" rather than naming either.
+    /// Where the leading button returns to, as a catalog key.
     var backHelp = "Back to chat"
+    /// Leading icon symbol. Defaults to `"chevron.backward"` for drill-down/library destinations;
+    /// top-level inspector panes pass `"xmark"` to close the inspector.
+    var backSymbol = "chevron.backward"
     let onBack: () -> Void
     /// `nil` when the reader may not edit the group.
     let onEdit: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Leading, like the compose pane and the settings header: this pane slides in over
-            // the transcript, so the chevron is a back control and reads as one only on the side
-            // you came from.
-            GlassCircleCloseButton(
-                symbol: "chevron.backward", help: backHelp, appearance: .outline, action: onBack)
+        HStack(spacing: 10) {
+            Button(action: onBack) {
+                Label(L10n.string(backHelp, locale: locale), systemImage: backSymbol)
+                    .labelStyle(.iconOnly)
+                    .font(.body.weight(.medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help(L10n.string(backHelp, locale: locale))
+            .accessibilityLabel(L10n.string(backHelp, locale: locale))
+            .accessibilityIdentifier("details.topbar.back")
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text(title)
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 if isLoading {
                     ProgressView()
@@ -50,23 +53,29 @@ struct GroupDetailsTopBar: View {
             Spacer(minLength: 0)
 
             if let onEdit {
-                GlassCircleCloseButton(symbol: "pencil", help: "Edit Group Info", appearance: .outline, action: onEdit)
+                Button(L10n.string("Edit", locale: locale), action: onEdit)
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .help(L10n.string("Edit Group Info", locale: locale))
+                    .accessibilityIdentifier("details.topbar.edit")
             } else {
                 Color.clear
-                    .frame(width: MessagesLayout.circleControlSize, height: MessagesLayout.circleControlSize)
+                    .frame(width: 24, height: 24)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 
 #Preview("Admin") {
     GroupDetailsTopBar(title: "Group Info", onBack: {}, onEdit: {})
-        .frame(width: 520)
+        .frame(width: 320)
 }
 
 #Preview("Member, loading") {
-    GroupDetailsTopBar(title: "Group Info", isLoading: true, onBack: {}, onEdit: nil)
-        .frame(width: 520)
+    GroupDetailsTopBar(
+        title: "Group Info", isLoading: true, backHelp: "Close", backSymbol: "xmark", onBack: {}, onEdit: nil
+    )
+    .frame(width: 320)
 }
