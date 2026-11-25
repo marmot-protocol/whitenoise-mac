@@ -30,7 +30,7 @@ struct NewChatPanelView: View {
                 workspace.composeGoBack()
             }
 
-            MessagesSearchField(
+            ComposeSearchField(
                 text: $workspace.newChatQuery,
                 accessibilityIdentifier: "compose.search",
                 placeholder: L10n.string("Name or npub"),
@@ -51,7 +51,7 @@ struct NewChatPanelView: View {
                     .padding(.bottom, 12)
             }
 
-            GlassSeparator(axis: .horizontal)
+            Divider()
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -99,8 +99,8 @@ struct NewChatPanelView: View {
 
                     if let lastError = workspace.lastError {
                         Text(lastError)
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentDestructive)
+                            .font(.subheadline)
+                            .foregroundStyle(WNColor.intentionErrorContent)
                             .padding(.horizontal, 12)
                             .padding(.top, 6)
                     }
@@ -111,7 +111,12 @@ struct NewChatPanelView: View {
             .accessibilityIdentifier("compose.list")
         }
         .onExitCommand {
-            workspace.composeGoBack()
+            // Escape first cancels the active search context before closing the compose flow (C13).
+            if !workspace.newChatQuery.isEmpty {
+                workspace.newChatQuery = ""
+            } else {
+                workspace.composeGoBack()
+            }
         }
         .task {
             await workspace.refreshComposeContacts()
@@ -166,8 +171,8 @@ struct NewChatPanelView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(L10n.string("Finding people from your groups..."))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.subheadline)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
             .padding(12)
         }
@@ -206,7 +211,7 @@ struct ChooseMembersPanelView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
 
-            GlassSeparator(axis: .horizontal)
+            Divider()
 
             MemberSearchResults(
                 listAccessibilityIdentifier: "compose.members.list",
@@ -215,12 +220,13 @@ struct ChooseMembersPanelView: View {
                 workspace.toggleComposeMember(recipient)
             }
 
-            GlassSeparator(axis: .horizontal)
+            Divider()
 
             HStack {
                 Text(L10n.plural("%lld members", Int64(workspace.newChatRecipients.count)))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.subheadline)
+                    .monospacedDigit()
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 Spacer()
                 Button(L10n.string("Next")) {
                     workspace.composeShowNameGroup()
@@ -232,7 +238,12 @@ struct ChooseMembersPanelView: View {
             .padding(12)
         }
         .onExitCommand {
-            workspace.composeGoBack()
+            // Escape first cancels the active search context before navigating back (C13).
+            if !workspace.newChatQuery.isEmpty {
+                workspace.newChatQuery = ""
+            } else {
+                workspace.composeGoBack()
+            }
         }
         .task {
             await workspace.refreshComposeContacts()
@@ -261,7 +272,7 @@ struct MemberSearchField: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        MessagesSearchField(
+        ComposeSearchField(
             text: $workspace.newChatQuery,
             accessibilityIdentifier: accessibilityIdentifier,
             placeholder: L10n.string("Name or npub"),
@@ -434,42 +445,46 @@ struct NameGroupPanelView: View {
                     )
                     .padding(.top, 8)
 
-                    TextField(L10n.string("Group name (required)"), text: $workspace.newChatName)
-                        .textFieldStyle(.plain)
-                        .wnFont(MessagesType.rowLabel)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L10n.string("Group name"))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color(nsColor: .labelColor))
+
+                        TextField(
+                            "",
+                            text: $workspace.newChatName,
+                            prompt: Text(L10n.string("Group name (required)"))
+                        )
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body)
                         .focused($isNameFocused)
                         .onSubmit {
+                            guard !trimmedName.isEmpty,
+                                !workspace.isCreatingChat,
+                                !workspace.reachableDraftMembers.isEmpty
+                            else { return }
                             Task { await workspace.createGroupFromDraft(image: draftImage) }
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 9)
-                        .glassCard()
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                // `borderTertiary` at rest, not `fillTertiary`: a border takes a
-                                // border token, and `fillTertiary` is the ghost control's
-                                // transparent resting fill — it drew nothing at all here.
-                                .stroke(
-                                    isNameFocused ? WNColor.borderPrimary : WNColor.borderTertiary,
-                                    lineWidth: 1)
-                        }
+                        .accessibilityLabel(L10n.string("Group name"))
                         .accessibilityIdentifier("compose.groupName")
+                    }
 
-                    disappearingRow
+                    disappearingRow(retentionSecs: $workspace.groupDraftRetentionSecs)
 
                     GroupDraftMembersSection()
 
                     if let lastError = workspace.lastError {
                         Text(lastError)
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentDestructive)
+                            .font(.subheadline)
+                            .foregroundStyle(WNColor.intentionErrorContent)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .padding(12)
             }
 
-            GlassSeparator(axis: .horizontal)
+            Divider()
 
             // Pinned above the button rather than left in the scrolling list: this is the one
             // thing the user must see before pressing Create, and the members list can be
@@ -487,7 +502,15 @@ struct NameGroupPanelView: View {
             }
 
             HStack {
+                Button(L10n.string("Cancel")) {
+                    workspace.closeNewChatComposer()
+                }
+                .wnSecondaryButtonStyle()
+                .disabled(workspace.isCreatingChat)
+                .accessibilityIdentifier("compose.cancel")
+
                 Spacer()
+
                 Button {
                     Task { await workspace.createGroupFromDraft(image: draftImage) }
                 } label: {
@@ -501,6 +524,7 @@ struct NameGroupPanelView: View {
                         Text(L10n.string("Create"))
                     }
                 }
+                .keyboardShortcut(.defaultAction)
                 .wnPrimaryButtonStyle()
                 .disabled(trimmedName.isEmpty || workspace.isCreatingChat || workspace.reachableDraftMembers.isEmpty)
                 .accessibilityIdentifier("compose.create")
@@ -508,6 +532,7 @@ struct NameGroupPanelView: View {
             .padding(12)
         }
         .onExitCommand {
+            guard !workspace.isCreatingChat else { return }
             workspace.composeGoBack()
         }
         .task {
@@ -515,32 +540,27 @@ struct NameGroupPanelView: View {
         }
     }
 
-    private var disappearingRow: some View {
-        HStack {
+    private func disappearingRow(retentionSecs: Binding<UInt64>) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        return HStack {
             Text(L10n.string("Disappearing messages"))
-                .wnFont(MessagesType.rowLabel)
-            Spacer()
-            Menu {
+                .font(.body)
+                .foregroundStyle(Color(nsColor: .labelColor))
+            Spacer(minLength: 8)
+            Picker(L10n.string("Disappearing messages"), selection: retentionSecs) {
                 ForEach(DisappearingMessageOption.presets) { option in
-                    Button {
-                        workspace.groupDraftRetentionSecs = option.seconds
-                    } label: {
-                        if workspace.groupDraftRetentionSecs == option.seconds {
-                            Label(option.label, systemImage: "checkmark")
-                        } else {
-                            Text(option.label)
-                        }
-                    }
+                    Text(option.label).tag(option.seconds)
                 }
-            } label: {
-                Text(DisappearingMessageOption.option(for: workspace.groupDraftRetentionSecs).label)
             }
+            .labelsHidden()
+            .pickerStyle(.menu)
             .fixedSize()
             .accessibilityIdentifier("compose.disappearing")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .glassCard()
+        .background(Color(nsColor: .controlBackgroundColor), in: shape)
+        .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
     }
 
 }
@@ -561,8 +581,8 @@ private struct GroupDraftMembersSection: View {
             if !reachable.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.plural("%lld members", Int64(reachable.count)))
-                        .wnFont(MessagesType.sectionHeader)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     ForEach(reachable, id: \.accountIdHex) { member in
                         GroupDraftMemberRow(member: member)
                     }
@@ -572,8 +592,8 @@ private struct GroupDraftMembersSection: View {
             if !unreachable.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.string("Not on White Noise yet"))
-                        .wnFont(MessagesType.sectionHeader)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     ForEach(unreachable, id: \.accountIdHex) { member in
                         GroupDraftMemberRow(member: member, isExcluded: true)
                     }
@@ -602,11 +622,12 @@ private struct GroupDraftMemberRow: View {
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(member.title)
-                    .wnFont(MessagesType.rowLabel)
+                    .font(.body)
+                    .foregroundStyle(Color(nsColor: .labelColor))
                     .lineLimit(1)
                 Text(shortKey(npub: member.npub, hex: member.accountIdHex))
-                    .wnFont(MessagesType.meta)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -629,22 +650,24 @@ private struct GroupDraftInviteNotice: View {
     var hasUnnamedRefusal = false
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         // Text block over the action, the shape `PendingGroupInviteComposerNotice` already uses:
         // the compose drawer is narrow, and a button parked beside two wrapping lines squeezes
         // both. `.firstTextBaseline` sits the icon on the headline rather than the box.
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: "person.badge.plus")
-                    .wnFont(.semiBold14)
+                    .font(.headline)
                     .foregroundStyle(WNColor.intentionInfoContent)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(headline)
-                        .wnFont(.semiBold12)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(nsColor: .labelColor))
                         .fixedSize(horizontal: false, vertical: true)
                     Text(L10n.string("Invite them to White Noise, then add them to the group once they're set up."))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -660,7 +683,8 @@ private struct GroupDraftInviteNotice: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassCard()
+        .background(Color(nsColor: .controlBackgroundColor), in: shape)
+        .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
     }
 
     private var headline: String {
@@ -686,14 +710,16 @@ private struct StartChatInviteNotice: View {
     let prompt: StartChatInvitePrompt
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: "person.badge.plus")
-                    .wnFont(.semiBold14)
+                    .font(.headline)
                     .foregroundStyle(WNColor.intentionInfoContent)
 
                 Text(prompt.detail)
-                    .wnFont(.semiBold12)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(nsColor: .labelColor))
                     .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 0)
@@ -708,7 +734,8 @@ private struct StartChatInviteNotice: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassCard()
+        .background(Color(nsColor: .controlBackgroundColor), in: shape)
+        .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
         .accessibilityIdentifier("compose.startChatInvite")
     }
 }
@@ -808,13 +835,96 @@ private struct ComposeIdentifierResults: View {
     }
 }
 
+/// Native semantic inline search field for compose and member-add flows (C13).
+///
+/// Preserves focus restoration across `.disabled` transitions (such as `GroupAddMembersSheet`
+/// folding a pasted identifier) and native Escape-clears-query-first semantics.
+private struct ComposeSearchField: View {
+    @Binding var text: String
+    var accessibilityIdentifier: String
+    var placeholder: String
+    var autofocus = false
+
+    @FocusState private var isFocused: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var regainsFocusWhenEnabled = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.subheadline)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .accessibilityHidden(true)
+
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .foregroundStyle(Color(nsColor: .labelColor))
+                .focused($isFocused)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier(accessibilityIdentifier)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                    isFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Clear search"))
+                .accessibilityLabel(L10n.string("Clear search"))
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .controlBackgroundColor), in: shape)
+        .overlay {
+            shape.strokeBorder(
+                isFocused ? Color(nsColor: .keyboardFocusIndicatorColor) : Color(nsColor: .separatorColor),
+                lineWidth: isFocused ? 1.5 : 1
+            )
+            .allowsHitTesting(false)
+        }
+        .task {
+            if autofocus {
+                isFocused = true
+            }
+        }
+        .onChange(of: isFocused) { _, focused in
+            if focused {
+                regainsFocusWhenEnabled = true
+            } else if isEnabled {
+                regainsFocusWhenEnabled = false
+            }
+        }
+        .onChange(of: isEnabled) { _, enabled in
+            if enabled, regainsFocusWhenEnabled {
+                isFocused = true
+            }
+        }
+    }
+}
+
 private struct ComposePaneHeader: View {
     let title: String
     let onBack: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            GlassCircleCloseButton(symbol: "chevron.backward", help: "Back", appearance: .outline, action: onBack)
+            Button(action: onBack) {
+                Image(systemName: "chevron.backward")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 14, height: 14)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .controlSize(.regular)
+            .help(L10n.string("Back"))
+            .accessibilityLabel(L10n.string("Back"))
 
             // Laid out beside the back button rather than centred as an overlay over it. As an
             // overlay the title had no width to fit into, so a long localized title grew until it
@@ -822,9 +932,11 @@ private struct ComposePaneHeader: View {
             // full width. Here the title gets the space that is actually free and truncates at its
             // own edge instead.
             Text(title)
-                .wnFont(MessagesType.paneTitle)
+                .font(.headline)
+                .foregroundStyle(Color(nsColor: .labelColor))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(.isHeader)
 
             // Mirrors the back button's footprint so the title stays centred in the pane rather
             // than in what is left of it.
@@ -842,12 +954,13 @@ private struct ComposeSectionHeader: View {
 
     var body: some View {
         Text(title)
-            .wnFont(MessagesType.sectionHeader)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.top, 10)
             .padding(.bottom, 2)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -855,24 +968,30 @@ private struct ComposeActionRow: View {
     let symbol: String
     let title: String
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: symbol)
-                    .wnFont(.semiBold14)
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(WNColor.fillSecondary))
-                    .overlay(Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(nsColor: .labelColor))
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(Color(nsColor: .controlBackgroundColor)))
+                    .overlay(Circle().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
                 Text(title)
-                    .wnFont(MessagesType.rowLabel)
+                    .font(.body)
+                    .foregroundStyle(Color(nsColor: .labelColor))
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .contentShape(Rectangle())
+            .background(isHovered ? WNColor.fillTertiaryHover : .clear, in: shape)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -887,8 +1006,10 @@ private struct ComposeContactRow: View {
     /// `nil` hides the selection indicator (tap opens a chat instead of toggling).
     var selection: Bool?
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         Button(action: action) {
             HStack(spacing: 10) {
                 ProfileImageAvatarView(
@@ -900,17 +1021,18 @@ private struct ComposeContactRow: View {
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .wnFont(MessagesType.rowLabel)
+                        .font(.body)
+                        .foregroundStyle(Color(nsColor: .labelColor))
                         .lineLimit(1)
                     Text(subtitle)
-                        .wnFont(MessagesType.meta)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if let provenance {
                         Text(provenance)
-                            .wnFont(MessagesType.meta)
-                            .foregroundStyle(WNColor.backgroundContentTertiary)
+                            .font(.caption)
+                            .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                             .lineLimit(1)
                     }
                 }
@@ -920,17 +1042,19 @@ private struct ComposeContactRow: View {
                         .controlSize(.small)
                 } else if let selection {
                     Image(systemName: selection ? "checkmark.circle.fill" : "circle")
-                        .wnFont(.medium20)
+                        .font(.title3)
                         .foregroundStyle(
                             selection
-                                ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary)
+                                ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .contentShape(Rectangle())
+            .background(isHovered ? WNColor.fillTertiaryHover : .clear, in: shape)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -971,17 +1095,17 @@ private struct ComposeDiscoveryStatusRow: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(L10n.string("Searching your network..."))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.subheadline)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
             .padding(12)
         case .failed:
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 Text(L10n.string("Search couldn't be completed."))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.subheadline)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 Button(L10n.string("Retry")) {
                     workspace.scheduleUserDiscovery()
                 }
@@ -991,10 +1115,10 @@ private struct ComposeDiscoveryStatusRow: View {
         case .partial:
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 Text(L10n.string("Some results may be missing."))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.subheadline)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
             .padding(12)
         }
@@ -1007,8 +1131,8 @@ private struct ComposeResolvingRow: View {
             ProgressView()
                 .controlSize(.small)
             Text(L10n.string("Resolving..."))
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
         }
         .padding(12)
     }
@@ -1018,20 +1142,18 @@ private struct ComposeNoMatchesView: View {
     var onPaste: (() -> Void)?
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .wnFont(.medium32)
-                .foregroundStyle(WNColor.backgroundContentTertiary)
-            Text(L10n.string("No matches"))
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+        ContentUnavailableView {
+            Label(L10n.string("No matches"), systemImage: "magnifyingglass")
+        } description: {
+            EmptyView()
+        } actions: {
             if let onPaste {
                 Button(L10n.string("Paste npub"), action: onPaste)
-                    .buttonStyle(.link)
+                    .wnSecondaryButtonStyle()
+                    .controlSize(.small)
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
+        .padding(.vertical, 16)
     }
 }
 
@@ -1041,6 +1163,7 @@ private struct MemberChip: View {
     let onRemove: () -> Void
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         Button(action: onRemove) {
             HStack(spacing: 5) {
                 ProfileImageAvatarView(
@@ -1051,17 +1174,19 @@ private struct MemberChip: View {
                     isSelected: false
                 )
                 Text(member.title)
-                    .wnFont(MessagesType.preview)
+                    .font(.subheadline)
+                    .foregroundStyle(Color(nsColor: .labelColor))
                     .lineLimit(1)
                 Image(systemName: "xmark")
-                    .wnFont(.bold10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
             .padding(.leading, 4)
             .padding(.trailing, 7)
             .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(WNColor.fillSecondary))
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(Color(nsColor: .controlBackgroundColor), in: shape)
+            .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         // Dimmed rather than dropped, the way the group draft marks them: "who do I still need to
@@ -1114,4 +1239,26 @@ nonisolated private struct ChipFlowLayout: Layout {
             rowHeight = max(rowHeight, size.height)
         }
     }
+}
+
+#Preview("New chat") {
+    NewChatPanelView()
+        .frame(width: 320, height: 520)
+        .environment(WorkspaceState.preview())
+        .environment(SessionState())
+}
+
+#Preview("Choose members") {
+    ChooseMembersPanelView()
+        .frame(width: 320, height: 520)
+        .environment(WorkspaceState.preview())
+        .environment(SessionState())
+}
+
+#Preview("Name group") {
+    @Previewable @State var draftImage: GroupDraftImage?
+    NameGroupPanelView(draftImage: $draftImage)
+        .frame(width: 320, height: 520)
+        .environment(WorkspaceState.preview())
+        .environment(SessionState())
 }

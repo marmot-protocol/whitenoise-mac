@@ -99,11 +99,11 @@ private struct GroupDraftAvatar: View {
                 )
             } else if trimmedName.isEmpty {
                 Image(systemName: "person.2.fill")
-                    .wnFont(.semiBold32)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .wnFont(.custom(size: size * 0.38, weight: .semiBold))
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     .frame(width: size, height: size)
-                    .background(Circle().fill(WNColor.fillSecondary))
-                    .overlay(Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
+                    .background(Circle().fill(Color(nsColor: .controlBackgroundColor)))
+                    .overlay(Circle().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
             } else {
                 AvatarView(seed: trimmedName, initials: trimmedName, size: size, isSelected: false)
             }

@@ -139,3 +139,9 @@ struct OnboardingSignUpView: View {
         Task { await workspace.cancelSignUp() }
     }
 }
+
+#Preview {
+    OnboardingSignUpView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 940, height: 620)
+}

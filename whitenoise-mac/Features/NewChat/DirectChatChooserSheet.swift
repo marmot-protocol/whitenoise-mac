@@ -16,7 +16,9 @@ struct DirectChatChooserSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DirectChatChooserHeader(recipientName: presentation.recipient.title, onClose: onCancel)
+            DirectChatChooserHeader(recipientName: presentation.recipient.title)
+
+            Divider()
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -31,42 +33,41 @@ struct DirectChatChooserSheet: View {
                     }
                 }
                 .padding(.horizontal, 10)
+                .padding(.vertical, 8)
             }
             .frame(maxHeight: 320)
             .fixedSize(horizontal: false, vertical: true)
 
-            DirectChatChooserFooter(onStartNew: onStartNew)
+            Divider()
+
+            DirectChatChooserFooter(onCancel: onCancel, onStartNew: onStartNew)
         }
-        .frame(width: 400)
-        .wnButtonShape(.capsule)
+        .frame(minWidth: 380, idealWidth: 420)
     }
 }
 
 private struct DirectChatChooserHeader: View {
     let recipientName: String
-    let onClose: () -> Void
 
     var body: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(
-                    String(
-                        format: L10n.string("Conversations with %@"),
-                        PeerDisplayText.templateFragment(recipientName)
-                    )
+        VStack(alignment: .leading, spacing: 4) {
+            Text(
+                String(
+                    format: L10n.string("Conversations with %@"),
+                    PeerDisplayText.templateFragment(recipientName)
                 )
-                .wnFont(.semiBold16)
-                .lineLimit(1)
-                Text(L10n.string("Choose a conversation to continue, or start a new one."))
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            // The sheet's only dismissal, so it also answers Escape.
-            GlassCircleCloseButton(appearance: .outline, action: onClose)
-                .keyboardShortcut(.cancelAction)
+            )
+            .font(.headline)
+            .foregroundStyle(Color(nsColor: .labelColor))
+            .lineLimit(1)
+            .accessibilityAddTraits(.isHeader)
+
+            Text(L10n.string("Choose a conversation to continue, or start a new one."))
+                .font(.subheadline)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.top, 16)
         .padding(.bottom, 12)
@@ -79,8 +80,10 @@ private struct DirectChatChoiceRow: View {
     let choice: DirectChatChoice
     let avatarSeed: String
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         Button(action: action) {
             HStack(spacing: 10) {
                 ProfileImageAvatarView(
@@ -94,59 +97,66 @@ private struct DirectChatChoiceRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(choice.chat.title)
-                            .wnFont(MessagesType.rowLabel)
+                            .font(.body)
+                            .foregroundStyle(Color(nsColor: .labelColor))
                             .lineLimit(1)
                         if choice.isArchived {
                             Image(systemName: "archivebox")
-                                .wnFont(.medium10)
-                                .foregroundStyle(WNColor.backgroundContentTertiary)
+                                .font(.caption)
+                                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                                 .accessibilityLabel(L10n.string("Archived"))
                         }
                         Spacer(minLength: 4)
                         Text(choice.chat.timestampLabel)
-                            .wnFont(MessagesType.meta)
-                            .foregroundStyle(WNColor.backgroundContentTertiary)
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                     }
                     Text(choice.chat.previewNotice() ?? choice.chat.preview)
-                        .wnFont(MessagesType.meta)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .lineLimit(1)
                 }
                 Image(systemName: "chevron.right")
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .contentShape(Rectangle())
+            .background(isHovered ? WNColor.fillTertiaryHover : .clear, in: shape)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
-/// Dismissal lives on the header's close button alone; starting another chat is the secondary
-/// tier, since continuing an existing conversation is the pick this sheet leads with.
-///
-/// Centred and drawn at `.large`, as the iOS chooser's lone pill is: with no second action to sit
-/// beside, a trailing small button read as an afterthought in the corner. The font is named here
-/// because `.wnSecondaryButtonStyle()` inherits whatever the column had rather than choosing one per size.
+/// Native macOS sheet footer (P01, C02, C05): Cancel answers Escape and dismisses the chooser,
+/// while Start new conversation stays secondary so continuing an existing chat remains the primary
+/// path.
 private struct DirectChatChooserFooter: View {
+    let onCancel: () -> Void
     let onStartNew: () -> Void
 
     var body: some View {
-        Button(action: onStartNew) {
-            Text(L10n.string("Start new conversation"))
-                .wnFont(WNPrimaryButtonSize.medium.font)
-                .lineLimit(1)
+        HStack {
+            Button(L10n.string("Cancel"), action: onCancel)
+                .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("compose.chooser.cancel")
+
+            Spacer()
+
+            Button(action: onStartNew) {
+                Text(L10n.string("Start new conversation"))
+                    .lineLimit(1)
+            }
+            .wnSecondaryButtonStyle()
+            .accessibilityIdentifier("compose.chooser.startNew")
         }
-        .wnSecondaryButtonStyle()
-        .controlSize(.large)
-        .accessibilityIdentifier("compose.chooser.startNew")
-        .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 20)
+        .padding(.vertical, 14)
     }
 }
 

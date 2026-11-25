@@ -28,6 +28,7 @@ import SwiftUI
 /// The width is `.infinity` so a stack of these fills the action column
 /// (`OnboardingLayout.contentWidth`) and every button in it comes out the same width.
 struct OnboardingActionLabel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Already resolved by the caller, in-flight wording included.
     let title: String
     let isLoading: Bool
@@ -43,6 +44,6 @@ struct OnboardingActionLabel: View {
             Text(title)
         }
         .frame(maxWidth: .infinity)
-        .animation(.default, value: isLoading)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.15), value: isLoading)
     }
 }

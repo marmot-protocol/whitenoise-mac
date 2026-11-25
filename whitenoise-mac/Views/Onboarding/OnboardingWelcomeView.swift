@@ -82,3 +82,9 @@ struct OnboardingWelcomeView: View {
         .wnButtonShape(.capsule)
     }
 }
+
+#Preview {
+    OnboardingWelcomeView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 940, height: 620)
+}

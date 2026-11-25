@@ -17,6 +17,7 @@ import SwiftUI
 /// survives termination because no progress is held only in SwiftUI state. See
 /// `AccountSetupGuide` for what is derived from it.
 struct AccountSetupView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: OnboardingCoordinator
     @State private var acknowledgesRecoveryRisk = false
 
@@ -38,13 +39,14 @@ struct AccountSetupView: View {
                 )
             }
         }
-        .animation(.smooth(duration: 0.2), value: model.reviewingStep)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: model.reviewingStep)
         .accessibilityIdentifier("onboarding.account-setup")
     }
 }
 
 /// The setup's checklist pane: the header, every step's row, and the pane's one button.
 private struct AccountSetupChecklistPane: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: OnboardingCoordinator
     let guide: AccountSetupGuide
     @Binding var acknowledgesRecoveryRisk: Bool
@@ -75,8 +77,8 @@ private struct AccountSetupChecklistPane: View {
 
                     if let message = model.error {
                         Text(message)
-                            .wnFont(.medium12)
-                            .foregroundStyle(WNColor.backgroundContentDestructive)
+                            .font(.subheadline)
+                            .foregroundStyle(WNColor.intentionErrorContent)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -93,7 +95,7 @@ private struct AccountSetupChecklistPane: View {
         )
         .controlSize(.large)
         .wnButtonShape(.capsule)
-        .animation(.smooth(duration: 0.2), value: guide)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: guide)
     }
 }
 
@@ -106,11 +108,11 @@ private struct AccountSetupHeader: View {
     var body: some View {
         VStack(spacing: 6) {
             Text(L10n.string(guide.titleKey, locale: locale))
-                .wnFont(.bold24)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color(nsColor: .labelColor))
             Text(L10n.string(guide.subtitleKey, locale: locale))
-                .wnFont(.medium14)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.body)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .multilineTextAlignment(.center)
@@ -158,6 +160,7 @@ private struct AccountSetupChecklistRow: View {
     @Environment(\.locale) private var locale
     let step: OnboardingStepStateFfi
     let isReviewable: Bool
+    @State private var isHovered = false
 
     private var state: AccountSetupGuide.CheckState { AccountSetupGuide.checkState(step) }
 
@@ -167,23 +170,27 @@ private struct AccountSetupChecklistRow: View {
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.string(AccountSetupGuide.titleKey(step.step), locale: locale))
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .font(.headline)
+                    .foregroundStyle(Color(nsColor: .labelColor))
                 Text(L10n.string(state.subtitleKey, locale: locale))
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.subheadline)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
             Spacer(minLength: 0)
             if isReviewable {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                     .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(isReviewable && isHovered ? WNColor.fillTertiaryHover : .clear)
         .contentShape(.rect)
+        .onHover { hovering in
+            isHovered = hovering
+        }
         .accessibilityElement(children: .combine)
     }
 }
@@ -197,7 +204,7 @@ struct AccountSetupCheckIcon: View {
                 ProgressView().controlSize(.small)
             } else {
                 Image(systemName: state.symbol)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.title3)
                     .foregroundStyle(color)
             }
         }
@@ -209,23 +216,25 @@ struct AccountSetupCheckIcon: View {
         case .passed: WNColor.intentionSuccessContent
         case .optionalReview, .acknowledgment: WNColor.intentionWarningContent
         case .requiredFix: WNColor.intentionErrorContent
-        case .pending, .checking, .skipped: WNColor.backgroundContentTertiary
+        case .pending, .checking, .skipped: Color(nsColor: .tertiaryLabelColor)
         }
     }
 }
 
-/// The card chrome the checklist and the recovery card share: an outlined, softly filled rounded
-/// rectangle. The outline is what keeps it visible where `fillSecondary` and the pane's ground
-/// land close.
+/// The card chrome the checklist and the recovery card share: a native content container using
+/// `controlBackgroundColor` and `separatorColor` so grouped items read crisply on the window
+/// background in both Light and Dark mode (F02, G03).
 struct AccountSetupCardChrome: ViewModifier {
     var padding: CGFloat = 16
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(WNColor.borderTertiary))
+            .background(Color(nsColor: .controlBackgroundColor), in: shape)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color(nsColor: .separatorColor)))
     }
 }
 
@@ -243,12 +252,13 @@ private struct AccountSetupRecoveryCard: View {
                     locale: locale
                 )
             )
-            .wnFont(.medium12)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .font(.subheadline)
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .fixedSize(horizontal: false, vertical: true)
-            WNToggle(isOn: $acknowledgesRisk) {
+            WNToggle(isOn: $acknowledgesRisk, presentation: .checkbox) {
                 Text(L10n.string("Recover Sign-In Setup?", locale: locale))
-                    .wnFont(.semiBold14)
+                    .font(.headline)
+                    .foregroundStyle(Color(nsColor: .labelColor))
             }
             .disabled(!isEnabled)
         }
