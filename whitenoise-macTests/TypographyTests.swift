@@ -155,40 +155,4 @@ private let allTokens: [WNTextStyle] = [
             #expect(ladder.contains(role.size))
         }
     }
-
-    // MARK: - Native semantic typography (`WNSemanticFont`)
-
-    @Test func semanticRolesFollowAppleTextStyleHierarchy() {
-        let title3 = WNSemanticFont.title3.nsFont.pointSize
-        let headline = WNSemanticFont.headline.nsFont.pointSize
-        let body = WNSemanticFont.body.nsFont.pointSize
-        let callout = WNSemanticFont.callout.nsFont.pointSize
-        let subheadline = WNSemanticFont.subheadline.nsFont.pointSize
-        let caption = WNSemanticFont.caption.nsFont.pointSize
-
-        #expect(title3 > body)
-        #expect(headline == body)
-        #expect(body > callout)
-        #expect(callout > subheadline)
-        #expect(subheadline > caption)
-    }
-
-    @Test func semanticRolesMatchPreferredFonts() {
-        for role in WNSemanticFont.Role.allCases {
-            let semantic = WNSemanticFont(role: role)
-            let expected = NSFont.preferredFont(forTextStyle: role.appKitStyle)
-            let resolved = semantic.nsFont
-
-            #expect(resolved.pointSize == expected.pointSize)
-            #expect(resolved.fontName == expected.fontName)
-        }
-    }
-
-    @Test func semanticSemiboldPreservesPointSizeAndDistinctFace() {
-        let regular = WNSemanticFont.subheadline.nsFont
-        let semibold = WNSemanticFont.subheadline.semibold().nsFont
-
-        #expect(semibold.pointSize == regular.pointSize)
-        #expect(semibold.fontName != regular.fontName)
-    }
 }

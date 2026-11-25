@@ -59,8 +59,6 @@ nonisolated enum WNColor {
     static let fillQuaternaryActive = Color(nsColor: WNNSColor.fillQuaternaryActive)
 
     static let fillDestructive = Color(nsColor: WNNSColor.fillDestructive)
-    static let fillDestructiveHover = Color(nsColor: WNNSColor.fillDestructiveHover)
-    static let fillDestructiveActive = Color(nsColor: WNNSColor.fillDestructiveActive)
 
     static let fillDisabled = Color(nsColor: WNNSColor.fillDisabled)
     static let fillContentDisabled = Color(nsColor: WNNSColor.fillContentDisabled)

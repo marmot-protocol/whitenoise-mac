@@ -60,12 +60,38 @@ import Testing
         }
     }
 
-    /// Checkbox presentation uses the native checkbox style rather than forcing a switch.
-    @Test func checkboxPresentationDoesNotForceASwitch() {
-        let view = Self.platformView(
-            of: WNToggle("Subordinate option", isOn: .constant(true), presentation: .checkbox)
+    /// Checkbox presentation opts out of a switch even inside a grouped `Form` where macOS
+    /// defaults every toggle to an `NSSwitch`.
+    ///
+    /// Hosting both controls inside the same grouped `Form` acts as a positive control: if
+    /// `.checkbox` accidentally fell back to the form's default style (or to `.switch`), it would
+    /// produce an `NSSwitch` just like `defaultInForm` does. On macOS 15–26 SwiftUI backs a
+    /// checkbox with an `NSButton`; on macOS 27 SwiftUI draws checkboxes natively so `platformView`
+    /// returns `nil` (while `defaultInForm` still yields `NSSwitch`).
+    @Test func checkboxPresentationDoesNotForceASwitch() throws {
+        let defaultInForm = try #require(
+            Self.platformView(
+                of: Form {
+                    Toggle("Default", isOn: .constant(true))
+                }
+                .formStyle(.grouped)
+                .frame(width: 280, height: 80)
+            ),
+            "Expected a grouped Form's default Toggle to produce an AppKit switch."
         )
-        #expect(!(view is NSSwitch))
+        #expect(defaultInForm is NSSwitch)
+
+        let checkboxInForm = Self.platformView(
+            of: Form {
+                WNToggle("Subordinate option", isOn: .constant(true), presentation: .checkbox)
+            }
+            .formStyle(.grouped)
+            .frame(width: 280, height: 80)
+        )
+        #expect(!(checkboxInForm is NSSwitch))
+        if let checkboxInForm {
+            #expect(checkboxInForm is NSButton)
+        }
     }
 
     /// The negative control, and the reason the test above means anything.

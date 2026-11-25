@@ -58,9 +58,10 @@ enum WNPrimaryButtonSize: CaseIterable {
     }
 
     /// A size names no shape of its own. `WNPrimaryButton` asks `WNButtonMetrics` for one using
-    /// `controlSize` below, which is the only way a primary button and the `.wnSecondary` one
-    /// beside it can be promised the same outline — a radius stored here would be a second copy of
-    /// the table, and a second copy is what let the two tiers disagree in the first place.
+    /// `controlSize` below, which is the only way a primary button and the
+    /// `.wnSecondaryButtonStyle()` one beside it can be promised the same outline — a radius stored
+    /// here would be a second copy of the table, and a second copy is what let the two tiers
+    /// disagree in the first place.
     var controlSize: ControlSize {
         switch self {
         case .small: .small

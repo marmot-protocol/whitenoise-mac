@@ -136,10 +136,8 @@ struct AddRelaySheet: View {
             Spacer()
 
             // Capsule to match `Add`: the two sit side by side, so an 8pt rect beside a pill
-            // read as two unrelated controls rather than one choice offered twice. The tier is
-            // just `.wnSecondary` now — this call site is where Pepi first sent a sheet's Cancel
-            // to the raised drawing, on 2026-08-31, and the ringed tier it was moved off has
-            // since been removed outright; secondary actions now use native `.bordered` chrome.
+            // read as two unrelated controls rather than one choice offered twice. Secondary
+            // actions use native `.bordered` chrome via `.wnSecondaryButtonStyle()`.
             Button(L10n.string("Cancel")) {
                 dismiss()
             }

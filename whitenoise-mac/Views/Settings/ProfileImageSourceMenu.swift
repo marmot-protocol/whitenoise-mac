@@ -46,12 +46,11 @@ struct ProfileImageSourceMenu<Label: View>: View {
         /// asked for. The sign-up hero.
         ///
         /// **This case names no style on purpose.** Not because there are two secondary tiers to
-        /// choose between any more — there is one, `.wnSecondary` — but because naming it here
-        /// would be a second copy of a decision `OnboardingActionTier` already owns, and the tier
-        /// carries a label height as well as a style. Leaving it out lets the caller hand both
-        /// over: `OnboardingSignUpAvatar` does, with `.onboardingActionTier(.secondary)`. The
-        /// capsule comes from `wnButtonShape` in the environment, which the pane sets for all of
-        /// them at once.
+        /// choose between any more — there is one, `.wnSecondaryButtonStyle()` — but because naming
+        /// it here would be a second copy of a decision `OnboardingActionTier` already owns. Leaving
+        /// it out lets the caller hand the tier over: `OnboardingSignUpAvatar` does, with
+        /// `.onboardingActionTier(.secondary)`. The capsule comes from `wnButtonShape` in the
+        /// environment, which the pane sets for all of them at once.
         case pushButton
     }
 

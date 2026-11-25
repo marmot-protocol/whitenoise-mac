@@ -58,7 +58,7 @@ struct WNInput<Accessory: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WNInputMetrics.labelSpacing) {
             Text(label)
-                .wnSemanticFont(.subheadline.semibold())
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(WNColor.textPrimary)
 
             HStack(spacing: WNInputMetrics.accessorySpacing) {
@@ -77,7 +77,7 @@ struct WNInput<Accessory: View>: View {
 
             if let validationMessage {
                 Text(validationMessage)
-                    .wnSemanticFont(.caption)
+                    .font(.caption)
                     .foregroundStyle(WNColor.intentionErrorContent)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -87,7 +87,7 @@ struct WNInput<Accessory: View>: View {
     private var content: some View {
         field
             .textFieldStyle(.plain)
-            .wnSemanticFont(.body)
+            .font(.body)
             .focused($isFocused)
             .onAppear {
                 if focusOnAppear { isFocused = true }

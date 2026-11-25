@@ -64,10 +64,8 @@ extension View {
 /// The shape lives here rather than in any one tier because the tiers are almost always seen
 /// *together*: an invite is answered with `Accept` beside `Decline`, a contact's profile leads
 /// with `Follow` beside `Message`, and onboarding stacks `Sign In` over `Sign Up`. Each tier used
-/// to name its own radius, and a primary button written as a bare `Button` on
-/// `.nativeGlassProminentButtonStyle()` named none at all — with no `buttonBorderShape` the
-/// platform draws a capsule, which is how the invite prompt ended up offering a pill next to an
-/// 8pt rounded rectangle in the same row.
+/// to name its own radius, and primary buttons that previously bypassed `WNButtonMetrics` picked up
+/// an unmatched capsule beside an 8pt rounded rectangle in the same row.
 ///
 /// `controlSize` and `wnButtonShape` are both read from the environment because that is the one
 /// place a pair genuinely shares: they are set on the row, not on either button.
@@ -85,10 +83,11 @@ enum WNButtonMetrics {
         controlSize == .large ? 12 : 8
     }
 
-    /// The ground the styles that draw their own background fill, stroke and hit-test against.
+    /// The ground the views that draw their own background fill, stroke, and hit-test against
+    /// (such as `WNInput` and `OnboardingKeyField`) cut to.
     ///
     /// One `AnyShape` for all three uses rather than three literals, because the three have to
-    /// agree: a fill cut to a capsule under a hit region cut to a rounded rectangle is a button
+    /// agree: a fill cut to a capsule under a hit region cut to a rounded rectangle is a control
     /// with dead corners.
     static func backgroundShape(_ shape: WNButtonShape, for controlSize: ControlSize) -> AnyShape {
         switch shape {
@@ -99,8 +98,15 @@ enum WNButtonMetrics {
         }
     }
 
-    /// The same outline in the vocabulary the *native* styles speak. `.glassProminent` builds its
-    /// own ground, so it cannot be handed a `Shape` — only one of these.
+    /// The same outline in the vocabulary the native `.bordered` and `.borderedProminent` styles
+    /// speak — they build their own AppKit ground and take a `ButtonBorderShape` rather than a
+    /// `Shape`.
+    ///
+    /// **macOS 15.6 fallback:** SwiftUI honors `.capsule` and `.roundedRectangle(radius:)` on
+    /// bordered push buttons starting on macOS 26. On the macOS 15.6 deployment floor, AppKit
+    /// standard bordered buttons intentionally fall back to native macOS 15 push-button geometry
+    /// rather than substituting custom-drawn chrome (see `docs/macos-ui-patterns.md` C01/C02 and
+    /// the macOS 15.6 fallback table).
     static func borderShape(_ shape: WNButtonShape, for controlSize: ControlSize) -> ButtonBorderShape {
         switch shape {
         case .rounded: .roundedRectangle(radius: cornerRadius(for: controlSize))

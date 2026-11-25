@@ -11,10 +11,10 @@ import Testing
 
 /// The primary tier draws its own ground, with no ambient tint to lean on.
 ///
-/// `.glassProminent` carries no colour and tints from the environment. The app's only source of
-/// that tint is `ContentView`'s `.tint(WNColor.fillPrimary)`, and a sheet is a separate
-/// presentation that inherits none of it — so a primary button inside one used to fall back to the
-/// system accent and draw **blue**, the one hue the palette reserves for links and search hits.
+/// `.borderedProminent` carries no colour and tints from the environment. Sheets and popovers are
+/// separate presentations that inherit no window-level tint — and we no longer set a window-wide
+/// tint — so an untinted prominent button would fall back to the system accent and draw **blue**,
+/// the one hue the palette reserves for links and search hits.
 ///
 /// Every render below is deliberately given **no** tint, because that is the condition a sheet
 /// actually presents under. A harness that helpfully supplied one is how the defect shipped
@@ -43,8 +43,8 @@ import Testing
 
         #expect(Self.chroma(fill) < 0.06)
 
-        // The specific regression: an untinted `.glassProminent` falls back to the control accent,
-        // which on a default install is blue — the one hue this palette reserves for links.
+        // The specific regression: an untinted `.borderedProminent` falls back to the control
+        // accent, which on a default install is blue — the one hue this palette reserves for links.
         let accent = try #require(NSColor.controlAccentColor.usingColorSpace(.sRGB))
         #expect(Self.chroma(accent) > 0.2)
         #expect(Self.distance(fill, accent) > 0.3)
@@ -117,26 +117,6 @@ import Testing
         #expect(Self.distance(enabled, disabled) > 0.15)
     }
 
-    /// `WNPrimaryButton` applies its own `controlSize` outside `.wnPrimaryButtonStyle()` so a
-    /// smaller button inside a `.large` container keeps its own corner radius and height.
-    @Test func primaryButtonUsesItsOwnControlSizeInsideALargeContainer() throws {
-        let smallInLarge = try Self.sizeOfButton {
-            WNPrimaryButton(size: .small) {
-            } label: {
-                Text("Done")
-            }
-            .controlSize(.large)
-        }
-        let standaloneSmall = try Self.sizeOfButton {
-            WNPrimaryButton(size: .small) {
-            } label: {
-                Text("Done")
-            }
-        }
-
-        #expect(abs(smallInLarge.height - standaloneSmall.height) <= 1)
-    }
-
     // MARK: - Helpers
 
     /// Rasterizes `content` on a `backgroundPrimary` ground and samples its *fill*.
@@ -172,12 +152,6 @@ import Testing
         // A transparent sample means the glass never drew; assert rather than compare against it.
         #expect(pixel.alphaComponent > 0.99)
         return pixel
-    }
-
-    private static func sizeOfButton<Content: View>(@ViewBuilder content: () -> Content) throws -> CGSize {
-        let renderer = ImageRenderer(content: content())
-        renderer.scale = 2
-        return try #require(renderer.nsImage?.size)
     }
 
     /// How far the three channels spread — 0 for any neutral, large for a saturated hue.

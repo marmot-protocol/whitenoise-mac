@@ -129,10 +129,6 @@ nonisolated enum WNNSColor {
     /// A destructive action's fill. Same in both appearances.
     static let fillDestructive = NSColor.wnDynamic(
         "wn.fillDestructive", light: WNColorRamp.red600, dark: WNColorRamp.red600)
-    static let fillDestructiveHover = NSColor.wnDynamic(
-        "wn.fillDestructiveHover", light: WNColorRamp.red500, dark: WNColorRamp.red500)
-    static let fillDestructiveActive = NSColor.wnDynamic(
-        "wn.fillDestructiveActive", light: WNColorRamp.red500, dark: WNColorRamp.red500)
 
     static let fillDisabled = NSColor.wnDynamic(
         "wn.fillDisabled", light: WNColorRamp.neutral300, dark: WNColorRamp.neutral650)

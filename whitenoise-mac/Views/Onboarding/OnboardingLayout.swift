@@ -116,9 +116,7 @@ enum OnboardingLayout {
 
     /// The minimum height an action's *label* must claim for its button to come out
     /// `actionHeight` tall.
-    static func actionLabelHeight(for _: OnboardingActionTier) -> CGFloat {
-        actionHeight - actionChromeHeight
-    }
+    static let actionLabelHeight: CGFloat = actionHeight - actionChromeHeight
 
     // MARK: - The sign-up pane
 

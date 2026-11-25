@@ -11,8 +11,8 @@ import SwiftUI
 /// The nickname prompt: one labelled field, the privacy promise under it, and Save.
 ///
 /// The copy is iOS's `ContactNicknameRow` alert word for word; the chrome is the one every small
-/// sheet here wears — `AddRelaySheet`'s header, `WNInput`, and a `.wnSecondary` / `WNPrimaryButton`
-/// footer — in pills, so the field and the button that submits it share a shape.
+/// sheet here wears — `AddRelaySheet`'s header, `WNInput`, and a `.wnSecondaryButtonStyle()` /
+/// `WNPrimaryButton` footer — in pills, so the field and the button that submits it share a shape.
 ///
 /// It owns its own draft and reports a decision through `onSave`, so it never reads the workspace.
 struct ContactNicknameEditorSheet: View {
