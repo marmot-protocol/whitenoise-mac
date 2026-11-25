@@ -93,7 +93,7 @@ struct SettingsFooterText: View {
         // types and cannot meet in a ternary — the branch has to be over the view.
         let note =
             Text(text)
-            .wnFont(.medium10)
+            .font(.caption)
             .foregroundStyle(WNColor.backgroundContentSecondary)
             // A note is prose, so it wraps rather than truncating, and it stays left-aligned
             // against the group above it however wide the pane gets.
@@ -131,7 +131,7 @@ struct SettingsNavigationRow: View {
                 Spacer(minLength: 0)
 
                 Image(systemName: "chevron.right")
-                    .wnFont(.semiBold10)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(WNColor.backgroundContentTertiary)
             }
             // The whole row is the target, not just the words in it — the shape the account
@@ -224,7 +224,7 @@ struct SettingsStatusNote: View {
             switch self {
             case .success: WNColor.intentionSuccessContent
             case .warning: WNColor.intentionWarningContent
-            case .failure: WNColor.backgroundContentDestructive
+            case .failure: WNColor.intentionErrorContent
             }
         }
 
@@ -243,7 +243,7 @@ struct SettingsStatusNote: View {
 
     var body: some View {
         Label(text, systemImage: systemImage ?? intention.systemImage)
-            .wnFont(.medium12)
+            .font(.subheadline)
             .foregroundStyle(intention.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,7 +257,7 @@ struct SettingsStatusNote: View {
 struct SettingsVersionFooter: View {
     var body: some View {
         Text(verbatim: "White Noise · \(Self.shortVersion) (\(Self.buildNumber))")
-            .wnFont(.medium10)
+            .font(.caption)
             .foregroundStyle(WNColor.backgroundContentTertiary)
             .frame(maxWidth: .infinity, alignment: .center)
     }

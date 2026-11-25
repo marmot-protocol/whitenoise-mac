@@ -62,9 +62,6 @@ struct AvatarCropSheet: View {
             AvatarCropFooter(model: model, onClose: onClose)
         }
         .frame(width: Self.sheetWidth)
-        .background {
-            LiquidGlassBackground()
-        }
         .interactiveDismissDisabled(model.isSaving)
         .task { await model.load() }
     }
@@ -77,11 +74,11 @@ private struct AvatarCropHeader: View {
     var body: some View {
         HStack {
             Text(L10n.string("Crop image"))
-                .wnFont(.semiBold14)
+                .font(.headline)
 
             Spacer()
 
-            GlassCircleCloseButton(action: onClose)
+            GlassCircleCloseButton(appearance: .outline, action: onClose)
                 .disabled(isSaving)
         }
         .padding(.horizontal, 18)
@@ -112,7 +109,7 @@ private struct AvatarCropContent: View {
                 AvatarCropCanvas(model: model)
 
                 Text(L10n.string("Drag to position the image. Pinch or use the slider to zoom."))
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

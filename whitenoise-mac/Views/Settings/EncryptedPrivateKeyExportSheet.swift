@@ -8,20 +8,6 @@
 
 import SwiftUI
 
-/// The password gate in front of the encrypted export.
-///
-/// Ported from `wn-ios-prototype`'s `EncryptedPrivateKeySheet`, with its three decisions kept:
-///
-/// - **The mismatch replaces the guidance,** in the same place, rather than appearing as a row of
-///   its own. A separate error row shifts everything under it on the first wrong keystroke.
-/// - **The strength rating keeps its word,** and adds the colour. Red / yellow / green alone is
-///   the one signal a reader who cannot separate them gets nothing from.
-/// - **Export becomes available only when both fields are non-empty and equal.** An empty password
-///   would produce an `ncryptsec1` file anyone can open — worse than the plaintext export,
-///   because it looks protected.
-///
-/// The rating and the readiness rule are `PrivateKeyExportPasswordStrength` and
-/// `PrivateKeyExportPasswordEntry`, so neither is a chain of `&&` inside this body.
 struct EncryptedPrivateKeyExportSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
@@ -29,6 +15,7 @@ struct EncryptedPrivateKeyExportSheet: View {
 
     @State private var password = ""
     @State private var confirmation = ""
+    @FocusState private var isPasswordFocused: Bool
 
     private var isReady: Bool {
         PrivateKeyExportPasswordEntry.isReady(password: password, confirmation: confirmation)
@@ -42,7 +29,7 @@ struct EncryptedPrivateKeyExportSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text(L10n.string("Encrypted Private Key"))
-                    .wnFont(.semiBold16)
+                    .font(.headline)
                 Spacer()
                 Button {
                     dismiss()
@@ -55,11 +42,9 @@ struct EncryptedPrivateKeyExportSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                // Native field chrome, not a custom-drawn one: AppKit puts a `SecureField`'s
-                // editor in a private focus clip view, and a field that draws its own ground has
-                // to clip itself or the editor lands next to the field rather than inside it.
                 SecureField(L10n.string("Password"), text: $password)
                     .textFieldStyle(.roundedBorder)
+                    .focused($isPasswordFocused)
                 SecureField(L10n.string("Confirm Password"), text: $confirmation)
                     .textFieldStyle(.roundedBorder)
 
@@ -75,7 +60,7 @@ struct EncryptedPrivateKeyExportSheet: View {
                             "Use a long, unique password. You'll need it to open the encrypted backup. White Noise never stores it."
                         )
                     )
-                    .wnFont(.medium12)
+                    .font(.subheadline)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -91,6 +76,7 @@ struct EncryptedPrivateKeyExportSheet: View {
                     dismiss()
                 }
                 .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
                 .disabled(workspace.isExportingPrivateKey)
 
                 WNPrimaryButton(action: { Task { await export() } }) {
@@ -110,17 +96,14 @@ struct EncryptedPrivateKeyExportSheet: View {
         }
         .padding(20)
         .frame(width: 420)
+        .interactiveDismissDisabled(workspace.isExportingPrivateKey)
         .onAppear {
-            // Start from a clean Settings error so an earlier profile or relay failure doesn't
-            // render under the password fields as though this sheet had produced it.
             workspace.setSettingsError(nil)
+            isPasswordFocused = true
         }
     }
 
     private func export() async {
-        // Dismiss only on a written file. A cancelled save panel, a wrong-account guard or a
-        // failed write all leave the sheet up with the password still typed, so the reader can
-        // retry rather than start over — and `lastError` has somewhere to be read.
         if await workspace.exportActiveAccountPrivateKey(.encrypted, passphrase: password) {
             dismiss()
         }
@@ -128,10 +111,6 @@ struct EncryptedPrivateKeyExportSheet: View {
 }
 
 /// The strength rating: the word, then the bar.
-///
-/// The word leads because it is the part that survives being unable to tell the three colours
-/// apart, and the bar's tint comes from `SettingsStatusNote.Intention` so a rating cannot be drawn
-/// in a colour the palette has no meaning for.
 private struct PasswordStrengthReadout: View {
     let strength: PrivateKeyExportPasswordStrength
 
@@ -146,11 +125,11 @@ private struct PasswordStrengthReadout: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(L10n.string("Strength"))
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
 
             Text(L10n.string(strength.labelKey))
-                .wnFont(.semiBold12)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(intention.color)
 
             Spacer(minLength: 8)
@@ -167,4 +146,9 @@ private struct PasswordStrengthReadout: View {
         .accessibilityLabel(Text(L10n.string("Strength")))
         .accessibilityValue(Text(L10n.string(strength.labelKey)))
     }
+}
+
+#Preview("Encrypted private key export") {
+    EncryptedPrivateKeyExportSheet()
+        .environment(WorkspaceState.preview())
 }

@@ -17,12 +17,13 @@ struct SettingsWindowView: View {
                 scope.account.id == coordinator.accountID
             {
                 NavigationSplitView {
-                    SettingsListDrawerView(coordinator: coordinator)
+                    SettingsSidebarView(coordinator: coordinator)
                         .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 300)
                 } detail: {
                     SettingsPanelView(
                         model: scope.settingsModel, deviceLinking: scope.deviceLinking, page: coordinator.page)
                 }
+                .navigationTitle(coordinator.page.title(in: workspace.preferredLocale))
                 .deviceLinkSheet(
                     coordinator.hostsDeviceLinkSheet ? scope.deviceLinking : nil,
                     locale: workspace.preferredLocale,

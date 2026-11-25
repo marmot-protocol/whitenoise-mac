@@ -87,16 +87,6 @@ struct SettingsPanelView: View {
                 }
             }
         }
-        // The same surface the transcript and the group/contact detail panes draw on, rather than
-        // the glass wash this used to be. A settings page is a reading surface in the content
-        // column, so it takes the reading surface: `backgroundPrimary`. The glass wash never
-        // reached that value in light appearance — a material over `backgroundSecondary` with a
-        // partial white tint lands visibly grayer than the chat beside it, which is the whole
-        // complaint. Glass stays where it belongs in settings: the header (`GlassToolbarBackground`)
-        // and the sheets that lift off this pane.
-        .background {
-            MessagesTranscriptBackground()
-        }
         .task(id: loadKey) {
             guard page.usesLegacyWorkspaceSettings else { return }
             await workspace.loadSettingsData()

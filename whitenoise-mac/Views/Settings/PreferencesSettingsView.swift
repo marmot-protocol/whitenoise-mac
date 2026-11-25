@@ -34,7 +34,8 @@ struct PreferencesSettingsView: View {
                     isOn: Binding(
                         get: { launchAtLogin.isEnabled },
                         set: { launchAtLogin.setEnabled($0) }
-                    )
+                    ),
+                    presentation: .switch
                 )
 
                 LaunchAtLoginStatusRows(controller: launchAtLogin)
@@ -51,7 +52,8 @@ struct PreferencesSettingsView: View {
                     isOn: Binding(
                         get: { workspace.restoreLastSelectedChat },
                         set: { workspace.setRestoreLastSelectedChat($0) }
-                    )
+                    ),
+                    presentation: .switch
                 )
             }
 
@@ -127,7 +129,7 @@ struct QuickReactionsSettingsSection: View {
                         quickReactionBeingReplaced = index
                     } label: {
                         Text(emoji)
-                            .wnFont(.medium24)
+                            .font(.title2)
                             .frame(width: 38, height: 32)
                             .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 8))
                     }
@@ -197,4 +199,10 @@ struct QuickReactionsSettingsSection: View {
             }
         )
     }
+}
+
+#Preview("Preferences settings") {
+    PreferencesSettingsView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 560, height: 640)
 }

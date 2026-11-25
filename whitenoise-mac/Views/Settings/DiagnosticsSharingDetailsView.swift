@@ -52,7 +52,7 @@ struct DiagnosticsSharingDetailsView: View {
                     Link(destination: privacyPolicyURL) {
                         Text(L10n.string("Privacy Policy")).underline()
                     }
-                    .wnFont(.medium12)
+                    .font(.subheadline)
                     .foregroundStyle(WNColor.backgroundContentPrimary)
                 }
             }
@@ -71,11 +71,11 @@ private struct DiagnosticsDisclosureSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .wnFont(.semiBold14)
+                .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             ForEach(paragraphs, id: \.self) { paragraph in
                 Text(paragraph)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -126,7 +126,8 @@ struct RemoteGIFLoadingSection: View {
                 isOn: Binding(
                     get: { preference.automaticallyLoads },
                     set: { preference.setAutomaticallyLoads($0) }
-                )
+                ),
+                presentation: .switch
             )
         }
     }
@@ -159,7 +160,8 @@ struct StickerLoadingSection: View {
                 isOn: Binding(
                     get: { preference.automaticallyLoads },
                     set: { preference.setAutomaticallyLoads($0) }
-                )
+                ),
+                presentation: .switch
             )
         }
     }
@@ -193,7 +195,8 @@ struct LinkPreviewSettingsSection: View {
                 isOn: Binding(
                     get: { preference.showsPreviews },
                     set: { preference.setShowsPreviews($0) }
-                )
+                ),
+                presentation: .switch
             )
         }
     }
@@ -363,6 +366,7 @@ struct DiagnosticLogRetentionSection: View {
                         Text(Self.ageLabel(days)).tag(days)
                     }
                 }
+                .pickerStyle(.menu)
                 .disabled(!isEnabled || model.isBusy)
 
                 Picker(
@@ -376,6 +380,7 @@ struct DiagnosticLogRetentionSection: View {
                         Text(Self.sizeLabel(bytes)).tag(bytes)
                     }
                 }
+                .pickerStyle(.menu)
                 .disabled(!isEnabled || model.isBusy)
             }
 
@@ -429,4 +434,10 @@ enum AuditLogByteCount {
     static func string(_ bytes: UInt64) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
+}
+
+#Preview("Privacy & Security") {
+    PrivacySecuritySettingsView(model: .preview())
+        .environment(WorkspaceState.preview())
+        .frame(width: 600, height: 760)
 }

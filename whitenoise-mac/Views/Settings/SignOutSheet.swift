@@ -5,24 +5,13 @@
 //  The one way out of an account, and the one place that decides whether its local data
 //  goes with it.
 //
-//  This replaces two separate confirmations: a `confirmationDialog` for signing out, raised
-//  from the drawer's isolated Sign Out row, and a second one for Remove Account, raised from
-//  a group of its own on the Identity & Keys page. Two surfaces for two halves of one
-//  question — am I leaving this account, or erasing it? — is what `wn-ios-prototype`'s
-//  `docs/screens/sign-out.md` settles by making the erasure a toggle on the sign-out sheet:
-//  the exit is one task, and the toggle is the only decision inside it.
-//
-//  A sheet rather than a dialog because a dialog cannot hold a toggle, a note that rewrites
-//  itself, and a type-to-confirm field. It is also why the destructive half needs no second
-//  alert on top: the sheet is the confirmation.
-//
 
 import SwiftUI
 
 /// Signing out of the active account, with or without wiping it off this Mac.
 struct SignOutSheet: View {
     /// Which teardown is running, once one is.
-    private enum Stage: Equatable {
+    fileprivate enum Stage: Equatable {
         case signingOut
         case wiping
 
@@ -41,13 +30,8 @@ struct SignOutSheet: View {
 
     let account: AccountItem
 
-    /// Off by default, unlike the prototype, which arms wiping on open.
-    ///
-    /// The prototype has no data to lose. Here the promise this app has always made for Sign Out
-    /// is that "the account and its local data will stay on this Mac" — the sentence the dialog
-    /// this sheet replaced was built around — and defaulting the toggle on would quietly invert it
-    /// for everyone who signs out without reading. Erasure is opt-in, and the type-to-confirm gate
-    /// under the toggle is the second half of the same rule.
+    /// Off by default so signing out preserves local data unless the user explicitly opts in and
+    /// clears the type-to-confirm gate.
     @State private var wipesLocalData = false
     @State private var confirmationInput = ""
     @State private var stage: Stage?
@@ -77,158 +61,87 @@ struct SignOutSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header
-            form
+            SignOutSheetHeader(isBusy: stage != nil, onClose: { dismiss() })
+
+            SignOutAccountIdentity(account: account)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                WNToggle(isOn: $wipesLocalData) {
+                    Text(L10n.string("Wipe Data From This Device"))
+                        .font(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(stage != nil)
+
+                SettingsFooterText(
+                    wipesLocalData
+                        ? L10n.string(
+                            "This account and all of its local data will be permanently removed from this Mac. Previous chats won't return."
+                        )
+                        : L10n.string(
+                            "The account and its local data will stay on this Mac so you can sign in again later.")
+                )
+                if wipesLocalData, handsOffToLinkedDevices {
+                    SettingsFooterText(L10n.string(LinkedDeviceHandOff.note))
+                }
+            }
+
+            if wipesLocalData {
+                SignOutWipeConfirmationField(
+                    challenge: challenge,
+                    confirmationInput: $confirmationInput,
+                    isDisabled: stage != nil
+                )
+            }
+
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+
+                Button(L10n.string("Cancel")) {
+                    dismiss()
+                }
+                .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
+                .disabled(stage != nil)
+
+                Button(role: .destructive) {
+                    Task { await signOut() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if stage != nil {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(L10n.string("Sign Out"))
+                    }
+                }
+                .accessibilityValue(stage.map { Text(L10n.string($0.labelKey)) } ?? Text(verbatim: ""))
+                .wnDestructiveButtonStyle()
+                .disabled(stage == nil && !canSignOut)
+            }
+
+            if let error = settings?.lastError {
+                SettingsErrorView(error: error)
+            }
         }
         .padding(20)
         .frame(width: 420)
         .interactiveDismissDisabled(stage != nil)
         .onAppear {
-            // The sheet draws Settings' error channel, and `signOutAccount`/`removeAccount` clear it
-            // only *after* their entry guard, so an error left behind by some earlier profile or
-            // relay failure would otherwise render here as if this sheet had caused it.
             workspace.setSettingsError(nil)
         }
         .onChange(of: wipesLocalData) { _, wipesLocalData in
-            // The typed name is scoped to the armed toggle. Leaving it behind would let a reader
-            // who turned wiping off and back on find the gate already cleared.
             if !wipesLocalData { confirmationInput = "" }
         }
         .onChange(of: account.id) {
-            // The host builds this sheet from whichever account is active, so a sheet that
-            // outlives an identity change is re-rendered for another account with its `@State`
-            // intact. An armed wipe and a typed confirmation belong to the account they were
-            // given for; carried over, one click would erase a profile nobody confirmed.
             wipesLocalData = false
             confirmationInput = ""
         }
     }
 
-    private var header: some View {
-        HStack {
-            Text(L10n.string("Sign Out"))
-                .wnFont(.semiBold16)
-            Spacer()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .disabled(stage != nil)
-            .accessibilityLabel(Text(L10n.string("Close")))
-        }
-    }
-
-    private static var handOffNote: String {
-        L10n.string(LinkedDeviceHandOff.note)
-    }
-
-    @ViewBuilder
-    private var form: some View {
-        // The account the button acts on, named on the sheet that acts on it. With several
-        // identities signed in on this Mac, "Sign Out" alone does not say which one is leaving.
-        HStack(spacing: 12) {
-            ProfileImageAvatarView(
-                seed: account.accountIdHex,
-                initials: account.initials,
-                sanitizedPictureURL: account.sanitizedPictureURL,
-                size: 48,
-                isSelected: false
-            )
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(account.displayName)
-                    .wnFont(.semiBold14)
-                    .lineLimit(1)
-                CopyableKeyLabel(accountIdHex: account.accountIdHex, showsCopyButton: false)
-            }
-        }
-
-        Divider()
-
-        VStack(alignment: .leading, spacing: 8) {
-            // Locked while the teardown runs: the form stays on screen so the reader can still see
-            // which account is leaving and whether its data goes too, but the choice is made.
-            WNToggle(isOn: $wipesLocalData) {
-                // The label takes the width so the switch lands at the trailing edge, the way a
-                // grouped `Form` row places it. A bare label hugs, which put the switch in the
-                // middle of the sheet with dead space beside it.
-                Text(L10n.string("Wipe Data From This Device"))
-                    .wnFont(.medium14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .disabled(stage != nil)
-
-            // One note, rewritten by the toggle rather than two notes stacked. What changes when
-            // the switch moves is what happens to the data, so the sentence about the data is the
-            // thing that changes.
-            SettingsFooterText(
-                wipesLocalData
-                    ? L10n.string(
-                        "This account and all of its local data will be permanently removed from this Mac. Previous chats won't return."
-                    )
-                    : L10n.string(
-                        "The account and its local data will stay on this Mac so you can sign in again later.")
-            )
-            if wipesLocalData, handsOffToLinkedDevices {
-                SettingsFooterText(Self.handOffNote)
-            }
-        }
-
-        if wipesLocalData {
-            VStack(alignment: .leading, spacing: 8) {
-                TextField(challenge, text: $confirmationInput)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    .disabled(stage != nil)
-                    .accessibilityLabel(Text(L10n.string("Wipe Data From This Device")))
-
-                SettingsFooterText(
-                    String(
-                        format: L10n.string(
-                            "Type “%@” to confirm permanent removal of this account and its local data."),
-                        challenge)
-                )
-            }
-        }
-
-        Button(role: .destructive) {
-            Task { await signOut() }
-        } label: {
-            // The progress lives in the button that started it rather than in a view swapped in
-            // for the whole form: the sheet keeps its shape, and the reader's eye is already on
-            // the button they pressed. The label keeps its text; the spinner beside it is the only
-            // visible change, and the stage's wording goes to VoiceOver as the button's value.
-            HStack(spacing: 8) {
-                if stage != nil {
-                    ProgressView().controlSize(.small)
-                }
-                Text(L10n.string("Sign Out"))
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .accessibilityValue(stage.map { Text(L10n.string($0.labelKey)) } ?? Text(verbatim: ""))
-        // One button in one place with one label, armed or not, because the choice the reader made
-        // is the toggle above it — a second, differently-worded button appearing when the toggle
-        // moves would make the sheet look like it had swapped tasks. Red in both states: without
-        // wiping this still ends the session and drops the account's published key packages.
-        .wnDestructiveButtonStyle()
-        .controlSize(.large)
-        // Stays red with its spinner while the teardown runs, as Delete Profile's button does,
-        // rather than greying out as though the gate had closed. `signOut()` still ignores taps:
-        // `canSignOut` is false while a stage is set.
-        .disabled(stage == nil && !canSignOut)
-
-        if let error = settings?.lastError {
-            SettingsErrorView(error: error)
-        }
-    }
-
     private func signOut() async {
         guard canSignOut else { return }
-        // Captured before the teardown: once it succeeds the host may hand this sheet another
-        // account, and `.onChange(of: account.id)` resets the toggle under the await.
         let wipes = wipesLocalData
         if wipes {
             stage = .wiping
@@ -238,19 +151,6 @@ struct SignOutSheet: View {
             await workspace.signOutAccount(account)
         }
         stage = nil
-        // Dismiss only when the teardown actually ran, read off the account list it left behind —
-        // the rule `DeleteProfileRemoval` follows — and never off `lastError`. There are three
-        // outcomes, and `lastError` cannot tell the last two apart:
-        //  - Nothing was torn down (the core refused, or another account change held the gate):
-        //    the account is still signed in. The sheet stays, so the error it draws in its
-        //    `SettingsErrorView` is read rather than dismissed with it.
-        //  - The exit ran and the app moved on, to the profile chooser or onboarding: dismissing
-        //    covers the first, and is harmless in the second, which takes the sheet with it.
-        //  - The exit ran and the app switched straight into the only profile left, whose
-        //    settings then failed to load. That error is the survivor's and stays on `lastError`
-        //    for its settings page; it is no reason to keep this sheet up. The host re-renders it
-        //    for the now-active survivor, so staying would put a Sign Out button for the wrong
-        //    identity under the reader's cursor.
         guard Self.exitSucceeded(for: account, wipedLocalData: wipes, in: workspace.accounts) else {
             return
         }
@@ -264,4 +164,75 @@ struct SignOutSheet: View {
         guard let remaining = accounts.first(where: { $0.id == account.id }) else { return true }
         return !wipedLocalData && remaining.signedOut
     }
+}
+
+private struct SignOutSheetHeader: View {
+    let isBusy: Bool
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack {
+            Text(L10n.string("Sign Out"))
+                .font(.headline)
+            Spacer()
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .disabled(isBusy)
+            .accessibilityLabel(Text(L10n.string("Close")))
+        }
+    }
+}
+
+private struct SignOutAccountIdentity: View {
+    let account: AccountItem
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProfileImageAvatarView(
+                seed: account.accountIdHex,
+                initials: account.initials,
+                sanitizedPictureURL: account.sanitizedPictureURL,
+                size: 48,
+                isSelected: false
+            )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(account.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                CopyableKeyLabel(accountIdHex: account.accountIdHex, showsCopyButton: false)
+            }
+        }
+    }
+}
+
+private struct SignOutWipeConfirmationField: View {
+    let challenge: String
+    @Binding var confirmationInput: String
+    let isDisabled: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField(challenge, text: $confirmationInput)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                .disabled(isDisabled)
+                .accessibilityLabel(Text(L10n.string("Wipe Data From This Device")))
+
+            SettingsFooterText(
+                String(
+                    format: L10n.string(
+                        "Type “%@” to confirm permanent removal of this account and its local data."),
+                    challenge)
+            )
+        }
+    }
+}
+
+#Preview("Sign out sheet") {
+    SignOutSheet(account: AccountItem.samples[0])
+        .environment(WorkspaceState.preview())
+        .environment(SessionState())
 }

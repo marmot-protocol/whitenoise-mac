@@ -236,11 +236,19 @@ final class SettingsWindowCoordinator {
     private func completeChooserHandoff() {
         guard let workspace, workspace.showsMessengerChrome else { return }
         interruptedPage = nil
-        guard let destination = pendingPage else { return }
-        pendingPage = nil
-        page = availablePage(destination, developerModeEnabled: workspace.developerMode)
-        accountID = workspace.activeAccount?.id
-        showWindow?()
+        if let destination = pendingPage {
+            pendingPage = nil
+            page = availablePage(destination, developerModeEnabled: workspace.developerMode)
+            accountID = workspace.activeAccount?.id
+            showWindow?()
+        } else if let currentAccountID = accountID, let activeID = workspace.activeAccount?.id,
+            currentAccountID != activeID
+        {
+            page = availablePage(page.pageAfterActiveAccountChange, developerModeEnabled: workspace.developerMode)
+            accountID = activeID
+            lastError = nil
+            lastErrorAccountID = nil
+        }
     }
 
     private func returnFromAddProfile() {

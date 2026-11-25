@@ -3696,7 +3696,8 @@ enum WorkspaceSelection: Equatable {
     case settings(SettingsPage)
 }
 
-enum SettingsPage: Equatable {
+enum SettingsPage: Equatable, Hashable, Identifiable {
+    var id: Self { self }
     case overview
     case preferences
     case profile
@@ -3837,7 +3838,7 @@ enum SettingsPage: Equatable {
         case .notifications:
             "Notifications"
         case .storage:
-            "Storage"
+            "Data Usage"
         case .manageStorage:
             "Manage Storage"
         case .agents:
@@ -3847,7 +3848,7 @@ enum SettingsPage: Equatable {
         case .donate:
             "Donate"
         case .developerMode:
-            "Developer mode"
+            "Developer Tools"
         case .quarantinedGroups:
             "Quarantined Groups"
         case .deleteProfile:
@@ -3899,6 +3900,49 @@ enum SettingsPage: Equatable {
             "trash"
         }
     }
+
+    var sidebarAccessibilityIdentifier: String {
+        switch self {
+        case .overview:
+            "settings.sidebar.overview"
+        case .preferences:
+            "settings.sidebar.preferences"
+        case .profile:
+            "settings.sidebar.profile"
+        case .identityKeys:
+            "settings.sidebar.profile-keys"
+        case .devices:
+            "settings.sidebar.devices"
+        case .relays:
+            "settings.sidebar.relays"
+        case .keyPackages:
+            "settings.sidebar.key-packages"
+        case .appearance:
+            "settings.sidebar.appearance"
+        case .privacySecurity:
+            "settings.sidebar.privacy-security"
+        case .blockedUsers:
+            "settings.sidebar.blocked-users"
+        case .notifications:
+            "settings.sidebar.notifications"
+        case .storage:
+            "settings.sidebar.data-usage"
+        case .manageStorage:
+            "settings.sidebar.manage-storage"
+        case .agents:
+            "settings.sidebar.agents"
+        case .support:
+            "settings.sidebar.support"
+        case .donate:
+            "settings.sidebar.donate"
+        case .developerMode:
+            "settings.sidebar.developer-tools"
+        case .quarantinedGroups:
+            "settings.sidebar.quarantined-groups"
+        case .deleteProfile:
+            "settings.sidebar.delete-profile"
+        }
+    }
 }
 
 enum AppearancePreference: String, CaseIterable, Identifiable {
@@ -3909,13 +3953,17 @@ enum AppearancePreference: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     var label: String {
+        label(in: AppLanguage.currentLocale)
+    }
+
+    func label(in locale: Locale) -> String {
         switch self {
         case .system:
-            L10n.string("System")
+            L10n.string("System", locale: locale)
         case .light:
-            L10n.string("Light")
+            L10n.string("Light", locale: locale)
         case .dark:
-            L10n.string("Dark")
+            L10n.string("Dark", locale: locale)
         }
     }
 }

@@ -79,7 +79,7 @@ struct ProfileImageResultTile: View {
         WNColor.fillSecondary
             .overlay {
                 Image(systemName: "photo")
-                    .wnFont(.medium24)
+                    .font(.title2)
                     .foregroundStyle(WNColor.fillContentTertiary)
             }
             .overlay {
@@ -104,7 +104,7 @@ struct ProfileImageResultTile: View {
                 .strokeBorder(WNColor.backgroundPrimary, lineWidth: Self.badgeRingWidth)
 
             Image(systemName: "checkmark")
-                .wnFont(.bold10)
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(WNColor.fillContentPrimary)
         }
         .frame(width: Self.badgeSize, height: Self.badgeSize)
