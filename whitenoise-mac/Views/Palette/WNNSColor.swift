@@ -210,16 +210,38 @@ nonisolated enum WNNSColor {
         "wn.intentionInfoBackground", light: WNColorRamp.blue50, dark: WNColorRamp.blue950)
     static let intentionInfoContent = NSColor.wnDynamic(
         "wn.intentionInfoContent", light: WNColorRamp.blue600, dark: WNColorRamp.blue500)
-    /// The highlighter mark behind the words a search matched, in a message bubble and in a
-    /// search result alike. Mac-only: the shared palette colors a hit's text, but a mark drawn
-    /// inside a bubble has to read on the sent and the received bubble in both appearances, which
-    /// no `50`/`950` wash does — the light one vanishes on the light received bubble. A
-    /// mid-saturation step against the opposite end of the ramp for its text keeps the marked
-    /// words readable whatever bubble they sit in.
-    static let searchHighlightBackground = NSColor.wnDynamic(
-        "wn.searchHighlightBackground", light: WNColorRamp.blue200, dark: WNColorRamp.blue900)
-    static let searchHighlightContent = NSColor.wnDynamic(
-        "wn.searchHighlightContent", light: WNColorRamp.blue950, dark: WNColorRamp.blue50)
+    /// Native macOS find-highlight fill behind matched words in bubbles and search snippets
+    /// (F07, #1043). Paired with `searchHighlightContent` so matched substrings clear WCAG AA
+    /// contrast on both incoming and outgoing bubble polarities in light and dark appearance.
+    static let searchHighlightBackground = NSColor.findHighlightColor
+
+    /// Contrast-guaranteed text color on `NSColor.findHighlightColor` across appearances.
+    /// Resolves `findHighlightColor` in the drawing appearance and selects whichever monochrome
+    /// endpoint (`neutral950` vs `white`) yields higher WCAG contrast against it.
+    static let searchHighlightContent = NSColor(name: NSColor.Name("wn.searchHighlightContent")) { appearance in
+        var resolvedFill: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            resolvedFill = NSColor.findHighlightColor.usingColorSpace(.sRGB)
+        }
+        guard let fill = resolvedFill else { return WNColorRamp.neutral950 }
+        let fillLuminance = relativeLuminance(of: fill)
+        let darkLuminance = relativeLuminance(of: WNColorRamp.neutral950)
+        let lightLuminance = relativeLuminance(of: WNColorRamp.white)
+        let darkContrast = (max(fillLuminance, darkLuminance) + 0.05) / (min(fillLuminance, darkLuminance) + 0.05)
+        let lightContrast = (max(fillLuminance, lightLuminance) + 0.05) / (min(fillLuminance, lightLuminance) + 0.05)
+        return darkContrast >= lightContrast ? WNColorRamp.neutral950 : WNColorRamp.white
+    }
+
+    private static func relativeLuminance(of color: NSColor) -> Double {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return 0 }
+        func linear(_ channel: CGFloat) -> Double {
+            let value = Double(channel)
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(srgb.redComponent)
+            + 0.7152 * linear(srgb.greenComponent)
+            + 0.0722 * linear(srgb.blueComponent)
+    }
 
     static let intentionSuccessBackground = NSColor.wnDynamic(
         "wn.intentionSuccessBackground", light: WNColorRamp.green50, dark: WNColorRamp.green950)

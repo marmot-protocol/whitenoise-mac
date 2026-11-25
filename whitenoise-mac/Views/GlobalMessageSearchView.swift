@@ -17,23 +17,18 @@ struct GlobalMessageSearchView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L10n.string("Search all messages"))
-                        .wnFont(.semiBold18)
+                        .font(.title3.weight(.semibold))
                     Text(L10n.string("Search across your visible chats"))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button {
+                Button(L10n.string("Close")) {
                     workspace.dismissGlobalMessageSearch()
-                } label: {
-                    Image(systemName: "xmark")
-                        .wnFont(.bold14)
-                        .frame(width: 32, height: 32)
-                        .background { MessagesCircleControlBackground() }
                 }
-                .buttonStyle(.plain)
+                .wnSecondaryButtonStyle()
+                .controlSize(.small)
                 .keyboardShortcut(.cancelAction)
-                .help(L10n.string("Close"))
             }
             .padding(20)
 
@@ -49,12 +44,18 @@ struct GlobalMessageSearchView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
 
-            GlassSeparator(axis: .horizontal)
+            Divider()
 
-            searchContent
+            GlobalMessageSearchContent(
+                query: workspace.globalMessageSearchQuery,
+                isSearching: workspace.isSearchingAllMessages,
+                error: workspace.globalMessageSearchError,
+                results: workspace.globalMessageSearchResults,
+                selectedResultID: selectedResultID,
+                onOpen: open
+            )
         }
         .frame(width: 680, height: 560)
-        .background { MessagesSidebarBackground(level: .drawer) }
         .onChange(of: workspace.globalMessageSearchQuery) { _, _ in
             workspace.scheduleGlobalMessageSearch()
         }
@@ -105,30 +106,38 @@ struct GlobalMessageSearchView: View {
     private func open(_ result: GlobalMessageSearchResult) {
         Task { await workspace.openGlobalMessageSearchResult(result) }
     }
+}
 
-    @ViewBuilder
-    private var searchContent: some View {
-        if workspace.globalMessageSearchQuery.isEmpty {
+private struct GlobalMessageSearchContent: View {
+    let query: String
+    let isSearching: Bool
+    let error: String?
+    let results: [GlobalMessageSearchResult]
+    let selectedResultID: String?
+    let onOpen: (GlobalMessageSearchResult) -> Void
+
+    var body: some View {
+        if query.isEmpty {
             GlobalMessageSearchEmptyState(
                 systemImage: "text.magnifyingglass",
                 title: L10n.string("Find a message"),
                 detail: L10n.string("Results include the newest 50 matches from your visible chats.")
             )
-        } else if workspace.isSearchingAllMessages {
+        } else if isSearching {
             VStack(spacing: 12) {
                 ProgressView()
                 Text(L10n.string("Searching message history…"))
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let error = workspace.globalMessageSearchError {
+        } else if let error {
             GlobalMessageSearchEmptyState(
                 systemImage: "exclamationmark.triangle",
                 title: L10n.string("Search failed"),
                 detail: error
             )
-        } else if workspace.globalMessageSearchResults.isEmpty {
+        } else if results.isEmpty {
             GlobalMessageSearchEmptyState(
                 systemImage: "magnifyingglass",
                 title: L10n.string("No messages found"),
@@ -136,9 +145,9 @@ struct GlobalMessageSearchView: View {
             )
         } else {
             GlobalMessageSearchResultList(
-                results: workspace.globalMessageSearchResults,
+                results: results,
                 selectedResultID: selectedResultID,
-                onOpen: open
+                onOpen: onOpen
             )
         }
     }
@@ -188,23 +197,23 @@ private struct GlobalMessageSearchResultRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 7) {
                     Text(result.chatTitle)
-                        .wnFont(.semiBold12)
+                        .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                     Text("·")
-                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .foregroundStyle(.tertiary)
                     Text(result.senderName)
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     Text(timestamp)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
 
                 highlightedSnippet
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

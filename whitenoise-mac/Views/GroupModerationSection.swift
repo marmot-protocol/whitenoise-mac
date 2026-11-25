@@ -49,13 +49,14 @@ private struct GroupModerationSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text(L10n.string("Moderation"))
-                    .wnFont(.semiBold18)
+                    .font(.headline)
                 Spacer()
-                GlassCircleCloseButton(symbol: "xmark", help: "Close", appearance: .outline, action: dismiss)
+                Button(L10n.string("Done"), action: dismiss)
+                    .keyboardShortcut(.cancelAction)
             }
             .padding(20)
 
-            GlassSeparator(axis: .horizontal)
+            Divider()
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
@@ -162,10 +163,10 @@ private struct GroupModerationReportCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Label(ReportPresentation.title(report.reason), systemImage: "exclamationmark.bubble")
-                    .wnFont(.semiBold14)
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
                 Text(Date(timeIntervalSince1970: TimeInterval(report.reportedAt)), style: .date)
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             Text(
@@ -174,7 +175,7 @@ private struct GroupModerationReportCard: View {
                     DisplayText.short(report.reporter, head: 12, tail: 8)
                 )
             )
-            .wnFont(.medium12)
+            .font(.callout)
             .foregroundStyle(WNColor.backgroundContentSecondary)
             if !report.explanation.isEmpty {
                 Text(String(report.explanation.prefix(1_000)))

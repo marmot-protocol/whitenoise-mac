@@ -61,8 +61,8 @@ struct GroupDetailsHero<Avatar: View, TitleAccessory: View>: View {
             VStack(spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(title)
-                        .wnFont(.semiBold20)
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
 
@@ -71,22 +71,21 @@ struct GroupDetailsHero<Avatar: View, TitleAccessory: View>: View {
 
                 if let subtitle {
                     Text(subtitle)
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
             }
 
             if !description.isEmpty {
                 Text(description)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(4)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let onEditProfile {
-                // Not `.link`: that is system blue, and blue is reserved for the unread badge.
                 Button(L10n.string("Add Description"), action: onEditProfile)
                     .wnSecondaryButtonStyle()
                     .controlSize(.small)

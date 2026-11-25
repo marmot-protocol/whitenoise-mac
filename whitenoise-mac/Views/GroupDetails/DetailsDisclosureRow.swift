@@ -23,23 +23,42 @@ struct DetailsDisclosureRow: View {
     var body: some View {
         if let action {
             Button(action: action) {
-                content(showsChevron: true)
+                DetailsDisclosureRowContent(
+                    title: title,
+                    systemImage: systemImage,
+                    value: value,
+                    showsChevron: true
+                )
             }
             .buttonStyle(.plain)
         } else {
-            content(showsChevron: false)
+            DetailsDisclosureRowContent(
+                title: title,
+                systemImage: systemImage,
+                value: value,
+                showsChevron: false
+            )
         }
     }
+}
 
-    private func content(showsChevron: Bool) -> some View {
+private struct DetailsDisclosureRowContent: View {
+    let title: String
+    let systemImage: String
+    let value: String
+    let showsChevron: Bool
+
+    var body: some View {
         LabeledContent {
             HStack(spacing: 6) {
-                Text(value)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                if !value.isEmpty {
+                    Text(value)
+                        .foregroundStyle(.secondary)
+                }
                 if showsChevron {
                     Image(systemName: "chevron.right")
-                        .wnFont(.semiBold10)
-                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
             }
         } label: {

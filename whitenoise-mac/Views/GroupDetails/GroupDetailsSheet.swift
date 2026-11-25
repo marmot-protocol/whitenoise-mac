@@ -16,10 +16,11 @@ struct GroupDetailsSheet: View {
     @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
     @State private var isAddMembersPresented = false
     @State private var isProfileEditorPresented = false
-    /// The shared-media library, pushed over the details the way iOS pushes it.
-    @State private var isMediaLibraryPresented = false
-    /// The full-pane photo/video viewer, over either the details or the library.
-    @State private var mediaViewer: SharedMediaViewerPresentation?
+    /// Fallback local library state when rendered outside `ConversationView` (e.g. previews).
+    @State private var isLocalMediaLibraryPresented = false
+    @State private var localMediaCategory: SharedMediaLibraryCategory = .media
+    /// Fallback local media viewer when rendered outside `ConversationView`.
+    @State private var localMediaViewer: SharedMediaViewerPresentation?
     /// A direct chat's groups in common. Kept apart from the contact profile's list, which a
     /// member's profile sliding in over this pane clears again when it closes.
     @State private var groupsInCommon = GroupsInCommonViewModel()
@@ -33,6 +34,12 @@ struct GroupDetailsSheet: View {
     let accountDevicesModel: GroupAccountDevicesViewModel
     /// Whether the account blocked this account id hex, for the add-members sheet.
     let isBlocked: (String) -> Bool
+    /// Opens in-conversation Find beside the inspector.
+    var onSearchInChat: (() -> Void)? = nil
+    /// Opens the spacious Shared Media library in the conversation content area.
+    var onOpenSharedMediaLibrary: (() -> Void)? = nil
+    /// Opens the full-size media viewer over the conversation content area.
+    var onOpenSharedMediaViewer: ((SharedMediaViewerPresentation) -> Void)? = nil
 
     private var canModerate: Bool {
         !chat.isDirect && conversationModel.snapshot?.header.capabilities.isSelfAdmin == true
@@ -79,6 +86,11 @@ struct GroupDetailsSheet: View {
         )
     }
 
+    private func directPeerMember(in snapshot: GroupDetailsSnapshot) -> GroupMemberItem? {
+        guard let peerHex = directPeerAccountIdHex(in: snapshot)?.lowercased() else { return nil }
+        return snapshot.members.first { $0.id.lowercased() == peerHex }
+    }
+
     private func presentProfileEditor(_ snapshot: GroupDetailsSnapshot) {
         // Start from what the group carries now, not from an edit abandoned last time.
         workspace.groupProfileDraftName = snapshot.customName ?? ""
@@ -99,17 +111,43 @@ struct GroupDetailsSheet: View {
             workspace: workspace, endingGroupIds: endingGroupIds, isBulkLeavingChats: isBulkLeavingChats)
     }
 
+    private func openSharedMediaLibrary() {
+        if let onOpenSharedMediaLibrary {
+            onOpenSharedMediaLibrary()
+        } else {
+            isLocalMediaLibraryPresented = true
+        }
+    }
+
+    private func openSharedMediaViewer(_ presentation: SharedMediaViewerPresentation) {
+        if let onOpenSharedMediaViewer {
+            onOpenSharedMediaViewer(presentation)
+        } else {
+            localMediaViewer = presentation
+        }
+    }
+
+    private func invalidateEditors() {
+        isAddMembersPresented = false
+        isProfileEditorPresented = false
+        isLocalMediaLibraryPresented = false
+        localMediaCategory = .media
+        localMediaViewer = nil
+        profileAdvisory.cancelPending()
+    }
+
     var body: some View {
         @Bindable var workspace = workspace
         let snapshot = workspace.groupDetailsSnapshot
         let permissions = snapshot.map(permissions(for:))
 
         VStack(spacing: 0) {
-            if isMediaLibraryPresented {
+            if isLocalMediaLibraryPresented {
                 SharedMediaLibraryView(
                     model: attachmentModel,
-                    onBack: { isMediaLibraryPresented = false },
-                    onOpenMedia: { mediaViewer = $0 }
+                    category: $localMediaCategory,
+                    onBack: { isLocalMediaLibraryPresented = false },
+                    onOpenMedia: openSharedMediaViewer
                 )
             } else {
                 // One spinner at a time: a first load (nothing to show yet) spins in the pane's
@@ -117,6 +155,8 @@ struct GroupDetailsSheet: View {
                 GroupDetailsTopBar(
                     title: L10n.string(chat.isDirect ? "Chat Info" : "Group Info"),
                     isLoading: workspace.isLoadingGroupDetails && snapshot != nil,
+                    backHelp: "Close",
+                    backSymbol: "xmark",
                     onBack: { workspace.closeGroupDetails() },
                     onEdit: snapshot.flatMap { snapshot in
                         permissions?.canEditProfile == true ? { presentProfileEditor(snapshot) } : nil
@@ -124,18 +164,20 @@ struct GroupDetailsSheet: View {
                 )
                 .disabled(isGroupCommitInFlight)
 
-                GlassSeparator(axis: .horizontal)
+                Divider()
 
                 if let snapshot, let permissions {
                     Form {
+                        // 1. Identity & compact supported actions
                         GroupDetailsIdentitySection(
                             chat: chat,
                             snapshot: snapshot,
                             permissions: permissions,
                             onEditProfile: { presentProfileEditor(snapshot) },
-                            onAddMembers: { isAddMembersPresented = true }
+                            onSearchInChat: onSearchInChat
                         )
 
+                        // Actionable status stays near identity, never buried below members.
                         GroupRecoverySection(model: safetyModel)
                         GroupModerationSection(
                             model: safetyModel,
@@ -154,8 +196,30 @@ struct GroupDetailsSheet: View {
                             }
                         )
 
+                        // Direct-chat person / About / contact actions — distinct from Chat Actions.
                         if let contactAccountIdHex = chat.directPeerAccountIdHex {
+                            let peer = directPeerMember(in: snapshot)
+                            let aboutText = workspace.peerProfileFFICache[contactAccountIdHex]?.resolved.profileAbout?
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
                             Section(L10n.string("Contact")) {
+                                if let aboutText, !aboutText.isEmpty {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(L10n.string("About"))
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(.secondary)
+                                        Text(aboutText)
+                                            .font(.callout)
+                                            .textSelection(.enabled)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                if let peer, !peer.npub.isEmpty {
+                                    GroupDiagnosticsValueRow(
+                                        title: L10n.string("Public Key"),
+                                        value: peer.npub,
+                                        lineLimit: 1
+                                    )
+                                }
                                 ContactNicknameRow(
                                     accountIdHex: contactAccountIdHex, publishedName: chat.publishedTitle)
                                 ContactFollowControl(accountIdHex: contactAccountIdHex)
@@ -177,13 +241,21 @@ struct GroupDetailsSheet: View {
                             }
                         }
 
+                        // 3. Shared content
                         RetainedSharedMediaSection(
                             model: attachmentModel,
-                            onOpenLibrary: { isMediaLibraryPresented = true },
-                            onOpenMedia: { mediaViewer = $0 }
+                            onOpenLibrary: openSharedMediaLibrary,
+                            onOpenMedia: openSharedMediaViewer
                         )
-                        GroupDetailsSettingsSection(snapshot: snapshot, permissions: permissions)
 
+                        // 4. Chat settings (Chat Actions on direct chats; Settings on groups)
+                        GroupDetailsSettingsSection(
+                            isDirect: chat.isDirect,
+                            snapshot: snapshot,
+                            permissions: permissions
+                        )
+
+                        // 5. Members
                         GroupMembersSection(
                             members: snapshot.members,
                             avatars: memberAvatars(for: snapshot.members),
@@ -193,53 +265,56 @@ struct GroupDetailsSheet: View {
                         )
                         .disabled(isGroupCommitInFlight)
 
+                        // 6. Advanced information
                         GroupLinkedDevicesSection(model: accountDevicesModel)
                             .disabled(isGroupCommitInFlight)
                             .task(id: snapshot.groupIdHex) { await accountDevicesModel.load() }
                         GroupDetailsAdvancedSection(relays: snapshot.relays, groupIdHex: snapshot.groupIdHex)
-                        GroupDetailsLeaveSection(
-                            chat: chat, snapshot: snapshot, conversationModel: conversationModel,
-                            disbandModel: disbandModel)
-
                         if workspace.developerMode {
                             GroupDeveloperSection(
                                 snapshot: snapshot, epoch: conversationModel.snapshot?.header.epoch)
                         }
 
+                        // 7. Destructive actions (terminal section)
+                        GroupDetailsLeaveSection(
+                            chat: chat, snapshot: snapshot, conversationModel: conversationModel,
+                            disbandModel: disbandModel)
+
                         SettingsErrorView(error: workspace.lastError)
                     }
                     .formStyle(.grouped)
-                    .scrollContentBackground(.hidden)
                 } else if workspace.isLoadingGroupDetails {
                     ProgressView()
                         .controlSize(.regular)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ContentUnavailableView("Group details unavailable", systemImage: "person.2")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .overlay(alignment: .bottom) {
-                            SettingsErrorView(error: workspace.lastError)
-                                .padding()
-                        }
+                    ContentUnavailableView(
+                        L10n.string("Group details unavailable"),
+                        systemImage: "person.2"
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .bottom) {
+                        SettingsErrorView(error: workspace.lastError)
+                            .padding()
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            MessagesTranscriptBackground()
-        }
         .overlay {
-            if let mediaViewer {
-                SharedMediaViewerOverlay(presentation: mediaViewer, model: attachmentModel) {
-                    self.mediaViewer = nil
+            if let localMediaViewer {
+                SharedMediaViewerOverlay(presentation: localMediaViewer, model: attachmentModel) {
+                    self.localMediaViewer = nil
                 }
                 .transition(.opacity)
             }
         }
-        .animation(.smooth(duration: 0.18), value: mediaViewer?.id)
-        .onChange(of: chat.id) {
-            isMediaLibraryPresented = false
-            mediaViewer = nil
+        .animation(.smooth(duration: 0.18), value: localMediaViewer?.id)
+        .onChange(of: chat.id) { _, _ in
+            invalidateEditors()
+        }
+        .onChange(of: workspace.activeAccountId) { _, _ in
+            invalidateEditors()
         }
         .task(id: "\(chat.id):\(canModerate)") {
             await safetyModel.load(canModerate: canModerate)

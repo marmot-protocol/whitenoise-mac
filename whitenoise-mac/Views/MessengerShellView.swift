@@ -12,6 +12,7 @@ struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var globalSearch = SidebarGlobalSearchViewModel()
 
     let settings: SettingsWindowCoordinator
 
@@ -53,10 +54,15 @@ struct MessengerShellView: View {
                             recoveryStatus: session.accountScope?.recoveryStatus,
                             selection: session.accountScope?.chatListSelection,
                             search: session.accountScope?.chatListSearch,
+                            globalSearch: globalSearch,
                             attentionModel: session.accountScope?.attentionModel,
                             deviceLinking: session.accountScope?.deviceLinking,
                             onOpenSettings: { settings.open() },
-                            onOpenDevicesSettings: { settings.open(at: .devices) }
+                            onOpenDevicesSettings: { settings.open(at: .devices) },
+                            onOpenGlobalSearchResult: { result, query in
+                                globalSearch.recordConversationSearchJump(groupId: result.groupId, query: query)
+                                Task { await workspace.openGlobalMessageSearchResult(result) }
+                            }
                         )
                         .navigationSplitViewColumnWidth(
                             min: ChatListWidthPolicy.minimumExpandedWidth,
@@ -75,11 +81,11 @@ struct MessengerShellView: View {
                             workspace.resizeChatListDrawer(toProposedWidth: resolved)
                         }
                     } detail: {
-                        DetailPaneView(settings: settings)
+                        DetailPaneView(settings: settings, globalSearch: globalSearch)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
-                    DetailPaneView(settings: settings)
+                    DetailPaneView(settings: settings, globalSearch: globalSearch)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -113,13 +119,55 @@ struct MessengerShellView: View {
                     workspace: workspace,
                     accountID: $0,
                     selectedConversation: { session.accountScope?.selectedConversationModel },
+                    onSearchAllMessages: openSidebarGlobalSearch,
                     isMessengerWindowTarget: MessengerCommandContext.acceptsCommandsInKeyWindow
                 )
             }
         )
+        .onAppear(perform: configureGlobalSearchRunner)
+        .onChange(of: workspace.activeAccountId) { _, _ in
+            globalSearch.resetForAccountChange()
+            configureGlobalSearchRunner()
+        }
+        .onChange(of: workspace.showsMessengerChrome) { _, shows in
+            if !shows { globalSearch.dismiss() }
+        }
         .task(id: productScreen) {
             guard let productScreen else { return }
             session.accountScope?.productAnalytics.record(.screen(productScreen))
+        }
+    }
+
+    private func openSidebarGlobalSearch() {
+        workspace.isChatListVisible = true
+        if workspace.isNewChatComposerVisible {
+            workspace.closeNewChatComposer()
+        }
+        globalSearch.activate(initialQuery: workspace.searchText)
+    }
+
+    private func configureGlobalSearchRunner() {
+        globalSearch.installSearchRunner { [weak workspace] query, checkCancellation in
+            guard let workspace, let client = workspace.client, let account = workspace.activeAccount else {
+                return []
+            }
+            let scopes = workspace.activeChats.map { GlobalMessageSearchScope(groupId: $0.id, title: $0.title) }
+            let nicknames = workspace.activeContactNicknames
+            return try await FFIExecutor.runCancellable { ffiCheckCancellation in
+                try GlobalMessageSearchEngine.search(
+                    client: client,
+                    accountRef: account.accountRef,
+                    localAccountId: account.accountIdHex,
+                    localDisplayName: account.displayName,
+                    nicknames: nicknames,
+                    scopes: scopes,
+                    query: query,
+                    checkCancellation: {
+                        try checkCancellation()
+                        try ffiCheckCancellation()
+                    }
+                )
+            }
         }
     }
 }
@@ -128,6 +176,7 @@ private struct DetailPaneView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     let settings: SettingsWindowCoordinator
+    let globalSearch: SidebarGlobalSearchViewModel
 
     var body: some View {
         Group {
@@ -190,7 +239,8 @@ private struct DetailPaneView: View {
                                 accountDevicesModel: scope.accountDevicesModel(groupIdHex: chat.id),
                                 deviceLinking: scope.deviceLinking,
                                 blockedUsersModel: scope.blockedUsers,
-                                avatarAssets: scope.avatarAssets
+                                avatarAssets: scope.avatarAssets,
+                                globalSearch: globalSearch
                             )
                         } else {
                             EmptyDetailView()
@@ -612,6 +662,10 @@ private struct ConversationView: View {
     @State private var mentionHighlightIndex = 0
     @State private var composerMentionInsertion: ComposerMentionInsertion?
     @State private var imageGallery: MessageImageGalleryPresentation?
+    @State private var isSharedMediaLibraryPresented = false
+    @State private var sharedMediaCategory: SharedMediaLibraryCategory = .media
+    @State private var sharedMediaViewer: SharedMediaViewerPresentation?
+    @State private var selectedFindText: String?
     /// Hover-scoped text-selection gate for chat bubbles. Not read by `body` — bubbles
     /// register local `isSelectable` state so hover only updates the previous and active row
     /// (whitenoise-mac#397).
@@ -638,6 +692,25 @@ private struct ConversationView: View {
     /// Avatar bytes for the snapshot's identities, so the mention picker draws the same pictures
     /// the transcript does.
     let avatarAssets: AvatarAssetStore
+    let globalSearch: SidebarGlobalSearchViewModel
+
+    private var inspectorPresented: Binding<Bool> {
+        Binding(
+            get: {
+                !workspace.isTimelineSelectionMode
+                    && (workspace.isGroupDetailsPresented || workspace.contactDetailsTarget != nil)
+            },
+            set: { presented in
+                if presented {
+                    guard !workspace.isTimelineSelectionMode else { return }
+                    guard !workspace.isGroupDetailsPresented, workspace.contactDetailsTarget == nil else { return }
+                    Task { await workspace.showGroupDetails(for: chat) }
+                } else if workspace.isGroupDetailsPresented || workspace.contactDetailsTarget != nil {
+                    workspace.closeGroupDetails()
+                }
+            }
+        )
+    }
 
     private var isBlockedDirectPeer: Bool {
         chat.directPeerAccountIdHex.map {
@@ -807,6 +880,9 @@ private struct ConversationView: View {
                             land()
                         }
                     }
+                    if let query = globalSearch.consumeConversationSearchJump(for: chat.id) {
+                        openSearch(withQuery: query, anchorMessageId: target.messageId)
+                    }
                     workspace.completePendingMessageNavigation(target)
                 }
                 .focusedSceneValue(\.conversationSearch, searchCommand)
@@ -826,7 +902,7 @@ private struct ConversationView: View {
                             Task { await jumpToNewest() }
                         } label: {
                             Image(systemName: "arrow.down")
-                                .wnFont(.bold14)
+                                .font(.callout.weight(.bold))
                                 .frame(width: 40, height: 40)
                                 .background(.regularMaterial, in: Circle())
                                 .overlay {
@@ -846,7 +922,7 @@ private struct ConversationView: View {
                     .padding(.vertical, workspace.isTimelineSelectionMode ? 8 : 0)
 
                 if !workspace.isTimelineSelectionMode {
-                    GlassSeparator(axis: .horizontal)
+                    Divider()
 
                     VStack(spacing: 8) {
                         // The core rejects sends to a group the local account left or was
@@ -931,29 +1007,56 @@ private struct ConversationView: View {
                 }
             }
 
-            // Chat info / settings slides in from the right as a full-size pane
-            // over the mounted conversation. Keeping the transcript mounted preserves
-            // scroll position, while the details pane supplies its own opaque base so
-            // chat content and media never visually bleed through during the slide.
-            if workspace.isGroupDetailsPresented {
-                GroupDetailsPane(
-                    chat: chat,
-                    conversationModel: model,
-                    attachmentModel: attachmentModel,
-                    safetyModel: safetyModel,
-                    disbandModel: disbandModel,
-                    accountDevicesModel: accountDevicesModel,
-                    blockedUsersModel: blockedUsersModel
+            // Large shared-media library renders in the spacious conversation content area while
+            // keeping the transcript mounted underneath (preserving scroll position and draft) and
+            // keeping the trailing inspector intact (D04, #1044).
+            if isSharedMediaLibraryPresented {
+                SharedMediaLibraryView(
+                    model: attachmentModel,
+                    category: $sharedMediaCategory,
+                    onBack: { isSharedMediaLibraryPresented = false },
+                    onOpenMedia: { sharedMediaViewer = $0 }
                 )
-                .transition(.move(edge: .trailing))
+                .background { MessagesTranscriptBackground() }
                 .zIndex(3)
             }
 
-            if let contact = workspace.contactDetailsTarget {
-                ContactDetailsPane(contact: contact, blockedUsersModel: blockedUsersModel)
-                    .transition(.move(edge: .trailing))
-                    .zIndex(4)
+            if let sharedMediaViewer {
+                SharedMediaViewerOverlay(presentation: sharedMediaViewer, model: attachmentModel) {
+                    self.sharedMediaViewer = nil
+                }
+                .transition(.opacity)
+                .zIndex(4)
             }
+        }
+        .animation(.smooth(duration: 0.18), value: sharedMediaViewer?.id)
+        // Native trailing inspector beside the selected conversation (N06, #1042). Keeps the
+        // transcript visible and composer draft/focus untouched without enlarging the 940×620
+        // minimum window width.
+        .inspector(isPresented: inspectorPresented) {
+            Group {
+                if let contact = workspace.contactDetailsTarget {
+                    ContactDetailsPane(
+                        contact: contact,
+                        blockedUsersModel: blockedUsersModel,
+                        returnsToGroupInfo: workspace.isGroupDetailsPresented
+                    )
+                } else {
+                    GroupDetailsPane(
+                        chat: chat,
+                        conversationModel: model,
+                        attachmentModel: attachmentModel,
+                        safetyModel: safetyModel,
+                        disbandModel: disbandModel,
+                        accountDevicesModel: accountDevicesModel,
+                        blockedUsersModel: blockedUsersModel,
+                        onSearchInChat: openSearch,
+                        onOpenSharedMediaLibrary: { isSharedMediaLibraryPresented = true },
+                        onOpenSharedMediaViewer: { sharedMediaViewer = $0 }
+                    )
+                }
+            }
+            .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
         }
         .conversationToolbar(
             messenger: MessengerCommandContext(
@@ -973,8 +1076,12 @@ private struct ConversationView: View {
             onSearch: searchCommand.open,
             escapeEndsMessageSelection: session.accountScope?.chatListSelection.isActive != true
         )
-        .animation(.smooth(duration: 0.24), value: workspace.isGroupDetailsPresented)
-        .animation(.smooth(duration: 0.24), value: workspace.contactDetailsTarget?.accountIdHex)
+        .onReceive(NotificationCenter.default.publisher(for: NSTextView.didChangeSelectionNotification)) { _ in
+            selectedFindText = ConversationFindSelection.selectedQuery(from: NSApp.keyWindow?.firstResponder)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            selectedFindText = ConversationFindSelection.selectedQuery(from: NSApp.keyWindow?.firstResponder)
+        }
         .task(id: chat.id) {
             await workspace.refreshConversationMetadata(for: chat)
         }
@@ -1019,26 +1126,38 @@ private struct ConversationView: View {
             )
             .environment(\.locale, locale)
         }
-        // Switching conversations must not leave the previous chat's body-level
-        // overlays open over a different transcript.
+        // Switching conversations or accounts must not leave the previous chat's overlays or
+        // editors targeting a stale conversation (P07, #1042).
         .onChange(of: chat.id) { _, _ in
-            isPollComposerPresented = false
-            imageGallery = nil
-            composerMentionContext = nil
-            composerMentionInsertion = nil
-            workspace.cancelMessageSelection()
-            workspace.cancelForwarding()
-            workspace.messageInfoTarget = nil
-            workspace.closeContactDetails()
-            if workspace.isGroupDetailsPresented {
-                workspace.closeGroupDetails()
-            }
+            invalidateConversationPresentation()
+        }
+        .onChange(of: workspace.activeAccountId) { _, _ in
+            invalidateConversationPresentation()
         }
         // New Chat replaces the sidebar but leaves this conversation mounted. Its Escape (back in
         // the compose flow) would lose to the selection's cancel shortcut, so the selection ends
         // as the user moves to the sidebar, the way chat-list selection ends when the list goes.
         .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
             if isVisible { workspace.cancelMessageSelection() }
+        }
+    }
+
+    private func invalidateConversationPresentation() {
+        isPollComposerPresented = false
+        imageGallery = nil
+        isSharedMediaLibraryPresented = false
+        sharedMediaCategory = .media
+        sharedMediaViewer = nil
+        selectedFindText = nil
+        composerMentionContext = nil
+        composerMentionInsertion = nil
+        workspace.cancelMessageSelection()
+        workspace.cancelForwarding()
+        workspace.messageInfoTarget = nil
+        workspace.closeGroupImagePicker()
+        workspace.closeContactDetails()
+        if workspace.isGroupDetailsPresented {
+            workspace.closeGroupDetails()
         }
     }
 
@@ -1419,13 +1538,31 @@ private struct ConversationView: View {
     /// already finds its messages, so in-chat search must not be the one place they are hidden.
     private var searchCommand: ConversationSearchCommand {
         ConversationSearchCommand(
-            accountID: model.account.id, chatID: chat.id, model: model.search, open: openSearch
+            accountID: model.account.id,
+            chatID: chat.id,
+            model: model.search,
+            open: openSearch,
+            selectedText: selectedFindText,
+            selectedTextForFind: {
+                ConversationFindSelection.selectedQuery(from: NSApp.keyWindow?.firstResponder)
+            },
+            useSelectionForFind: { query in
+                openSearch(withQuery: query)
+            }
         )
     }
 
     private func openSearch() {
+        isSharedMediaLibraryPresented = false
         model.search.exclusions = searchExclusions
         model.search.activate()
+        openedSearch = model.search
+    }
+
+    private func openSearch(withQuery query: String, anchorMessageId: String? = nil) {
+        isSharedMediaLibraryPresented = false
+        model.search.exclusions = searchExclusions
+        model.search.activate(withQuery: query, anchorMessageId: anchorMessageId)
         openedSearch = model.search
     }
 
@@ -1676,6 +1813,9 @@ private struct GroupDetailsPane: View {
     let disbandModel: GroupDisbandViewModel
     let accountDevicesModel: GroupAccountDevicesViewModel
     let blockedUsersModel: BlockedUsersViewModel
+    let onSearchInChat: () -> Void
+    let onOpenSharedMediaLibrary: () -> Void
+    let onOpenSharedMediaViewer: (SharedMediaViewerPresentation) -> Void
 
     var body: some View {
         GroupDetailsSheet(
@@ -1685,14 +1825,12 @@ private struct GroupDetailsPane: View {
             safetyModel: safetyModel,
             disbandModel: disbandModel,
             accountDevicesModel: accountDevicesModel,
-            isBlocked: { blockedUsersModel.isBlocked(accountID: $0) }
+            isBlocked: { blockedUsersModel.isBlocked(accountID: $0) },
+            onSearchInChat: onSearchInChat,
+            onOpenSharedMediaLibrary: onOpenSharedMediaLibrary,
+            onOpenSharedMediaViewer: onOpenSharedMediaViewer
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            MessagesTranscriptBackground()
-        }
-        .clipped()
-        .contentShape(Rectangle())
         .accessibilityIdentifier("group.details.pane")
     }
 }
@@ -1700,16 +1838,16 @@ private struct GroupDetailsPane: View {
 private struct ContactDetailsPane: View {
     let contact: NewChatRecipient
     let blockedUsersModel: BlockedUsersViewModel
+    let returnsToGroupInfo: Bool
 
     var body: some View {
-        ContactDetailsView(contact: contact, blockedUsersModel: blockedUsersModel)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                MessagesTranscriptBackground()
-            }
-            .clipped()
-            .contentShape(Rectangle())
-            .accessibilityIdentifier("contact.details.pane")
+        ContactDetailsView(
+            contact: contact,
+            blockedUsersModel: blockedUsersModel,
+            returnsToGroupInfo: returnsToGroupInfo
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("contact.details.pane")
     }
 }
 

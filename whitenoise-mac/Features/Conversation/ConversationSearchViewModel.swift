@@ -65,6 +65,9 @@ final class ConversationSearchViewModel {
     /// The reader's last step went toward newer matches, so a match that cannot be shown hands
     /// over to the next newer one instead of one already seen.
     @ObservationIgnored private var stepsNewer = false
+    /// When jumping from global search into a specific message, land the cursor on that message
+    /// once matches are computed instead of always jumping to the newest match.
+    @ObservationIgnored private var preferredAnchorMessageId: String?
 
     init(
         loadCorpus: @escaping CorpusLoader,
@@ -102,8 +105,18 @@ final class ConversationSearchViewModel {
         return ConversationSearchEngine.displayPosition(index: currentIndex, matchCount: matches.count)
     }
 
+    /// Whether Find Previous (`⇧⌘G` / ↑, older in transcript) can step without hitting the oldest boundary.
+    var canGoToOlderMatch: Bool {
+        isActive && ConversationSearchEngine.olderIndex(from: currentIndex, matchCount: matches.count) != nil
+    }
+
+    /// Whether Find Next (`⌘G` / ↓, newer in transcript) can step without hitting the newest boundary.
+    var canGoToNewerMatch: Bool {
+        isActive && ConversationSearchEngine.newerIndex(from: currentIndex, matchCount: matches.count) != nil
+    }
+
     var canStep: Bool {
-        isActive && !matches.isEmpty
+        canGoToOlderMatch || canGoToNewerMatch
     }
 
     // MARK: Lifetime
@@ -115,6 +128,28 @@ final class ConversationSearchViewModel {
         isActive = true
         didFail = false
         reloadCorpus(after: .zero)
+    }
+
+    /// Opens conversation find seeded with `selection` (for `⌘E` Use Selection for Find or jumping
+    /// from global message search). When `anchorMessageId` is given, the cursor lands on that
+    /// message once matching completes.
+    func activate(withQuery selection: String, anchorMessageId: String? = nil) {
+        let trimmed = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            activate()
+            return
+        }
+        preferredAnchorMessageId = anchorMessageId
+        let wasActive = isActive
+        activate()
+        if query == trimmed {
+            if wasActive {
+                scrollsOnNextResult = true
+                scheduleMatching(debounce: .zero)
+            }
+        } else {
+            query = trimmed
+        }
     }
 
     func end() {
@@ -133,6 +168,7 @@ final class ConversationSearchViewModel {
         didFail = false
         scrollsOnNextResult = false
         stepsNewer = false
+        preferredAnchorMessageId = nil
     }
 
     /// The chat's newest message changed (an arrival, or an edit or deletion of that message; the
@@ -168,11 +204,12 @@ final class ConversationSearchViewModel {
         if matches.isEmpty {
             currentIndex = nil
         } else if wasCurrent {
-            // `index` now names the next newer match, `index - 1` the next older one.
+            // `index` now names the next newer match, `index - 1` the next older one. Clamp at the
+            // ends rather than wrapping past the boundary.
             currentIndex =
                 stepsNewer
-                ? (index < matches.count ? index : 0)
-                : (index > 0 ? index - 1 : matches.count - 1)
+                ? min(index, matches.count - 1)
+                : max(0, index - 1)
         } else if let currentIndex, currentIndex > index {
             self.currentIndex = currentIndex - 1
         }
@@ -259,7 +296,11 @@ final class ConversationSearchViewModel {
         if scrollsOnNextResult {
             scrollsOnNextResult = false
             stepsNewer = false
-            currentIndex = ConversationSearchEngine.initialIndex(matchCount: found.count)
+            let preferred = preferredAnchorMessageId
+            preferredAnchorMessageId = nil
+            currentIndex =
+                ConversationSearchEngine.reanchoredIndex(of: preferred, in: found)
+                ?? ConversationSearchEngine.initialIndex(matchCount: found.count)
             requestNavigation()
         } else {
             // A recount never moves the reader. When their match is gone (edited, deleted, blocked)

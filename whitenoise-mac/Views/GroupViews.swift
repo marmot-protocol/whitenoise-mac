@@ -27,11 +27,11 @@ struct GroupDiagnosticsValueRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .wnFont(.semiBold12)
+                    .font(.subheadline.weight(.medium))
 
                 Text(displayValue)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(lineLimit)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -45,6 +45,7 @@ struct GroupDiagnosticsValueRow: View {
                         .frame(width: 24, height: 24)
                 }
                 .wnSecondaryButtonStyle()
+                .controlSize(.small)
                 .help(String(format: L10n.string("Copy %@"), title))
             }
         }
@@ -91,7 +92,7 @@ struct GroupMemberRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(member.displayName)
-                                .wnFont(.semiBold12)
+                                .font(.subheadline.weight(.medium))
                                 .lineLimit(1)
 
                             if member.isSelf {
@@ -106,8 +107,8 @@ struct GroupMemberRow: View {
                         // Your own row already says "You" in its badge, so it shows the key the
                         // others see instead of saying it twice.
                         Text(member.isSelf ? DisplayText.short(member.npub, head: 12, tail: 8) : member.detailLabel)
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
 
@@ -289,18 +290,21 @@ struct GroupImagePickerSheet: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(chat.title)
-                            .wnFont(.semiBold14)
+                            .font(.headline)
                             .lineLimit(1)
                         Text(L10n.string("Group image"))
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     Spacer()
 
-                    GlassCircleCloseButton {
+                    Button(L10n.string("Close"), role: .cancel) {
                         workspace.closeGroupImagePicker()
                     }
+                    .wnSecondaryButtonStyle()
+                    .controlSize(.small)
+                    .keyboardShortcut(.cancelAction)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 16)
@@ -317,8 +321,8 @@ struct GroupImagePickerSheet: View {
                         .disabled(isGroupCommitInFlight)
 
                         Text(L10n.string("or search the web"))
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
 
                         Spacer()
                     }
@@ -349,8 +353,8 @@ struct GroupImagePickerSheet: View {
                     }
 
                     Text(L10n.string("Search terms are sent to Openverse."))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack {
@@ -358,7 +362,7 @@ struct GroupImagePickerSheet: View {
                         Spacer()
 
                         if chat.pictureURL != nil || chat.groupImageHashHex != nil {
-                            Button {
+                            Button(role: .destructive) {
                                 Task { await workspace.clearGroupImage(advisory: clearAdvisory) }
                             } label: {
                                 Label(L10n.string("Clear"), systemImage: "xmark.circle")
@@ -371,17 +375,11 @@ struct GroupImagePickerSheet: View {
 
                     ScrollView {
                         if workspace.groupImageResults.isEmpty {
-                            VStack(spacing: 10) {
-                                Image(systemName: "photo.on.rectangle.angled")
-                                    .wnFont(.medium28)
-                                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                                Text(
-                                    workspace.isSearchingGroupImages
-                                        ? L10n.string("Searching") : L10n.string("No images")
-                                )
-                                .wnFont(.medium12)
-                                .foregroundStyle(WNColor.backgroundContentSecondary)
-                            }
+                            ContentUnavailableView(
+                                workspace.isSearchingGroupImages
+                                    ? L10n.string("Searching") : L10n.string("No images"),
+                                systemImage: "photo.on.rectangle.angled"
+                            )
                             .frame(maxWidth: .infinity, minHeight: 300)
                         } else {
                             LazyVGrid(columns: columns, spacing: 12) {
@@ -404,9 +402,6 @@ struct GroupImagePickerSheet: View {
             }
         }
         .frame(width: 620, height: 560)
-        .background {
-            LiquidGlassBackground()
-        }
         .fileImporter(
             isPresented: $isFileImporterPresented,
             allowedContentTypes: [.image],
@@ -447,7 +442,7 @@ struct GroupImageResultTile: View {
         VStack(alignment: .leading, spacing: 7) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.regularMaterial)
+                    .fill(WNColor.fillSecondary)
 
                 if let imageURL = result.previewURL {
                     DownsampledAsyncImage(url: imageURL, maxPixelSize: 320) { image in
@@ -456,32 +451,36 @@ struct GroupImageResultTile: View {
                             .scaledToFill()
                     } placeholder: {
                         Image(systemName: "photo")
-                            .wnFont(.medium24)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
                     }
                 } else {
                     Image(systemName: "photo")
-                        .wnFont(.medium24)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
                 }
             }
             .aspectRatio(1.18, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             Text(result.title)
-                .wnFont(.semiBold10)
+                .font(.caption.weight(.semibold))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(result.creditLine)
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(8)
-        .glassCard()
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(WNColor.backgroundPrimary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

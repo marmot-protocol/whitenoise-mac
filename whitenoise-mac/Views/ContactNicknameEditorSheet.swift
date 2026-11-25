@@ -53,27 +53,28 @@ struct ContactNicknameEditorSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ContactNicknameEditorHeader(
-                title: L10n.string(currentNickname == nil ? "Set Nickname" : "Edit Nickname"),
-                onClose: { dismiss() }
-            )
+            Text(L10n.string(currentNickname == nil ? "Set Nickname" : "Edit Nickname"))
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
 
-            VStack(alignment: .leading, spacing: 12) {
-                WNInput(
-                    label: L10n.string("Nickname"),
-                    prompt: publishedName ?? L10n.string("Nickname"),
-                    text: $draft,
-                    focusOnAppear: true
-                )
-                .onSubmit(save)
-
-                ContactNicknameEditorNotes(
-                    publishedName: currentNickname == nil ? nil : publishedName
-                )
+            Form {
+                Section {
+                    TextField(
+                        L10n.string("Nickname"),
+                        text: $draft,
+                        prompt: Text(publishedName ?? L10n.string("Nickname"))
+                    )
+                    .onSubmit(save)
+                } footer: {
+                    ContactNicknameEditorNotes(
+                        publishedName: currentNickname == nil ? nil : publishedName
+                    )
+                }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 4)
-            .padding(.bottom, 20)
+            .formStyle(.grouped)
+            .scrollDisabled(true)
 
             ContactNicknameEditorFooter(
                 canSave: canSave,
@@ -85,7 +86,6 @@ struct ContactNicknameEditorSheet: View {
         }
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
-        .wnButtonShape(.capsule)
     }
 
     private func save() {
@@ -96,23 +96,6 @@ struct ContactNicknameEditorSheet: View {
     private func finish(with nickname: String?) {
         dismiss()
         onSave(nickname)
-    }
-}
-
-private struct ContactNicknameEditorHeader: View {
-    let title: String
-    let onClose: () -> Void
-
-    var body: some View {
-        HStack {
-            Text(title)
-                .wnFont(.semiBold16)
-            Spacer()
-            GlassCircleCloseButton(appearance: .outline, action: onClose)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
     }
 }
 
@@ -129,7 +112,7 @@ private struct ContactNicknameEditorNotes: View {
                         PeerDisplayText.templateFragment(publishedName)
                     )
                 )
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .foregroundStyle(.secondary)
                 .lineLimit(2)
             }
 
@@ -139,9 +122,9 @@ private struct ContactNicknameEditorNotes: View {
                 Image(systemName: "lock.fill")
                     .accessibilityHidden(true)
             }
-            .foregroundStyle(WNColor.backgroundContentTertiary)
+            .foregroundStyle(.secondary)
         }
-        .wnFont(.medium12)
+        .font(.caption)
         .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -155,27 +138,26 @@ private struct ContactNicknameEditorFooter: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // Leading and apart from the Cancel / Save pair, so the one action that throws the
-            // nickname away is never the button a reader's eye lands on last.
+            // Leading and apart from the Cancel / Save pair, so removing the nickname is never
+            // confused with the primary completion button.
             if canRemove {
-                Button(L10n.string("Remove"), action: onRemove)
+                Button(L10n.string("Remove"), role: .destructive, action: onRemove)
                     .wnSecondaryButtonStyle()
             }
 
             Spacer()
 
-            Button(L10n.string("Cancel"), action: onCancel)
+            Button(L10n.string("Cancel"), role: .cancel, action: onCancel)
                 .wnSecondaryButtonStyle()
                 .keyboardShortcut(.cancelAction)
 
-            WNPrimaryButton(size: .small, action: onSave) {
-                Text(L10n.string("Save")).frame(minWidth: 72)
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(!canSave)
+            Button(L10n.string("Save"), action: onSave)
+                .wnPrimaryButtonStyle()
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canSave)
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 20)
+        .padding(.bottom, 16)
     }
 }
 

@@ -23,7 +23,7 @@ struct DisappearingTimerPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.string(custom == nil ? "Disappearing messages" : "Custom duration"))
-                .wnFont(.semiBold14)
+                .font(.headline)
 
             if let custom = Binding($custom) {
                 DisappearingCustomDurationEditor(duration: custom) {

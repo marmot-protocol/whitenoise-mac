@@ -8,6 +8,7 @@ struct MessengerCommandContext {
     let workspace: WorkspaceState
     let accountID: String
     var selectedConversation: () -> ConversationViewModel? = { nil }
+    var onSearchAllMessages: (() -> Void)? = nil
 
     let isMessengerWindowTarget: () -> Bool
 
@@ -40,7 +41,82 @@ struct MessengerCommandContext {
 
     func searchAllMessages() {
         guard isAvailable else { return }
-        workspace.presentGlobalMessageSearch()
+        if let onSearchAllMessages {
+            onSearchAllMessages()
+        } else {
+            workspace.presentGlobalMessageSearch()
+        }
+    }
+}
+
+/// Pure eligibility and routing policy for Edit › Find commands (K01, K04, N09, #1042, #1043).
+/// Kept out of the SwiftUI `Commands` body so unit tests can assert enablement and direction
+/// directly without driving AppKit menus.
+@MainActor
+enum ConversationFindCommandPolicy {
+    static func canUseConversation(
+        messenger: MessengerCommandContext?,
+        conversation: ConversationSearchCommand?
+    ) -> Bool {
+        guard let conversation, let messenger, conversation.accountID == messenger.accountID else {
+            return false
+        }
+        // Details now live in a native trailing `.inspector` beside the transcript rather than
+        // overlaying it, so Find (`⌘F` / `⌘G` / `⇧⌘G` / `⌘E`) stays available while Chat Info is open.
+        return messenger.activeChat(matching: conversation.chatID) != nil
+    }
+
+    static func canFindNext(
+        messenger: MessengerCommandContext?,
+        conversation: ConversationSearchCommand?
+    ) -> Bool {
+        canUseConversation(messenger: messenger, conversation: conversation)
+            && conversation?.model.canGoToNewerMatch == true
+    }
+
+    static func canFindPrevious(
+        messenger: MessengerCommandContext?,
+        conversation: ConversationSearchCommand?
+    ) -> Bool {
+        canUseConversation(messenger: messenger, conversation: conversation)
+            && conversation?.model.canGoToOlderMatch == true
+    }
+
+    static func selectedQueryForFind(
+        messenger: MessengerCommandContext?,
+        conversation: ConversationSearchCommand?
+    ) -> String? {
+        guard canUseConversation(messenger: messenger, conversation: conversation), let conversation else {
+            return nil
+        }
+        return conversation.selectedText ?? conversation.selectedTextForFind()
+    }
+
+    static func findNext(
+        messenger: MessengerCommandContext?,
+        conversation: ConversationSearchCommand?
+    ) {
+        guard canFindNext(messenger: messenger, conversation: conversation) else { return }
+        conversation?.model.goToNewerMatch()
+    }
+
+    static func findPrevious(
+        messenger: MessengerCommandContext?,
+        conversation: ConversationSearchCommand?
+    ) {
+        guard canFindPrevious(messenger: messenger, conversation: conversation) else { return }
+        conversation?.model.goToOlderMatch()
+    }
+
+    static func useSelectionForFind(
+        messenger: MessengerCommandContext?,
+        conversation: ConversationSearchCommand?
+    ) {
+        guard canUseConversation(messenger: messenger, conversation: conversation),
+            let conversation,
+            let query = conversation.selectedTextForFind() ?? conversation.selectedText
+        else { return }
+        conversation.useSelectionForFind(query)
     }
 }
 
@@ -62,11 +138,16 @@ struct MessengerCommands: Commands {
 
     private var canUseMessenger: Bool { messenger?.isAvailable == true }
     private var canUseConversation: Bool {
-        guard let conversation, let messenger, conversation.accountID == messenger.accountID else { return false }
-        guard !messenger.workspace.isGroupDetailsPresented,
-            messenger.workspace.contactDetailsTarget == nil
-        else { return false }
-        return messenger.activeChat(matching: conversation.chatID) != nil
+        ConversationFindCommandPolicy.canUseConversation(messenger: messenger, conversation: conversation)
+    }
+    private var canFindNext: Bool {
+        ConversationFindCommandPolicy.canFindNext(messenger: messenger, conversation: conversation)
+    }
+    private var canFindPrevious: Bool {
+        ConversationFindCommandPolicy.canFindPrevious(messenger: messenger, conversation: conversation)
+    }
+    private var canUseSelectionForFind: Bool {
+        ConversationFindCommandPolicy.selectedQueryForFind(messenger: messenger, conversation: conversation) != nil
     }
 
     var body: some Commands {
@@ -87,18 +168,25 @@ struct MessengerCommands: Commands {
                 .disabled(!canUseConversation)
 
                 Button(L10n.string("Find Next", locale: locale)) {
-                    guard canUseConversation else { return }
-                    conversation?.model.goToOlderMatch()
+                    ConversationFindCommandPolicy.findNext(messenger: messenger, conversation: conversation)
                 }
                 .keyboardShortcut("g", modifiers: .command)
-                .disabled(!canUseConversation || conversation?.model.canStep != true)
+                .disabled(!canFindNext)
 
                 Button(L10n.string("Find Previous", locale: locale)) {
-                    guard canUseConversation else { return }
-                    conversation?.model.goToNewerMatch()
+                    ConversationFindCommandPolicy.findPrevious(messenger: messenger, conversation: conversation)
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(!canUseConversation || conversation?.model.canStep != true)
+                .disabled(!canFindPrevious)
+
+                Button(L10n.string("Use Selection for Find", locale: locale)) {
+                    ConversationFindCommandPolicy.useSelectionForFind(
+                        messenger: messenger,
+                        conversation: conversation
+                    )
+                }
+                .keyboardShortcut("e", modifiers: .command)
+                .disabled(!canUseSelectionForFind)
 
                 Divider()
 
@@ -118,6 +206,7 @@ struct MessengerCommands: Commands {
             }
         }
         SidebarCommands()
+        InspectorCommands()
         CommandMenu(L10n.string("Conversation", locale: locale)) {
             if let messenger, let conversation, conversation.accountID == messenger.accountID,
                 let chat = messenger.activeChat(matching: conversation.chatID)
@@ -246,10 +335,15 @@ struct ConversationMenuItems: View {
             )
         )
 
-        Button(L10n.string("Show Chat Info", locale: locale)) {
-            Task {
-                guard isCurrent() else { return }
-                await workspace.showGroupDetails(for: chat)
+        let isInspectorOpen = workspace.isGroupDetailsPresented || workspace.contactDetailsTarget != nil
+        Button(L10n.string(isInspectorOpen ? "Hide Chat Info" : "Show Chat Info", locale: locale)) {
+            if isInspectorOpen {
+                workspace.closeGroupDetails()
+            } else {
+                Task {
+                    guard isCurrent() else { return }
+                    await workspace.showGroupDetails(for: chat)
+                }
             }
         }
         .disabled(workspace.isTimelineSelectionMode)

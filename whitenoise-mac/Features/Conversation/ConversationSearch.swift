@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MarmotKit
 
@@ -113,20 +114,20 @@ nonisolated enum ConversationSearchEngine {
         matchCount > 0 ? matchCount - 1 : nil
     }
 
-    /// One step toward older matches, wrapping from the oldest back to the newest. Without a
-    /// cursor the step lands on the newest match.
+    /// One step toward older matches (up in the transcript / Find Previous, `⇧⌘G`), stopping at the
+    /// oldest boundary. Without a cursor the step lands on the newest match.
     static func olderIndex(from current: Int?, matchCount: Int) -> Int? {
         guard matchCount > 0 else { return nil }
-        guard let current, current > 0, current < matchCount else { return matchCount - 1 }
-        return current - 1
+        guard let current, current >= 0, current < matchCount else { return matchCount - 1 }
+        return current > 0 ? current - 1 : nil
     }
 
-    /// One step toward newer matches, wrapping from the newest back to the oldest. Without a
-    /// cursor the step lands on the newest match.
+    /// One step toward newer matches (down in the transcript / Find Next, `⌘G`), stopping at the
+    /// newest boundary. Without a cursor the step lands on the newest match.
     static func newerIndex(from current: Int?, matchCount: Int) -> Int? {
         guard matchCount > 0 else { return nil }
         guard let current, current >= 0, current < matchCount else { return matchCount - 1 }
-        return current < matchCount - 1 ? current + 1 : 0
+        return current < matchCount - 1 ? current + 1 : nil
     }
 
     /// After the matches are recomputed, find the cursor's message again by id.
@@ -138,5 +139,36 @@ nonisolated enum ConversationSearchEngine {
     /// The counter's position, counted from the newest match so the first one reads "1".
     static func displayPosition(index: Int, matchCount: Int) -> Int {
         matchCount - index
+    }
+}
+
+/// Extracts a searchable query from the currently focused AppKit text selection for Edit › Find ›
+/// Use Selection for Find (`⌘E`, K04, #1043). Ignores secure text fields and whitespace/punctuation-only
+/// selections so secrets are never leaked into Find and empty selections keep `⌘E` disabled.
+@MainActor
+enum ConversationFindSelection {
+    static func selectedQuery(from responder: NSResponder?) -> String? {
+        if responder is NSSecureTextField { return nil }
+        guard let text = responder as? NSText else { return nil }
+        if NSStringFromClass(type(of: text)).contains("SecureText") { return nil }
+        if let textView = responder as? NSTextView, textView.delegate is NSSecureTextField {
+            return nil
+        }
+        let range = text.selectedRange
+        guard range.location != NSNotFound, range.length > 0 else { return nil }
+        let full = text.string as NSString
+        guard NSMaxRange(range) <= full.length else { return nil }
+        return normalizedQuery(from: full.substring(with: range))
+    }
+
+    nonisolated static func normalizedQuery(from rawSelection: String) -> String? {
+        let collapsed =
+            rawSelection
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !collapsed.isEmpty, !GlobalMessageSearchText.tokens(in: collapsed).isEmpty else {
+            return nil
+        }
+        return collapsed
     }
 }

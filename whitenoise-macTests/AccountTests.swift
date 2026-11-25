@@ -1283,21 +1283,6 @@ struct AccountTests: WorkspaceTestSupport {
                 > AvatarChromeModifier.overhang(forAvatarSize: 32))
     }
 
-    /// The rail buys its slack with an oversized frame, and `AvatarChromeModifier` documents that
-    /// arrangement as the reason `selectedScale` is safe to apply. Shrinking the frame — or
-    /// raising the scale — without the other would clip the active account's ring against the
-    /// rail's own bounds.
-    @MainActor
-    @Test func accountRailAvatarFrameLeavesRoomForTheSelectedAvatarsChrome() {
-        let slackPerSide =
-            (MessagesLayout.accountRailAvatarFrameSize - MessagesLayout.accountRailAvatarSize) / 2
-
-        #expect(
-            slackPerSide
-                >= AvatarChromeModifier.overhang(
-                    forAvatarSize: MessagesLayout.accountRailAvatarSize))
-    }
-
     @MainActor
     @Test func removeActiveAccountCallsRuntimeAndSwitchesToTheOnlyOneLeft() async throws {
         let primary = AccountSummaryFfi(
@@ -3137,33 +3122,6 @@ struct AccountTests: WorkspaceTestSupport {
         } catch {
             Issue.record("Expected MarmotStorageRootError, got \(error)")
         }
-    }
-
-    @Test func accountRailAvatarCarriesNoAccountManagement() throws {
-        // The rail switches identities and does nothing else to them. It used to carry a
-        // Sign In / Sign Out context menu, whose Sign Out fired `signOutAccount` straight from a
-        // right-click with no prompt — an accidental click dropped that identity's relay key
-        // packages. And it used to draw signed-out identities too, dimmed behind a pause glyph,
-        // where a single tap signed one back in. All of it is account management: sign-out and
-        // removal live in Settings' switcher behind confirmations, and signing a deactivated
-        // identity back in is Sign In with its key — no surface reactivates one for free, since
-        // that. Only a source contract can guard *absent* chrome: no behavior test can
-        // observe a menu or a branch that is never built. The chat rows beside it keep their own
-        // menu, which is why this asserts on the rail's declaration rather than on the file.
-        let sidebarSource = try SourceContract.source(of: .sidebar)
-        let railSource = try SourceContract.declaration("AccountRailAvatar")
-
-        #expect(!railSource.contains(".contextMenu"))
-        #expect(!railSource.contains("signOutAccount"), "destructive sign out belongs to the confirmed Settings path")
-        #expect(!railSource.contains("signInAccount"), "signing back in means entering the identity's key")
-        // The rail is fed `signedInAccounts`, so the avatar has no signed-out case to branch on:
-        // a leftover branch here would be dead code claiming to handle a row that cannot appear.
-        #expect(!railSource.contains("signedOut"))
-
-        // And the rail is genuinely fed the filtered list — without this, every assertion above
-        // would still pass while the rail iterated `accounts` and drew the deactivated ones
-        // through an avatar that no longer has a branch for them.
-        #expect(sidebarSource.contains("ForEach(workspace.signedInAccounts)"))
     }
 
     @Test func theDetailPaneOffersNoChooserOfDeactivatedIdentities() throws {

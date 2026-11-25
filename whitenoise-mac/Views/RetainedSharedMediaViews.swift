@@ -106,9 +106,10 @@ struct RetainedSharedMediaErrorRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(L10n.string("Shared media unavailable"), systemImage: "exclamationmark.triangle")
+                .font(.callout.weight(.medium))
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             Text(description)
-                .wnFont(.medium10)
+                .font(.caption)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             Button(L10n.string("Retry"), action: retry)
         }
@@ -144,19 +145,9 @@ struct RetainedSharedMediaEmptyRow: View {
     let systemImage: String
 
     var body: some View {
-        HStack {
-            Spacer()
-            VStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .wnFont(.medium18)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
-                Text(title)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
-            Spacer()
-        }
-        .padding(.vertical, 18)
+        ContentUnavailableView(title, systemImage: systemImage)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
     }
 }
 
@@ -337,7 +328,7 @@ nonisolated enum RetainedVideoPoster {
 private struct RetainedVideoPlayBadge: View {
     var body: some View {
         Image(systemName: "play.fill")
-            .wnFont(.semiBold14)
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(WNColor.fillContentQuaternary)
             .frame(width: 32, height: 32)
             .background(WNColor.overlayTertiary, in: Circle())
@@ -356,13 +347,37 @@ private struct RetainedMediaTilePlaceholder: View {
                 .foregroundStyle(WNColor.backgroundContentTertiary)
         } else if item.category == .video {
             Image(systemName: "play.circle.fill")
-                .wnFont(.medium18)
+                .font(.title3.weight(.medium))
                 .foregroundStyle(WNColor.backgroundContentTertiary)
         } else {
             Image(systemName: "arrow.down.circle")
                 .foregroundStyle(WNColor.backgroundContentTertiary)
         }
     }
+}
+
+/// Truthful metadata subtitle for a file row in Shared Media → Files, using only already-known
+/// MIME type and retained local byte count (never touching disk or triggering a download).
+nonisolated enum RetainedFileRowMetadata {
+    static func subtitle(
+        mediaType: String?,
+        isRejected: Bool,
+        retainedByteCount: UInt64?
+    ) -> String {
+        if isRejected { return L10n.string("Attachment couldn’t be read") }
+        let typeLabel =
+            mediaType?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "application/octet-stream"
+        guard let retainedByteCount, retainedByteCount > 0 else { return typeLabel }
+        let formattedSize = ByteCountFormatter.string(
+            fromByteCount: Int64(min(retainedByteCount, UInt64(Int64.max))),
+            countStyle: .file
+        )
+        return "\(typeLabel) · \(formattedSize)"
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 private struct RetainedFileRow: View {
@@ -373,28 +388,70 @@ private struct RetainedFileRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .wnFont(.medium16)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).lineLimit(1)
+            if let reference = item.reference {
+                let attachment = MessageMediaAttachment(id: item.id, reference: reference)
+                Image(
+                    nsImage: AttachmentFileTypeIcon.icon(
+                        mediaType: attachment.mediaType,
+                        fileName: attachment.fileName
+                    )
+                )
+                .resizable()
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
+            } else {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout)
+                    .lineLimit(1)
                 Text(subtitle)
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
             if isWorking || transferStatus?.isWorking == true {
                 ProgressView().controlSize(.small)
-            } else if item.target != nil {
-                Button {
-                    Task { await saveOrDownload() }
-                } label: {
-                    Image(systemName: localAsset?.reference == nil ? "arrow.down.circle" : "square.and.arrow.down")
+                if let reference = transferStatus?.reference, transferStatus?.isWorking == true {
+                    Button {
+                        Task { _ = try? await model.control(reference: reference, .cancel) }
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(L10n.string("Cancel"))
+                    .accessibilityLabel(L10n.string("Cancel"))
                 }
-                .buttonStyle(.borderless)
-                .help(localAsset?.reference == nil ? L10n.string("Download") : L10n.string("Save file"))
+            } else {
+                if let reference = transferStatus?.reference, transferStatus?.canRetry == true {
+                    Button {
+                        Task { _ = try? await model.control(reference: reference, .retry) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(L10n.string("Retry"))
+                    .accessibilityLabel(L10n.string("Retry"))
+                }
+                if item.target != nil {
+                    Button {
+                        Task { await saveOrDownload() }
+                    } label: {
+                        Image(systemName: localAsset?.reference == nil ? "arrow.down.circle" : "square.and.arrow.down")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(localAsset?.reference == nil ? L10n.string("Download") : L10n.string("Save file"))
+                    .accessibilityLabel(
+                        localAsset?.reference == nil ? L10n.string("Download") : L10n.string("Save file")
+                    )
+                }
             }
             RetainedAttachmentControlMenu(model: model, status: transferStatus)
         }
@@ -416,13 +473,11 @@ private struct RetainedFileRow: View {
     }
 
     private var subtitle: String {
-        if item.rejection != nil { return L10n.string("Attachment couldn’t be read") }
-        return item.reference?.mediaType ?? "application/octet-stream"
-    }
-
-    private var systemImage: String {
-        guard let reference = item.reference else { return "exclamationmark.triangle" }
-        return MessageMediaAttachment(id: item.id, reference: reference).kind.systemImageName
+        RetainedFileRowMetadata.subtitle(
+            mediaType: item.reference?.mediaType,
+            isRejected: item.rejection != nil,
+            retainedByteCount: localAsset?.reference != nil ? localAsset?.byteCount : nil
+        )
     }
 
     private func saveOrDownload() async {

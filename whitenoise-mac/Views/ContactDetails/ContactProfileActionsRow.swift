@@ -31,7 +31,23 @@ struct ContactProfileActionsRow: View {
             .wnPrimaryButtonStyle()
             .disabled(workspace.isCreatingChat)
         }
-        .controlSize(.large)
+        .controlSize(.regular)
         .accessibilityIdentifier("contact.details.actions")
     }
+}
+
+#Preview("Contact actions") {
+    ContactProfileActionsRow(
+        contact: NewChatRecipient(
+            sourceQuery: "alice",
+            memberRef: "npub1alice",
+            accountIdHex: "a1ce",
+            npub: "npub1alice",
+            displayName: "Alice",
+            pictureURL: nil
+        )
+    )
+    .environment(WorkspaceState.preview())
+    .padding()
+    .frame(width: 300)
 }

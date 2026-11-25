@@ -3,8 +3,8 @@ import SwiftUI
 /// The in-conversation search strip pinned under the conversation header: the field, where the
 /// cursor stands among the matches, and the controls that step through them.
 ///
-/// Return, ↑ and ⌘G step to the next older match, ↓ and ⇧⌘G to the next newer one, and Escape
-/// closes.
+/// `⇧⌘G` / ↑ steps to the previous (older / higher) match, `⌘G` / ↓ steps to the next (newer /
+/// lower) match, both disabling at their boundaries, and Escape closes.
 struct ConversationSearchBar: View {
     @Bindable var model: ConversationSearchViewModel
     let onClose: () -> Void
@@ -18,42 +18,57 @@ struct ConversationSearchBar: View {
                 autofocus: true,
                 focusRequest: model.focusRequest
             )
-            .onSubmit(model.goToOlderMatch)
+            .onSubmit(submitSearch)
             // ↑ / ↓ step like the chevrons beside the field. The field is one line, so the caret
-            // loses nothing; with no matches the keys fall through to it.
-            .onKeyPress(.upArrow) { step(model.goToOlderMatch) }
-            .onKeyPress(.downArrow) { step(model.goToNewerMatch) }
+            // loses nothing; at boundaries or with no matches the keys fall through to it.
+            .onKeyPress(.upArrow) { step(canStep: model.canGoToOlderMatch, model.goToOlderMatch) }
+            .onKeyPress(.downArrow) { step(canStep: model.canGoToNewerMatch, model.goToNewerMatch) }
             .onExitCommand(perform: onClose)
 
             ConversationSearchStatus(model: model)
 
-            HStack(spacing: 6) {
+            ControlGroup {
                 ConversationSearchControlButton(
                     systemImage: "chevron.up",
-                    help: L10n.string("Next match"),
+                    help: L10n.string("Previous match"),
                     action: model.goToOlderMatch
                 )
+                .disabled(!model.canGoToOlderMatch)
+                .accessibilityIdentifier("conversation.search.previous")
+
                 ConversationSearchControlButton(
                     systemImage: "chevron.down",
-                    help: L10n.string("Previous match"),
+                    help: L10n.string("Next match"),
                     action: model.goToNewerMatch
                 )
+                .disabled(!model.canGoToNewerMatch)
+                .accessibilityIdentifier("conversation.search.next")
             }
-            .disabled(!model.canStep)
+            .controlGroupStyle(.automatic)
+            .fixedSize()
 
             ConversationSearchControlButton(
                 systemImage: "xmark",
                 help: L10n.string("Close"),
                 action: onClose
             )
+            .accessibilityIdentifier("conversation.search.close")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .accessibilityIdentifier("conversation.search")
     }
 
-    private func step(_ move: () -> Void) -> KeyPress.Result {
-        guard model.canStep else { return .ignored }
+    private func submitSearch() {
+        if model.canGoToOlderMatch {
+            model.goToOlderMatch()
+        } else if model.canGoToNewerMatch {
+            model.goToNewerMatch()
+        }
+    }
+
+    private func step(canStep: Bool, _ move: () -> Void) -> KeyPress.Result {
+        guard canStep else { return .ignored }
         move()
         return .handled
     }

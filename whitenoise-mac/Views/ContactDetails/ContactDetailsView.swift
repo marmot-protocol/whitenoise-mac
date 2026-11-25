@@ -15,6 +15,9 @@ struct ContactDetailsView: View {
     @Environment(SessionState.self) private var session
     let contact: NewChatRecipient
     let blockedUsersModel: BlockedUsersViewModel
+    /// True when opened by drilling down from Group Info inside the inspector, so the leading
+    /// control explicitly returns to Group Info rather than closing the inspector.
+    var returnsToGroupInfo = false
 
     private var isLocalProfile: Bool {
         workspace.accounts.contains {
@@ -22,9 +25,7 @@ struct ContactDetailsView: View {
         }
     }
 
-    /// This person's place in the group whose info the profile was opened over. The contact pane
-    /// slides in on top of group info, so while group info is open, a profile that is in its
-    /// roster was reached from it; anywhere else the profile carries no group commands.
+    /// This person's place in the group whose info the profile was opened over.
     private var groupMember: GroupMemberItem? {
         guard workspace.isGroupDetailsPresented else { return nil }
         return ContactGroupAction.member(accountIdHex: contact.accountIdHex, in: workspace.groupDetailsSnapshot)
@@ -52,12 +53,13 @@ struct ContactDetailsView: View {
             GroupDetailsTopBar(
                 title: L10n.string("Profile"),
                 isLoading: workspace.isLoadingContactDetails,
-                backHelp: "Back",
+                backHelp: returnsToGroupInfo ? "Back" : "Close",
+                backSymbol: returnsToGroupInfo ? "chevron.backward" : "xmark",
                 onBack: { workspace.closeContactDetails() },
                 onEdit: nil
             )
 
-            GlassSeparator(axis: .horizontal)
+            Divider()
 
             Form {
                 ContactIdentitySection(
@@ -109,7 +111,29 @@ struct ContactDetailsView: View {
                 }
             }
             .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
         }
     }
+}
+
+#Preview("Contact inspector") {
+    let workspace = WorkspaceState.preview()
+    ContactDetailsView(
+        contact: NewChatRecipient(
+            sourceQuery: "alice",
+            memberRef: "npub1alice",
+            accountIdHex: "a1ce",
+            npub: "npub1a1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1cea1ce",
+            displayName: "Alice",
+            pictureURL: nil,
+            about: "Product designer."
+        ),
+        blockedUsersModel: BlockedUsersViewModel(
+            accountRef: "preview",
+            runtime: FakeMarmotRuntime(accounts: [], storageRootPath: NSTemporaryDirectory())
+        ),
+        returnsToGroupInfo: true
+    )
+    .environment(workspace)
+    .environment(SessionState())
+    .frame(width: 320, height: 540)
 }
