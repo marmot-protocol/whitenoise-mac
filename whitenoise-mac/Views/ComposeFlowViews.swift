@@ -503,7 +503,6 @@ struct NameGroupPanelView: View {
                     workspace.closeNewChatComposer()
                 }
                 .wnSecondaryButtonStyle()
-                .keyboardShortcut(.cancelAction)
                 .disabled(workspace.isCreatingChat)
                 .accessibilityIdentifier("compose.cancel")
 
@@ -522,12 +521,17 @@ struct NameGroupPanelView: View {
                         Text(L10n.string("Create"))
                     }
                 }
-                .keyboardShortcut(.defaultAction)
                 .wnPrimaryButtonStyle()
                 .disabled(trimmedName.isEmpty || workspace.isCreatingChat || workspace.reachableDraftMembers.isEmpty)
                 .accessibilityIdentifier("compose.create")
             }
             .padding(12)
+        }
+        // Focus-scoped rather than window-wide `.keyboardShortcut(.cancelAction)`: the adjacent
+        // conversation pane stays interactive (e.g., Search messages), so Escape must only affect
+        // Name group when focus is inside this pane, and returns to Choose members keeping the draft.
+        .onExitCommand {
+            workspace.composeGoBack()
         }
         .task {
             isNameFocused = true

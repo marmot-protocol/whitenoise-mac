@@ -21,17 +21,6 @@ extension WorkspaceState {
         authenticationMode = .signUp
     }
 
-    /// Whether pressing Escape on the sign-up pane may dismiss it back to the landing pane.
-    ///
-    /// Escape only dismisses an untouched draft before any identity has been minted: once the user
-    /// has typed a name/about, picked a photo, or has a pending retry after identity creation,
-    /// discarding or advancing requires the explicit Back button.
-    var canDismissSignUpWithEscape: Bool {
-        !isAuthenticating && !isUploadingProfileImage
-            && signUpCreatedAccountRef == nil
-            && signUpDraft == SignUpDraft()
-    }
-
     /// Leave the sign-up pane, wherever that turns out to be.
     ///
     /// The back control means "leave this screen", and where that lands depends on whether

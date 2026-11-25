@@ -2,7 +2,7 @@
 //  EntryFlowsRenderTests.swift
 //  whitenoise-macTests
 //
-//  Behavioral render tests for the native Mac entry flows refresh (#1106 & #1105):
+//  Behavioral render and interaction tests for the native Mac entry flows refresh (#1106 & #1105):
 //  account-setup checkboxes, sign-up Escape guard, compose flow panes, and direct-chat chooser sheet.
 //
 
@@ -59,27 +59,27 @@ import Testing
     @Test func signUpEscapeGuardRequiresUntouchedDraftAndNoCreatedIdentity() {
         let workspace = WorkspaceState.preview()
         workspace.showSignUp()
-        #expect(workspace.canDismissSignUpWithEscape)
+        #expect(OnboardingSignUpView.canDismissWithEscape(workspace))
 
         workspace.signUpDraft.displayName = "Alice"
-        #expect(!workspace.canDismissSignUpWithEscape)
+        #expect(!OnboardingSignUpView.canDismissWithEscape(workspace))
         workspace.signUpDraft.displayName = ""
-        #expect(workspace.canDismissSignUpWithEscape)
+        #expect(OnboardingSignUpView.canDismissWithEscape(workspace))
 
         workspace.signUpDraft.about = "Writer"
-        #expect(!workspace.canDismissSignUpWithEscape)
+        #expect(!OnboardingSignUpView.canDismissWithEscape(workspace))
         workspace.signUpDraft.about = ""
-        #expect(workspace.canDismissSignUpWithEscape)
+        #expect(OnboardingSignUpView.canDismissWithEscape(workspace))
 
         workspace.signUpCreatedAccountRef = "account-1"
-        #expect(!workspace.canDismissSignUpWithEscape)
+        #expect(!OnboardingSignUpView.canDismissWithEscape(workspace))
         workspace.signUpCreatedAccountRef = nil
-        #expect(workspace.canDismissSignUpWithEscape)
+        #expect(OnboardingSignUpView.canDismissWithEscape(workspace))
 
         workspace.authenticationActivity = .signUp
-        #expect(!workspace.canDismissSignUpWithEscape)
+        #expect(!OnboardingSignUpView.canDismissWithEscape(workspace))
         workspace.authenticationActivity = nil
-        #expect(workspace.canDismissSignUpWithEscape)
+        #expect(OnboardingSignUpView.canDismissWithEscape(workspace))
     }
 
     // MARK: - #1105 New chat, group creation, and direct-chat chooser
@@ -108,10 +108,10 @@ import Testing
         #expect(!workspace.isNewChatComposerVisible)
     }
 
-    /// Mounting `NameGroupPanelView` wires its Cancel button to Escape (`.cancelAction`), disables
-    /// it while creation is in flight, and keeps header Back returning to Choose members with the
-    /// staged draft intact.
-    @Test func nameGroupPanelEscapeCancelsWhenIdleAndHeaderBackPreservesDraft() async throws {
+    /// `NameGroupPanelView` keeps Escape and Return scoped to its own pane so an adjacent
+    /// conversation search field is never hijacked by window-wide Cancel/Create shortcuts; inside
+    /// the pane, header Back and Escape preserve the staged draft while explicit Cancel discards it.
+    @Test func nameGroupPanelDoesNotHijackAdjacentEscapeAndPreservesDraftOnBack() async throws {
         let workspace = WorkspaceState.preview()
         let member = NewChatRecipient(
             sourceQuery: "alice",
@@ -127,12 +127,20 @@ import Testing
         workspace.composeShowNameGroup()
         workspace.newChatName = "Field Notes"
 
-        let size = CGSize(width: 340, height: 520)
+        var adjacentEscapeHandled = false
+        let size = CGSize(width: 660, height: 520)
         let host = HostedViewWindow(
-            NameGroupPanelView(draftImage: .constant(nil))
-                .environment(workspace)
-                .environment(\.hasWindowTopNoticeBand, true)
-                .frame(width: size.width, height: size.height),
+            HStack(spacing: 0) {
+                NameGroupPanelView(draftImage: .constant(nil))
+                    .environment(workspace)
+                    .environment(\.hasWindowTopNoticeBand, true)
+                    .frame(width: 340, height: size.height)
+
+                AdjacentConversationPaneProbe {
+                    adjacentEscapeHandled = true
+                }
+                .frame(width: 320, height: size.height)
+            },
             size: size
         )
         defer { host.close() }
@@ -152,34 +160,55 @@ import Testing
             )
         )
 
-        // While creation is in flight, Cancel is disabled so Escape cannot discard the draft.
-        workspace.isCreatingChat = true
-        _ = await host.settle(timeout: .milliseconds(100)) { false }
-        _ = host.window.performKeyEquivalent(with: escapeEvent)
+        // With an adjacent conversation search surface claiming Escape, `NameGroupPanelView` must
+        // NOT register a window-wide `.cancelAction` or `.defaultAction` that hijacks Escape or
+        // Return and discards the staged group draft.
+        #expect(host.window.performKeyEquivalent(with: escapeEvent))
+        #expect(await host.settle { adjacentEscapeHandled })
         #expect(workspace.isNewChatComposerVisible)
         #expect(workspace.composePane == .nameGroup)
         #expect(workspace.newChatName == "Field Notes")
         #expect(workspace.newChatRecipients == [member])
 
-        // Header Back returns to Choose members without discarding the draft.
-        workspace.isCreatingChat = false
-        _ = await host.settle(timeout: .milliseconds(100)) { false }
+        let returnEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\r",
+                charactersIgnoringModifiers: "\r",
+                isARepeat: false,
+                keyCode: 36
+            )
+        )
+        #expect(!host.window.performKeyEquivalent(with: returnEvent))
+        #expect(workspace.composePane == .nameGroup)
+
+        // Header Back (leading control in `ComposePaneHeader` with 12pt horizontal padding and
+        // zero titlebar clearance under `hasWindowTopNoticeBand == true`) returns to Choose
+        // members while preserving the staged draft.
         host.click(at: CGPoint(x: 24, y: 16))
         #expect(await host.settle { workspace.composePane == .chooseMembers })
         #expect(workspace.isNewChatComposerVisible)
         #expect(workspace.newChatName == "Field Notes")
         #expect(workspace.newChatRecipients == [member])
 
-        // Re-entering Name group and pressing Escape invokes Cancel and discards the draft.
+        // Re-entering Name group and clicking Cancel (bottom-leading of the 340pt sidebar with
+        // 12pt padding) closes the composer and discards the draft.
         workspace.composeShowNameGroup()
         _ = await host.settle(timeout: .milliseconds(100)) { false }
-        #expect(host.window.performKeyEquivalent(with: escapeEvent))
+        host.click(at: CGPoint(x: 42, y: size.height - 24))
         #expect(await host.settle { !workspace.isNewChatComposerVisible })
         #expect(workspace.newChatName.isEmpty)
         #expect(workspace.newChatRecipients.isEmpty)
     }
 
-    @Test func directChatChooserSheetRendersContentSizedWithChoices() {
+    /// Pressing Escape inside `DirectChatChooserSheet` invokes `onCancel` without triggering
+    /// `onOpen` or `onStartNew`.
+    @Test func directChatChooserSheetEscapeInvokesOnlyCancel() async throws {
         let peer = String(repeating: "b", count: 64)
         let presentation = DirectChatChooserPresentation(
             recipient: NewChatRecipient(
@@ -204,35 +233,43 @@ import Testing
                         isDirect: true
                     ),
                     isArchived: false
-                ),
-                DirectChatChoice(
-                    chat: ChatItem(
-                        id: "older",
-                        title: "Bob",
-                        subtitle: "",
-                        preview: "",
-                        updatedAt: .now.addingTimeInterval(-86_400 * 30),
-                        avatarSeed: peer,
-                        pictureURL: nil,
-                        unreadCount: 0,
-                        isDirect: true
-                    ),
-                    isArchived: true
-                ),
+                )
             ]
         )
 
-        let size = F.hostedSize(
+        var didOpen = false
+        var didStartNew = false
+        var didCancel = false
+        let host = HostedViewWindow(
             DirectChatChooserSheet(
                 presentation: presentation,
-                onOpen: { _ in },
-                onStartNew: {},
-                onCancel: {}
+                onOpen: { _ in didOpen = true },
+                onStartNew: { didStartNew = true },
+                onCancel: { didCancel = true }
+            ),
+            size: CGSize(width: 420, height: 280)
+        )
+        defer { host.close() }
+
+        let escapeEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
             )
         )
 
-        #expect(size.width >= 380)
-        #expect(size.height > 120)
+        #expect(host.window.performKeyEquivalent(with: escapeEvent))
+        #expect(await host.settle { didCancel })
+        #expect(!didOpen)
+        #expect(!didStartNew)
     }
 
     // MARK: - Helpers
@@ -246,5 +283,21 @@ import Testing
             result.append(contentsOf: descendants(of: subview, as: type))
         }
         return result
+    }
+}
+
+private struct AdjacentConversationPaneProbe: View {
+    let onEscape: () -> Void
+    @State private var query = "search"
+
+    var body: some View {
+        VStack {
+            TextField("Search messages", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .padding()
+            Button("Close search", action: onEscape)
+                .keyboardShortcut(.cancelAction)
+            Spacer()
+        }
     }
 }
