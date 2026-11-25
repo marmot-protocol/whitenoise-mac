@@ -96,11 +96,9 @@ import Testing
 
     // MARK: - The two action tiers are the same height
 
-    /// `.frame(height:)` on a `Button` is silently ignored by every button style, so the only way
-    /// two tiers can agree on a height is for their labels to carry the difference — which means
-    /// the difference has to be *measured*, and re-measured whenever either style's padding moves.
-    /// That is what this does. Left alone, the glass primary comes out 4pt shorter than the
-    /// secondary tier at `.large`.
+    /// `.frame(height:)` on a `Button` is silently ignored by native button styles, so the label
+    /// claims `OnboardingLayout.actionLabelHeight` and this test re-measures both native
+    /// `.borderedProminent` and `.bordered` tiers to catch any shift in macOS interior padding.
     @Test func bothActionTiersDrawTheSameHeight() throws {
         for tier in [OnboardingActionTier.primary, .secondary] {
             let button = OnboardingActionButton(title: "Sign Up", tier: tier) {}
@@ -129,20 +127,18 @@ import Testing
     /// inside the button: a 12pt corner has almost finished turning by then and begins at 1.5pt,
     /// while a pill's 22pt corner is only a quarter of the way round and begins at 6.5pt. The
     /// bounds below leave a 2pt margin on each side of those two measurements.
-    @Test func theOnboardingTiersDrawAPillAndTheAppsOwnTiersDoNot() throws {
+    /// On macOS 15.6, standard `.bordered`/`.borderedProminent` push buttons ignore
+    /// `buttonBorderShape` and fall back to native macOS 15 geometry, so this pixel-outline check
+    /// runs on macOS 26+ where SwiftUI honors `.capsule` and `.roundedRectangle(radius:)`.
+    @Test(.enabled(if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26))
+    func theOnboardingTiersDrawAPillAndTheAppsOwnTiersDoNot() throws {
         let capsule = try Self.leftEdgeOnset(shape: .capsule)
         let rounded = try Self.leftEdgeOnset(shape: .rounded)
 
-        if #available(macOS 26.0, *) {
-            #expect(capsule >= 4.5, "the onboarding button's edge starts at \(capsule)pt — that is not a pill")
-            #expect(
-                rounded <= 3.5,
-                "the rounded tier's edge starts at \(rounded)pt — this test can no longer tell the two apart")
-        } else {
-            // On macOS 15.6, standard `.bordered`/`.borderedProminent` push buttons ignore
-            // `buttonBorderShape` and intentionally fall back to native macOS 15 geometry.
-            #expect(capsule.isFinite && rounded.isFinite)
-        }
+        #expect(capsule >= 4.5, "the onboarding button's edge starts at \(capsule)pt — that is not a pill")
+        #expect(
+            rounded <= 3.5,
+            "the rounded tier's edge starts at \(rounded)pt — this test can no longer tell the two apart")
     }
 
     /// Both onboarding panes set the shape, and they set it on the *pane*. A pane that set it on

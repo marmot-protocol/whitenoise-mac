@@ -24,14 +24,13 @@ import Testing
 /// `performAsCurrentDrawingAppearance` off the main thread takes the test host down with it.
 @Suite(.serialized) @MainActor struct WNPrimaryButtonTintTests {
 
-    /// Asserted as **neutral, not a hue** rather than against a colour constant. Glass composites
-    /// over its backing, so the Light pill lands on charcoal rather than `neutral950` and an
-    /// equality check against either the ramp or an opaque swatch fails for reasons that have
-    /// nothing to do with the tint. What actually separates right from wrong here is chroma:
-    /// every value `fillPrimary` resolves to is a neutral, and the accent it used to fall back to
-    /// is saturated blue.
+    /// Asserted as **neutral, not a hue** rather than against a colour constant. Native
+    /// `.borderedProminent` composites over its backing and applies system bezel shading, so an
+    /// exact hex match against the ramp is brittle. What actually separates right from wrong here
+    /// is chroma: every value `fillPrimary` resolves to is a neutral, and the accent it used to
+    /// fall back to is saturated blue.
     @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func theGlassPrimaryDrawsFillPrimaryWithNoAmbientTint(appearance: NSAppearance.Name) throws {
+    func thePrimaryDrawsFillPrimaryWithNoAmbientTint(appearance: NSAppearance.Name) throws {
         let fill = try Self.fillOfButton(appearance: appearance) {
             WNPrimaryButton(size: .large) {
                 // Nothing to do: these tests measure the chrome, never the action.
@@ -74,11 +73,12 @@ import Testing
         #expect(fill.brightnessComponent < 0.4)
     }
 
-    /// Native `.wnSecondaryButtonStyle()` stays neutral (no system-accent blue bleed) in both
+    /// Native `.wnSecondaryButtonStyle()` draws a visible neutral bezel distinct from the
+    /// surrounding pane (no system-accent blue bleed and not collapsed to `.plain`) in both
     /// appearances with no ambient tint.
     @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
     func nativeSecondaryButtonDrawsNeutralChrome(appearance: NSAppearance.Name) throws {
-        let fill = try Self.fillOfButton(appearance: appearance) {
+        let (fill, pane) = try Self.fillAndPaneOfButton(appearance: appearance) {
             Button {
             } label: {
                 Text("Cancel").frame(minWidth: 96).padding(8)
@@ -87,6 +87,7 @@ import Testing
             .controlSize(.large)
         }
 
+        #expect(Self.distance(fill, pane) > 0.03, "secondary bezel is indistinguishable from the pane")
         #expect(Self.chroma(fill) < 0.06)
     }
 
@@ -130,6 +131,13 @@ import Testing
         appearance: NSAppearance.Name,
         @ViewBuilder content: () -> Content
     ) throws -> NSColor {
+        try fillAndPaneOfButton(appearance: appearance, content: content).fill
+    }
+
+    private static func fillAndPaneOfButton<Content: View>(
+        appearance: NSAppearance.Name,
+        @ViewBuilder content: () -> Content
+    ) throws -> (fill: NSColor, pane: NSColor) {
         let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
         let renderer = ImageRenderer(
             content: content()
@@ -145,13 +153,14 @@ import Testing
         }
         let tiff = try #require(image?.tiffRepresentation)
         let rep = try #require(NSBitmapImageRep(data: tiff))
-        let pixel = try #require(
+        let fill = try #require(
             rep.colorAt(x: Int(Double(rep.pixelsWide) * 0.18), y: rep.pixelsHigh / 2)?
                 .usingColorSpace(.sRGB)
         )
-        // A transparent sample means the glass never drew; assert rather than compare against it.
-        #expect(pixel.alphaComponent > 0.99)
-        return pixel
+        let pane = try #require(rep.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB))
+        // A transparent sample means the control never drew; assert rather than compare against it.
+        #expect(fill.alphaComponent > 0.99)
+        return (fill, pane)
     }
 
     /// How far the three channels spread — 0 for any neutral, large for a saturated hue.

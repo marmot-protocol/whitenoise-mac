@@ -105,8 +105,7 @@ enum WNButtonMetrics {
     /// **macOS 15.6 fallback:** SwiftUI honors `.capsule` and `.roundedRectangle(radius:)` on
     /// bordered push buttons starting on macOS 26. On the macOS 15.6 deployment floor, AppKit
     /// standard bordered buttons intentionally fall back to native macOS 15 push-button geometry
-    /// rather than substituting custom-drawn chrome (see `docs/macos-ui-patterns.md` C01/C02 and
-    /// the macOS 15.6 fallback table).
+    /// rather than substituting custom-drawn chrome (see `docs/macos-ui-patterns.md` C01/C02).
     static func borderShape(_ shape: WNButtonShape, for controlSize: ControlSize) -> ButtonBorderShape {
         switch shape {
         case .rounded: .roundedRectangle(radius: cornerRadius(for: controlSize))

@@ -29,21 +29,15 @@ struct WNToggle<Label: View>: View {
     @ViewBuilder let label: Label
 
     var body: some View {
-        toggle
-            .tint(WNColor.switchOnTint)
-    }
-
-    @ViewBuilder
-    private var toggle: some View {
-        let base = Toggle(isOn: $isOn) {
-            label
+        Group {
+            switch presentation {
+            case .switch:
+                Toggle(isOn: $isOn) { label }.toggleStyle(.switch)
+            case .checkbox:
+                Toggle(isOn: $isOn) { label }.toggleStyle(.checkbox)
+            }
         }
-        switch presentation {
-        case .switch:
-            base.toggleStyle(.switch)
-        case .checkbox:
-            base.toggleStyle(.checkbox)
-        }
+        .tint(WNColor.switchOnTint)
     }
 }
 
