@@ -63,6 +63,7 @@ struct ProfileImageSourceMenu<Label: View>: View {
 
     @State private var isSourceListPresented = false
     @State private var isFileImporterPresented = false
+    @State private var filePickerAccountId: String?
     @State private var cropModel: AvatarCropViewModel?
 
     var body: some View {
@@ -122,7 +123,11 @@ struct ProfileImageSourceMenu<Label: View>: View {
 
     private func chooseFile() {
         isSourceListPresented = false
-        guard workspace.prepareProfileImageDestination(destination) else { return }
+        filePickerAccountId = destination == .activeAccount ? workspace.activeAccountId : nil
+        guard workspace.prepareProfileImageDestination(destination) else {
+            filePickerAccountId = nil
+            return
+        }
         isFileImporterPresented = true
     }
 
@@ -132,15 +137,21 @@ struct ProfileImageSourceMenu<Label: View>: View {
     /// over the wait instead of closing on a picture that was never saved.
     private func cropFile(at url: URL) {
         let destination = destination
+        let expectedAccountId = destination == .activeAccount ? (filePickerAccountId ?? workspace.activeAccountId) : nil
+        filePickerAccountId = nil
+        if destination == .activeAccount {
+            guard let expectedAccountId, workspace.activeAccountId == expectedAccountId else { return }
+        }
         cropModel = AvatarCropViewModel(
             loadData: { try await AvatarImageCropSource.data(fromFileURL: url) },
             commit: { [workspace] data in
+                if let expectedAccountId, workspace.activeAccountId != expectedAccountId { return }
                 let isSigningUp = destination == .signUpDraft && workspace.isAuthenticating
                 guard !workspace.isUploadingProfileImage, !isSigningUp else {
                     throw AvatarImageCropper.CommitError.busy
                 }
                 guard workspace.prepareProfileImageDestination(destination) else { return }
-                try await workspace.setProfileImage(croppedImageData: data)
+                try await workspace.setProfileImage(croppedImageData: data, expectedAccountId: expectedAccountId)
             }
         )
     }

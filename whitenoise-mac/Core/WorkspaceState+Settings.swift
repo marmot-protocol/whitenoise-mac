@@ -677,9 +677,10 @@ extension WorkspaceState {
     /// says. Throws what went wrong so the crop editor can show it beside the picture — including
     /// `CommitError.busy` while another picture is still saving, which the editor stays open over.
     /// A selection with no account left to save to, or superseded by a newer one, returns quietly.
-    func setProfileImage(croppedImageData data: Data) async throws {
+    func setProfileImage(croppedImageData data: Data, expectedAccountId: String? = nil) async throws {
+        if let expectedAccountId, activeAccountId != expectedAccountId { return }
         guard !isUploadingProfileImage else { throw AvatarImageCropper.CommitError.busy }
-        guard let context = beginProfileImageSelection() else { return }
+        guard let context = beginProfileImageSelection(expectedAccountId: expectedAccountId) else { return }
         defer { finishProfileImageSelection(context) }
 
         do {
@@ -690,13 +691,14 @@ extension WorkspaceState {
         }
     }
 
-    private func beginProfileImageSelection() -> ProfileImageSelectionContext? {
+    private func beginProfileImageSelection(expectedAccountId: String? = nil) -> ProfileImageSelectionContext? {
         guard !isUploadingProfileImage else { return nil }
         switch profileImagePickerDestination {
         case .activeAccount:
             guard let client, let activeAccount else { return nil }
+            if let expectedAccountId, activeAccount.id != expectedAccountId { return nil }
             profileImageUploadGeneration &+= 1
-            setSettingsError(nil)
+            setSettingsError(nil, accountId: activeAccount.id)
             isUploadingProfileImage = true
             return .upload(
                 ProfileImageUploadContext(

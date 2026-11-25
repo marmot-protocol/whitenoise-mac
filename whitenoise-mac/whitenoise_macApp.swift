@@ -212,7 +212,7 @@ struct whitenoise_macApp: App {
                 await workspace?.clearMediaCache()
             },
             // Settings → Delete Profile.
-            removeAccount: DeleteProfileRemoval.remover(for: workspace, session: session, settings: settings),
+            removeAccount: DeleteProfileRemoval.remover(for: workspace, session: session),
             // End Group runs in its own model but still has to respect, and refresh, the legacy
             // group-details and chat-list state the workspace owns.
             groupDisbandHooks: GroupDisbandHooks(

@@ -320,7 +320,7 @@ struct ShellCommandTests: WorkspaceTestSupport {
         let coordinator = SettingsWindowCoordinator(workspace: workspace)
         coordinator.open(at: .profile)
 
-        let remover = DeleteProfileRemoval.remover(for: workspace, settings: coordinator)
+        let remover = DeleteProfileRemoval.remover(for: workspace)
         let removal = Task { await remover(firstAccount) }
         await gate.waitUntilReached()
 
@@ -335,6 +335,85 @@ struct ShellCommandTests: WorkspaceTestSupport {
 
         #expect(failure != nil && failure?.isEmpty == false)
         #expect(coordinator.lastError == "Second profile relay error")
+    }
+
+    @Test func savingProfileImageCropAfterSwitchingAccountDoesNotUploadUnderNewProfile() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "2", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let firstAccount = try #require(workspace.accounts.first { $0.id == "First" })
+        let secondAccount = try #require(workspace.accounts.first { $0.id == "Second" })
+        workspace.switchActiveAccount(firstAccount, finalSelection: nil)
+        try #require(workspace.prepareProfileImageDestination(.activeAccount))
+
+        // Tiny valid PNG fixture to feed AvatarCropViewModel.load().
+        let rep = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: 32,
+                pixelsHigh: 32,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        let pngData = try #require(rep.representation(using: .png, properties: [:]))
+
+        let encodeGate = AsyncFfiGate()
+        encodeGate.isEnabled = true
+        let originatingAccountId = firstAccount.id
+        let cropModel = AvatarCropViewModel(
+            loadData: { pngData },
+            commit: { [workspace] data in
+                guard workspace.activeAccountId == originatingAccountId else { return }
+                try await workspace.setProfileImage(
+                    croppedImageData: data,
+                    expectedAccountId: originatingAccountId
+                )
+            },
+            encodeCrop: { image, side, zoom, offset in
+                await encodeGate.passIfArmed()
+                return AvatarImageCropper.croppedJPEG(image: image, cropSide: side, zoom: zoom, offset: offset)
+            }
+        )
+        await cropModel.load()
+        try #require(cropModel.canSave)
+
+        let saveTask = Task { await cropModel.save() }
+        await encodeGate.waitUntilReached()
+
+        // Switch to profile B while profile A's crop is encoding.
+        workspace.switchActiveAccount(secondAccount, finalSelection: nil)
+        workspace.profileDraft.picture = "https://example.invalid/second.jpg"
+
+        encodeGate.release()
+        _ = await saveTask.value
+
+        #expect(runtime.uploadedProfileImageData == nil)
+        #expect(workspace.profileDraft.picture == "https://example.invalid/second.jpg")
     }
 
     @Test func removingActiveProfileWhileSwitchedToAnotherProfilePreservesNewActiveSession() async throws {

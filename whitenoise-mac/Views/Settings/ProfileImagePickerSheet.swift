@@ -112,11 +112,15 @@ struct ProfileImagePickerSheet: View {
     /// too, through `closeProfileImagePicker()`.
     private func cropSelectedResult() {
         guard let selected = workspace.selectedProfileImageResult else { return }
+        let destination = workspace.profileImagePickerDestination
+        let expectedAccountId = destination == .activeAccount ? workspace.activeAccountId : nil
+        if destination == .activeAccount, expectedAccountId == nil { return }
         let loader = workspace.groupImageSourceLoader
         cropModel = AvatarCropViewModel(
             loadData: { try await AvatarImageCropSource.data(for: selected, using: loader) },
             commit: { [workspace] data in
-                try await workspace.setProfileImage(croppedImageData: data)
+                if let expectedAccountId, workspace.activeAccountId != expectedAccountId { return }
+                try await workspace.setProfileImage(croppedImageData: data, expectedAccountId: expectedAccountId)
             }
         )
     }

@@ -305,7 +305,7 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         let (state, active) = try await signedInWorkspace(runtime)
         let settings = SettingsWindowCoordinator(workspace: state)
 
-        let failure = await DeleteProfileRemoval.remover(for: state, settings: settings)(active)
+        let failure = await DeleteProfileRemoval.remover(for: state)(active)
 
         #expect(failure == nil)
         #expect(runtime.removedAccountRefs == ["Desktop Account"])
@@ -325,7 +325,7 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         let (state, active) = try await signedInWorkspace(runtime)
         let settings = SettingsWindowCoordinator(workspace: state)
 
-        let failure = await DeleteProfileRemoval.remover(for: state, settings: settings)(active)
+        let failure = await DeleteProfileRemoval.remover(for: state)(active)
 
         #expect(failure == RemovalRefused().errorDescription)
         #expect(state.accounts.contains(where: { $0.id == "Desktop Account" }))

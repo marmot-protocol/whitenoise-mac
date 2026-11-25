@@ -15,8 +15,7 @@ enum DeleteProfileRemoval {
     /// would draw it a second time.
     static func remover(
         for workspace: WorkspaceState,
-        session: SessionState? = nil,
-        settings: SettingsWindowCoordinator? = nil
+        session: SessionState? = nil
     ) -> DeleteProfileViewModel.RemoveAccount {
         { [weak workspace, weak session] account in
             guard let workspace else { return "" }

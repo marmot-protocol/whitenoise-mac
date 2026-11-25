@@ -43,6 +43,7 @@ final class AvatarCropViewModel: Identifiable {
     @ObservationIgnored private var pinchOrigin: CGFloat?
     @ObservationIgnored private let loadData: @MainActor () async throws -> Data
     @ObservationIgnored private let commit: @MainActor (Data) async throws -> Void
+    @ObservationIgnored private let encodeCrop: @Sendable (CGImage, CGFloat, CGFloat, CGSize) async -> Data?
 
     /// - Parameters:
     ///   - loadData: The picked bytes. Runs when the sheet appears, so a download shows as the
@@ -52,11 +53,18 @@ final class AvatarCropViewModel: Identifiable {
     init(
         cropSide: CGFloat = defaultCropSide,
         loadData: @escaping @MainActor () async throws -> Data,
-        commit: @escaping @MainActor (Data) async throws -> Void
+        commit: @escaping @MainActor (Data) async throws -> Void,
+        encodeCrop: @escaping @Sendable (CGImage, CGFloat, CGFloat, CGSize) async -> Data? = {
+            image, side, zoom, offset in
+            await Task.detached(priority: .userInitiated) {
+                AvatarImageCropper.croppedJPEG(image: image, cropSide: side, zoom: zoom, offset: offset)
+            }.value
+        }
     ) {
         self.cropSide = cropSide
         self.loadData = loadData
         self.commit = commit
+        self.encodeCrop = encodeCrop
     }
 
     var imageSize: CGSize {
@@ -140,9 +148,8 @@ final class AvatarCropViewModel: Identifiable {
         let side = cropSide
         let zoom = zoom
         let offset = offset
-        let data = await Task.detached(priority: .userInitiated) {
-            AvatarImageCropper.croppedJPEG(image: image, cropSide: side, zoom: zoom, offset: offset)
-        }.value
+        let data = await encodeCrop(image, side, zoom, offset)
+        guard !Task.isCancelled else { return false }
         guard let data else {
             saveError = OutgoingMediaDraftProcessor.Failure.encodingFailed.localizedDescription
             return false

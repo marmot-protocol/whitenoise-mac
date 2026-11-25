@@ -1214,9 +1214,6 @@ extension WorkspaceState {
 
     func confirmChatLocalDelete(_ target: ChatLocalDeleteTarget) async {
         chatPendingLocalDelete = nil
-        if let expectedAccountId = target.accountId, activeAccountId != expectedAccountId {
-            return
-        }
         await deleteGroupLocally(
             groupIdHex: target.groupIdHex,
             expectedAccountId: target.accountId,

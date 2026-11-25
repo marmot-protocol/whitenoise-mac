@@ -117,8 +117,6 @@ enum AccountExit {
             workspace.switchActiveAccount(remaining, finalSelection: nil)
             if postSettingsHandoff {
                 WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
-            } else {
-                WorkspaceAccountPresentation.remoteUnlinkChooser.post(from: workspace)
             }
             await workspace.configureObservabilityRuntimeBestEffort()
             await workspace.loadSettingsData()
