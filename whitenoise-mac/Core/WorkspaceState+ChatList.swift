@@ -21,14 +21,17 @@ extension WorkspaceState {
     }
 
     /// Persists a user-driven native split-view sidebar drag without clobbering a previously
-    /// saved collapsed drawer width when the split view enforces its expanded minimum on launch.
-    /// Once the user drags wider than the minimum, the new expanded width is persisted normally.
+    /// saved collapsed drawer width when the split view enforces its expanded minimum (including
+    /// when New Chat temporarily shows the sidebar expanded). Once the user drags wider than the
+    /// minimum, the new expanded width is persisted normally.
     func adoptNativeSidebarWidth(_ proposedWidth: CGFloat) {
         guard isChatListVisible,
             proposedWidth >= ChatListWidthPolicy.minimumExpandedWidth,
             proposedWidth <= ChatListWidthPolicy.maximumWidth
         else { return }
-        if isChatListCollapsed, proposedWidth <= ChatListWidthPolicy.minimumExpandedWidth {
+        if ChatListWidthPolicy.isCollapsed(width: chatListWidth),
+            proposedWidth <= ChatListWidthPolicy.minimumExpandedWidth
+        {
             return
         }
         resizeChatListDrawer(toProposedWidth: proposedWidth)
@@ -43,24 +46,38 @@ extension WorkspaceState {
         mutatingChatPreferenceIds.insert(chat.id)
         defer { mutatingChatPreferenceIds.remove(chat.id) }
         do {
-            if let conversation, conversation.snapshot?.hasMoreAfter == true {
-                await conversation.returnToLatest()
-                guard activeAccountId == accountId else { return }
+            let marker: ReadMarker?
+            if let conversation {
+                if conversation.snapshot?.hasMoreAfter == true {
+                    await conversation.returnToLatest()
+                    guard activeAccountId == accountId else { return }
+                }
                 // Do not advance the marker from a stale older page or clear a manual reminder if
                 // fetching the authoritative latest page did not succeed.
-                guard conversation.snapshot?.hasMoreAfter == false else {
+                guard let snapshot = conversation.snapshot, !snapshot.hasMoreAfter else {
+                    switch conversation.error {
+                    case .unavailable(let message):
+                        lastError = message
+                    case .staleWindow:
+                        lastError = UserFacingError.message(for: MarmotKitError.ConversationWindowStale)
+                    case nil:
+                        break
+                    }
                     return
                 }
+                // Choose the marker directly from the same authoritative tail snapshot that
+                // established `hasMoreAfter == false`, even if the UI observer has not yet
+                // finished presenting that page into the workspace's timeline store.
+                marker = snapshot.latestReadableActivityMarker(inAuthoritativeGroup: chat.isAuthoritativeGroup)
+            } else {
+                marker = latestReadableActivityMessage(
+                    groupIdHex: chat.id,
+                    isAuthoritativeGroup: chat.isAuthoritativeGroup
+                ).map { ReadMarker(sentAt: $0.sentAt, messageId: $0.id) }
             }
 
-            let latest = latestReadableActivityMessage(
-                groupIdHex: chat.id,
-                isAuthoritativeGroup: chat.isAuthoritativeGroup
-            )
-
             var updatedRow: ChatListRowFfi?
-            if let latest {
-                let marker = ReadMarker(sentAt: latest.sentAt, messageId: latest.id)
+            if let marker {
                 updatedRow = try await commitReadMarker(
                     marker,
                     groupIdHex: chat.id,

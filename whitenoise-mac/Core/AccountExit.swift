@@ -66,7 +66,11 @@ enum AccountExit {
         await untilNoAccountChange(in: workspace)
         guard let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == accountIdHex })
         else { return UnlinkedRemoval(outcome: nil, leftBehind: nil) }
-        let outcome = await workspace.removeAccount(account, errorTarget: .mainWindow)
+        let outcome = await workspace.removeAccount(
+            account,
+            errorTarget: .mainWindow,
+            postSettingsHandoff: false
+        )
         // A wipe that returned removed the profile, even with cleanup left over (the report says
         // what). Without one, `removeAccount` failed, reported why in `lastError`, and left the
         // profile listed, so Delete Everything can be tried again.

@@ -624,10 +624,18 @@ extension WorkspaceState {
     }
 
     @discardableResult
-    func removeAccount(_ account: AccountItem, errorTarget: AccountRemovalErrorTarget = .settings) async
+    func removeAccount(
+        _ account: AccountItem,
+        errorTarget: AccountRemovalErrorTarget = .settings,
+        postSettingsHandoff: Bool = true
+    ) async
         -> WipeOutcomeFfi?
     {
-        await removeAccountResult(account, errorTarget: errorTarget).outcome
+        await removeAccountResult(
+            account,
+            errorTarget: errorTarget,
+            postSettingsHandoff: postSettingsHandoff
+        ).outcome
     }
 
     /// Removes `account` and returns both its wipe report and any failure message directly to the
@@ -635,7 +643,8 @@ extension WorkspaceState {
     /// that another profile may have written to while removal was in flight.
     func removeAccountResult(
         _ account: AccountItem,
-        errorTarget: AccountRemovalErrorTarget = .settings
+        errorTarget: AccountRemovalErrorTarget = .settings,
+        postSettingsHandoff: Bool = true
     ) async -> (outcome: WipeOutcomeFfi?, errorMessage: String?) {
         guard let client, !isAccountMutationInProgress else { return (nil, nil) }
 
@@ -754,7 +763,7 @@ extension WorkspaceState {
                 // straight into it, still on the settings page the deletion left.
                 if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
                     switchActiveAccount(remaining, finalSelection: nil)
-                    if errorTarget == .settings {
+                    if postSettingsHandoff {
                         WorkspaceAccountPresentation.settingsHandoff.post(from: self)
                     }
                     await configureObservabilityRuntimeBestEffort()
@@ -766,14 +775,14 @@ extension WorkspaceState {
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 notificationSettings = .defaults
                 selection = nil
-                if errorTarget == .settings {
+                if postSettingsHandoff {
                     WorkspaceAccountPresentation.settingsHandoff.post(from: self)
                 }
                 return (outcome, nil)
             }
 
             if activeAccountInvalid {
-                if errorTarget == .settings {
+                if postSettingsHandoff {
                     restoreOrSelectFirstAccount()
                     selection = nil
                     WorkspaceAccountPresentation.settingsHandoff.post(from: self)
@@ -785,12 +794,16 @@ extension WorkspaceState {
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
                     await reloadChats()
-                } else if signedInAccounts.isEmpty {
-                    restoreOrSelectFirstAccount()
+                } else {
+                    // With 2+ signed-in profiles after a non-Settings removal (e.g. Delete
+                    // Everything from the remote-unlink alert), keep the profile chooser in the
+                    // main window without popping Settings open, and clear any stale active id.
+                    activeAccountId = nil
+                    invalidateNotificationSettingsOperations()
+                    UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
+                    notificationSettings = .defaults
+                    selection = nil
                 }
-                // With 2+ signed-in profiles after a non-Settings removal (e.g. Delete Everything
-                // from the remote-unlink alert), preserve the profile chooser in the main window
-                // without popping Settings open.
             }
             return (outcome, nil)
         } catch {

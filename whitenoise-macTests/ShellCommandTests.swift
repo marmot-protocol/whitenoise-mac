@@ -422,6 +422,146 @@ struct ShellCommandTests: WorkspaceTestSupport {
         #expect(runtime.markedReadMessageIds.isEmpty)
         #expect(runtime.setChatManuallyUnreadCallCount == 0)
         #expect(conversation.snapshot?.hasMoreAfter == true)
+        #expect(workspace.lastError != nil)
+    }
+
+    @Test func conversationMenuMarkAsReadCommitsNewestSnapshotMessageWhileObserverIsPaused() async throws {
+        let account = AccountSummaryFfi(
+            label: "Reader",
+            accountIdHex: String(repeating: "c", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let groupId = String(repeating: "9", count: 64)
+        let newestMessageId = String(repeating: "d", count: 64)
+        var latestSnapshot = ProjectionMigrationTests.conversationSnapshot(
+            sequence: 2,
+            title: "Tail Snapshot",
+            unreadCount: 2,
+            firstUnreadMessageIdHex: newestMessageId,
+            anchorKind: .latest,
+            hasMoreAfter: false
+        )
+        latestSnapshot.messages = [
+            ProjectionMigrationTests.conversationMessage(
+                timelineMessage(
+                    id: newestMessageId,
+                    groupIdHex: groupId,
+                    sender: String(repeating: "7", count: 64),
+                    plaintext: "Brand new message",
+                    recordedAt: 1_760_000_500
+                )
+            )
+        ]
+        runtime.conversationWindowInitialSnapshots[groupId] = latestSnapshot
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        // Seed workspace's timeline store with an older message while pausing snapshot presentation
+        // so the store lags the authoritative tail snapshot installed on the model.
+        let olderMessageId = String(repeating: "1", count: 64)
+        workspace.ensureMessageTimelineStore(for: groupId).replace(
+            with: [
+                MessageItem(
+                    id: olderMessageId,
+                    senderName: "Peer",
+                    body: "Older store message",
+                    sentAt: Date(timeIntervalSince1970: 1_760_000_100),
+                    isOutgoing: false
+                )
+            ]
+        )
+
+        let observerGate = AsyncFfiGate()
+        observerGate.isEnabled = true
+        defer { observerGate.release() }
+
+        let active = try #require(workspace.activeAccount)
+        let conversation = ConversationViewModel(account: active, groupIdHex: groupId, runtime: runtime)
+        await conversation.setSnapshotObserver { _ in
+            await observerGate.passIfArmed()
+        }
+        conversation.start()
+        defer { conversation.stop() }
+        await observerGate.waitUntilReached()
+        #expect(conversation.snapshot?.hasMoreAfter == false)
+        #expect(!conversation.hasPresentedWindow)
+
+        let unreadChat = ChatItem(
+            id: groupId,
+            title: "Tail Snapshot",
+            subtitle: "",
+            preview: "Brand new message",
+            updatedAt: Date(timeIntervalSince1970: 1_760_000_500),
+            avatarSeed: groupId,
+            pictureURL: nil,
+            unreadCount: 2,
+            manuallyMarkedUnread: true,
+            isDirect: false
+        )
+
+        await workspace.markChatAsRead(unreadChat, conversation: conversation)
+
+        #expect(runtime.markedReadMessageIds == [newestMessageId])
+        #expect(runtime.setChatManuallyUnreadCallCount == 1)
+    }
+
+    @Test func deleteProfileViaProductionRemoverReturnsToSettingsAfterChoosingSurvivor() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "2", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let third = AccountSummaryFfi(
+            label: "Third",
+            accountIdHex: String(repeating: "3", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second, third])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        var settingsOpens = 0
+        coordinator.installPresentationActions(showSettings: { settingsOpens += 1 }, showMain: {})
+
+        coordinator.open(at: .deleteProfile)
+        #expect(settingsOpens == 1)
+
+        let deleted = try #require(workspace.activeAccount)
+        let remover = DeleteProfileRemoval.remover(for: workspace)
+        _ = await remover(deleted)
+        coordinator.synchronize()
+        #expect(workspace.activeAccountId == nil)
+        #expect(coordinator.pendingPage == .overview)
+
+        let survivor = try #require(workspace.signedInAccounts.first)
+        workspace.selectAccountFromSettings(survivor)
+        #expect(workspace.activeAccountId == survivor.id)
+        #expect(coordinator.accountID == survivor.id)
+        #expect(coordinator.page == .overview)
+        #expect(settingsOpens == 2)
     }
 
     @Test func deleteEverythingOnRemoteUnlinkAlertKeepsChooserAndDoesNotOpenSettings() async throws {
@@ -720,12 +860,18 @@ struct ShellCommandTests: WorkspaceTestSupport {
         #expect(recreated.chatListWidth == targetWidth)
 
         // A previously saved collapsed preference must not be overwritten when the split view
-        // reports its minimum expanded column width on initial layout, but a subsequent drag
-        // wider than the minimum must persist across workspace reconstruction.
+        // reports its minimum expanded column width on initial layout or while New Chat temporarily
+        // opens the sidebar expanded, but a subsequent drag wider than the minimum must persist.
         recreated.resizeChatListDrawer(toProposedWidth: ChatListWidthPolicy.collapsedWidth)
         #expect(recreated.isChatListCollapsed)
         recreated.adoptNativeSidebarWidth(ChatListWidthPolicy.minimumExpandedWidth)
         #expect(recreated.chatListWidth == ChatListWidthPolicy.collapsedWidth)
+
+        recreated.isNewChatComposerVisible = true
+        #expect(!recreated.isChatListCollapsed)
+        recreated.adoptNativeSidebarWidth(ChatListWidthPolicy.minimumExpandedWidth)
+        #expect(recreated.chatListWidth == ChatListWidthPolicy.collapsedWidth)
+        recreated.isNewChatComposerVisible = false
 
         let draggedWidth = ChatListWidthPolicy.minimumExpandedWidth + 28
         recreated.adoptNativeSidebarWidth(draggedWidth)
@@ -931,7 +1077,7 @@ struct ShellCommandTests: WorkspaceTestSupport {
             showMain: { mainFocuses += 1 }
         )
 
-        coordinator.open(at: .profile)
+        coordinator.open(at: .deleteProfile)
         #expect(settingsOpens == 1)
 
         // Start Add Profile from Settings, then click a notification targeting a chat.
