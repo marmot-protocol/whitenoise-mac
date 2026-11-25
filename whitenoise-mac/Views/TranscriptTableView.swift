@@ -81,7 +81,7 @@ nonisolated struct TranscriptViewport: Equatable {
 ///   the foot instead.
 /// - **Only visible rows are hosted.** Cells are reused, and while the window is being resized only
 ///   visible rows are re-measured; the rest catch up when the resize ends, under the same anchor.
-struct TranscriptTableView<Row: Identifiable & Equatable, Cell: View>: NSViewRepresentable
+struct TranscriptTableView<Row: Identifiable & Equatable, Cell: View>: NSViewControllerRepresentable
 where Row.ID == String {
     let rows: [Row]
     /// Applied once per request `id`, after the rows of the same update.
@@ -92,6 +92,7 @@ where Row.ID == String {
     let onViewportChanged: (TranscriptViewport) -> Void
     let onLiveScrollChanged: (Bool) -> Void
     let onScrollRequestApplied: (UUID) -> Void
+    var bottomBar: AnyView? = nil
     /// Whether a row may anchor the reader's position. Chrome that does not travel with the
     /// messages (loading indicators, the foot) must not: an older page lands below a loading row,
     /// so holding that row still would move every message under it.
@@ -102,10 +103,11 @@ where Row.ID == String {
         TranscriptTableCoordinator()
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSViewController(context: Context) -> NSViewController {
         let coordinator = context.coordinator
         coordinator.configuration = self
         let tableView = TranscriptNSTableView()
+        tableView.setAccessibilityIdentifier("conversation.transcript")
         tableView.headerView = nil
         tableView.style = .plain
         tableView.backgroundColor = .clear
@@ -133,17 +135,48 @@ where Row.ID == String {
         scrollView.contentView.postsBoundsChangedNotifications = true
         coordinator.attach(scrollView: scrollView, tableView: tableView)
         coordinator.apply(rows: rows, followsBottom: followsBottom, scrollRequest: scrollRequest)
-        return scrollView
+        let tableController = NSViewController()
+        tableController.view = scrollView
+        if #available(macOS 26, *), let bottomBar {
+            let controller = TranscriptSplitViewController()
+            let item = NSSplitViewItem(viewController: tableController)
+            controller.addSplitViewItem(item)
+            // AppKit ties its scroll edge to the accessory containing the floating controls.
+            let accessory = NSSplitViewItemAccessoryViewController()
+            accessory.automaticallyAppliesContentInsets = false
+            let host = NSHostingView(rootView: bottomBar)
+            host.sizingOptions = [.intrinsicContentSize]
+            accessory.view = host
+            if #available(macOS 26.1, *) {
+                accessory.preferredScrollEdgeEffectStyle = .soft
+            }
+            coordinator.bottomBarHost = host
+            item.addBottomAlignedAccessoryViewController(accessory)
+            return controller
+        }
+        return tableController
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSViewController(_ controller: NSViewController, context: Context) {
         let coordinator = context.coordinator
+        if let bottomBar { coordinator.bottomBarHost?.rootView = bottomBar }
         coordinator.configuration = self
         coordinator.apply(rows: rows, followsBottom: followsBottom, scrollRequest: scrollRequest)
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: TranscriptTableCoordinator<Row, Cell>) {
+    static func dismantleNSViewController(
+        _ controller: NSViewController, coordinator: TranscriptTableCoordinator<Row, Cell>
+    ) {
         coordinator.detach()
+    }
+}
+
+/// This one-pane split hosts a bottom accessory. Sidebar and inspector commands belong to
+/// the surrounding conversation split, even when the text editor has keyboard focus.
+private final class TranscriptSplitViewController: NSSplitViewController {
+    override func responds(to selector: Selector!) -> Bool {
+        if selector == #selector(toggleSidebar(_:)) || selector == #selector(toggleInspector(_:)) { return false }
+        return super.responds(to: selector)
     }
 }
 
@@ -200,6 +233,7 @@ where Row.ID == String {
     }
 
     var configuration: TranscriptTableView<Row, Cell>?
+    weak var bottomBarHost: NSHostingView<AnyView>?
     private weak var scrollView: NSScrollView?
     private weak var tableView: NSTableView?
     private var rows: [Row] = []

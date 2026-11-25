@@ -1900,48 +1900,32 @@ struct PendingGroupInviteComposerNotice: View {
     @Environment(SessionState.self) private var session
     @Environment(\.locale) private var locale
     let chat: ChatItem
-    var blockedUsersModel: BlockedUsersViewModel?
-    var moderationReporter: ModerationReporter?
 
     var body: some View {
-        let inviter = workspace.pendingInviteInviterIdentity(for: chat)
-
-        VStack(alignment: .leading, spacing: 12) {
-            // Once the inviter resolves, their avatar leads the notice and opens their profile:
-            // the invitee's one chance to check who this is — npub included — before answering.
-            // The lock stands in until then, so the row never has an empty leading slot.
-            HStack(alignment: inviter == nil ? .firstTextBaseline : .center, spacing: 10) {
-                if let inviter {
-                    PendingInviteInviterAvatar(chat: chat, inviter: inviter, name: inviterName)
-                } else {
-                    Image(systemName: "lock.shield.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(WNColor.intentionInfoContent)
-                        .accessibilityHidden(true)
+        VStack(spacing: 8) {
+            if let inviter = workspace.pendingInviteInviterIdentity(for: chat) {
+                Button {
+                    Task { await workspace.showContactDetails(for: inviter, named: inviterName, invitedTo: chat) }
+                } label: {
+                    HStack(spacing: 6) {
+                        Label(inviteMessage, systemImage: "envelope")
+                        Image(systemName: "chevron.forward")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(inviteMessage)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(L10n.string("If you decline, this chat will be removed from your chat list.", locale: locale))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-
-                if let inviter, let blockedUsersModel, !blockedUsersModel.isBlocked(accountID: inviter.accountIdHex) {
-                    PendingInviteBlockControl(
-                        accountID: inviter.accountIdHex,
-                        blockedUsersModel: blockedUsersModel,
-                        reporter: moderationReporter
-                    )
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(inviteMessage))
+                .accessibilityHint(String(format: L10n.string("View contact %@", locale: locale), inviterName))
+                .help(String(format: L10n.string("View contact %@", locale: locale), inviterName))
+                .accessibilityIdentifier("composer.pendingGroupInvite.inviter")
+            } else {
+                Label(inviteMessage, systemImage: "envelope")
             }
+
+            Text(L10n.string("If you decline, this chat will be removed from your chat list.", locale: locale))
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             PendingInviteActionButtons(
                 accept: { await workspace.acceptGroupInvite(for: chat) },
@@ -1951,15 +1935,16 @@ struct PendingGroupInviteComposerNotice: View {
                 }
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(WNColor.backgroundPrimary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        .font(.subheadline.weight(.semibold))
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background {
+            if #unavailable(macOS 26) {
+                WNColor.backgroundPrimary
+            }
         }
-        // `.contain` keeps the identifier on the card: applied to the bare stack it overrode every
-        // child's, so Accept and Decline both answered to "composer.pendingGroupInvite".
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("composer.pendingGroupInvite")
         // This prompt replaces the composer, so the roster (and with it the inviter) has no
@@ -2007,95 +1992,6 @@ struct PendingGroupInviteComposerNotice: View {
             candidate != chat.title
         else { return nil }
         return candidate
-    }
-}
-
-/// Optional Block / Block and Report control on a pending invite notice, reusing the same
-/// confirmation dialog and `BlockedUsersViewModel` / `ModerationReporter` owners as contact details.
-private struct PendingInviteBlockControl: View {
-    @Environment(\.locale) private var locale
-    let accountID: String
-    let blockedUsersModel: BlockedUsersViewModel
-    let reporter: ModerationReporter?
-    @State private var isConfirmingBlock = false
-
-    private var reportedAccountId: String? {
-        MessageModerationEligibility.normalizedAccountId(accountID)
-    }
-
-    private var availableReporter: ModerationReporter? {
-        guard let reporter, reporter.isAvailable, reportedAccountId != nil else { return nil }
-        return reporter
-    }
-
-    var body: some View {
-        Button(role: .destructive) {
-            isConfirmingBlock = true
-        } label: {
-            Label(L10n.string("Block User", locale: locale), systemImage: "hand.raised")
-        }
-        .wnSecondaryButtonStyle()
-        .controlSize(.small)
-        .disabled(!blockedUsersModel.canMutate(accountID: accountID))
-        .accessibilityIdentifier("invite.block")
-        .confirmationDialog(
-            L10n.string("Block this user?", locale: locale),
-            isPresented: $isConfirmingBlock,
-            titleVisibility: .visible
-        ) {
-            if let reporter = availableReporter, let reportedAccountId {
-                Button(L10n.string("Block and Report", locale: locale), role: .destructive) {
-                    reporter.startBlocking(accountIdHex: reportedAccountId, reporting: true)
-                }
-            }
-            Button(L10n.string("Block User", locale: locale), role: .destructive) {
-                if let reporter, let reportedAccountId {
-                    reporter.startBlocking(accountIdHex: reportedAccountId, reporting: false)
-                } else {
-                    Task { await blockedUsersModel.setBlocked(true, accountID: accountID) }
-                }
-            }
-            Button(L10n.string("Cancel", locale: locale), role: .cancel) {}
-        } message: {
-            BlockUserConfirmationMessage(reportsToTeam: availableReporter != nil)
-        }
-    }
-}
-
-/// The inviter's avatar in the pending-invite notice, opening their profile.
-///
-/// Drawn and wired like the transcript's sender avatar — same control, same contact pane — so
-/// "the picture beside a name is how you look that person up" holds here too. A touch larger
-/// than the transcript's 28pt, because here it stands beside the notice's two lines of text.
-///
-/// `name` is the notice's own `inviterName`, so the avatar's monogram and label always read as
-/// the sentence beside them, whichever rung of that ladder answered.
-private struct PendingInviteInviterAvatar: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let chat: ChatItem
-    let inviter: WorkspaceState.PendingInviteInviterIdentity
-    let name: String
-
-    var body: some View {
-        Button {
-            Task { await workspace.showContactDetails(for: inviter, named: name, invitedTo: chat) }
-        } label: {
-            ProfileImageAvatarView(
-                seed: inviter.accountIdHex,
-                initials: name,
-                sanitizedPictureURL: inviter.sanitizedPictureURL,
-                size: 32,
-                isSelected: false
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(viewContactLabel)
-        .accessibilityIdentifier("composer.pendingGroupInvite.inviter")
-        .help(viewContactLabel)
-    }
-
-    private var viewContactLabel: String {
-        String(format: L10n.string("View contact %@"), name)
     }
 }
 

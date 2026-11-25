@@ -34,24 +34,6 @@ struct PendingInviteActionButtons: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Button {
-                Task { await accept() }
-            } label: {
-                PendingInviteActionLabel(
-                    title: L10n.string("Accept"),
-                    inFlightTitle: L10n.string("Accepting..."),
-                    systemImage: "checkmark.circle",
-                    isInFlight: workspace.isAcceptingGroupInvite
-                )
-            }
-            .wnPrimaryButtonStyle()
-            .help(L10n.string("Accept invite"))
-            // Follows the visible title, so VoiceOver says "Accepting..." while the call is out.
-            .accessibilityLabel(
-                workspace.isAcceptingGroupInvite ? L10n.string("Accepting...") : L10n.string("Accept invite")
-            )
-            .accessibilityIdentifier("invite.accept")
-
             // No destructive `role`: Decline is a routine secondary action beside Accept.
             Button {
                 Task { await decline(askToStepDown) }
@@ -69,8 +51,28 @@ struct PendingInviteActionButtons: View {
                 workspace.isDecliningGroupInvite ? L10n.string("Declining...") : L10n.string("Decline invite")
             )
             .accessibilityIdentifier("invite.decline")
+
+            Button {
+                Task { await accept() }
+            } label: {
+                PendingInviteActionLabel(
+                    title: L10n.string("Accept"),
+                    inFlightTitle: L10n.string("Accepting..."),
+                    systemImage: "checkmark.circle",
+                    isInFlight: workspace.isAcceptingGroupInvite
+                )
+            }
+            .wnPrimaryButtonStyle()
+            .help(L10n.string("Accept invite"))
+            // Follows the visible title, so VoiceOver says "Accepting..." while the call is out.
+            .accessibilityLabel(
+                workspace.isAcceptingGroupInvite ? L10n.string("Accepting...") : L10n.string("Accept invite")
+            )
+            .accessibilityIdentifier("invite.accept")
         }
+        .wnButtonShape(.capsule)
         .controlSize(.large)
+        .frame(maxWidth: 360)
         // Answering is one commit either way, so neither button is offered while the other is
         // waiting on the core.
         .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)

@@ -659,6 +659,7 @@ private struct PendingNavigationKey: Equatable {
 }
 
 private struct ConversationView: View {
+    @Environment(\.self) private var environment
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     @Environment(\.timestampReferenceDate) private var timestampReferenceDate
@@ -766,6 +767,7 @@ private struct ConversationView: View {
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
         let pendingOutgoingRows = workspace.selectedPendingOutgoingMessageRows
+        let hasTranscriptMessages = !messageIDs.isEmpty || !pendingOutgoingRows.isEmpty
         let transcriptRows = TranscriptRow.rows(
             displayItems: displayItems,
             paging: paging,
@@ -790,51 +792,51 @@ private struct ConversationView: View {
                     Divider()
                 }
 
-                Group {
-                    if messageIDs.isEmpty && pendingOutgoingRows.isEmpty {
-                        VStack {
+                ZStack {
+                    // An `NSTableView`: rows measured once and cached, only visible rows
+                    // hosted, and the reader's row held in place by explicit offset arithmetic
+                    // whenever the window changes — see `TranscriptTableView`.
+                    TranscriptTableView(
+                        rows: hasTranscriptMessages ? transcriptRows : [],
+                        scrollRequest: hasTranscriptMessages ? scrollRequest : nil,
+                        // Pin the foot only while the reader follows the live edge.
+                        followsBottom: hasLanded && !paging.hasMoreAfter,
+                        onViewportChanged: viewportChanged,
+                        onLiveScrollChanged: { isScrolling in
+                            isActivelyScrolling = isScrolling
+                            if !isScrolling { markVisibleMessagesRead() }
+                        },
+                        onScrollRequestApplied: scrollRequestApplied,
+                        bottomBar: AnyView(conversationFooter().environment(\.self, environment)),
+                        anchorsPosition: \.anchorsPosition,
+                        cell: { row in
+                            TranscriptRowCell(
+                                row: row,
+                                workspace: workspace,
+                                session: session,
+                                safetyModel: safetyModel,
+                                conversationModel: model,
+                                locale: locale,
+                                timestampReferenceDate: timestampReferenceDate,
+                                openURL: openURL,
+                                hoverSelectionCoordinator: hoverSelectionCoordinator,
+                                composerFocusRequester: composerFocusRequester
+                            ) { gallery in
+                                imageGallery = gallery
+                            } onNavigateToMessage: { targetMessageId in
+                                Task { await revealMessage(targetMessageId) }
+                            }
+                        }
+                    )
+                    if !hasTranscriptMessages {
+                        Group {
                             if isLoadingInitialPage {
                                 TimelineInitialLoadingView()
                             } else {
                                 EmptyConversationView()
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        // An `NSTableView`: rows measured once and cached, only visible rows
-                        // hosted, and the reader's row held in place by explicit offset arithmetic
-                        // whenever the window changes — see `TranscriptTableView`.
-                        TranscriptTableView(
-                            rows: transcriptRows,
-                            scrollRequest: scrollRequest,
-                            // Pin the foot only while the reader follows the live edge.
-                            followsBottom: hasLanded && !paging.hasMoreAfter,
-                            onViewportChanged: viewportChanged,
-                            onLiveScrollChanged: { isScrolling in
-                                isActivelyScrolling = isScrolling
-                                if !isScrolling { markVisibleMessagesRead() }
-                            },
-                            onScrollRequestApplied: scrollRequestApplied,
-                            anchorsPosition: \.anchorsPosition,
-                            cell: { row in
-                                TranscriptRowCell(
-                                    row: row,
-                                    workspace: workspace,
-                                    session: session,
-                                    safetyModel: safetyModel,
-                                    conversationModel: model,
-                                    locale: locale,
-                                    timestampReferenceDate: timestampReferenceDate,
-                                    openURL: openURL,
-                                    hoverSelectionCoordinator: hoverSelectionCoordinator,
-                                    composerFocusRequester: composerFocusRequester
-                                ) { gallery in
-                                    imageGallery = gallery
-                                } onNavigateToMessage: { targetMessageId in
-                                    Task { await revealMessage(targetMessageId) }
-                                }
-                            }
-                        )
+                        .allowsHitTesting(false)
                     }
                 }
                 .accessibilityIdentifier("conversation.transcript")
@@ -954,51 +956,8 @@ private struct ConversationView: View {
                     }
                 }
                 .overlay(alignment: .bottom) {
-                    VStack(spacing: 6) {
-                        ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
-                            .padding(.horizontal, 16)
-
-                        if !workspace.isTimelineSelectionMode {
-                            VStack(spacing: 8) {
-                                // The core rejects sends to a group the local account left or was
-                                // removed from (`invalid_transition`), so the whole composer —
-                                // reply/media drafts included — gives way to an explanatory notice.
-                                if !chat.lifecycle.allowsMessaging {
-                                    // A disband ends the group for everyone, members included, so it
-                                    // outranks where this account stood in it.
-                                    GroupLifecycleComposerNotice(lifecycle: chat.lifecycle)
-                                } else if chat.isNoLongerMember {
-                                    MembershipEndedComposerNotice(membership: chat.selfMembership)
-                                } else if isBlockedDirectPeer {
-                                    BlockedConversationComposerNotice()
-                                } else if chat.pendingConfirmation {
-                                    PendingGroupInviteComposerNotice(
-                                        chat: chat,
-                                        blockedUsersModel: blockedUsersModel,
-                                        moderationReporter: session.accountScope?.moderationReporter
-                                    )
-                                } else if BlockedLeavePresentation.isBlocked(
-                                    leaveRequestPending: chat.leaveRequestPending, leaveBlocked: chat.leaveBlocked)
-                                {
-                                    BlockedLeaveNotice(
-                                        canCancel: model.canCancelBlockedLeave,
-                                        isCancelling: model.isCancellingLeave,
-                                        failure: model.cancelLeaveFailure,
-                                        onCancel: { Task { await model.cancelBlockedLeave() } }
-                                    )
-                                } else {
-                                    composerControls
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 14)
-                        }
-                    }
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        ceil(proxy.size.height)
-                    } action: { newHeight in
-                        guard newHeight > 0, abs(newHeight - floatingComposerHeight) > 1 else { return }
-                        floatingComposerHeight = newHeight
+                    if #unavailable(macOS 26) {
+                        conversationFooter()
                     }
                 }
             }
@@ -1244,6 +1203,51 @@ private struct ConversationView: View {
         guard latestAttachmentStagingBatch == batch, workspace.selectedChat?.id == chatId else { return }
         attachmentRejections =
             rejections.isEmpty ? nil : ComposerAttachmentRejections(chatId: chatId, rejections: rejections)
+    }
+
+    private func conversationFooter() -> some View {
+        VStack(spacing: 6) {
+            ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
+                .padding(.horizontal, 16)
+
+            if !workspace.isTimelineSelectionMode {
+                VStack(spacing: 8) {
+                    // The core rejects sends to a group the local account left or was
+                    // removed from (`invalid_transition`), so the whole composer —
+                    // reply/media drafts included — gives way to an explanatory notice.
+                    if !chat.lifecycle.allowsMessaging {
+                        // A disband ends the group for everyone, members included, so it
+                        // outranks where this account stood in it.
+                        GroupLifecycleComposerNotice(lifecycle: chat.lifecycle)
+                    } else if chat.isNoLongerMember {
+                        MembershipEndedComposerNotice(membership: chat.selfMembership)
+                    } else if isBlockedDirectPeer {
+                        BlockedConversationComposerNotice()
+                    } else if chat.pendingConfirmation {
+                        PendingGroupInviteComposerNotice(chat: chat)
+                    } else if BlockedLeavePresentation.isBlocked(
+                        leaveRequestPending: chat.leaveRequestPending, leaveBlocked: chat.leaveBlocked)
+                    {
+                        BlockedLeaveNotice(
+                            canCancel: model.canCancelBlockedLeave,
+                            isCancelling: model.isCancellingLeave,
+                            failure: model.cancelLeaveFailure,
+                            onCancel: { Task { await model.cancelBlockedLeave() } }
+                        )
+                    } else {
+                        composerControls
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            ceil(proxy.size.height)
+        } action: { newHeight in
+            guard newHeight > 0, abs(newHeight - floatingComposerHeight) > 1 else { return }
+            floatingComposerHeight = newHeight
+        }
     }
 
     @ViewBuilder

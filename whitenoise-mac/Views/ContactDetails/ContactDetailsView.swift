@@ -25,6 +25,16 @@ struct ContactDetailsView: View {
         }
     }
 
+    /// The pending invitation already offered blocking this inviter, including when another
+    /// profile on this Mac sent it. Preserve that route here after moving Block off the notice.
+    private var showsBlocking: Bool {
+        if !isLocalProfile { return true }
+        guard let chat = workspace.selectedChat,
+            let inviter = workspace.pendingInviteInviterIdentity(for: chat)
+        else { return false }
+        return inviter.accountIdHex.caseInsensitiveCompare(contact.accountIdHex) == .orderedSame
+    }
+
     /// This person's place in the group whose info the profile was opened over.
     private var groupMember: GroupMemberItem? {
         guard workspace.isGroupDetailsPresented else { return nil }
@@ -81,7 +91,7 @@ struct ContactDetailsView: View {
                     onOpen: { workspace.openCommonGroup($0) }
                 )
 
-                if !isLocalProfile {
+                if showsBlocking {
                     ContactBlockingSection(
                         model: blockedUsersModel,
                         accountID: contact.accountIdHex,
