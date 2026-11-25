@@ -256,8 +256,6 @@ struct PollComposerSheet: View {
                         .focused($focusedField, equals: .question)
                 } header: {
                     Text(L10n.string("Question"))
-                } footer: {
-                    PollComposerIssueText(message: questionIssueMessage)
                 }
 
                 Section {
@@ -292,8 +290,6 @@ struct PollComposerSheet: View {
                     }
                 } header: {
                     Text(L10n.string("Options"))
-                } footer: {
-                    PollComposerIssueText(message: optionsIssueMessage)
                 }
 
                 Section {
@@ -362,7 +358,7 @@ struct PollComposerSheet: View {
             case .missingQuestion, .questionTooLong:
                 focusedField = .question
             case .tooFewOptions, .optionTooLong, .duplicateOption:
-                focusedField = .option(0)
+                break
             }
         case .success(let submission):
             isSending = true
@@ -397,18 +393,6 @@ struct PollComposerSheet: View {
         case .optionTooLong: L10n.string("One of the options is too long.")
         case .duplicateOption: L10n.string("Each option must be different.")
         default: nil
-        }
-    }
-}
-
-private struct PollComposerIssueText: View {
-    let message: String?
-
-    var body: some View {
-        if let message {
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(WNColor.intentionErrorContent)
         }
     }
 }

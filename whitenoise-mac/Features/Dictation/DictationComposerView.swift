@@ -28,7 +28,7 @@ struct DictationComposerView: View {
                     .labelStyle(.iconOnly)
                     .frame(width: 20, height: 20)
             }
-            .buttonBorderShape(.circle)
+            .wnButtonShape(.circle)
             .wnSecondaryButtonStyle()
             .controlSize(.regular)
             .keyboardShortcut(claimsReturnAndEscape ? .cancelAction : nil)
@@ -49,7 +49,7 @@ struct DictationComposerView: View {
                 }
                 .frame(width: 20, height: 20)
             }
-            .buttonBorderShape(.circle)
+            .wnButtonShape(.circle)
             .wnPrimaryButtonStyle()
             .controlSize(.regular)
             .keyboardShortcut(claimsReturnAndEscape ? .defaultAction : nil)

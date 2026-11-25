@@ -1181,7 +1181,6 @@ private struct ConversationView: View {
                             .labelStyle(.iconOnly)
                             .frame(width: 20, height: 20)
                     }
-                    .buttonBorderShape(.circle)
                     .wnSecondaryButtonStyle()
                     .controlSize(.regular)
                     .disabled(workspace.isSending)
@@ -1315,7 +1314,6 @@ private struct ConversationView: View {
                             .labelStyle(.iconOnly)
                             .frame(width: 20, height: 20)
                     }
-                    .buttonBorderShape(.circle)
                     .wnSecondaryButtonStyle()
                     .controlSize(.regular)
                     .disabled(workspace.isSending)
@@ -1329,7 +1327,6 @@ private struct ConversationView: View {
                             .labelStyle(.iconOnly)
                             .frame(width: 20, height: 20)
                     }
-                    .buttonBorderShape(.circle)
                     .wnSecondaryButtonStyle()
                     .controlSize(.regular)
                     .disabled(workspace.isSending || !workspace.canRecordVoiceMessage)
@@ -1340,32 +1337,26 @@ private struct ConversationView: View {
                 let sendTitle =
                     workspace.editingMessageContext == nil
                     ? L10n.string("Send") : L10n.string("Save edit")
-                Button {
-                    guard !workspace.isSending else { return }
-                    sendComposer()
-                } label: {
-                    Group {
-                        if workspace.isSending {
-                            ProgressView()
-                                .controlSize(.small)
-                                .scaleEffect(0.72)
-                        } else {
-                            Label(
-                                sendTitle,
-                                systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark"
-                            )
-                            .labelStyle(.iconOnly)
-                        }
-                    }
+                if workspace.isSending {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 24, height: 24)
+                }
+                Button(action: sendComposer) {
+                    Label(
+                        sendTitle,
+                        systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark"
+                    )
+                    .labelStyle(.iconOnly)
                     .frame(width: 20, height: 20)
                 }
-                .buttonBorderShape(.circle)
                 .wnPrimaryButtonStyle()
                 .controlSize(.regular)
-                .disabled(!workspace.canSend && !workspace.isSending)
+                .disabled(!workspace.canSend)
                 .help(sendTitle)
                 .accessibilityLabel(sendTitle)
             }
+            .wnButtonShape(.circle)
         }
     }
 

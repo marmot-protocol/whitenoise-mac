@@ -30,6 +30,8 @@ enum WNButtonShape: Sendable {
     case rounded
     /// A pill. The onboarding pane, and anywhere else a button stands alone on a bare surface.
     case capsule
+    /// A circle. Icon-only controls in the composer, voice recording, and dictation bars.
+    case circle
 }
 
 private struct WNButtonShapeKey: EnvironmentKey {
@@ -95,6 +97,8 @@ enum WNButtonMetrics {
             AnyShape(RoundedRectangle(cornerRadius: cornerRadius(for: controlSize), style: .continuous))
         case .capsule:
             AnyShape(Capsule(style: .continuous))
+        case .circle:
+            AnyShape(Circle())
         }
     }
 
@@ -102,14 +106,15 @@ enum WNButtonMetrics {
     /// speak — they build their own AppKit ground and take a `ButtonBorderShape` rather than a
     /// `Shape`.
     ///
-    /// **macOS 15.6 fallback:** SwiftUI honors `.capsule` and `.roundedRectangle(radius:)` on
-    /// bordered push buttons starting on macOS 26. On the macOS 15.6 deployment floor, AppKit
+    /// **macOS 15.6 fallback:** SwiftUI honors `.capsule`, `.circle`, and `.roundedRectangle(radius:)`
+    /// on bordered push buttons starting on macOS 26. On the macOS 15.6 deployment floor, AppKit
     /// standard bordered buttons intentionally fall back to native macOS 15 push-button geometry
     /// rather than substituting custom-drawn chrome (see `docs/macos-ui-patterns.md` C01/C02).
     static func borderShape(_ shape: WNButtonShape, for controlSize: ControlSize) -> ButtonBorderShape {
         switch shape {
         case .rounded: .roundedRectangle(radius: cornerRadius(for: controlSize))
         case .capsule: .capsule
+        case .circle: .circle
         }
     }
 }

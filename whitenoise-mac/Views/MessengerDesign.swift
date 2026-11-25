@@ -557,53 +557,6 @@ struct MessagesSearchFieldBackground: View {
     }
 }
 
-/// The send button. `fillPrimary` when it can send, `fillDisabled` when it cannot — the same pair
-/// `WnButton.primary` uses, so the send control and a primary push button are the same button.
-struct MessagesSendButtonBackground: View {
-    let isEnabled: Bool
-
-    var body: some View {
-        Circle()
-            .fill(isEnabled ? WNColor.fillPrimary : WNColor.fillDisabled)
-    }
-}
-
-/// The send control, disc and glyph together, because the two are a pairing rather than two
-/// choices: the glyph on `fillPrimary` is `fillContentPrimary`, and the glyph on `fillDisabled` is
-/// `fillContentDisabled`. Naming the glyph's color is what the two call sites were missing — an
-/// unstyled one inherits the app-wide `backgroundContentPrimary`, which is near-black in light
-/// appearance and disappears into the near-black `fillPrimary` disc under it.
-struct MessagesSendButtonLabel: View {
-    let systemImage: String
-    /// Whether the composer can send right now. The disc stays filled while a send is in flight, so
-    /// the spinner is never drawn on the disabled gray.
-    let isEnabled: Bool
-    let isSending: Bool
-
-    private var isFilled: Bool { isEnabled || isSending }
-
-    var body: some View {
-        Group {
-            if isSending {
-                ProgressView()
-                    .controlSize(.small)
-                    // Spins inside the send button, so it takes the send button's content color
-                    // rather than a literal white.
-                    .tint(WNColor.fillContentPrimary)
-                    .scaleEffect(0.72)
-            } else {
-                Image(systemName: systemImage)
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(isFilled ? WNColor.fillContentPrimary : WNColor.fillContentDisabled)
-            }
-        }
-        .frame(width: 32, height: 32)
-        .background {
-            MessagesSendButtonBackground(isEnabled: isFilled)
-        }
-    }
-}
-
 /// The composer's text field: `backgroundPrimary` inside a `borderSecondary` hairline, matching
 /// `WnChatMessageInput` on the other clients. `borderSecondary` rather than `borderTertiary` because
 /// this is an editable field at rest, not a divider.

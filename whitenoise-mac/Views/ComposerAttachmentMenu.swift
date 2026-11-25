@@ -112,7 +112,7 @@ struct ComposerAttachmentMenu: View {
         .menuLabelIcons()
         .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonBorderShape(.circle)
+        .wnButtonShape(.circle)
         .wnSecondaryButtonStyle()
         .controlSize(.regular)
         .disabled(isDisabled)

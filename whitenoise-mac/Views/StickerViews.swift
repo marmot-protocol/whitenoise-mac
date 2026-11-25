@@ -69,12 +69,12 @@ private struct StickerPlaceholder: View {
             Button(action: onLoad) {
                 VStack(spacing: 6) {
                     Image(systemName: phase == .failed ? "exclamationmark.triangle" : "face.dashed")
-                        .font(.title3)
+                        .wnFont(.medium18)
                     Text(phase == .failed ? L10n.string("Click to retry") : (label ?? L10n.string("Click to load")))
-                        .font(.caption)
+                        .wnFont(.medium10)
                         .multilineTextAlignment(.center)
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .padding(8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(shape.fill(WNColor.fillSecondary))

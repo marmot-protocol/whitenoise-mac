@@ -1314,7 +1314,7 @@ struct VoiceRecordingComposerView: View {
                     .labelStyle(.iconOnly)
                     .frame(width: 20, height: 20)
             }
-            .buttonBorderShape(.circle)
+            .wnButtonShape(.circle)
             .wnPrimaryButtonStyle()
             .controlSize(.regular)
             .help(L10n.string("Finish recording"))
@@ -1387,7 +1387,6 @@ struct VoiceMessageDraftComposerView: View {
                     .labelStyle(.iconOnly)
                     .frame(width: 20, height: 20)
             }
-            .buttonBorderShape(.circle)
             .wnSecondaryButtonStyle()
             .controlSize(.regular)
             .help(playbackActionLabel)
@@ -1421,7 +1420,7 @@ struct VoiceMessageDraftComposerView: View {
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 44, alignment: .trailing)
 
-            if uploadState == .uploading {
+            if uploadState == .uploading || isSending {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -1434,7 +1433,6 @@ struct VoiceMessageDraftComposerView: View {
                     .foregroundStyle(WNColor.intentionErrorContent)
                     .frame(width: 20, height: 20)
             }
-            .buttonBorderShape(.circle)
             .wnSecondaryButtonStyle()
             .controlSize(.regular)
             .disabled(isSending)
@@ -1449,7 +1447,6 @@ struct VoiceMessageDraftComposerView: View {
                         .foregroundStyle(WNColor.intentionErrorContent)
                         .frame(width: 20, height: 20)
                 }
-                .buttonBorderShape(.circle)
                 .wnSecondaryButtonStyle()
                 .controlSize(.regular)
                 .help(L10n.string("Retry upload"))
@@ -1457,26 +1454,18 @@ struct VoiceMessageDraftComposerView: View {
             }
 
             Button(action: send) {
-                Group {
-                    if isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                            .scaleEffect(0.72)
-                    } else {
-                        Label(sendHelp, systemImage: "paperplane.fill")
-                            .labelStyle(.iconOnly)
-                    }
-                }
-                .frame(width: 20, height: 20)
+                Label(sendHelp, systemImage: "paperplane.fill")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20, height: 20)
             }
-            .buttonBorderShape(.circle)
             .wnPrimaryButtonStyle()
             .controlSize(.regular)
-            .disabled(!canSend && !isSending)
+            .disabled(!canSend)
             .help(sendHelp)
             .accessibilityLabel(sendHelp)
             .accessibilityIdentifier("composer.voiceDraft.send")
         }
+        .wnButtonShape(.circle)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
