@@ -11,6 +11,7 @@ final class SettingsWindowCoordinator {
     private(set) var accountID: String?
     private(set) var pendingPage: SettingsPage?
     private(set) var hostsDeviceLinkSheet = false
+    private(set) var addProfileSheetRequested = false
     /// Settings-owned error text so Settings and main-window Chat Info never clobber or display
     /// each other's failures.
     private(set) var lastError: String?
@@ -45,6 +46,8 @@ final class SettingsWindowCoordinator {
                     self.routeAccountMutation()
                 case .chooserSelectedAccount:
                     self.completeChooserHandoff()
+                case .beganAddProfile:
+                    self.addProfileSheetRequested = true
                 case .cancelledAddProfile:
                     self.returnFromAddProfile()
                 case .focusMainWindow:
@@ -140,6 +143,7 @@ final class SettingsWindowCoordinator {
     /// account removes its forms immediately, even if the account mutation is still finishing.
     func synchronize() {
         guard let workspace else { return }
+        if !workspace.canLeaveAccountOnboarding { addProfileSheetRequested = false }
         if case .bootstrapping = workspace.phase {
             return
         }

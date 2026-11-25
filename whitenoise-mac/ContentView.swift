@@ -27,10 +27,28 @@ struct ContentView: View {
     let settings: SettingsWindowCoordinator
     @State private var timestampReferenceDate = Date()
 
+    private var showsAddProfileSheet: Bool {
+        settings.addProfileSheetRequested && workspace.canLeaveAccountOnboarding
+            && !OnboardingView.showsAccountSetup(session.accountScope?.onboarding)
+    }
+
     var body: some View {
         @Bindable var workspace = workspace
 
-        MessengerShellView(settings: settings)
+        let shell = hostingUnlinkAlert(
+            MessengerShellView(settings: settings, showsAddProfileSheet: showsAddProfileSheet),
+            enabled: !showsAddProfileSheet
+        )
+        return
+            shell
+            .sheet(isPresented: Binding(get: { showsAddProfileSheet }, set: { _ in })) {
+                hostingUnlinkAlert(OnboardingView(model: nil), enabled: true)
+                    .disabled(workspace.isAuthenticating || workspace.isUploadingProfileImage)
+                    .environment(\.isAddProfileSheet, true)
+                    .environment(\.locale, workspace.preferredLocale)
+                    .interactiveDismissDisabled()
+                    .presentationSizing(.fitted)
+            }
             .background { MainWindowRegistration() }
             // Attached here, not on the conversation pane: a chat-list delete is most likely with
             // no chat selected, and the sidebar row menu cannot host its own dialog.
@@ -46,33 +64,6 @@ struct ContentView: View {
                 suggestionAllowed: currentAccountScope.map {
                     $0.onboarding.canEnterChats && $0.onboarding.hasShownIncompleteSetup
                 } == true
-            )
-            .deviceUnlinkAlert(
-                session.deviceUnlinks,
-                accountName: { account(forUnlinked: $0)?.displayName },
-                onRemove: { notice in
-                    Task {
-                        await session.deviceUnlinks.finishLeaving(notice.accountIdHex)
-                        let removal = await AccountExit.removeUnlinkedAccount(
-                            accountIdHex: notice.accountIdHex, in: workspace)
-                        // Didn't go: the notice comes back, so Delete Everything can be tried again.
-                        // Otherwise it went, and the report says if anything was left undone.
-                        if let account = removal.leftBehind {
-                            session.deviceUnlinks.present(account)
-                        } else {
-                            session.reportWipe(removal.outcome)
-                        }
-                    }
-                },
-                onLater: { notice in
-                    // The app left the account when the event arrived; this only retries that if it
-                    // failed then.
-                    if let account = account(forUnlinked: notice), !account.signedOut {
-                        Task {
-                            await AccountExit.leaveSignedOutAccount(accountIdHex: notice.accountIdHex, in: workspace)
-                        }
-                    }
-                }
             )
             .accountWipeReportAlert(session)
             .profileLinkRequestAlert(session.linkRequests) { request in
@@ -218,6 +209,37 @@ struct ContentView: View {
             })
         else { return }
         workspace.selectAccount(account)
+    }
+
+    private func hostingUnlinkAlert<V: View>(_ view: V, enabled: Bool) -> some View {
+        view.deviceUnlinkAlert(
+            session.deviceUnlinks,
+            isEnabled: enabled,
+            accountName: { account(forUnlinked: $0)?.displayName },
+            onRemove: { notice in
+                Task {
+                    await session.deviceUnlinks.finishLeaving(notice.accountIdHex)
+                    let removal = await AccountExit.removeUnlinkedAccount(
+                        accountIdHex: notice.accountIdHex, in: workspace)
+                    // Didn't go: the notice comes back, so Delete Everything can be tried again.
+                    // Otherwise it went, and the report says if anything was left undone.
+                    if let account = removal.leftBehind {
+                        session.deviceUnlinks.present(account)
+                    } else {
+                        session.reportWipe(removal.outcome)
+                    }
+                }
+            },
+            onLater: { notice in
+                // The app left the account when the event arrived; this only retries that if it
+                // failed then.
+                if let account = account(forUnlinked: notice), !account.signedOut {
+                    Task {
+                        await AccountExit.leaveSignedOutAccount(accountIdHex: notice.accountIdHex, in: workspace)
+                    }
+                }
+            }
+        )
     }
 
     private func account(forUnlinked notice: DeviceUnlinkMonitor.Notice) -> AccountItem? {

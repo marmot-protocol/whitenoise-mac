@@ -314,6 +314,7 @@ extension WorkspaceState {
         clearEnteredLoginIdentity()
         lastError = nil
         phase = .onboarding
+        if !signedInAccounts.isEmpty { WorkspaceAccountPresentation.beganAddProfile.post(from: self) }
     }
 
     /// Whether the onboarding surface has an app behind it to return to.

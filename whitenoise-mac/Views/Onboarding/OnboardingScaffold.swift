@@ -38,6 +38,7 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
     /// pane passes `.cancel` when the flow was opened from a running app and `nil` when it was
     /// not, which removes the control while keeping the row it stood in. See
     /// `OnboardingExitControl`.
+    @Environment(\.isAddProfileSheet) private var isAddProfileSheet
     var exit: OnboardingExitControl?
     /// The floor under each of the pane's three margins — above the hero, below it, and under the
     /// actions. Defaults to `OnboardingLayout.edgePadding`; the sign-up pane passes its own, which
@@ -65,51 +66,78 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
     @ViewBuilder var actions: Actions
 
     var body: some View {
-        VStack(spacing: 0) {
-            OnboardingHeaderRow(exit: exit)
-
-            OnboardingShortWindowScroll(isEnabled: scrollsWhenShort) {
-                VStack(spacing: 0) {
-                    Spacer(minLength: minimumEdgeSpacing)
-
-                    hero
-
-                    // Capped, unlike the `Spacer` above the hero, so the pane's spare height collects at
-                    // the top instead of being split evenly across the hero. See
-                    // `maximumHeroToContentSpacing`.
-                    //
-                    // The floor yields to the ceiling rather than fighting it: a pane that wants this gap
-                    // held tighter than its own margins — the sign-up pane does — would otherwise clamp a
-                    // `minLength` above `maxHeight`, and the two would disagree about a gap neither is
-                    // wrong about.
-                    Spacer(minLength: min(minimumEdgeSpacing, maximumHeroToContentSpacing))
-                        .frame(maxHeight: maximumHeroToContentSpacing)
-
-                    VStack(spacing: OnboardingLayout.contentToActionsSpacing) {
-                        content
-
-                        VStack(spacing: OnboardingLayout.actionSpacing) {
-                            actions
-                        }
+        if isAddProfileSheet {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text(L10n.string("Add Profile")).font(.headline)
+                    Spacer()
+                    if let exit {
+                        Button(L10n.string(exit.helpKey), action: exit.action)
+                            .accessibilityIdentifier(exit.accessibilityIdentifier)
                     }
-                    .frame(width: OnboardingLayout.contentWidth)
+                }
+                let sheetFields = VStack(spacing: 12) {
+                    if Hero.self != OnboardingMarkHero.self { hero }
+                    content
+                }
+                ViewThatFits(in: .vertical) {
+                    sheetFields.fixedSize(horizontal: false, vertical: true)
+                    ScrollView { sheetFields }
+                }
+                .frame(maxHeight: 440)
+                VStack(spacing: 8) { actions }
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(20)
+            .frame(width: 420)
+        } else {
+            VStack(spacing: 0) {
+                OnboardingHeaderRow(exit: exit)
 
-                    // Flexible, and the twin of the `Spacer` above the hero rather than a fixed inset.
-                    // A fixed one made every point of spare height land *above* the hero, so a tall
-                    // window pushed the whole group onto the bottom edge; two flexible ends split it and
-                    // the group sits centred with real air under the buttons. `minimumEdgeSpacing`
-                    // is the floor, for the short window where there is nothing to split.
-                    Spacer(minLength: minimumEdgeSpacing)
+                OnboardingShortWindowScroll(isEnabled: scrollsWhenShort) {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: minimumEdgeSpacing)
+
+                        hero
+
+                        // Capped, unlike the `Spacer` above the hero, so the pane's spare height collects at
+                        // the top instead of being split evenly across the hero. See
+                        // `maximumHeroToContentSpacing`.
+                        //
+                        // The floor yields to the ceiling rather than fighting it: a pane that wants this gap
+                        // held tighter than its own margins — the sign-up pane does — would otherwise clamp a
+                        // `minLength` above `maxHeight`, and the two would disagree about a gap neither is
+                        // wrong about.
+                        Spacer(minLength: min(minimumEdgeSpacing, maximumHeroToContentSpacing))
+                            .frame(maxHeight: maximumHeroToContentSpacing)
+
+                        VStack(spacing: OnboardingLayout.contentToActionsSpacing) {
+                            content
+
+                            VStack(spacing: OnboardingLayout.actionSpacing) {
+                                actions
+                            }
+                        }
+                        .frame(width: OnboardingLayout.contentWidth)
+
+                        // Flexible, and the twin of the `Spacer` above the hero rather than a fixed inset.
+                        // A fixed one made every point of spare height land *above* the hero, so a tall
+                        // window pushed the whole group onto the bottom edge; two flexible ends split it and
+                        // the group sits centred with real air under the buttons. `minimumEdgeSpacing`
+                        // is the floor, for the short window where there is nothing to split.
+                        Spacer(minLength: minimumEdgeSpacing)
+                    }
                 }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            // Native window reading surface (F02): adapts automatically in Light and Dark mode.
-            Color(nsColor: .windowBackgroundColor)
-                .ignoresSafeArea()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                // Native window reading surface (F02): adapts automatically in Light and Dark mode.
+                Color(nsColor: .windowBackgroundColor)
+                    .ignoresSafeArea()
+            }
         }
     }
+
 }
 
 extension OnboardingScaffold where Hero == OnboardingMarkHero {
@@ -244,4 +272,8 @@ struct OnboardingShortWindowScroll<Content: View>: View {
         }
     }
     .frame(width: 400, height: 160)
+}
+
+extension EnvironmentValues {
+    @Entry var isAddProfileSheet = false
 }

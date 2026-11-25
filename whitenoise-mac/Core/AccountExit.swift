@@ -175,6 +175,7 @@ enum AccountExit {
 enum WorkspaceAccountPresentation {
     case settingsHandoff
     case chooserSelectedAccount
+    case beganAddProfile
     case cancelledAddProfile
     case focusMainWindow
     case settingsError(String?, accountId: String?)

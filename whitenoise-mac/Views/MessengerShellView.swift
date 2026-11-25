@@ -15,6 +15,8 @@ struct MessengerShellView: View {
 
     let settings: SettingsWindowCoordinator
 
+    let showsAddProfileSheet: Bool
+
     private var sidebarVisibility: Binding<NavigationSplitViewVisibility> {
         Binding(
             get: { workspace.isChatListVisible ? .all : .detailOnly },
@@ -34,7 +36,7 @@ struct MessengerShellView: View {
 
     var body: some View {
         Group {
-            if workspace.showsMessengerChrome {
+            if workspace.showsMessengerChrome || (showsAddProfileSheet && workspace.activeAccount?.signedOut == false) {
                 NavigationSplitView(columnVisibility: sidebarVisibility) {
                     ChatListDrawerView(
                         model: session.accountScope?.chatListModel,
@@ -72,7 +74,7 @@ struct MessengerShellView: View {
                         workspace.resizeChatListDrawer(toProposedWidth: resolved)
                     }
                 } detail: {
-                    DetailPaneView(settings: settings)
+                    DetailPaneView(settings: settings, showsAddProfileSheet: showsAddProfileSheet)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .safeAreaInset(edge: .top, spacing: 0) {
                             if workspace.isOffline {
@@ -82,7 +84,7 @@ struct MessengerShellView: View {
                         }
                 }
             } else {
-                DetailPaneView(settings: settings)
+                DetailPaneView(settings: settings, showsAddProfileSheet: showsAddProfileSheet)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if workspace.isOffline {
@@ -146,10 +148,11 @@ private struct DetailPaneView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     let settings: SettingsWindowCoordinator
+    var showsAddProfileSheet = false
 
     var body: some View {
         Group {
-            switch workspace.phase {
+            switch showsAddProfileSheet ? .ready : workspace.phase {
             case .bootstrapping:
                 StartupView()
             case .onboarding:
@@ -157,7 +160,7 @@ private struct DetailPaneView: View {
             case .failed(let message):
                 FailureView(message: message)
             case .ready:
-                if !workspace.showsMessengerChrome, !workspace.signedInAccounts.isEmpty {
+                if workspace.activeAccount?.signedOut != false, !workspace.signedInAccounts.isEmpty {
                     // The active profile was deleted or signed out of, and two or more others are
                     // still signed in. The user picks the next one, as on iOS, rather than being
                     // dropped into whichever identity happens to be listed first. With exactly one
@@ -175,7 +178,7 @@ private struct DetailPaneView: View {
                         },
                         onAddProfile: { workspace.showAccountOnboarding() }
                     )
-                } else if !workspace.showsMessengerChrome {
+                } else if workspace.activeAccount?.signedOut != false {
                     // Nothing is signed in, so there is nothing to show but the way in. This used
                     // to be a `SignedOutAccountsView` listing the deactivated identities on this
                     // Mac, each one a single click from being reactivated — a sign-in that asked

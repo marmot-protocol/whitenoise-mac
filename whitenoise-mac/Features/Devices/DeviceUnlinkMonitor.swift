@@ -111,17 +111,18 @@ extension View {
     /// leaves it, signed out, and moves the app off it.
     func deviceUnlinkAlert(
         _ monitor: DeviceUnlinkMonitor,
+        isEnabled: Bool = true,
         accountName: @escaping (DeviceUnlinkMonitor.Notice) -> String?,
         onRemove: @escaping (DeviceUnlinkMonitor.Notice) -> Void,
         onLater: @escaping (DeviceUnlinkMonitor.Notice) -> Void
     ) -> some View {
-        let notice = monitor.notice
+        let notice = isEnabled ? monitor.notice : nil
         return alert(
             L10n.string("This Mac Was Unlinked"),
             isPresented: Binding(
-                get: { monitor.notice != nil },
+                get: { isEnabled && monitor.notice != nil },
                 set: { presented in
-                    if !presented, monitor.notice == notice { monitor.dismiss() }
+                    if isEnabled, !presented, monitor.notice == notice { monitor.dismiss() }
                 }
             ),
             presenting: notice
