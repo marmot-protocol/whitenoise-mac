@@ -118,22 +118,6 @@ struct GroupDetailsSheet: View {
         let permissions = snapshot.map(permissions(for:))
 
         VStack(spacing: 0) {
-            // One spinner at a time: a first load (nothing to show yet) spins in the pane's
-            // centre, and a refresh of details already on screen spins in the title instead.
-            GroupDetailsTopBar(
-                title: L10n.string(chat.isDirect ? "Chat Info" : "Group Info"),
-                isLoading: workspace.isLoadingGroupDetails && snapshot != nil,
-                backHelp: "Close",
-                backSymbol: "xmark",
-                onBack: { workspace.closeGroupDetails() },
-                onEdit: snapshot.flatMap { snapshot in
-                    permissions?.canEditProfile == true ? { presentProfileEditor(snapshot) } : nil
-                }
-            )
-            .disabled(isGroupCommitInFlight)
-
-            Divider()
-
             if let snapshot, let permissions {
                 Form {
                     // 1. Identity & compact supported actions

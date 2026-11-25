@@ -26,65 +26,113 @@ import SwiftUI
 struct ProfilePrivacyNote: View {
     @Environment(\.locale) private var locale
     @State private var disclosure: ProfilePrivacyDisclosure
+    private let showsContainer: Bool
 
-    init(isExpanded: Bool = false) {
+    init(isExpanded: Bool = false, showsContainer: Bool = true) {
         _disclosure = State(initialValue: ProfilePrivacyDisclosure(isExpanded: isExpanded))
+        self.showsContainer = showsContainer
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "eye")
-                .wnFont(.medium14)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
-                .accessibilityHidden(true)
+        if showsContainer {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "eye")
+                    .wnFont(.medium14)
+                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.string(Self.summaryKey, locale: locale))
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L10n.string(Self.summaryKey, locale: locale))
+                        .fixedSize(horizontal: false, vertical: true)
 
-                if disclosure.isExpanded {
-                    ForEach(Array(Self.detailKeys.enumerated()), id: \.element) { index, key in
-                        Text(L10n.string(key, locale: locale))
-                            // iOS's details view draws the first paragraph primary and the
-                            // second secondary.
-                            .foregroundStyle(
-                                index == 0 ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
-                            )
-                            .fixedSize(horizontal: false, vertical: true)
+                    if disclosure.isExpanded {
+                        ForEach(Array(Self.detailKeys.enumerated()), id: \.element) { index, key in
+                            Text(L10n.string(key, locale: locale))
+                                // iOS's details view draws the first paragraph primary and the
+                                // second secondary.
+                                .foregroundStyle(
+                                    index == 0 ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
+                                )
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .transition(.opacity)
+                    }
+
+                    if disclosure.showsLearnMore {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.2)) { disclosure.expand() }
+                        } label: {
+                            Text(L10n.string("Learn more", locale: locale))
+                                .underline()
+                                .foregroundStyle(WNColor.backgroundContentPrimary)
+                        }
+                        .buttonStyle(.plain)
+                        .pointerStyle(.link)
+                        .accessibilityIdentifier("profile.privacy-learn-more")
+                    }
+                }
+                .wnFont(.medium12)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if disclosure.showsChevron {
+                    ProfilePrivacyChevron {
+                        withAnimation(.easeOut(duration: 0.2)) { disclosure.collapse() }
                     }
                     .transition(.opacity)
                 }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(WNColor.backgroundSecondary, in: .rect(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(WNColor.borderTertiary, lineWidth: 1)
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "eye")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .accessibilityHidden(true)
 
-                if disclosure.showsLearnMore {
-                    Button {
-                        withAnimation(.easeOut(duration: 0.2)) { disclosure.expand() }
-                    } label: {
-                        Text(L10n.string("Learn more", locale: locale))
-                            .underline()
-                            .foregroundStyle(WNColor.backgroundContentPrimary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L10n.string(Self.summaryKey, locale: locale))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if disclosure.isExpanded {
+                        ForEach(Array(Self.detailKeys.enumerated()), id: \.element) { index, key in
+                            Text(L10n.string(key, locale: locale))
+                                .foregroundStyle(index == 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .transition(.opacity)
                     }
-                    .buttonStyle(.plain)
-                    .pointerStyle(.link)
-                    .accessibilityIdentifier("profile.privacy-learn-more")
-                }
-            }
-            .wnFont(.medium12)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            if disclosure.showsChevron {
-                ProfilePrivacyChevron {
-                    withAnimation(.easeOut(duration: 0.2)) { disclosure.collapse() }
+                    if disclosure.showsLearnMore {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.2)) { disclosure.expand() }
+                        } label: {
+                            Text(L10n.string("Learn more", locale: locale))
+                                .underline()
+                                .foregroundStyle(.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .pointerStyle(.link)
+                        .accessibilityIdentifier("profile.privacy-learn-more")
+                    }
                 }
-                .transition(.opacity)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if disclosure.showsChevron {
+                    ProfilePrivacyChevron {
+                        withAnimation(.easeOut(duration: 0.2)) { disclosure.collapse() }
+                    }
+                    .transition(.opacity)
+                }
             }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(WNColor.backgroundSecondary, in: .rect(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(WNColor.borderTertiary, lineWidth: 1)
         }
     }
 

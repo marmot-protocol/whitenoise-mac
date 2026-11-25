@@ -28,7 +28,7 @@ struct ProfileSettingsView: View {
             }
 
             SettingsSection {
-                ProfilePrivacyNote()
+                ProfilePrivacyNote(showsContainer: false)
             }
 
             SettingsSection {

@@ -49,6 +49,19 @@ struct DonateSettingsView: View {
             }
 
             DonationMethodDetail(method: selectedMethod)
+
+            Link(destination: DonationMethod.cardDonationURL) {
+                HStack(spacing: 4) {
+                    Text(L10n.string("Or donate with a credit card"))
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption.weight(.semibold))
+                }
+                .font(.callout)
+            }
+            .pointerStyle(.link)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
+            .accessibilityIdentifier("settings.donate.card")
         }
     }
 }

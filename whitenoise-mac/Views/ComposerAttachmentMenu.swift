@@ -105,16 +105,18 @@ struct ComposerAttachmentMenu: View {
                 .accessibilityIdentifier("composer.attachments.\(option.rawValue)")
             }
         } label: {
-            Label(L10n.string("Add attachment"), systemImage: "plus")
+            Label(L10n.string("Add attachment"), systemImage: "paperclip")
                 .labelStyle(.iconOnly)
-                .frame(width: 20, height: 20)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .frame(width: 36, height: 36)
+                .contentShape(Circle())
+                .wnFloatingGlass(in: Circle(), interactive: true)
         }
         .menuLabelIcons()
         .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .wnSecondaryButtonStyle()
-        .wnButtonShape(.circle)
-        .controlSize(.regular)
         .disabled(isDisabled)
         .help(L10n.string("Add attachment"))
         .accessibilityLabel(L10n.string("Add attachment"))

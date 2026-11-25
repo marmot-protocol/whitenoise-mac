@@ -13,6 +13,7 @@ struct GroupDetailsQuickActionsRow: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     let chat: ChatItem
+    var onEditProfile: (() -> Void)? = nil
     var onSearchInChat: (() -> Void)? = nil
 
     var body: some View {
@@ -52,8 +53,17 @@ struct GroupDetailsQuickActionsRow: View {
                 .help(L10n.string("Find in Conversation…", locale: locale))
                 .accessibilityIdentifier("inspector.action.search")
             }
+
+            if let onEditProfile {
+                Button(action: onEditProfile) {
+                    Label(L10n.string("Edit", locale: locale), systemImage: "pencil")
+                }
+                .wnSecondaryButtonStyle()
+                .help(L10n.string("Edit Group Info", locale: locale))
+                .accessibilityIdentifier("details.topbar.edit")
+            }
         }
-        .controlSize(.small)
+        .controlSize(.regular)
     }
 }
 

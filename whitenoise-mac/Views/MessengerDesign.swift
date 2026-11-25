@@ -77,8 +77,10 @@ struct AvatarChromeModifier: ViewModifier {
         if isEnabled {
             content
                 .overlay {
-                    Circle()
-                        .strokeBorder(strokeColor, lineWidth: isSelected ? 3 : 1)
+                    if isSelected {
+                        Circle()
+                            .strokeBorder(strokeColor, lineWidth: 3)
+                    }
                 }
                 .shadow(color: WNColor.shadow.opacity(0.1), radius: Self.shadowRadius, y: 1)
                 .scaleEffect(isSelected ? Self.selectedScale : 1)
@@ -291,10 +293,10 @@ extension EnvironmentValues {
 nonisolated enum MessageTypography {
     static let body: Font = .body
     static let bodySemibold: Font = .body.weight(.semibold)
-    static let senderName: Font = .subheadline
+    static let senderName: Font = .callout.weight(.medium)
     static let footer: Font = .caption
-    static let quoteSender: Font = .subheadline.weight(.semibold)
-    static let quoteBody: Font = .subheadline
+    static let quoteSender: Font = .callout.weight(.semibold)
+    static let quoteBody: Font = .callout
     static let dayDivider: Font = .subheadline.weight(.semibold)
 }
 
@@ -396,12 +398,12 @@ enum MessagesLayout {
     /// again on the far side. Centred notice content is held out of it so a narrow window
     /// slides the text right rather than under the buttons.
     static let windowTrafficLightZoneWidth: CGFloat = 78
-    static let chatRowAvatarSize: CGFloat = 46
+    static let chatRowAvatarSize: CGFloat = 38
     /// The active profile's avatar in Settings' sidebar.
     ///
     /// Deliberately the same value as `chatRowAvatarSize`: those are the app's identity rows, and
     /// an identity should not be a different size depending on which list it is standing in.
-    static let settingsProfileAvatarSize: CGFloat = 46
+    static let settingsProfileAvatarSize: CGFloat = 38
     /// Footprint of `GlassCircleCloseButton`. Named because a pane header has to reserve the
     /// same width on the opposite side to keep its title centred in the pane.
     static let circleControlSize: CGFloat = 28
@@ -444,13 +446,13 @@ struct MessagesSearchField: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.caption.weight(.medium))
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.callout)
+                .font(.body)
                 .foregroundStyle(.primary)
                 .focused($isFocused)
                 // Searches take names, npubs and pasted keys: a correction or a capitalized first
@@ -522,25 +524,29 @@ struct MessagesCircleControlBackground: View {
 struct MessagesSearchFieldBackground: View {
     var body: some View {
         Capsule(style: .continuous)
-            .fill(WNColor.backgroundPrimary)
+            .fill(Color(nsColor: .quaternarySystemFill))
             .overlay {
                 Capsule(style: .continuous)
-                    .stroke(WNColor.borderTertiary, lineWidth: 1)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
             }
     }
 }
 
-/// The composer's text field: `backgroundPrimary` inside a `borderSecondary` hairline, matching
-/// `WnChatMessageInput` on the other clients. `borderSecondary` rather than `borderTertiary` because
-/// this is an editable field at rest, not a divider.
+/// The composer's text field: a Liquid Glass pill on macOS 26+ (material fallback on macOS 15.6)
+/// so scrolled transcript content refracts softly behind the floating composer.
 struct MessagesComposerFieldBackground: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(WNColor.backgroundPrimary)
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(WNColor.borderSecondary, lineWidth: 1)
-            }
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
+                }
+        }
     }
 }
 
@@ -569,25 +575,20 @@ struct GlassFill: View {
     }
 }
 
-/// The window's base surface, behind every pane.
-///
-/// This and the three below were the app's hardcoded grays — `#0E0E0F` / `#F9F9F6` and friends,
-/// values that existed nowhere else in White Noise. They are the neutral ramp now, which is what
-/// makes the mac app's chrome the same set of surfaces the other clients use rather than a
-/// look-alike.
+/// The window's base surface, behind every pane (F02/F03: native `windowBackgroundColor`).
 struct MessagesWindowBackground: View {
     var body: some View {
         Rectangle()
-            .fill(WNColor.backgroundSecondary)
+            .fill(Color(nsColor: .windowBackgroundColor))
             .ignoresSafeArea()
     }
 }
 
-/// The transcript, the detail panes, and the settings pages: the app's primary reading surface.
+/// The transcript, the detail panes, and the settings pages: native macOS window reading surface.
 struct MessagesTranscriptBackground: View {
     var body: some View {
         Rectangle()
-            .fill(WNColor.backgroundPrimary)
+            .fill(Color(nsColor: .windowBackgroundColor))
             .ignoresSafeArea()
     }
 }
@@ -596,13 +597,14 @@ struct MessagesTranscriptBackground: View {
 struct MessagesHeaderBackground: View {
     var body: some View {
         Rectangle()
-            .fill(WNColor.backgroundPrimary)
+            .fill(Color(nsColor: .windowBackgroundColor))
     }
 }
 
 struct MessagesComposerBarBackground: View {
     var body: some View {
-        GlassFill(material: .ultraThinMaterial, darkOpacity: 0.42, lightOpacity: 0.2)
+        Rectangle()
+            .fill(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -685,8 +687,10 @@ struct GlassCapsuleBackground: View {
         Capsule(style: .continuous)
             .fill(fill)
             .overlay {
-                Capsule(style: .continuous)
-                    .stroke(borderColor ?? WNColor.borderTertiary, lineWidth: 1)
+                if let borderColor {
+                    Capsule(style: .continuous)
+                        .stroke(borderColor, lineWidth: 1)
+                }
             }
     }
 }
@@ -746,6 +750,18 @@ struct ChatAvatarPinBadge: View {
 extension View {
     func menuLabelIcons() -> some View {
         labelStyle(.titleAndIcon)
+    }
+
+    /// Native macOS 26+ Liquid Glass floating control chrome with a clean material fallback on
+    /// macOS 15.6 (no hard dark ring around translucent controls).
+    @ViewBuilder
+    func wnFloatingGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+        } else {
+            background(.regularMaterial, in: shape)
+                .shadow(color: .black.opacity(0.14), radius: 6, y: 2)
+        }
     }
 
     func glassCard(

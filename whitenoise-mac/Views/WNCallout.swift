@@ -23,7 +23,7 @@ enum WNCalloutIntent {
 
     var background: Color {
         switch self {
-        case .primary: WNColor.backgroundSecondary
+        case .primary: Color(nsColor: .quaternarySystemFill)
         case .info: WNColor.intentionInfoBackground
         case .success: WNColor.intentionSuccessBackground
         case .warning: WNColor.intentionWarningBackground
@@ -100,7 +100,7 @@ struct WNCallout: View {
         .background(intent.background, in: .rect(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(WNColor.borderTertiary, lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1)
         }
     }
 }

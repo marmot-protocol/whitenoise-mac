@@ -37,9 +37,9 @@ nonisolated enum SidebarAccountMenuFormatting {
     }
 }
 
-/// Compact native `Menu`-based profile switcher anchored at the foot of the chat-list sidebar
-/// (S03, N02). Replaces the fixed-width left `AccountRailView` column while preserving the exact
-/// account-switching, Add Profile, Settings, and background-profile attention contracts.
+/// Compact native `Menu`-based profile switcher anchored at the top of the chat-list sidebar above
+/// Search (S03, N02). Replaces the fixed-width left `AccountRailView` column while preserving the
+/// exact account-switching, Add Profile, Settings, and background-profile attention contracts.
 ///
 /// Only lists `signedInAccounts` (never signed-out identities) and carries no unconfirmed
 /// destructive account actions.
@@ -52,6 +52,7 @@ struct SidebarProfileSwitcherView: View {
     let onSelectAccount: (AccountItem) -> Void
     let onAddProfile: () -> Void
     let onOpenSettings: () -> Void
+    @State private var isHovering = false
 
     var body: some View {
         let attention = SidebarProfileAttentionSummary.compute(
@@ -62,76 +63,63 @@ struct SidebarProfileSwitcherView: View {
             }
         )
 
-        HStack(spacing: 8) {
-            Menu {
-                Section {
-                    ForEach(signedInAccounts) { account in
-                        let isActive = account.id == activeAccount?.id
-                        let unread = attention.unreadCount(for: account)
-                        Button {
-                            guard !isActive else { return }
-                            onSelectAccount(account)
-                        } label: {
-                            if isActive {
-                                Label(
-                                    SidebarAccountMenuFormatting.menuTitle(
-                                        displayName: account.displayName,
-                                        unreadCount: unread
-                                    ),
-                                    systemImage: "checkmark"
+        Menu {
+            Section {
+                ForEach(signedInAccounts) { account in
+                    let isActive = account.id == activeAccount?.id
+                    let unread = attention.unreadCount(for: account)
+                    Button {
+                        guard !isActive else { return }
+                        onSelectAccount(account)
+                    } label: {
+                        if isActive {
+                            Label(
+                                SidebarAccountMenuFormatting.menuTitle(
+                                    displayName: account.displayName,
+                                    unreadCount: unread
+                                ),
+                                systemImage: "checkmark"
+                            )
+                        } else {
+                            Text(
+                                SidebarAccountMenuFormatting.menuTitle(
+                                    displayName: account.displayName,
+                                    unreadCount: unread
                                 )
-                            } else {
-                                Text(
-                                    SidebarAccountMenuFormatting.menuTitle(
-                                        displayName: account.displayName,
-                                        unreadCount: unread
-                                    )
-                                )
-                            }
+                            )
                         }
-                        .disabled(isAccountMutationInProgress)
                     }
+                    .disabled(isAccountMutationInProgress)
                 }
-
-                Divider()
-
-                Button(action: onAddProfile) {
-                    Label(L10n.string("Add Profile", locale: locale), systemImage: "person.badge.plus")
-                }
-                .disabled(isAccountMutationInProgress)
-
-                Button(action: onOpenSettings) {
-                    Label(L10n.string("Settings…", locale: locale), systemImage: "gearshape")
-                }
-            } label: {
-                SidebarProfileSwitcherLabel(
-                    activeAccount: activeAccount,
-                    backgroundUnreadCount: attention.backgroundUnreadCount
-                )
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize(horizontal: false, vertical: true)
-            .help(activeAccount?.displayName ?? L10n.string("Choose a profile", locale: locale))
-            .accessibilityIdentifier("sidebar.profileSwitcher")
 
-            Spacer(minLength: 4)
+            Divider()
+
+            Button(action: onAddProfile) {
+                Label(L10n.string("Add Profile", locale: locale), systemImage: "person.badge.plus")
+            }
+            .disabled(isAccountMutationInProgress)
 
             Button(action: onOpenSettings) {
                 Label(L10n.string("Settings…", locale: locale), systemImage: "gearshape")
-                    .labelStyle(.iconOnly)
-                    .font(.body)
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help(L10n.string("Settings…", locale: locale))
-            .accessibilityLabel(L10n.string("Settings…", locale: locale))
-            .accessibilityIdentifier("sidebar.settings")
+        } label: {
+            SidebarProfileSwitcherLabel(
+                activeAccount: activeAccount,
+                backgroundUnreadCount: attention.backgroundUnreadCount,
+                isHovering: isHovering
+            )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { isHovering = $0 }
+        .help(activeAccount?.displayName ?? L10n.string("Choose a profile", locale: locale))
+        .accessibilityIdentifier("sidebar.profileSwitcher")
+        .padding(.horizontal, 10)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
     }
 }
 
@@ -139,6 +127,7 @@ private struct SidebarProfileSwitcherLabel: View {
     @Environment(\.locale) private var locale
     let activeAccount: AccountItem?
     let backgroundUnreadCount: Int
+    var isHovering = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -147,11 +136,11 @@ private struct SidebarProfileSwitcherLabel: View {
                     seed: account.accountIdHex,
                     initials: account.initials,
                     sanitizedPictureURL: account.sanitizedPictureURL,
-                    size: 24,
+                    size: 26,
                     isSelected: false
                 )
                 Text(account.displayName)
-                    .font(.subheadline.weight(.medium))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -160,21 +149,31 @@ private struct SidebarProfileSwitcherLabel: View {
                     .font(.title3)
                     .foregroundStyle(.secondary)
                 Text(L10n.string("No account", locale: locale))
-                    .font(.subheadline)
+                    .font(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+
+            Spacer(minLength: 4)
 
             if backgroundUnreadCount > 0 {
                 UnreadCountBadge(count: backgroundUnreadCount)
             }
 
             Image(systemName: "chevron.up.chevron.down")
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if isHovering {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(nsColor: .quaternarySystemFill))
+            }
+        }
         .contentShape(Rectangle())
     }
 }

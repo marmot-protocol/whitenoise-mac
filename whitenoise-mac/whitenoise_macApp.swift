@@ -195,10 +195,6 @@ struct whitenoise_macApp: App {
             MessengerCommands(
                 locale: workspace.preferredLocale, endingGroupIDs: session.accountScope?.endingGroupIds ?? [])
         }
-
-        Settings {
-            SettingsWindowView(coordinator: settings, workspace: workspace, session: session)
-        }
     }
 
     private var runtimeIdentity: ObjectIdentifier? {

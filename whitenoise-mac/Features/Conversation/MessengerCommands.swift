@@ -332,7 +332,7 @@ struct ConversationMenuItems: View {
         )
 
         let isInspectorOpen = workspace.isGroupDetailsPresented || workspace.contactDetailsTarget != nil
-        Button(L10n.string(isInspectorOpen ? "Hide Chat Info" : "Show Chat Info", locale: locale)) {
+        Button(L10n.string(isInspectorOpen ? "Hide Info" : "Info", locale: locale)) {
             if isInspectorOpen {
                 workspace.closeGroupDetails()
             } else {

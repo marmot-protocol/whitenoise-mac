@@ -188,7 +188,7 @@ import Testing
         #expect(workspace.profileDraft.nip05.isEmpty)
 
         // Saving a renamed profile updates `workspace.activeAccount` while staying on the same
-        // account ID, so SettingsWindowView feeds the fresh display name to SettingsSidebarView.
+        // account ID, so MessengerShellView feeds the fresh display name to SettingsSidebarView.
         let originalAccountID = workspace.activeAccountId
         workspace.profileDraft.displayName = "Alice Updated"
         await workspace.saveProfile()

@@ -92,7 +92,7 @@ struct GroupMemberRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(member.displayName)
-                                .font(.subheadline.weight(.medium))
+                                .font(.body.weight(.medium))
                                 .lineLimit(1)
 
                             if member.isSelf {
@@ -107,7 +107,7 @@ struct GroupMemberRow: View {
                         // Your own row already says "You" in its badge, so it shows the key the
                         // others see instead of saying it twice.
                         Text(member.isSelf ? DisplayText.short(member.npub, head: 12, tail: 8) : member.detailLabel)
-                            .font(.caption)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }

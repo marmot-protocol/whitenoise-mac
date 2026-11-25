@@ -15,6 +15,7 @@ final class SettingsWindowCoordinator {
     /// each other's failures.
     private(set) var lastError: String?
 
+    var isPresented: Bool { accountID != nil }
     var parentPage: SettingsPage { page == .overview ? .profile : page.drawerPage }
 
     private var interruptedPage: SettingsPage?
@@ -200,7 +201,7 @@ final class SettingsWindowCoordinator {
         accountID = activeID
     }
 
-    private func close() {
+    func close() {
         accountID = nil
         hostsDeviceLinkSheet = false
         lastError = nil

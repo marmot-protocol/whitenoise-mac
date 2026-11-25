@@ -53,6 +53,7 @@ struct GroupDetailsIdentitySection: View {
 
                 GroupDetailsQuickActionsRow(
                     chat: chat,
+                    onEditProfile: permissions.canEditProfile ? onEditProfile : nil,
                     onSearchInChat: onSearchInChat
                 )
             }

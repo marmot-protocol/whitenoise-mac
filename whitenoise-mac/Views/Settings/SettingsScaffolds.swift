@@ -128,24 +128,29 @@ struct SettingsScaffold<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsHeader(
-                title: title,
-                subtitle: subtitle,
-                backAction: back.map { destination in
-                    switch destination.route {
-                    case .page(let page): { settings?.navigate(to: page) }
-                    case .action(let dismiss): dismiss
-                    }
-                },
-                backHelp: back?.help
-            )
-            Divider()
+            if back != nil {
+                SettingsHeader(
+                    title: title,
+                    subtitle: subtitle,
+                    backAction: back.map { destination in
+                        switch destination.route {
+                        case .page(let page): { settings?.navigate(to: page) }
+                        case .action(let dismiss): dismiss
+                        }
+                    },
+                    backHelp: back?.help
+                )
+                Divider()
+            }
 
             SettingsNativeForm {
                 content
                 SettingsErrorSection(title: errorSectionTitle, error: settings?.lastError)
             }
         }
+        .navigationTitle(title)
+        .navigationSubtitle(subtitle ?? "")
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
@@ -184,9 +189,6 @@ struct SettingsStackScaffold<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsHeader(title: title, subtitle: subtitle)
-            Divider()
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     content
@@ -203,6 +205,9 @@ struct SettingsStackScaffold<Content: View>: View {
                 .padding(.vertical, 24)
             }
         }
+        .navigationTitle(title)
+        .navigationSubtitle(subtitle ?? "")
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
