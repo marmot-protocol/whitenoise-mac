@@ -125,9 +125,6 @@ private struct SharedMediaLibraryGrid: View {
     let model: AttachmentViewModel
     let onOpen: (RetainedAttachmentItem) -> Void
 
-    /// iOS's three columns, so a tile reads as a photo rather than a thumbnail strip.
-    private let columns = Array(repeating: GridItem(.flexible(minimum: 72), spacing: 3), count: 3)
-
     var body: some View {
         if sections.isEmpty {
             VStack(spacing: 0) {
@@ -139,26 +136,42 @@ private struct SharedMediaLibraryGrid: View {
             }
             .frame(maxHeight: .infinity, alignment: .top)
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    ForEach(sections) { section in
-                        VStack(alignment: .leading, spacing: 8) {
-                            SharedMediaMonthHeader(title: section.title)
-                            LazyVGrid(columns: columns, spacing: 3) {
-                                ForEach(section.items) { item in
-                                    RetainedMediaTile(item: item, model: model, onOpen: onOpen)
+            GeometryReader { viewport in
+                let columns = SharedMediaGridLayout.columns(for: viewport.size.width)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        ForEach(sections) { section in
+                            VStack(alignment: .leading, spacing: 8) {
+                                SharedMediaMonthHeader(title: section.title)
+                                LazyVGrid(columns: columns, spacing: SharedMediaGridLayout.gap) {
+                                    ForEach(section.items) { item in
+                                        RetainedMediaTile(item: item, model: model, onOpen: onOpen)
+                                    }
                                 }
                             }
                         }
+                        SharedMediaLoadMoreButton(model: model)
+                            .frame(maxWidth: .infinity)
                     }
-                    SharedMediaLoadMoreButton(model: model)
-                        .frame(maxWidth: .infinity)
+                    .padding(.horizontal, SharedMediaGridLayout.horizontalInset)
+                    .padding(.vertical, 16)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
+    }
+}
+
+private enum SharedMediaGridLayout {
+    static let horizontalInset: CGFloat = 20
+    static let gap: CGFloat = 3
+
+    static func columns(for width: CGFloat) -> [GridItem] {
+        let contentWidth = max(0, width - 2 * horizontalInset)
+        let maximumTileWidth: CGFloat = 340
+        let minimumColumns = min(3, max(1, Int((contentWidth + gap) / (72 + gap))))
+        let count = max(minimumColumns, Int(ceil((contentWidth + gap) / (maximumTileWidth + gap))))
+        return Array(repeating: GridItem(.flexible(minimum: 0), spacing: gap), count: count)
     }
 }
 
@@ -202,7 +215,7 @@ private struct SharedMediaLoadMoreButton: View {
             .padding(.vertical, 10)
         VStack(alignment: .leading, spacing: 8) {
             SharedMediaMonthHeader(title: "September 2026")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 3), spacing: 3) {
+            LazyVGrid(columns: SharedMediaGridLayout.columns(for: 520), spacing: SharedMediaGridLayout.gap) {
                 ForEach(0..<7, id: \.self) { _ in
                     WNColor.backgroundTertiary
                         .aspectRatio(1, contentMode: .fit)
