@@ -46,7 +46,7 @@ struct AccountHistoryNoticesView: View {
                 }
                 if let error = model.error {
                     Text(error)
-                        .wnFont(.medium12)
+                        .font(.caption)
                         .foregroundStyle(WNColor.intentionErrorContent)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

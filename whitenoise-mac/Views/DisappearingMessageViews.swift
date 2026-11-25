@@ -141,7 +141,7 @@ struct DisappearingMessageHeaderSubtitle: View {
                 Text(subtitle)
             }
         }
-        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .foregroundStyle(.secondary)
     }
 
     static func accessibilityLabel(subtitle: String, durationSeconds: UInt64) -> String {
@@ -329,6 +329,6 @@ nonisolated struct MessageRetentionSector: Shape {
         DisappearingMessageHeaderSubtitle(durationSeconds: 604_800, subtitle: "")
         DisappearingMessageHeaderSubtitle(durationSeconds: 0, subtitle: "3 members")
     }
-    .wnFont(.medium10)
+    .font(.caption)
     .padding()
 }

@@ -79,17 +79,17 @@ struct WNCallout: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: intent.systemImage)
-                .wnFont(.medium18)
+                .font(.body.weight(.semibold))
                 .foregroundStyle(intent.accent)
                 .frame(width: 22, height: 22)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .wnFont(.bold14)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(intent.accent)
 
                 Text(message)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
                     .foregroundStyle(intent.detail)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -103,4 +103,14 @@ struct WNCallout: View {
                 .stroke(WNColor.borderTertiary, lineWidth: 1)
         }
     }
+}
+
+#Preview("Callout intents") {
+    VStack(spacing: 10) {
+        WNCallout(title: "Primary", message: "Neutral explanatory callout.", intent: .primary)
+        WNCallout(title: "Warning", message: "History may be incomplete.", intent: .warning)
+        WNCallout(title: "Error", message: "Someone else may have your private key.", intent: .error)
+    }
+    .padding()
+    .frame(width: 340)
 }

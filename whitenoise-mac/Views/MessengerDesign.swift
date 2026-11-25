@@ -464,13 +464,14 @@ struct MessagesSearchField: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .wnFont(.semiBold12)
-                .foregroundStyle(WNColor.backgroundContentTertiary)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .font(.callout)
+                .foregroundStyle(.primary)
                 .focused($isFocused)
                 // Searches take names, npubs and pasted keys: a correction or a capitalized first
                 // letter offered over "npub1…" is never what the user meant.
@@ -483,10 +484,10 @@ struct MessagesSearchField: View {
                     isFocused = true
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .help(L10n.string("Clear search"))
             }
         }
@@ -535,18 +536,6 @@ struct MessagesCircleControlBackground: View {
                 Circle()
                     .stroke(WNColor.borderTertiary, lineWidth: 1)
             }
-    }
-}
-
-/// The selected chat row in the sidebar. `fillTertiaryHover` is the ghost control's pointed-at
-/// fill — one neutral step off the surface — which is what the other clients highlight a selected
-/// list row with. An unselected row draws nothing at all, since `fillTertiary` is transparent.
-struct MessagesSidebarRowBackground: View {
-    let isSelected: Bool
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(isSelected ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
     }
 }
 
@@ -800,7 +789,7 @@ struct MessageBubbleShape: Shape {
 struct ChatAvatarPinBadge: View {
     var body: some View {
         Image(systemName: "pin.fill")
-            .wnFont(.semiBold10)
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(WNColor.backgroundContentPrimary)
             .padding(3)
             .background {

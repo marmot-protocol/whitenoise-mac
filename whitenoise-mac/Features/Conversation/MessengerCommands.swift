@@ -1,4 +1,5 @@
 import AppKit
+import MarmotKit
 import SwiftUI
 
 /// Commands are published by the main messenger scene. Capture the owning account and revalidate
@@ -62,6 +63,9 @@ struct MessengerCommands: Commands {
     private var canUseMessenger: Bool { messenger?.isAvailable == true }
     private var canUseConversation: Bool {
         guard let conversation, let messenger, conversation.accountID == messenger.accountID else { return false }
+        guard !messenger.workspace.isGroupDetailsPresented,
+            messenger.workspace.contactDetailsTarget == nil
+        else { return false }
         return messenger.activeChat(matching: conversation.chatID) != nil
     }
 
@@ -171,17 +175,44 @@ enum ConversationUnreadMenuAction: Equatable {
     }
 }
 
-private struct ConversationMenuItems: View {
+struct ConversationMenuItems: View {
     let messenger: MessengerCommandContext
     let conversation: ConversationViewModel?
     let chat: ChatItem
     let locale: Locale
+    let endingGroupIDs: Set<String>
+    var onSetGroupImage: (() -> Void)? = nil
 
     var body: some View {
         let workspace = messenger.workspace
         let actions = ChatMenuActions(workspace: workspace, chat: chat)
         let isArchived = workspace.archivedChatItem(accountId: messenger.accountID, chatId: chat.id) != nil
         let unreadAction = ConversationUnreadMenuAction.resolve(for: chat)
+
+        let capabilities = conversation?.snapshot?.header.capabilities
+        let metadata = workspace.conversationMetadataByChat[chat.id]
+        if let onSetGroupImage,
+            ConversationToolbarEligibility.canSetGroupImage(
+                for: chat,
+                capabilities: capabilities,
+                metadata: metadata
+            )
+        {
+            Button {
+                guard let currentChat = messenger.activeChat(matching: chat.id),
+                    ConversationToolbarEligibility.canSetGroupImage(
+                        for: currentChat,
+                        capabilities: conversation?.snapshot?.header.capabilities,
+                        metadata: workspace.conversationMetadataByChat[currentChat.id]
+                    )
+                else { return }
+                onSetGroupImage()
+            } label: {
+                Label(L10n.string("Set group image", locale: locale), systemImage: "photo.badge.plus")
+            }
+
+            Divider()
+        }
 
         ChatMuteMenu(actions: actions, locale: locale, isCurrent: isCurrent)
 
@@ -241,8 +272,6 @@ private struct ConversationMenuItems: View {
             .disabled(!actions.canPerformDestructive(destructive, endingGroupIDs: endingGroupIDs))
         }
     }
-
-    let endingGroupIDs: Set<String>
 
     private func isCurrent() -> Bool {
         messenger.activeChat(matching: chat.id) != nil

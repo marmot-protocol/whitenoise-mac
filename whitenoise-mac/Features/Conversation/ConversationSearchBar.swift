@@ -86,11 +86,11 @@ private struct ConversationSearchStatus: View {
                 Text(L10n.string("No matches"))
             }
         }
-        .wnFont(.medium12)
+        .font(.caption)
         .monospacedDigit()
         .lineLimit(1)
         .fixedSize()
-        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -102,12 +102,11 @@ private struct ConversationSearchControlButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .wnFont(.bold12)
-                .frame(width: 28, height: 28)
-                .background { MessagesCircleControlBackground() }
-                .contentShape(.circle)
+                .font(.caption.weight(.semibold))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .help(help)
         .accessibilityLabel(help)
     }
