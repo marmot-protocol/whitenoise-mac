@@ -9,6 +9,10 @@ struct PollMessageRow: View {
     /// Nil for an outgoing poll, which never names its sender.
     let senderName: String?
     let timeLabel: String
+    /// Options confirmed by MDK when a local vote is still in flight; nil when no vote is pending.
+    var confirmedSelection: Set<String>? = nil
+    /// True while a local vote submission is in flight and awaiting MDK confirmation.
+    var isVotePending = false
     /// Nil when this account cannot vote here — the composer is closed, or the row never reached
     /// the group.
     let onVote: ((String) -> Void)?
@@ -19,14 +23,16 @@ struct PollMessageRow: View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 6) {
             if let senderName, !isOutgoing {
                 Text(senderName)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(MessageTypography.senderName)
+                    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                     .padding(.horizontal, 4)
             }
             PollMessageCard(
                 poll: poll,
                 isOutgoing: isOutgoing,
                 timeLabel: timeLabel,
+                confirmedSelection: confirmedSelection,
+                isVotePending: isVotePending,
                 onVote: onVote,
                 onViewVotes: onViewVotes
             )
@@ -41,6 +47,8 @@ struct PollMessageCard: View {
     let poll: MessagePoll
     let isOutgoing: Bool
     let timeLabel: String
+    var confirmedSelection: Set<String>? = nil
+    var isVotePending = false
     let onVote: ((String) -> Void)?
     var onViewVotes: (() -> Void)? = nil
 
@@ -57,6 +65,8 @@ struct PollMessageCard: View {
                 isOpen: PollPresentation.isOpen(poll, now: .now),
                 isOutgoing: isOutgoing,
                 timeLabel: timeLabel,
+                confirmedSelection: confirmedSelection,
+                isVotePending: isVotePending,
                 onVote: onVote,
                 onViewVotes: onViewVotes
             )
@@ -69,18 +79,20 @@ private struct PollMessageCardContent: View {
     let isOpen: Bool
     let isOutgoing: Bool
     let timeLabel: String
+    let confirmedSelection: Set<String>?
+    let isVotePending: Bool
     let onVote: ((String) -> Void)?
     let onViewVotes: (() -> Void)?
 
-    private var content: Color { MessagesPalette.bubbleContent(isOutgoing: isOutgoing) }
-    private var detail: Color { AttachmentRowPalette.detailContent(isOutgoing: isOutgoing) }
+    private var polarity: MessageBubblePolarity { MessageBubblePolarity(isOutgoing: isOutgoing) }
 
     var body: some View {
+        let confirmed = confirmedSelection ?? Set(poll.localSelection)
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(PeerDisplayText.strippingBidiControls(poll.question))
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(content)
+                    .font(MessageTypography.bodySemibold)
+                    .foregroundStyle(polarity.content)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                 Label(
@@ -88,54 +100,64 @@ private struct PollMessageCardContent: View {
                         ? L10n.string("Poll · Select one or more") : L10n.string("Poll · Select one"),
                     systemImage: "chart.bar.xaxis"
                 )
-                .wnFont(.medium10)
-                .foregroundStyle(detail)
+                .font(.caption)
+                .foregroundStyle(polarity.secondaryContent)
             }
 
             ForEach(poll.options) { option in
+                let isSelected = poll.localSelection.contains(option.id)
+                let isConfirmed = confirmed.contains(option.id)
                 PollOptionRow(
                     option: option,
-                    isSelected: poll.localSelection.contains(option.id),
+                    isConfirmedSelection: isVotePending ? isConfirmed : isSelected,
+                    isPendingChange: isVotePending && (isSelected != isConfirmed),
                     isMultipleChoice: poll.isMultipleChoice,
                     fraction: PollPresentation.fraction(votes: option.votes, participants: poll.participants),
+                    polarity: polarity,
                     isOutgoing: isOutgoing,
                     onVote: isOpen ? onVote : nil
                 )
             }
 
             if let onViewVotes, poll.participants > 0 {
-                PollViewVotesButton(isOutgoing: isOutgoing, action: onViewVotes)
+                PollViewVotesButton(polarity: polarity, action: onViewVotes)
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if isVotePending {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(polarity.secondaryContent)
+                        .accessibilityLabel(L10n.string("Sending…"))
+                }
                 Text(PollFooter.text(poll: poll, isOpen: isOpen))
                 Spacer(minLength: 8)
                 Text(timeLabel)
                     .monospacedDigit()
             }
-            .wnFont(.medium10)
-            .foregroundStyle(detail)
+            .font(MessageTypography.footer)
+            .foregroundStyle(polarity.secondaryContent)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(width: 300, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
+            RoundedRectangle(cornerRadius: MessageBubbleShape.cornerRadius, style: .continuous)
+                .fill(polarity.fill)
         }
     }
 }
 
 /// The card's way into the voter list. Polls are not anonymous, so this shows who picked what.
 private struct PollViewVotesButton: View {
-    let isOutgoing: Bool
+    let polarity: MessageBubblePolarity
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Label(L10n.string("View votes"), systemImage: "person.2")
-                .wnFont(.semiBold12)
-                .foregroundStyle(MessagesPalette.bubbleContent(isOutgoing: isOutgoing))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(polarity.content)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -144,17 +166,79 @@ private struct PollViewVotesButton: View {
 
 private struct PollOptionRow: View {
     let option: MessagePoll.Option
-    let isSelected: Bool
+    /// True only for votes confirmed by MDK; an in-flight local click never claims completion.
+    let isConfirmedSelection: Bool
+    /// True while a click toggling this option is submitting and waiting for confirmation.
+    let isPendingChange: Bool
     let isMultipleChoice: Bool
     let fraction: Double
+    let polarity: MessageBubblePolarity
     let isOutgoing: Bool
     let onVote: ((String) -> Void)?
 
-    private var content: Color { MessagesPalette.bubbleContent(isOutgoing: isOutgoing) }
-    private var detail: Color { AttachmentRowPalette.detailContent(isOutgoing: isOutgoing) }
+    private var labelText: String {
+        PeerDisplayText.strippingBidiControls(option.label)
+    }
+
+    private var accessibilityValueText: String {
+        if isPendingChange {
+            return "\(PollFooter.votes(option.votes)), \(L10n.string("Sending…"))"
+        }
+        return PollFooter.votes(option.votes)
+    }
+
+    var body: some View {
+        if let onVote {
+            Button {
+                onVote(option.id)
+            } label: {
+                PollOptionRowContent(
+                    label: labelText,
+                    votes: option.votes,
+                    isConfirmedSelection: isConfirmedSelection,
+                    isPendingChange: isPendingChange,
+                    isMultipleChoice: isMultipleChoice,
+                    fraction: fraction,
+                    polarity: polarity,
+                    isOutgoing: isOutgoing
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(labelText)
+            .accessibilityValue(accessibilityValueText)
+            .accessibilityAddTraits(isConfirmedSelection ? [.isButton, .isSelected] : .isButton)
+        } else {
+            PollOptionRowContent(
+                label: labelText,
+                votes: option.votes,
+                isConfirmedSelection: isConfirmedSelection,
+                isPendingChange: isPendingChange,
+                isMultipleChoice: isMultipleChoice,
+                fraction: fraction,
+                polarity: polarity,
+                isOutgoing: isOutgoing
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(labelText)
+            .accessibilityValue(accessibilityValueText)
+            .accessibilityAddTraits(isConfirmedSelection ? .isSelected : [])
+        }
+    }
+}
+
+private struct PollOptionRowContent: View {
+    let label: String
+    let votes: UInt64
+    let isConfirmedSelection: Bool
+    let isPendingChange: Bool
+    let isMultipleChoice: Bool
+    let fraction: Double
+    let polarity: MessageBubblePolarity
+    let isOutgoing: Bool
 
     private var symbol: String {
-        switch (isMultipleChoice, isSelected) {
+        switch (isMultipleChoice, isConfirmedSelection) {
         case (true, true): "checkmark.square.fill"
         case (true, false): "square"
         case (false, true): "checkmark.circle.fill"
@@ -163,44 +247,53 @@ private struct PollOptionRow: View {
     }
 
     var body: some View {
-        Button {
-            onVote?(option.id)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: symbol)
-                        .foregroundStyle(isSelected ? content : detail)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if isPendingChange {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(polarity.content)
                         .accessibilityHidden(true)
-                    Text(PeerDisplayText.strippingBidiControls(option.label))
-                        .foregroundStyle(content)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    Text(option.votes, format: .number)
-                        .monospacedDigit()
-                        .foregroundStyle(detail)
+                } else {
+                    Image(systemName: symbol)
+                        .foregroundStyle(isConfirmedSelection ? polarity.content : polarity.secondaryContent)
                         .accessibilityHidden(true)
                 }
-                .wnFont(.medium12)
-                Capsule()
-                    .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
-                    .frame(height: 4)
-                    .overlay(alignment: .leading) {
-                        GeometryReader { proxy in
-                            Capsule()
-                                .fill(content)
-                                .frame(width: proxy.size.width * fraction)
-                        }
-                    }
+                Text(label)
+                    .foregroundStyle(polarity.content)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Text(votes, format: .number)
+                    .monospacedDigit()
+                    .foregroundStyle(polarity.secondaryContent)
                     .accessibilityHidden(true)
             }
-            .contentShape(Rectangle())
+            .font(.subheadline)
+
+            ProgressView(value: min(1, max(0, fraction)), total: 1)
+                .progressViewStyle(PollResultProgressStyle(polarity: polarity, isOutgoing: isOutgoing))
+                .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
-        .disabled(onVote == nil)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(PeerDisplayText.strippingBidiControls(option.label))
-        .accessibilityValue(PollFooter.votes(option.votes))
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct PollResultProgressStyle: ProgressViewStyle {
+    let polarity: MessageBubblePolarity
+    let isOutgoing: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let fraction = configuration.fractionCompleted ?? 0
+        Capsule()
+            .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
+            .frame(height: 4)
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in
+                    Capsule()
+                        .fill(polarity.content)
+                        .frame(width: proxy.size.width * fraction)
+                }
+            }
     }
 }
 

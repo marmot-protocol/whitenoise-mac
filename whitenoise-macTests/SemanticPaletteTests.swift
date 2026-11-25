@@ -479,6 +479,40 @@ struct SemanticPaletteTests {
         #expect(Self.contrastRatio(ownLink, sent) >= 4.5)
     }
 
+    /// Rich message cards (polls, unsupported events, attachment rows) share `MessageBubblePolarity`
+    /// surfaces across both polarities in Light and Dark (#1113, T02, T10, D02).
+    @Test func attachmentRowsClearPolaritySurfacesInBothAppearances() throws {
+        for appearance in try Self.appearances() {
+            for polarity in [MessageBubblePolarity.sent, .received] {
+                let surface = try Self.bubbleSurface(polarity, in: appearance)
+                let content = try Self.composited(polarity.nsContent, over: surface, in: appearance)
+                let detail = try Self.composited(polarity.nsSecondaryContent, over: surface, in: appearance)
+
+                #expect(
+                    Self.contrastRatio(content, surface) >= 4.5,
+                    "\(polarity) attachment title contrast < 4.5 in \(appearance.name.rawValue)"
+                )
+                #expect(
+                    Self.contrastRatio(detail, surface) >= 3.0,
+                    "\(polarity) attachment detail contrast < 3.0 in \(appearance.name.rawValue)"
+                )
+
+                let unplayed = try Self.blended(
+                    content, opacity: AttachmentRowPalette.waveformBarOpacity, over: surface, in: appearance)
+                let played = try Self.blended(
+                    content, opacity: AttachmentRowPalette.waveformPlayedBarOpacity, over: surface, in: appearance)
+                #expect(
+                    Self.contrastRatio(unplayed, surface) >= 3.0,
+                    "\(polarity) waveform unplayed contrast < 3.0 in \(appearance.name.rawValue)"
+                )
+                #expect(
+                    Self.contrastRatio(played, surface) >= 4.5,
+                    "\(polarity) waveform played contrast < 4.5 in \(appearance.name.rawValue)"
+                )
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     /// A bubble's fill as it lands on the transcript's surface (`MessagesTranscriptBackground`).

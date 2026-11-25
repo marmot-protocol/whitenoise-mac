@@ -13,6 +13,7 @@ import AVKit
 import AppKit
 import MarmotKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Oversample factor applied to media thumbnails over their display-point size.
 /// Because tiles use `scaledToFill` (which crops to the center square), a source
@@ -99,9 +100,9 @@ struct ConversationMessageRow: View {
             let isSelected = workspace.selectedTimelineMessageIds.contains(message.id)
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .wnFont(.medium20)
+                    .font(.title3)
                     .foregroundStyle(
-                        isSelected ? WNColor.backgroundContentPrimary : WNColor.backgroundContentTertiary
+                        isSelected ? WNColor.textPrimary : WNColor.backgroundContentTertiary
                     )
                     .frame(width: 24)
                     .padding(.leading, 14)
@@ -142,6 +143,8 @@ struct ConversationMessageRow: View {
                 isOutgoing: message.isOutgoing,
                 senderName: showsSenderName ? message.senderName : nil,
                 timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
+                confirmedSelection: Set(poll.localSelection),
+                isVotePending: conversationModel.pendingPollSelections[message.id] != nil,
                 onVote: canVoteInPolls && message.invalidationStatus == nil ? vote(for: poll) : nil,
                 onViewVotes: poll.participants > 0 ? viewVotes(for: poll) : nil
             )
@@ -211,16 +214,16 @@ struct TimelineNoticeRow: View {
             VStack(spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: message.presentation.systemImage)
-                        .wnFont(.semiBold12)
+                        .font(.caption.weight(.semibold))
                         .symbolRenderingMode(.hierarchical)
 
                     Text(message.body)
-                        .wnFont(.medium10)
+                        .font(.caption)
                         .lineLimit(3)
                         .multilineTextAlignment(.center)
 
                     Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
-                        .wnFont(.medium10.monospacedDigit())
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(WNColor.backgroundContentTertiary)
                 }
 
@@ -228,7 +231,7 @@ struct TimelineNoticeRow: View {
                     MessageDebugMetadataView(message: message, isOutgoing: false)
                 }
             }
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .foregroundStyle(WNColor.messageReceivedSecondaryContent)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background {
@@ -280,6 +283,7 @@ private struct PendingReactionRemoval {
 struct MessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.conversationHoverSelectionCoordinator) private var hoverSelectionCoordinator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Hover and the hover strip's open popover. See `MessageInlineActionPresentation`.
     @State private var inlineActionPresentation = MessageInlineActionPresentation()
     /// The hover strip's own width, measured. See `inlineActions`.
@@ -439,7 +443,7 @@ struct MessageBubble: View {
                 inlineActions
             }
         }
-        .animation(.smooth(duration: 0.12), value: showsInlineActions)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.12), value: showsInlineActions)
         .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
         .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
         .padding(message.isOutgoing ? .leading : .trailing, 72)
@@ -1585,7 +1589,7 @@ struct MessageVisualMediaTile: View {
                 // dark in both.
                 WNColor.overlayTertiary
                 Text(verbatim: "+\(hiddenCount)")
-                    .wnFont(.bold18)
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(WNColor.fillContentQuaternary)
             }
         }
@@ -1668,8 +1672,8 @@ struct MessageVisualMediaTile: View {
                     .controlSize(.small)
             } else {
                 Image(systemName: systemImage)
-                    .wnFont(.semiBold24)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
             }
         }
     }
@@ -1820,6 +1824,33 @@ struct MessageMediaAttachmentView: View {
     }
 }
 
+/// Resolves a native macOS file-type icon via `UTType` and `NSWorkspace.shared.icon(for:)` (D02).
+/// Used only for loaded document cards — never in place of a meaningful failed or loading state.
+nonisolated enum AttachmentFileTypeIcon {
+    static func contentType(mediaType: String, fileName: String) -> UTType? {
+        let trimmedMediaType = mediaType.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedMediaType.isEmpty,
+            let mimeType = UTType(mimeType: trimmedMediaType),
+            !mimeType.isDynamic
+        {
+            return mimeType
+        }
+        let ext = URL(fileURLWithPath: fileName).pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ext.isEmpty, let extType = UTType(filenameExtension: ext) {
+            return extType
+        }
+        if !trimmedMediaType.isEmpty, let mimeType = UTType(mimeType: trimmedMediaType) {
+            return mimeType
+        }
+        return .data
+    }
+
+    static func icon(mediaType: String, fileName: String) -> NSImage? {
+        guard let type = contentType(mediaType: mediaType, fileName: fileName) else { return nil }
+        return NSWorkspace.shared.icon(for: type)
+    }
+}
+
 struct MessageDocumentAttachmentRow: View {
     let download: MessageMediaDownload
     let attachment: MessageMediaAttachment
@@ -1831,6 +1862,8 @@ struct MessageDocumentAttachmentRow: View {
     @State private var handoffControl: MediaFileTransferControlFfi?
 
     var body: some View {
+        let resolvedFileName = download.fileName.nilIfBlank ?? attachment.fileName
+        let resolvedMediaType = download.mediaType.nilIfBlank ?? attachment.mediaType
         // A finished document opens on click of the whole row — no trailing retry/download glyph
         // (the file is already in hand, especially for our own sends). A `Button` (not a tap
         // gesture) keeps it reachable by keyboard/VoiceOver.
@@ -1840,7 +1873,8 @@ struct MessageDocumentAttachmentRow: View {
         } label: {
             MessageAttachmentStatusRow(
                 systemImage: "doc",
-                title: download.fileName.nilIfBlank ?? attachment.fileName,
+                fileIcon: AttachmentFileTypeIcon.icon(mediaType: resolvedMediaType, fileName: resolvedFileName),
+                title: resolvedFileName,
                 detail: mediaDetail,
                 isOutgoing: isOutgoing,
                 isLoading: isOpening
@@ -1919,6 +1953,9 @@ struct MessageDocumentAttachmentRow: View {
 
 struct MessageAttachmentStatusRow: View {
     let systemImage: String
+    /// Native macOS file-type icon for loaded documents (`D02`). Nil for loading, failed, or
+    /// rejected rows so status glyphs are never replaced by a generic file thumbnail.
+    var fileIcon: NSImage? = nil
     let title: String
     let detail: String
     let isOutgoing: Bool
@@ -1927,26 +1964,35 @@ struct MessageAttachmentStatusRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
+            if !isLoading, let fileIcon {
+                Image(nsImage: fileIcon)
+                    .resizable()
+                    .scaledToFit()
                     .frame(width: 30, height: 30)
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
-                } else {
-                    Image(systemName: systemImage)
-                        .wnFont(.semiBold14)
+                    .accessibilityHidden(true)
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
+                        .frame(width: 30, height: 30)
+                    if isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
+                    } else {
+                        Image(systemName: systemImage)
+                            .font(.subheadline.weight(.semibold))
+                    }
                 }
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .wnFont(.semiBold10)
+                    .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Text(detail)
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(AttachmentRowPalette.detailContent(isOutgoing: isOutgoing))
                     .lineLimit(1)
             }
@@ -1955,10 +2001,11 @@ struct MessageAttachmentStatusRow: View {
             if let retryAction {
                 Button(action: retryAction) {
                     Image(systemName: "arrow.clockwise")
-                        .wnFont(.semiBold14)
+                        .font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.plain)
                 .help(L10n.string("Retry"))
+                .accessibilityLabel(L10n.string("Retry"))
             }
         }
         .attachmentRowChrome(isOutgoing: isOutgoing)
@@ -2000,7 +2047,7 @@ struct MessageAudioRow<Control: View, SpeedControl: View>: View {
                 .frame(height: Self.waveformHeight)
 
                 Text(durationLabel)
-                    .wnFont(.medium10.monospacedDigit())
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(AttachmentRowPalette.detailContent(isOutgoing: isOutgoing))
                     .lineLimit(1)
             }
@@ -2042,7 +2089,7 @@ struct MessageAudioSpeedBadge: View {
 
     var body: some View {
         Text(speed.label(locale: locale))
-            .wnFont(.bold10)
+            .font(.caption2.weight(.bold))
             .lineLimit(1)
             .audioRowSpeedChrome(isOutgoing: isOutgoing)
     }
@@ -2081,7 +2128,7 @@ struct MessageAudioAttachmentPlaceholder: View {
                 if let retryAction {
                     Button(action: retryAction) {
                         Image(systemName: "arrow.clockwise")
-                            .wnFont(.bold14)
+                            .font(.subheadline.weight(.bold))
                             .audioRowControlChrome(isOutgoing: isOutgoing)
                     }
                     .buttonStyle(.plain)
@@ -2150,7 +2197,7 @@ struct MessageAudioAttachmentPlayer: View {
                     Task { await togglePlayback() }
                 } label: {
                     Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
-                        .wnFont(.bold14)
+                        .font(.subheadline.weight(.bold))
                         .audioRowControlChrome(isOutgoing: isOutgoing)
                 }
                 .buttonStyle(.plain)
@@ -2390,7 +2437,7 @@ struct MessageVideoAttachmentPlayer: View {
         ZStack {
             WNColor.overlayTertiary
             Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
-                .wnFont(.bold24)
+                .font(.title2.weight(.bold))
                 .foregroundStyle(WNColor.fillContentQuaternary)
                 .frame(width: 48, height: 48)
                 .background(WNColor.overlayTertiary, in: Circle())
@@ -2398,7 +2445,7 @@ struct MessageVideoAttachmentPlayer: View {
             VStack {
                 Spacer()
                 Text(download.fileName.nilIfBlank ?? attachment.fileName)
-                    .wnFont(.semiBold10)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.86))
                     .lineLimit(1)
                     .padding(.horizontal, 8)
@@ -2628,7 +2675,7 @@ struct MessageImageGalleryOverlay: View {
                 VStack {
                     HStack(spacing: 12) {
                         Text(selectedAttachment.fileName)
-                            .wnFont(.semiBold12)
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(WNColor.fillContentQuaternary)
                             .lineLimit(1)
 
@@ -2636,7 +2683,7 @@ struct MessageImageGalleryOverlay: View {
 
                         if canNavigate {
                             Text(verbatim: "\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
-                                .wnFont(.semiBold10.monospacedDigit())
+                                .font(.caption.weight(.semibold).monospacedDigit())
                                 .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.72))
                         }
 
@@ -2655,7 +2702,7 @@ struct MessageImageGalleryOverlay: View {
                                             .tint(WNColor.fillContentQuaternary)
                                     } else {
                                         Image(systemName: "square.and.arrow.down")
-                                            .wnFont(.bold16)
+                                            .font(.body.weight(.semibold))
                                     }
                                 }
                                 .frame(width: 34, height: 34)
@@ -2671,7 +2718,7 @@ struct MessageImageGalleryOverlay: View {
 
                         Button(action: onClose) {
                             Image(systemName: "xmark")
-                                .wnFont(.bold16)
+                                .font(.body.weight(.semibold))
                                 .frame(width: 34, height: 34)
                                 .background(
                                     WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
@@ -2739,7 +2786,7 @@ struct MessageImageGalleryOverlay: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .wnFont(.bold28)
+                .font(.title.weight(.semibold))
                 .frame(width: 54, height: 54)
                 .background(
                     WNColor.fillContentQuaternary.opacity(isEnabled ? 0.16 : 0.06), in: Circle())
@@ -2769,14 +2816,15 @@ struct MessageImageGalleryContent: View {
             case .failed:
                 VStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
-                        .wnFont(.medium18)
+                        .font(.title3)
                     Text(L10n.string("Image unavailable"))
-                        .wnFont(.semiBold12)
+                        .font(.subheadline.weight(.semibold))
                     Button {
                         Task { await workspace.loadMediaAttachment(attachment, for: message) }
                     } label: {
                         Label(L10n.string("Retry"), systemImage: "arrow.clockwise")
                     }
+                    .wnSecondaryButtonStyle()
                 }
                 .foregroundStyle(WNColor.fillContentQuaternary)
             case .loaded(let download):
@@ -2804,7 +2852,7 @@ struct DownsampledMessageGalleryImage: View {
             accessibilityLabel: attachment.fileName
         ) {
             Text(L10n.string("Image unavailable"))
-                .wnFont(.semiBold12)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(WNColor.fillContentQuaternary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -2925,26 +2973,27 @@ struct MessageInlineActions: View {
 }
 
 struct MessageInlineActionIcon: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
     let systemName: String
     let label: String
 
     var body: some View {
         Image(systemName: systemName)
-            .wnFont(.medium18)
+            .font(.body)
             .symbolRenderingMode(.monochrome)
             .foregroundStyle(
-                isHovering ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
+                isHovering ? WNColor.textPrimary : WNColor.messageReceivedSecondaryContent
             )
-            .frame(width: 40, height: 40)
+            .frame(width: 32, height: 32)
             .background {
                 Circle()
                     .fill(isHovering ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 28, height: 28)
             }
             .contentShape(Rectangle())
             .accessibilityLabel(label)
-            .animation(.easeOut(duration: 0.08), value: isHovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: isHovering)
             .onHover { isHovering = $0 }
     }
 }
@@ -3043,6 +3092,7 @@ struct MessageEmojiPickerPopover: View {
 /// same picker the hover React control does.
 struct QuickReactionPicker: View {
     @State private var isFullPickerPresented = false
+    @State private var isMoreHovering = false
     let emojis: [String]
     /// The emoji the viewing account already reacted with, drawn selected. Required, so no caller
     /// can offer the picker without the mark that tells a second click takes the reaction back.
@@ -3054,21 +3104,7 @@ struct QuickReactionPicker: View {
     var body: some View {
         HStack(spacing: 4) {
             QuickReactionButtons(emojis: emojis, selectedEmojis: selectedEmojis, onPick: onPick) { emoji, isSelected in
-                Text(emoji)
-                    .wnFont(.medium24)
-                    .frame(width: 40, height: 40)
-                    .background {
-                        if isSelected {
-                            // The same selected pair the reaction chip under the bubble uses, so
-                            // the menu and the chip agree about which emoji is yours.
-                            Circle()
-                                .fill(WNColor.fillSecondaryActive)
-                                .overlay {
-                                    Circle().strokeBorder(WNColor.borderPrimary, lineWidth: 1)
-                                }
-                        }
-                    }
-                    .contentShape(Circle())
+                QuickReactionButtonLabel(emoji: emoji, isSelected: isSelected)
             }
             .buttonStyle(.plain)
 
@@ -3076,13 +3112,16 @@ struct QuickReactionPicker: View {
                 isFullPickerPresented = true
             } label: {
                 Image(systemName: "plus")
-                    .wnFont(.bold14)
-                    .foregroundStyle(WNColor.fillContentTertiary)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(WNColor.fillContentSecondary)
                     .frame(width: 32, height: 32)
-                    .background(WNColor.fillSecondary, in: Circle())
-                    .frame(width: 40, height: 40)
+                    .background(isMoreHovering ? WNColor.fillSecondaryHover : WNColor.fillSecondary, in: Circle())
+                    .frame(width: 36, height: 36)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .onHover { isMoreHovering = $0 }
+            .help(L10n.string("More emoji"))
             .accessibilityLabel(L10n.string("More emoji"))
             .popover(isPresented: $isFullPickerPresented, arrowEdge: .bottom) {
                 ChatEmojiPicker(custom: customEmoji) { emoji in
@@ -3091,8 +3130,36 @@ struct QuickReactionPicker: View {
                 }
             }
         }
-        .padding(6)
-        .background(.regularMaterial, in: Capsule())
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+}
+
+private struct QuickReactionButtonLabel: View {
+    @State private var isHovering = false
+    let emoji: String
+    let isSelected: Bool
+
+    var body: some View {
+        Text(emoji)
+            .font(.title2)
+            .frame(width: 36, height: 36)
+            .background {
+                if isSelected {
+                    // The same selected pair the reaction chip under the bubble uses, so
+                    // the menu and the chip agree about which emoji is yours.
+                    Circle()
+                        .fill(WNColor.fillSecondaryActive)
+                        .overlay {
+                            Circle().strokeBorder(WNColor.borderPrimary, lineWidth: 1)
+                        }
+                } else if isHovering {
+                    Circle()
+                        .fill(WNColor.fillTertiaryHover)
+                }
+            }
+            .contentShape(Circle())
+            .onHover { isHovering = $0 }
     }
 }
 
@@ -3317,35 +3384,60 @@ struct MessageOverflowPopover: View {
 struct MessageOverflowMenu: View {
     let actions: [MessageRowAction]
 
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-                if index > 0 { Divider() }
-                overflowButton(action)
-            }
-        }
-        .padding(.vertical, 6)
-        .frame(width: 190)
-        .presentationBackground(.regularMaterial)
-        .glassCard(material: .regularMaterial)
+    private var primaryActions: [MessageRowAction] {
+        actions.filter { $0.role != .destructive }
     }
 
-    private func overflowButton(_ action: MessageRowAction) -> some View {
+    private var destructiveActions: [MessageRowAction] {
+        actions.filter { $0.role == .destructive }
+    }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(primaryActions) { action in
+                MessageOverflowMenuItem(action: action)
+            }
+            if !primaryActions.isEmpty, !destructiveActions.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+            }
+            ForEach(destructiveActions) { action in
+                MessageOverflowMenuItem(action: action)
+            }
+        }
+        .padding(6)
+        .frame(width: 196)
+    }
+}
+
+private struct MessageOverflowMenuItem: View {
+    @State private var isHovering = false
+    let action: MessageRowAction
+
+    var body: some View {
         Button(role: action.role, action: action.run) {
             HStack(spacing: 10) {
                 Image(systemName: action.systemImage)
                     .frame(width: 18)
                 Text(action.title)
-                Spacer()
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .font(.body)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? WNColor.fillTertiaryHover : .clear)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(
             action.role == .destructive
-                ? WNColor.backgroundContentDestructive : WNColor.backgroundContentPrimary)
+                ? WNColor.intentionErrorContent : WNColor.textPrimary
+        )
+        .onHover { isHovering = $0 }
     }
 }
 
@@ -3412,15 +3504,27 @@ struct MessageContextMenuItems: View {
                 Divider()
             }
 
-            ForEach(
-                MessageRowAction.all(
-                    for: message,
-                    workspace: workspace,
-                    moderation: moderation,
-                    discardFailedSend: discardFailedSend,
-                    focusComposer: composerFocusRequester.request
-                )
-            ) { action in
+            let rowActions = MessageRowAction.all(
+                for: message,
+                workspace: workspace,
+                moderation: moderation,
+                discardFailedSend: discardFailedSend,
+                focusComposer: composerFocusRequester.request
+            )
+            let standardActions = rowActions.filter { $0.role != .destructive }
+            let destructiveActions = rowActions.filter { $0.role == .destructive }
+
+            ForEach(standardActions) { action in
+                Button(role: action.role, action: action.run) {
+                    Label(action.title, systemImage: action.systemImage)
+                }
+            }
+
+            if !standardActions.isEmpty, !destructiveActions.isEmpty {
+                Divider()
+            }
+
+            ForEach(destructiveActions) { action in
                 Button(role: action.role, action: action.run) {
                     Label(action.title, systemImage: action.systemImage)
                 }
@@ -3504,3 +3608,55 @@ struct TimelineDayHeaderView: View {
         .padding(.vertical, 2)
     }
 }
+
+#if DEBUG
+    #Preview("Attachment rows – Polarities") {
+        VStack(alignment: .leading, spacing: 12) {
+            MessageAttachmentStatusRow(
+                systemImage: "doc",
+                fileIcon: AttachmentFileTypeIcon.icon(mediaType: "application/pdf", fileName: "architecture.pdf"),
+                title: "architecture.pdf",
+                detail: "2.4 MB",
+                isOutgoing: false
+            )
+            MessageAttachmentStatusRow(
+                systemImage: "doc",
+                fileIcon: AttachmentFileTypeIcon.icon(mediaType: "application/pdf", fileName: "architecture.pdf"),
+                title: "architecture.pdf",
+                detail: "2.4 MB",
+                isOutgoing: true
+            )
+            MessageAttachmentStatusRow(
+                systemImage: "exclamationmark.triangle",
+                title: "missing.zip",
+                detail: L10n.string("Attachment unavailable"),
+                isOutgoing: false,
+                retryAction: {}
+            )
+            MessageAudioAttachmentPlaceholder(
+                isOutgoing: true,
+                accessibilityLabel: "Voice message"
+            )
+        }
+        .padding()
+        .background(WNColor.backgroundPrimary)
+    }
+
+    #Preview("Message actions & quick reactions") {
+        VStack(spacing: 16) {
+            QuickReactionPicker(
+                emojis: ChatReactionDefaults.quick,
+                selectedEmojis: ["👍"],
+                onPick: { _ in }
+            )
+            MessageOverflowMenu(
+                actions: [
+                    MessageRowAction(kind: .info, title: "Message Info", systemImage: "info.circle", role: nil) {},
+                    MessageRowAction(kind: .copy, title: "Copy Text", systemImage: "doc.on.doc", role: nil) {},
+                    MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {},
+                ]
+            )
+        }
+        .padding()
+    }
+#endif
