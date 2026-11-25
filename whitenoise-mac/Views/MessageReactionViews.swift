@@ -32,7 +32,7 @@ struct MessageReactionChips: View {
                     ReactionEmojiGlyph(emoji: reaction.emoji, image: emojiImages[reaction.emoji])
                     if reaction.count > 1 {
                         Text(verbatim: MessageReactionChipRow.countLabel(for: reaction.count))
-                            .wnFont(.semiBold10.monospacedDigit())
+                            .font(.caption2.weight(.semibold).monospacedDigit())
                             // Paired with the pill's own fill: the resting pill is a `background*`
                             // surface, the selected one a `fill*`. The two tokens resolve alike
                             // today, which is exactly why naming the right one matters — see the
@@ -40,7 +40,7 @@ struct MessageReactionChips: View {
                             .foregroundStyle(
                                 reaction.isOwn
                                     ? WNColor.fillContentSecondary
-                                    : WNColor.backgroundContentPrimary)
+                                    : WNColor.textPrimary)
                     }
                 }
             }
@@ -49,14 +49,15 @@ struct MessageReactionChips: View {
                     onOpenViewer(nil)
                 } label: {
                     Text(verbatim: "+\(row.hiddenGroupCount)")
-                        .wnFont(.semiBold10.monospacedDigit())
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(WNColor.textPrimary)
                 }
                 // "+2" alone says nothing out loud, and the pill's job is to open the full list.
                 // The catalog's existing "More" — the message overflow control's label — rather
                 // than a reactions-specific string: it is the same plain adjective in all nine
                 // translations, and it is what this pill means.
                 .accessibilityLabel(L10n.string("More"))
+                .help(L10n.string("More"))
             }
         }
     }
@@ -91,7 +92,7 @@ private struct MessageReactionChipPill<Label: View>: View {
             HStack(spacing: 2) {
                 label
             }
-            .wnFont(.medium12)
+            .font(.caption)
             .padding(.horizontal, MessageReactionChips.horizontalInset)
             .frame(height: MessageReactionChips.pillHeight)
             .background {
@@ -106,6 +107,7 @@ private struct MessageReactionChipPill<Label: View>: View {
         }
         .buttonStyle(.plain)
         .contentShape(Capsule(style: .continuous))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -402,15 +404,12 @@ private struct MessageReactionRefreshFailedRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(L10n.string("Couldn’t refresh reactions."))
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(WNColor.intentionErrorContent)
             Spacer(minLength: 8)
-            // `.link` draws in AppKit's link color, system blue, and ignores `.tint`; only a
-            // foreground style overrides it.
             Button(L10n.string("Retry"), action: onRetry)
-                .buttonStyle(.link)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
-                .wnFont(.semiBold10)
+                .wnSecondaryButtonStyle()
+                .controlSize(.small)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -449,6 +448,7 @@ private struct MessageReactionFilterRow: View {
 /// scroll view so it stays reachable however many emoji kinds the message carries.
 private struct MessageReactionAddButton: View {
     @State private var isPickerPresented = false
+    @State private var isHovering = false
     let quickReactions: [String]
     let selectedEmojis: Set<String>
     let customEmoji: CustomEmojiPickerContent?
@@ -459,15 +459,16 @@ private struct MessageReactionAddButton: View {
             isPickerPresented = true
         } label: {
             Image(systemName: "face.smiling")
-                .wnFont(.semiBold12)
+                .font(.caption.weight(.semibold))
                 // A filter pill at rest: a button on a `background*` surface takes the
                 // fill/fill-content pair.
                 .foregroundStyle(WNColor.fillContentSecondary)
                 .frame(width: 30, height: 30)
-                .background(WNColor.fillSecondary, in: Circle())
+                .background(isHovering ? WNColor.fillSecondaryHover : WNColor.fillSecondary, in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
         .accessibilityLabel(L10n.string("React"))
         .help(L10n.string("React"))
         .popover(isPresented: $isPickerPresented, arrowEdge: .bottom) {
@@ -482,6 +483,7 @@ private struct MessageReactionAddButton: View {
 }
 
 private struct MessageReactionFilterPill<Label: View>: View {
+    @State private var isHovering = false
     let isSelected: Bool
     let count: Int
     let action: () -> Void
@@ -492,18 +494,24 @@ private struct MessageReactionFilterPill<Label: View>: View {
             HStack(spacing: 5) {
                 label
                 Text(verbatim: "\(count)")
-                    .wnFont(.semiBold10)
+                    .font(.caption2.weight(.semibold).monospacedDigit())
             }
-            .wnFont(.semiBold12)
+            .font(.caption.weight(.semibold))
             // The viewer's filter pills are buttons on a `background*` surface, so they take the
             // fill/fill-content pairs: `fillPrimary` when active, `fillSecondary` at rest.
             .foregroundStyle(isSelected ? WNColor.fillContentPrimary : WNColor.fillContentSecondary)
             .padding(.horizontal, 12)
             .frame(minHeight: 30)
-            .background(isSelected ? WNColor.fillPrimary : WNColor.fillSecondary, in: Capsule())
+            .background(pillFill, in: Capsule())
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var pillFill: Color {
+        if isSelected { return WNColor.fillPrimary }
+        return isHovering ? WNColor.fillSecondaryHover : WNColor.fillSecondary
     }
 }
 
@@ -558,6 +566,7 @@ private struct MessageReactionReactorList: View {
 }
 
 private struct MessageReactionReactorRow: View {
+    @State private var isHovering = false
     let row: MessageReactionReactorList.Row
     let emojiImage: NSImage?
     let removesSeveralReactions: Bool
@@ -571,11 +580,12 @@ private struct MessageReactionReactorRow: View {
                 onRemove(row.reaction)
             } label: {
                 MessageReactionReactorRowContent(
-                    row: row, emojiImage: emojiImage, removeHint: removeHint)
+                    row: row, emojiImage: emojiImage, removeHint: removeHint, isHovering: isHovering)
             }
             .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
         } else {
-            MessageReactionReactorRowContent(row: row, emojiImage: emojiImage, removeHint: nil)
+            MessageReactionReactorRowContent(row: row, emojiImage: emojiImage, removeHint: nil, isHovering: false)
         }
     }
 
@@ -589,6 +599,7 @@ private struct MessageReactionReactorRowContent: View {
     let row: MessageReactionReactorList.Row
     let emojiImage: NSImage?
     let removeHint: String?
+    let isHovering: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -601,20 +612,22 @@ private struct MessageReactionReactorRowContent: View {
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.reactor.isSelf ? L10n.string("You") : row.reactor.name)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
+                    .foregroundStyle(WNColor.textPrimary)
                     .lineLimit(1)
                 if let removeHint {
                     Text(removeHint)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                 }
             }
             Spacer(minLength: 8)
             ReactionEmojiGlyph(emoji: row.reaction.emoji, image: emojiImage, size: 20)
-                .wnFont(.medium16)
+                .font(.body)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        .background(isHovering ? WNColor.fillTertiaryHover : .clear)
         .contentShape(Rectangle())
     }
 }
@@ -678,6 +691,26 @@ private struct MessageReactionReactorRowContent: View {
             quickReactions: ChatReactionDefaults.quick,
             react: { _ in }
         )
+    }
+
+    #Preview("Reaction chips – Light & Dark") {
+        HStack(spacing: 16) {
+            MessageReactionChips(
+                reactions: MessageReactionDetailsPreviewData.projected.reactions,
+                omittedKinds: 2
+            ) { _ in }
+            .padding()
+            .background(WNColor.backgroundPrimary)
+            .environment(\.colorScheme, .light)
+
+            MessageReactionChips(
+                reactions: MessageReactionDetailsPreviewData.projected.reactions,
+                omittedKinds: 2
+            ) { _ in }
+            .padding()
+            .background(WNColor.backgroundPrimary)
+            .environment(\.colorScheme, .dark)
+        }
     }
 
     #Preview("Reaction details") {

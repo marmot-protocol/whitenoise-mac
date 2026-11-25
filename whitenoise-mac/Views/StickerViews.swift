@@ -55,6 +55,7 @@ private struct StickerLoadRequest: Equatable {
 private struct StickerPlaceholder: View {
     enum Phase { case loading, waitingForClick, failed }
 
+    @State private var isHovering = false
     let phase: Phase
     let label: String?
     let onLoad: () -> Void
@@ -64,23 +65,35 @@ private struct StickerPlaceholder: View {
         switch phase {
         case .loading:
             shape.fill(WNColor.fillSecondary)
+                .overlay {
+                    shape.strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                }
                 .overlay { ProgressView().controlSize(.small) }
         case .waitingForClick, .failed:
             Button(action: onLoad) {
                 VStack(spacing: 6) {
                     Image(systemName: phase == .failed ? "exclamationmark.triangle" : "face.dashed")
-                        .wnFont(.medium18)
+                        .font(.title3)
+                        .foregroundStyle(
+                            phase == .failed
+                                ? WNColor.intentionErrorContent
+                                : WNColor.messageReceivedSecondaryContent
+                        )
                     Text(phase == .failed ? L10n.string("Click to retry") : (label ?? L10n.string("Click to load")))
-                        .wnFont(.medium10)
+                        .font(.caption)
+                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                         .multilineTextAlignment(.center)
                 }
-                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .padding(8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(shape.fill(WNColor.fillSecondary))
+                .background(shape.fill(isHovering ? WNColor.fillSecondaryHover : WNColor.fillSecondary))
+                .overlay {
+                    shape.strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                }
                 .contentShape(shape)
             }
             .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
             .help(L10n.string("Loads the sticker from the server its pack uses."))
         }
     }

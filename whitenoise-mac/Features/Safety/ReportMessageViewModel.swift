@@ -85,6 +85,7 @@ final class ReportMessageViewModel: Identifiable {
     @ObservationIgnored private let dependencies: ReportMessageDependencies
     /// What the first submit committed to; a retry finishes exactly that.
     @ObservationIgnored private var committedToTeam: Bool?
+    @ObservationIgnored private var submissionTask: Task<Void, Never>?
 
     init(eligibility: MessageModerationEligibility, dependencies: ReportMessageDependencies) {
         self.reportsToGroup = eligibility.reportsToGroup
@@ -110,12 +111,37 @@ final class ReportMessageViewModel: Identifiable {
 
     var canSubmit: Bool { !isSending && !isSubmitted && plan != nil }
 
+    /// Starts submission synchronously so `isSending` flips on the same main-actor turn as the
+    /// button tap, before the async task begins executing or a queued Escape can dismiss the sheet.
+    @discardableResult
+    func beginSubmit(onSubmitted: @escaping @MainActor () -> Void = {}) -> Task<Void, Never>? {
+        guard !isSending, !isSubmitted, let plan else { return nil }
+        isSending = true
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.submissionTask = nil }
+            await self.runSubmit(plan: plan)
+            if self.isSubmitted, !Task.isCancelled { onSubmitted() }
+        }
+        submissionTask = task
+        return task
+    }
+
+    func cancelSubmissionTask() {
+        submissionTask?.cancel()
+        submissionTask = nil
+    }
+
     func submit() async {
         guard !isSending, !isSubmitted, let plan else { return }
+        isSending = true
+        await runSubmit(plan: plan)
+    }
+
+    private func runSubmit(plan: ReportSubmissionPlan) async {
         if groupOutcome == nil { committedToTeam = plan.toTeam }
         let reason = reason
         let explanation = explanation
-        isSending = true
         error = nil
         defer { isSending = false }
 

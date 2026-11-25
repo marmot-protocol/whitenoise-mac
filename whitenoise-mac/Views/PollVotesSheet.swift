@@ -62,8 +62,7 @@ struct PollVotesSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             PollVotesHeader(
                 question: model.poll?.question,
-                participants: model.poll?.participants ?? 0,
-                onClose: onClose
+                participants: model.poll?.participants ?? 0
             )
 
             Divider()
@@ -71,6 +70,17 @@ struct PollVotesSheet: View {
             ScrollView {
                 PollVotesList(model: model, blockedAccountIDs: blockedAccountIDs, voterDisplay: voterDisplay)
             }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button(L10n.string("Done"), action: onClose)
+                    .wnSecondaryButtonStyle()
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
         .frame(width: 380)
         .frame(minHeight: 360, idealHeight: 480)
@@ -90,8 +100,8 @@ struct PollVotesList: View {
             if model.votes.isEmpty {
                 if model.showsNoVotes {
                     Text(L10n.string("No votes yet."))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                 }
             } else {
                 ForEach(model.groups(blockedAccountIDs: blockedAccountIDs)) { group in
@@ -101,41 +111,39 @@ struct PollVotesList: View {
             PollVotesPagingFooter(model: model)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(20)
     }
 }
 
 private struct PollVotesHeader: View {
     let question: String?
     let participants: UInt64
-    let onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L10n.string("Votes"))
-                    .wnFont(.semiBold14)
-                Spacer()
-                GlassCircleCloseButton(action: onClose)
-            }
+            Text(L10n.string("Votes"))
+                .font(.headline)
+                .foregroundStyle(WNColor.textPrimary)
             if let question {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(PeerDisplayText.strippingBidiControls(question))
-                        .wnFont(.medium12)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                     Text(PollFooter.votes(participants))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                 }
             }
             Label(L10n.string("Votes in this poll are visible to everyone in the chat."), systemImage: "eye")
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
         .padding(.bottom, 12)
     }
 }
@@ -148,12 +156,13 @@ private struct PollVoteGroupSection: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(PeerDisplayText.strippingBidiControls(group.option.label))
-                    .wnFont(.semiBold12)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(WNColor.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Text(PollFooter.votes(group.option.votes))
-                    .wnFont(.medium10.monospacedDigit())
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
             }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
@@ -179,15 +188,16 @@ private struct PollVoterRow: View {
                 isSelected: false
             )
             Text(display.isSelf ? L10n.string("You") : display.name)
-                .wnFont(.medium12)
+                .font(.subheadline)
+                .foregroundStyle(WNColor.textPrimary)
                 .lineLimit(1)
             if voter.isBlocked {
                 PollBlockedVoterBadge()
             }
             Spacer(minLength: 8)
             Text(DisplayText.messageTimestamp(for: Date(timeIntervalSince1970: TimeInterval(voter.votedAt))))
-                .wnFont(.medium10.monospacedDigit())
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(WNColor.messageReceivedSecondaryContent)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
@@ -198,7 +208,7 @@ private struct PollVoterRow: View {
 private struct PollBlockedVoterBadge: View {
     var body: some View {
         Text(L10n.string("Blocked"))
-            .wnFont(.semiBold10)
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(WNColor.intentionErrorContent)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -217,8 +227,8 @@ private struct PollVotesPagingFooter: View {
         }
         if model.failed {
             Text(L10n.string("Couldn’t load votes."))
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentDestructive)
+                .font(.subheadline)
+                .foregroundStyle(WNColor.intentionErrorContent)
         }
         if model.failed || model.hasMoreAfter {
             Button(model.failed ? L10n.string("Retry") : L10n.string("Load more")) {
@@ -228,6 +238,7 @@ private struct PollVotesPagingFooter: View {
                     model.loadMore()
                 }
             }
+            .wnSecondaryButtonStyle()
             .disabled(model.isLoading)
         }
     }

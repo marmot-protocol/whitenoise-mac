@@ -222,7 +222,8 @@ nonisolated enum MessagesPalette {
 /// The received bubble uses native roles (`secondarySystemFill`, `labelColor`,
 /// `secondaryLabelColor`, `systemFill`, `linkColor`). The sent bubble keeps the inverted primary
 /// fill and its paired content, with its secondary roles crossing over the same way.
-/// Poll, unsupported-event and attachment cards keep `MessagesPalette` until #1113 moves them.
+/// Rich message cards (polls, unsupported events, link/Nostr previews) and attachment rows share
+/// these same roles across both polarities (#1113).
 nonisolated enum MessageBubblePolarity: Hashable, Sendable {
     case sent
     case received
@@ -301,37 +302,30 @@ nonisolated enum MessageTypography {
     static let dayDivider: Font = .subheadline.weight(.semibold)
 }
 
+/// Shared color roles for cards embedded inside a message bubble (link previews, Nostr event
+/// previews), falling back to standard surface tokens when rendered outside a bubble (#1113).
+nonisolated struct MessageEmbeddedCardPalette {
+    let polarity: MessageBubblePolarity?
+
+    var surfaceFill: Color { polarity?.quoteFill ?? WNColor.backgroundPrimary }
+    var primaryContent: Color { polarity?.content ?? WNColor.textPrimary }
+    var secondaryContent: Color { polarity?.secondaryContent ?? WNColor.messageReceivedSecondaryContent }
+    var imageSlotFill: Color { polarity.map { $0.content.opacity(0.08) } ?? WNColor.fillSecondary }
+    var hairlineStroke: Color { polarity.map { $0.content.opacity(0.12) } ?? WNColor.borderTertiary }
+}
+
 /// Surface for the non-visual attachment rows: the audio player, the download/failed status rows,
 /// and the document row.
 ///
 /// Unlike the reply quote, these rows sit *beside* the bubble in `MessageBubble`'s stack rather than
 /// inside it, so they never inherit `BubbleBackground`'s fill and have to bring their own.
 nonisolated enum AttachmentRowPalette {
-    /// The same fill the sent bubble uses, which is what `outgoingContent` is drawn for.
-    ///
-    /// It has to stay **opaque**. A translucent wash composites against whatever is behind the
-    /// row, and what is behind it is the window background: dark in dark appearance, light in light
-    /// appearance. That is how sent voice notes and documents came to render white-on-white and
-    /// vanish in light mode while looking correct in dark.
-    static let outgoingFill = MessagesPalette.sentBubble
-
-    /// Received rows take the received bubble's fill, so an attachment row reads as part of the
-    /// same message as the bubble above it.
-    static let incomingFill = MessagesPalette.receivedBubble
-
-    /// The row's content — play button, waveform, detail text. Paired with the fill above, which
-    /// matters more here than anywhere else in the app: both fills invert between appearances, so a
-    /// literal `.white` (what these rows used to draw) is correct in exactly one of the four
-    /// combinations.
-    static let outgoingContent = MessagesPalette.sentBubbleContent
-    static let incomingContent = MessagesPalette.receivedBubbleContent
-
     static func fill(isOutgoing: Bool) -> Color {
-        isOutgoing ? outgoingFill : incomingFill
+        Color(nsColor: nsFill(isOutgoing: isOutgoing))
     }
 
     static func content(isOutgoing: Bool) -> Color {
-        isOutgoing ? outgoingContent : incomingContent
+        Color(nsColor: nsContent(isOutgoing: isOutgoing))
     }
 
     /// The disc behind a play/status glyph, and the unplayed waveform. Derived from the row's own
@@ -365,17 +359,27 @@ nonisolated enum AttachmentRowPalette {
         content(isOutgoing: isOutgoing).opacity(waveformPlayedBarOpacity)
     }
 
-    /// Detail text inside an attachment row — file size, duration.
-    ///
-    /// Derived from the row's own content, like every other value here, because the fill it is
-    /// drawn on is the row's — not the window's. The flat `backgroundContentTertiary` this used to
-    /// be is a *background* token, and pairing it with a bubble fill is the crossover this palette
-    /// exists to prevent: it measured 7.85:1 on the outgoing bubble in light appearance and 2.31:1
-    /// on the incoming one, the same label failing in one place and shouting in another.
+    /// Detail text inside an attachment row — file size, duration — stepped back from the row's
+    /// primary content at 0.72 opacity so both outgoing and incoming rows clear WCAG AA 4.5:1
+    /// contrast in both appearances.
     static let detailContentOpacity = 0.72
 
+    static func nsFill(isOutgoing: Bool) -> NSColor {
+        MessageBubblePolarity(isOutgoing: isOutgoing).nsFill
+    }
+
+    static func nsContent(isOutgoing: Bool) -> NSColor {
+        MessageBubblePolarity(isOutgoing: isOutgoing).nsContent
+    }
+
+    static func nsDetailContent(isOutgoing: Bool) -> NSColor {
+        NSColor(name: nil) { _ in
+            nsContent(isOutgoing: isOutgoing).withAlphaComponent(detailContentOpacity)
+        }
+    }
+
     static func detailContent(isOutgoing: Bool) -> Color {
-        content(isOutgoing: isOutgoing).opacity(detailContentOpacity)
+        Color(nsColor: nsDetailContent(isOutgoing: isOutgoing))
     }
 }
 

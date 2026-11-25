@@ -390,15 +390,19 @@ struct whitenoise_macTests: WorkspaceTestSupport {
     /// Opacity in *both* appearances is the property that matters: an alpha < 1 here means the row
     /// is at the mercy of whatever is behind it, which is exactly the bug.
     @Test func outgoingAttachmentRowFillCoversTheWindowBackgroundInBothAppearances() throws {
-        #expect(AttachmentRowPalette.fill(isOutgoing: true) == AttachmentRowPalette.outgoingFill)
-        #expect(AttachmentRowPalette.fill(isOutgoing: false) == AttachmentRowPalette.incomingFill)
+        #expect(
+            AttachmentRowPalette.fill(isOutgoing: true) == Color(nsColor: AttachmentRowPalette.nsFill(isOutgoing: true))
+        )
+        #expect(
+            AttachmentRowPalette.fill(isOutgoing: false)
+                == Color(nsColor: AttachmentRowPalette.nsFill(isOutgoing: false)))
 
         for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try #require(NSAppearance(named: appearanceName))
             var outgoing: NSColor?
             var windowBackground: NSColor?
             appearance.performAsCurrentDrawingAppearance {
-                outgoing = NSColor(AttachmentRowPalette.outgoingFill).usingColorSpace(.sRGB)
+                outgoing = AttachmentRowPalette.nsFill(isOutgoing: true).usingColorSpace(.sRGB)
                 windowBackground = NSColor.windowBackgroundColor.usingColorSpace(.sRGB)
             }
             let fill = try #require(outgoing)

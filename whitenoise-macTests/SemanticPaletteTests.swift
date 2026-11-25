@@ -160,35 +160,40 @@ struct SemanticPaletteTests {
     /// the incoming one, and the duration label — drawn in the flat *background* token
     /// `backgroundContentTertiary` rather than in the row's content — ran from 7.85 down to 2.31.
     @Test func attachmentRowTonesClearTheRowFillTheyAreDrawnOn() throws {
-        // Row fill paired with the content every tone in the row is derived from.
-        let rows: [(name: String, fill: NSColor, content: NSColor)] = [
-            ("outgoing", WNNSColor.fillPrimary, WNNSColor.fillContentPrimary),
-            ("incoming", WNNSColor.backgroundMessageIncoming, WNNSColor.backgroundContentPrimary),
-        ]
-        // The unplayed waveform is a graphical object, so it takes WCAG's non-text bar; the
-        // duration label is small text and takes the body-text one. The disc behind the play
-        // control is deliberately absent: it is a locator for a glyph that carries its own
-        // contrast, so a threshold on it would be a number invented to be met.
-        let tones: [(name: String, opacity: Double, minimum: Double)] = [
-            ("waveform bar", AttachmentRowPalette.waveformBarOpacity, 3.0),
-            ("played waveform bar", AttachmentRowPalette.waveformPlayedBarOpacity, 4.5),
-            ("duration label", AttachmentRowPalette.detailContentOpacity, 4.5),
-        ]
-
+        // Measure the exact colors `AttachmentRowPalette` vends as they land on screen: unplayed
+        // waveform bars at WCAG's 3.0 non-text bar, played bars and duration/file detail text at
+        // WCAG AA 4.5.
         for appearance in try Self.appearances() {
-            for row in rows {
-                for tone in tones {
-                    let drawn = try Self.blended(
-                        row.content,
-                        opacity: tone.opacity,
-                        over: row.fill,
-                        in: appearance
-                    )
-                    let ratio = try Self.contrast(drawn, row.fill, in: appearance)
+            for isOutgoing in [true, false] {
+                let surface = try Self.composited(
+                    AttachmentRowPalette.nsFill(isOutgoing: isOutgoing),
+                    over: WNNSColor.backgroundPrimary,
+                    in: appearance
+                )
+                let content = try Self.composited(
+                    AttachmentRowPalette.nsContent(isOutgoing: isOutgoing), over: surface, in: appearance
+                )
+                let detail = try Self.composited(
+                    AttachmentRowPalette.nsDetailContent(isOutgoing: isOutgoing), over: surface, in: appearance
+                )
+
+                let unplayed = try Self.blended(
+                    content, opacity: AttachmentRowPalette.waveformBarOpacity, over: surface, in: appearance
+                )
+                let played = try Self.blended(
+                    content, opacity: AttachmentRowPalette.waveformPlayedBarOpacity, over: surface, in: appearance
+                )
+                let checks: [(name: String, drawn: NSColor, minimum: Double)] = [
+                    ("waveform bar", unplayed, 3.0),
+                    ("played waveform bar", played, 4.5),
+                    ("duration label", detail, 4.5),
+                ]
+                for check in checks {
+                    let ratio = Self.contrastRatio(check.drawn, surface)
                     #expect(
-                        ratio >= tone.minimum,
+                        ratio >= check.minimum,
                         """
-                        \(row.name) \(tone.name) contrast \(ratio) < \(tone.minimum) \
+                        \(isOutgoing ? "outgoing" : "incoming") \(check.name) contrast \(ratio) < \(check.minimum) \
                         in \(appearance.name.rawValue)
                         """
                     )

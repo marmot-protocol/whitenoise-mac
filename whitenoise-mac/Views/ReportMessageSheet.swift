@@ -6,81 +6,90 @@ import SwiftUI
 struct ReportMessageSheet: View {
     let model: ReportMessageViewModel
     let dismiss: () -> Void
-    @State private var operation: Task<Void, Never>?
 
     var body: some View {
         @Bindable var model = model
-        VStack(alignment: .leading, spacing: 18) {
-            Text(L10n.string("Report Message"))
-                .wnFont(.semiBold18)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(L10n.string("Report Message"))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(WNColor.textPrimary)
 
-            ReportReasonPicker(reason: $model.reason)
+                ReportReasonPicker(reason: $model.reason)
+                    .disabled(model.isLocked)
+
+                TextField(
+                    L10n.string("Explanation (optional)"),
+                    text: $model.explanation,
+                    axis: .vertical
+                )
+                .font(.body)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(3...6)
                 .disabled(model.isLocked)
 
-            TextField(
-                L10n.string("Explanation (optional)"),
-                text: $model.explanation,
-                axis: .vertical
-            )
-            .lineLimit(3...6)
-            .disabled(model.isLocked)
-
-            if model.reportsToGroup {
-                ReportSheetFootnote(
-                    text: L10n.string(
-                        "Reports are shared inside this encrypted group. Group members can read your report and explanation."
+                if model.reportsToGroup {
+                    ReportSheetFootnote(
+                        text: L10n.string(
+                            "Reports are shared inside this encrypted group. Group members can read your report and explanation."
+                        )
                     )
-                )
-            }
+                }
 
-            if model.canReportToTeam {
-                VStack(alignment: .leading, spacing: 6) {
-                    if model.reportsToGroup {
-                        WNToggle(
-                            L10n.string("Send to White Noise"),
-                            isOn: $model.sendsToTeam,
-                            presentation: .checkbox
-                        )
-                        .disabled(model.isLocked)
-                    }
-                    if model.reportsToTeam {
-                        ReportSheetFootnote(
-                            text: L10n.string(
-                                "Your report and the sender’s public key are sent privately to the White Noise team. The message itself isn’t shared, and the sender isn’t notified."
+                if model.canReportToTeam {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if model.reportsToGroup {
+                            WNToggle(
+                                L10n.string("Send to White Noise"),
+                                isOn: $model.sendsToTeam,
+                                presentation: .checkbox
                             )
-                        )
+                            .disabled(model.isLocked)
+                        }
+                        if model.reportsToTeam {
+                            ReportSheetFootnote(
+                                text: L10n.string(
+                                    "Your report and the sender’s public key are sent privately to the White Noise team. The message itself isn’t shared, and the sender isn’t notified."
+                                )
+                            )
+                        }
                     }
                 }
-            }
 
-            if let error = model.error {
-                SettingsErrorView(error: error)
+                if let error = model.error {
+                    ReportSheetErrorText(message: error)
+                }
             }
+            .padding(20)
+
+            Divider()
 
             HStack {
-                Button(L10n.string("Cancel"), action: dismiss)
-                    .disabled(model.isSending)
+                Button(L10n.string("Cancel")) {
+                    guard !model.isSending else { return }
+                    dismiss()
+                }
+                .wnSecondaryButtonStyle()
+                .disabled(model.isSending)
+                .keyboardShortcut(.cancelAction)
                 Spacer()
                 if model.isSending {
                     ProgressView()
                         .controlSize(.small)
                 }
                 Button(L10n.string("Report")) {
-                    operation = Task {
-                        await model.submit()
-                        if model.isSubmitted { dismiss() }
-                    }
+                    model.beginSubmit(onSubmitted: dismiss)
                 }
                 .wnPrimaryButtonStyle()
                 .disabled(!model.canSubmit)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
-        .padding(24)
-        .frame(width: 520)
+        .frame(width: 480)
         .interactiveDismissDisabled(model.isSending)
         .onDisappear {
-            operation?.cancel()
-            operation = nil
+            model.cancelSubmissionTask()
         }
     }
 }
@@ -94,6 +103,7 @@ private struct ReportReasonPicker: View {
                 Text(ReportPresentation.title(reason)).tag(reason)
             }
         }
+        .pickerStyle(.menu)
     }
 }
 
@@ -102,8 +112,20 @@ private struct ReportSheetFootnote: View {
 
     var body: some View {
         Text(text)
-            .wnFont(.medium10)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .font(.caption)
+            .foregroundStyle(WNColor.messageReceivedSecondaryContent)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct ReportSheetErrorText: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.subheadline)
+            .foregroundStyle(WNColor.intentionErrorContent)
+            .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
     }
 }

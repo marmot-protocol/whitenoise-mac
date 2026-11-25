@@ -29,7 +29,12 @@ struct MessageSendFailureActions: View {
     var body: some View {
         Button(L10n.string("Retry"), systemImage: "arrow.clockwise", action: onRetry)
             .buttonStyle(.link)
-            .wnFont(.medium10)
+            .font(.caption)
             .labelStyle(.titleOnly)
     }
+}
+
+#Preview("Send failure action") {
+    MessageSendFailureActions(onRetry: {})
+        .padding()
 }

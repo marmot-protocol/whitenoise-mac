@@ -15,8 +15,8 @@ struct UnsupportedEventRow: View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 6) {
             if let senderName, !isOutgoing {
                 Text(senderName)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(MessageTypography.senderName)
+                    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                     .padding(.horizontal, 4)
             }
             UnsupportedEventCard(event: event, isOutgoing: isOutgoing, timeLabel: timeLabel, onCopyJSON: onCopyJSON)
@@ -27,6 +27,7 @@ struct UnsupportedEventRow: View {
 }
 
 struct UnsupportedEventCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let event: UnsupportedEvent
     let isOutgoing: Bool
     let timeLabel: String
@@ -34,24 +35,24 @@ struct UnsupportedEventCard: View {
     /// Collapsed by default. The transcript re-measures the row when this changes its height.
     @State var isExpanded = false
 
+    private var polarity: MessageBubblePolarity { MessageBubblePolarity(isOutgoing: isOutgoing) }
+
     var body: some View {
-        let content = MessagesPalette.bubbleContent(isOutgoing: isOutgoing)
-        let detail = AttachmentRowPalette.detailContent(isOutgoing: isOutgoing)
         VStack(alignment: .leading, spacing: 10) {
-            UnsupportedEventHeader(kind: event.kind, timeLabel: timeLabel, content: content, detail: detail)
+            UnsupportedEventHeader(kind: event.kind, timeLabel: timeLabel, polarity: polarity)
 
             if event.title != nil || event.summary != nil {
                 VStack(alignment: .leading, spacing: 3) {
                     if let title = event.title {
                         Text(verbatim: title)
-                            .wnFont(.semiBold14)
-                            .foregroundStyle(content)
+                            .font(MessageTypography.bodySemibold)
+                            .foregroundStyle(polarity.content)
                             .lineLimit(2)
                     }
                     if let summary = event.summary {
                         Text(verbatim: summary)
-                            .wnFont(.medium12)
-                            .foregroundStyle(detail)
+                            .font(.subheadline)
+                            .foregroundStyle(polarity.secondaryContent)
                             .lineLimit(isExpanded ? nil : 3)
                     }
                 }
@@ -66,14 +67,16 @@ struct UnsupportedEventCard: View {
 
             HStack(spacing: 12) {
                 Button {
-                    isExpanded.toggle()
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.18)) {
+                        isExpanded.toggle()
+                    }
                 } label: {
                     Label(
                         isExpanded ? L10n.string("Hide Event Data") : L10n.string("Show Event Data"),
                         systemImage: isExpanded ? "chevron.up" : "chevron.down"
                     )
-                    .wnFont(.semiBold12)
-                    .foregroundStyle(content)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(polarity.content)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -83,8 +86,8 @@ struct UnsupportedEventCard: View {
                         onCopyJSON(event.json)
                     } label: {
                         Label(L10n.string("Copy JSON"), systemImage: "doc.on.doc")
-                            .wnFont(.semiBold12)
-                            .foregroundStyle(content)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(polarity.content)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -95,8 +98,8 @@ struct UnsupportedEventCard: View {
         .padding(.vertical, 12)
         .frame(width: 380, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
+            RoundedRectangle(cornerRadius: MessageBubbleShape.cornerRadius, style: .continuous)
+                .fill(polarity.fill)
         }
         .contextMenu {
             Button {
@@ -111,27 +114,26 @@ struct UnsupportedEventCard: View {
 private struct UnsupportedEventHeader: View {
     let kind: UInt64
     let timeLabel: String
-    let content: Color
-    let detail: Color
+    let polarity: MessageBubblePolarity
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: "curlybraces.square")
-                .wnFont(.semiBold20)
-                .foregroundStyle(detail)
+                .font(.title3)
+                .foregroundStyle(polarity.secondaryContent)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(L10n.string("Unsupported event"))
-                    .wnFont(.semiBold12)
-                    .foregroundStyle(content)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(polarity.content)
                 Text(String(format: L10n.string("Kind %lld"), Int64(clamping: kind)))
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(detail)
+                    .foregroundStyle(polarity.secondaryContent)
             }
             Spacer(minLength: 8)
             Text(timeLabel)
-                .wnFont(.medium10.monospacedDigit())
-                .foregroundStyle(detail)
+                .font(MessageTypography.footer.monospacedDigit())
+                .foregroundStyle(polarity.secondaryContent)
         }
         .accessibilityElement(children: .combine)
     }
