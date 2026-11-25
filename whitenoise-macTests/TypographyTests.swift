@@ -155,4 +155,12 @@ private let allTokens: [WNTextStyle] = [
             #expect(ladder.contains(role.size))
         }
     }
+    /// A message reads body first (#1039, F04): Markdown heading levels step down distinctly and
+    /// quoted sender labels stay visually distinct from quoted body text.
+    @Test func messageTypographyDistinguishesHeadingsAndQuoteRoles() {
+        #expect(MessageTypography.quoteSender != MessageTypography.quoteBody)
+        #expect(MessageTypography.body != MessageTypography.footer)
+        #expect(MarkdownHeadingStyle.font(for: 1) != MarkdownHeadingStyle.font(for: 2))
+        #expect(MarkdownHeadingStyle.font(for: 2) != MarkdownHeadingStyle.font(for: 3))
+    }
 }

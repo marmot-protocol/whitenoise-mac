@@ -22,6 +22,10 @@ nonisolated enum WNColor {
     static let statusError = Color(nsColor: WNNSColor.statusError)
     static let switchOnTint = Color(nsColor: WNNSColor.switchOnTint)
 
+    // MARK: - Message bubbles (F02, T02, T07)
+
+    static let messageReceivedSecondaryContent = Color(nsColor: WNNSColor.messageReceivedSecondaryContent)
+
     // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 
     static let backgroundPrimary = Color(nsColor: WNNSColor.backgroundPrimary)

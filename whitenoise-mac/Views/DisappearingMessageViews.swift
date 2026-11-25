@@ -184,6 +184,145 @@ nonisolated enum DisappearingMessageDuration {
     }
 }
 
+/// One message's own disappearing countdown, in twelve discrete steps (T11, M06).
+///
+/// Built from the message's actual `retentionSeconds` and `retentionExpiresAt`. Missing or
+/// nonpositive values give no countdown at all, so there is never a fabricated indicator. The
+/// value never schedules or performs a deletion: MDK owns expiry. It only says which step to
+/// draw and when that step next changes.
+nonisolated struct MessageRetentionCountdown: Equatable, Sendable {
+    static let stepCount = 12
+
+    let durationSeconds: UInt64
+    let expiresAt: Date
+
+    init?(retentionSeconds: UInt64?, retentionExpiresAt: UInt64?) {
+        guard let retentionSeconds, retentionSeconds > 0,
+            let retentionExpiresAt, retentionExpiresAt > 0
+        else { return nil }
+        durationSeconds = retentionSeconds
+        expiresAt = Date(timeIntervalSince1970: TimeInterval(retentionExpiresAt))
+    }
+
+    init?(message: MessageItem) {
+        self.init(retentionSeconds: message.retentionSeconds, retentionExpiresAt: message.retentionExpiresAt)
+    }
+
+    /// When the message's retention window began: its expiry less its duration.
+    var startsAt: Date {
+        expiresAt.addingTimeInterval(-TimeInterval(durationSeconds))
+    }
+
+    /// The twelve instants at which one step runs out, in order. The last is the expiry itself.
+    var stepBoundaries: [Date] {
+        let duration = TimeInterval(durationSeconds)
+        return (1...Self.stepCount).map { step in
+            step == Self.stepCount
+                ? expiresAt
+                : startsAt.addingTimeInterval(duration * Double(step) / Double(Self.stepCount))
+        }
+    }
+
+    /// The steps left at `date`, always in `0...12`: 12 for a new message (or a clock that
+    /// reads earlier than its start), 0 from its expiry on. Counted against the same boundaries
+    /// the indicator schedules, so a redraw at a boundary always shows the step that begins there.
+    func remainingSteps(at date: Date) -> Int {
+        Self.stepCount - stepBoundaries.filter { $0 <= date }.count
+    }
+
+    /// The boundaries still ahead of `date`, which are the only redraws the indicator asks for.
+    /// Empty once the message has expired, so a row the core still shows past its expiry is drawn
+    /// once at zero and never rescheduled.
+    func upcomingBoundaries(after date: Date) -> [Date] {
+        stepBoundaries.filter { $0 > date }
+    }
+}
+
+/// A message's countdown in its footer: a ring with the remaining twelfths filled clockwise from
+/// twelve o'clock. Neither `Gauge` nor an SF Symbol provides this at metadata size. Macs have no
+/// accessory gauge styles small enough, and no symbol set has twelve steps. So this is a bounded
+/// custom pie in the footer's own foreground, which pairs it with whichever bubble it is on.
+///
+/// Redraws only at step boundaries, through a `TimelineView` with an explicit schedule. That
+/// means no per-second timer, no animation, and no work once the row is discarded. The frame is a
+/// hidden `circle` symbol in the footer's font. `MessageBubble`'s inline metadata spacer reserves
+/// that same symbol, so a step change never moves the footer or rewraps the body text.
+struct MessageRetentionIndicator: View {
+    let countdown: MessageRetentionCountdown
+
+    var body: some View {
+        TimelineView(.explicit(countdown.upcomingBoundaries(after: .now))) { context in
+            MessageRetentionPie(remainingSteps: countdown.remainingSteps(at: max(context.date, .now)))
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// The drawing behind `MessageRetentionIndicator`, for a fixed step.
+struct MessageRetentionPie: View {
+    let remainingSteps: Int
+
+    var body: some View {
+        Image(systemName: "circle")
+            .hidden()
+            .overlay {
+                ZStack {
+                    Circle().strokeBorder(lineWidth: 1)
+                    MessageRetentionSector(
+                        fraction: Double(remainingSteps) / Double(MessageRetentionCountdown.stepCount)
+                    )
+                    .padding(2)
+                }
+                .aspectRatio(1, contentMode: .fit)
+            }
+    }
+}
+
+/// The filled part of the pie: `fraction` of a disc, clockwise from twelve o'clock.
+nonisolated struct MessageRetentionSector: Shape {
+    let fraction: Double
+
+    func path(in rect: CGRect) -> Path {
+        let fraction = min(1, max(0, fraction))
+        var path = Path()
+        guard fraction > 0 else { return path }
+        let radius = min(rect.width, rect.height) / 2
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        guard fraction < 1 else {
+            path.addEllipse(
+                in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+            return path
+        }
+        path.move(to: center)
+        path.addArc(
+            center: center,
+            radius: radius,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(-90 + 360 * fraction),
+            clockwise: false
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+#Preview("Retention countdown") {
+    HStack(spacing: 8) {
+        ForEach([12, 9, 6, 3, 1, 0], id: \.self) { step in
+            MessageRetentionPie(remainingSteps: step)
+        }
+        if let countdown = MessageRetentionCountdown(
+            retentionSeconds: 3_600,
+            retentionExpiresAt: UInt64(Date.now.timeIntervalSince1970) + 1_800
+        ) {
+            MessageRetentionIndicator(countdown: countdown)
+        }
+    }
+    .font(MessageTypography.footer)
+    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
+    .padding()
+}
+
 #Preview("Header subtitle") {
     VStack(alignment: .leading, spacing: 8) {
         DisappearingMessageHeaderSubtitle(durationSeconds: 86_400, subtitle: "3 members")
