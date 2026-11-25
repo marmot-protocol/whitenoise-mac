@@ -220,6 +220,7 @@ private struct ManageStorageChatsSection: View {
 
 /// Every retained attachment for this profile, largest first.
 struct ManageStorageLargestAttachmentsView: View {
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     let model: ManageStorageViewModel
     let nicknames: ContactNicknames
     let onBack: () -> Void
@@ -232,6 +233,12 @@ struct ManageStorageLargestAttachmentsView: View {
                 backHelp: "Back to settings"
             )
             Divider()
+            if let error = settings?.lastError {
+                SettingsErrorView(error: error)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                Divider()
+            }
             ManageStorageAttachmentsTablePane(
                 model: model,
                 nicknames: nicknames,
@@ -244,6 +251,7 @@ struct ManageStorageLargestAttachmentsView: View {
 
 /// One chat's attachments, largest first, with bulk removal for that chat.
 struct ManageStorageChatView: View {
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     let model: ManageStorageViewModel
     let nicknames: ContactNicknames
     let groupIdHex: String
@@ -262,6 +270,12 @@ struct ManageStorageChatView: View {
                 backHelp: "Back to settings"
             )
             Divider()
+            if let error = settings?.lastError {
+                SettingsErrorView(error: error)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                Divider()
+            }
             ManageStorageChatActionsHeader(
                 model: model,
                 chat: chat,
@@ -347,7 +361,7 @@ private struct ManageStorageChatActionsHeader: View {
     }
 }
 
-private struct ManageStorageAttachmentTableItem: Identifiable {
+struct ManageStorageAttachmentTableItem: Identifiable {
     let id: String
     let attachment: RetainedAttachmentSummaryFfi
     let title: String
@@ -358,12 +372,13 @@ private struct ManageStorageAttachmentTableItem: Identifiable {
 }
 
 /// Native macOS `Table` presentation for retained attachments (G07, G08, #1110) with single-row
-/// selection, contextual removal, paging, and inline failure feedback.
+/// selection, contextual removal, demand-driven paging, and inline failure feedback.
 private struct ManageStorageAttachmentsTablePane: View {
     let model: ManageStorageViewModel
     let nicknames: ContactNicknames
     let scope: ManageStorageViewModel.Scope
     @State private var selectedID: String?
+    @State private var isLoadingMore = false
 
     var body: some View {
         let pages = model.attachmentPages(scope)
@@ -389,7 +404,7 @@ private struct ManageStorageAttachmentsTablePane: View {
                 if model.attachmentsFailed.contains(scope) {
                     VStack(spacing: 12) {
                         ManageStorageRetryRow(message: L10n.string("Couldn't load attachments")) {
-                            Task { await model.loadMoreAttachments(scope) }
+                            Task { await loadNextPage() }
                         }
                     }
                     .padding(28)
@@ -424,21 +439,31 @@ private struct ManageStorageAttachmentsTablePane: View {
                     ManageStorageTableFooterBar(
                         selectedRow: selectedRow,
                         hasMore: pages.hasMore,
+                        isLoadingMore: isLoadingMore,
                         failed: model.attachmentsFailed.contains(scope),
                         onRemoveSelected: { attachment in Task { await model.remove(attachment) } },
-                        onRetryLoad: { Task { await model.loadMoreAttachments(scope) } }
+                        onLoadMore: { Task { await loadNextPage() } }
                     )
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: "\(ObjectIdentifier(model))/\(model.epoch)/\(pages.pageCount)") {
-            guard pages.hasMore, !model.attachmentsFailed.contains(scope) else { return }
-            await model.loadMoreAttachments(scope)
+        // Load only the initial page on entry or epoch reset; later pages load strictly on demand
+        // via the footer's Load more button so large profiles never scan every page up front.
+        .task(id: "\(ObjectIdentifier(model))/\(model.epoch)") {
+            guard pages.items.isEmpty, pages.hasMore, !model.attachmentsFailed.contains(scope) else { return }
+            await loadNextPage()
         }
         .onChange(of: model.epoch) { _, _ in
             selectedID = nil
         }
+    }
+
+    private func loadNextPage() async {
+        guard !isLoadingMore else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        await model.loadMoreAttachments(scope)
     }
 }
 
@@ -520,7 +545,7 @@ private struct ManageStorageChatAttachmentsTable: View {
     }
 }
 
-private struct ManageStorageAttachmentNameCell: View {
+struct ManageStorageAttachmentNameCell: View {
     let row: ManageStorageAttachmentTableItem
 
     var body: some View {
@@ -573,22 +598,28 @@ private struct ManageStorageAttachmentSizeCell: View {
 private struct ManageStorageTableFooterBar: View {
     let selectedRow: ManageStorageAttachmentTableItem?
     let hasMore: Bool
+    let isLoadingMore: Bool
     let failed: Bool
     let onRemoveSelected: (RetainedAttachmentSummaryFfi) -> Void
-    let onRetryLoad: () -> Void
+    let onLoadMore: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             if failed {
-                ManageStorageRetryRow(message: L10n.string("Couldn't load attachments"), retry: onRetryLoad)
+                ManageStorageRetryRow(message: L10n.string("Couldn't load attachments"), retry: onLoadMore)
             } else if hasMore {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(L10n.string("Loading…"))
-                        .font(.caption)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                Button(action: onLoadMore) {
+                    HStack(spacing: 8) {
+                        if isLoadingMore {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(L10n.string("Load more"))
+                    }
                 }
+                .wnSecondaryButtonStyle()
+                .disabled(isLoadingMore)
+                .accessibilityIdentifier("settings.manageStorage.loadMore")
             }
 
             Spacer(minLength: 0)
@@ -694,56 +725,6 @@ struct ManageStorageChatRow: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-    }
-}
-
-struct ManageStorageAttachmentRow: View {
-    let attachment: RetainedAttachmentSummaryFfi
-    let chatTitle: String?
-    let inProgress: Bool
-    let failed: Bool
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: ManageStoragePresentation.attachmentKind(attachment).systemImageName)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                .frame(width: 28, height: 28)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(ManageStoragePresentation.attachmentTitle(attachment))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(ManageStoragePresentation.attachmentSubtitle(attachment, chatTitle: chatTitle))
-                    .font(.caption)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .lineLimit(1)
-                if failed {
-                    Text(L10n.string("Couldn't remove this attachment. Try again."))
-                        .font(.caption)
-                        .foregroundStyle(WNColor.intentionErrorContent)
-                }
-            }
-            Spacer(minLength: 8)
-            if inProgress {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                ManageStorageByteText(bytes: attachment.byteCount)
-            }
-            Button(action: onRemove) {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help(L10n.string("Remove"))
-            .accessibilityLabel(Text(L10n.string("Remove")))
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAction(named: Text(L10n.string("Remove")), onRemove)
-        .contextMenu {
-            Button(L10n.string("Remove"), systemImage: "trash", role: .destructive, action: onRemove)
-        }
     }
 }
 
@@ -951,9 +932,6 @@ private struct ManageStorageRemoveOlderConfirmation: ViewModifier {
                 usage: ChatAttachmentUsageFfi(
                     groupIdHex: "a1", bytes: 185 * ManageStoragePreviewData.mebibyte, attachmentCount: 2),
                 showsChevron: true)
-            ManageStorageAttachmentRow(
-                attachment: ManageStoragePreviewData.attachments[0], chatTitle: "Weekend Hike",
-                inProgress: false, failed: true, onRemove: {})
             ManageStorageRemoveOlderMenu(pendingRemoval: .constant(nil), inProgress: true)
             ManageStorageActionLabel(title: "Clear Cache", systemImage: "trash", inProgress: false)
             ManageStorageByteText(bytes: 1_234_567)

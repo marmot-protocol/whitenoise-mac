@@ -133,10 +133,10 @@ private struct StorageLimitsSection: View {
 
     private var hasUnsavedChanges: Bool {
         guard let policy = model.policy else { return false }
-        let saved = StorageLimitUnits.mebibytes(from: policy)
-        return retainedMiB != saved.retainedMiB
-            || reserveMiB != saved.reserveMiB
-            || transferMiB != saved.transferMiB
+        let mebibyte: UInt64 = 1_048_576
+        return UInt64(retainedMiB) * mebibyte != policy.retainedBytes
+            || UInt64(reserveMiB) * mebibyte != policy.diskReserve
+            || UInt64(transferMiB) * mebibyte != policy.transferLimit
     }
 
     var body: some View {

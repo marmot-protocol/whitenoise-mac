@@ -7,8 +7,8 @@ import SwiftUI
 /// The model is the account's `DeviceLinkingViewModel`, shared with the sheet the shell hosts, so a
 /// request answered there shows here and the other way round.
 struct DevicesSettingsView: View {
-    @Environment(WorkspaceState.self) private var workspace: WorkspaceState?
     let model: DeviceLinkingViewModel
+    var profileName: String?
     /// Link requests waiting on the user's other signed-in profiles; Review switches to one.
     var otherProfileRequests: [ProfileLinkRequestsMonitor.Request] = []
     var onReviewOtherProfile: (ProfileLinkRequestsMonitor.Request) -> Void = { _ in }
@@ -18,7 +18,7 @@ struct DevicesSettingsView: View {
     var body: some View {
         SettingsScaffold(
             title: L10n.string("Devices"),
-            subtitle: workspace?.activeAccount?.displayName
+            subtitle: profileName
         ) {
             if model.isAvailable {
                 DeviceWarningsSection(model: model)
@@ -33,7 +33,7 @@ struct DevicesSettingsView: View {
                 SignInsSection(model: model)
                 if let error = model.actionError, model.presentedSheet == nil, selectedDevice == nil {
                     SettingsSection {
-                        DevicesInlineErrorText(message: error)
+                        SettingsErrorView(error: error)
                     }
                 }
             } else {
@@ -51,7 +51,7 @@ struct DevicesSettingsView: View {
             selectedDevice = nil
         }
         .sheet(item: $selectedDevice) { selection in
-            LinkedDeviceSheet(model: model, slotIdHex: selection.id)
+            LinkedDeviceSheet(model: model, slotIdHex: selection.id, profileName: profileName)
                 .id(ObjectIdentifier(model))
         }
     }
@@ -59,18 +59,6 @@ struct DevicesSettingsView: View {
 
 struct LinkedDeviceSelection: Identifiable, Hashable {
     let id: String
-}
-
-private struct DevicesInlineErrorText: View {
-    let message: String
-
-    var body: some View {
-        Text(message)
-            .font(.subheadline)
-            .foregroundStyle(WNColor.intentionErrorContent)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-    }
 }
 
 // MARK: - Warnings
@@ -509,9 +497,9 @@ private struct SignInRow: View {
 /// A device's name, settings and removal. Every control writes the roster through MDK and shows
 /// what the roster says after, not what was typed: a competing edit from another device can win.
 struct LinkedDeviceSheet: View {
-    @Environment(WorkspaceState.self) private var workspace: WorkspaceState?
     let model: DeviceLinkingViewModel
     let slotIdHex: String
+    var profileName: String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var label = ""
@@ -523,7 +511,7 @@ struct LinkedDeviceSheet: View {
                 let busy = model.isBusy(.device(slotIdHex: device.slotIdHex))
                 LinkedDeviceSheetHeader(
                     device: device,
-                    profileName: workspace?.activeAccount?.displayName
+                    profileName: profileName
                 )
                 Divider()
                 LinkedDeviceSheetForm(model: model, device: device, label: $label)
@@ -704,7 +692,7 @@ private struct LinkedDeviceSheetForm: View {
 
             if let error = model.actionError {
                 SettingsSection {
-                    DevicesInlineErrorText(message: error)
+                    SettingsErrorView(error: error)
                 }
             }
         }

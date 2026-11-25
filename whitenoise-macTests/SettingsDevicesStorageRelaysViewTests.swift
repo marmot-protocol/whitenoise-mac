@@ -37,20 +37,22 @@ struct SettingsDevicesStorageRelaysViewTests {
         let model = DeviceLinkingViewModel(
             accountRef: "account-1", accountIdHex: String(repeating: "1", count: 64), runtime: runtime)
         let workspace = WorkspaceState.preview()
+        let activeName = workspace.activeAccount?.displayName ?? "Alice"
 
         let host = HostedViewWindow(
-            DevicesSettingsView(model: model)
-                .environment(workspace)
+            DevicesSettingsView(model: model, profileName: activeName)
                 .frame(width: 760, height: 720),
             size: CGSize(width: 760, height: 720)
         )
         defer { host.close() }
 
         #expect(await host.settle { model.devices.count == 2 })
-        if let drawing = host.snapshot(), let activeName = workspace.activeAccount?.displayName {
-            #expect(DrawnText.contains(activeName, in: drawing))
-            #expect(DrawnText.contains("Studio Mac", in: drawing))
+        guard let drawing = host.snapshot() else {
+            Issue.record("Expected snapshot of DevicesSettingsView")
+            return
         }
+        #expect(DrawnText.contains(activeName, in: drawing))
+        #expect(DrawnText.contains("Studio Mac", in: drawing))
     }
 
     @Test func deviceLinkPromptSheetUsesCheckboxTogglesAndRendersEmojiCode() {
@@ -73,8 +75,7 @@ struct SettingsDevicesStorageRelaysViewTests {
         )
 
         let host = NSHostingView(
-            rootView: DeviceLinkPromptSheet(model: model, promptId: "p1")
-                .environment(WorkspaceState.preview())
+            rootView: DeviceLinkPromptSheet(model: model, promptId: "p1", profileName: "Alice")
         )
         host.frame = CGRect(x: 0, y: 0, width: 460, height: 600)
         host.layoutSubtreeIfNeeded()
@@ -94,20 +95,23 @@ struct SettingsDevicesStorageRelaysViewTests {
             removalPending: false)
         let model = DeviceLinkingViewModel.preview(devices: [device])
 
-        let populated = Self.hostedSize(
-            LinkedDeviceSheet(model: model, slotIdHex: slotA).environment(WorkspaceState.preview()))
+        let populated = Self.hostedSize(LinkedDeviceSheet(model: model, slotIdHex: slotA, profileName: "Alice"))
         #expect(populated.height > 300)
 
         let missing = Self.hostedSize(
-            LinkedDeviceSheet(model: model, slotIdHex: "nonexistent").environment(WorkspaceState.preview()))
+            LinkedDeviceSheet(model: model, slotIdHex: "nonexistent", profileName: "Alice"))
         #expect(missing.height > 40)
     }
 
     // MARK: - #1110 Storage & Manage Storage
 
-    @Test func storageSettingsViewShowsPolicyLoadErrorInsteadOfSpinningForever() async {
-        let model = StorageSettingsViewModel.preview(
-            policy: nil, error: .unavailable("Couldn't load storage usage"))
+    @Test func storageSettingsViewShowsPolicyLoadErrorAndRecoversOnRetry() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.attachmentDownloadPolicyError = NSError(
+            domain: "StorageSettingsTest", code: 1, userInfo: [NSLocalizedDescriptionKey: "disk busy"]
+        )
+        let model = StorageSettingsViewModel(
+            accountRef: "account-1", runtime: runtime, attachmentPolicyController: nil)
         let workspace = WorkspaceState.preview()
 
         let host = HostedViewWindow(
@@ -118,49 +122,44 @@ struct SettingsDevicesStorageRelaysViewTests {
         )
         defer { host.close() }
 
-        _ = await host.steadyDrawing(timeout: .seconds(2))
+        #expect(await host.settle { model.error != nil && !model.isLoading })
         #expect(model.policy == nil)
-        if let drawing = host.snapshot() {
-            #expect(DrawnText.contains("Try Again", in: drawing))
+        guard let errorDrawing = host.snapshot() else {
+            Issue.record("Expected snapshot of StorageSettingsView load error")
+            return
         }
+        #expect(DrawnText.contains("Try Again", in: errorDrawing))
 
-        let runtime = FakeMarmotRuntime(accounts: [])
-        let liveModel = StorageSettingsViewModel(
-            accountRef: "account-1", runtime: runtime, attachmentPolicyController: nil)
-        let liveHost = HostedViewWindow(
-            StorageSettingsView(model: liveModel)
-                .environment(workspace)
-                .frame(width: 760, height: 720),
-            size: CGSize(width: 760, height: 720)
-        )
-        defer { liveHost.close() }
-        #expect(await liveHost.settle { liveModel.policy != nil && !liveModel.isLoading })
+        // Clear the fault and retry on the same model to verify recovery.
+        runtime.attachmentDownloadPolicyError = nil
+        await model.load()
+        #expect(await host.settle { model.policy != nil && model.error == nil && !model.isLoading })
     }
 
-    @Test func manageStorageAttachmentSubpagesRenderNativeTableAndInvokeAttachmentsDidChange() async {
+    @Test func manageStorageTableLoadsOnlyFirstPageUntilLoadMore() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         let mebibyte: UInt64 = 1_048_576
         runtime.attachmentStorageUsageResult = AttachmentStorageUsageFfi(
-            mediaBytes: 24 * mebibyte, legacyBytes: 0, attachmentCount: 1,
+            mediaBytes: 75 * mebibyte, legacyBytes: 0, attachmentCount: 75,
             databaseBytes: 4 * mebibyte, databaseFreeBytes: 0,
             migration: .notNeeded, migrationBytes: 0, cacheBytes: 1 * mebibyte)
         runtime.chatStorageUsage = [
-            ChatAttachmentUsageFfi(groupIdHex: "a1", bytes: 24 * mebibyte, attachmentCount: 1)
+            ChatAttachmentUsageFfi(groupIdHex: "a1", bytes: 75 * mebibyte, attachmentCount: 75)
         ]
-        runtime.retainedAttachmentSummaries = [
+        runtime.retainedAttachmentSummaries = (0..<75).map { index in
             RetainedAttachmentSummaryFfi(
                 groupIdHex: "a1",
-                target: AttachmentLocalTargetFfi(messageIdHex: "m1", sourceMessageIdHex: "m1", attachmentIndex: 0),
-                byteCount: 24 * mebibyte, mediaType: "application/pdf", fileName: "Itinerary.pdf",
-                receivedAt: 1_760_000_000)
-        ]
+                target: AttachmentLocalTargetFfi(
+                    messageIdHex: "m\(index)", sourceMessageIdHex: "m\(index)", attachmentIndex: 0),
+                byteCount: UInt64(100 - index) * mebibyte, mediaType: "application/pdf",
+                fileName: "Doc-\(index).pdf",
+                receivedAt: UInt64(1_760_000_000 + index))
+        }
 
-        var didChangeCount = 0
         let model = ManageStorageViewModel(
             accountRef: "account-1",
             activeAccountIdHex: String(repeating: "f", count: 64),
-            runtime: runtime,
-            attachmentsDidChange: { didChangeCount += 1 }
+            runtime: runtime
         )
         await model.load()
 
@@ -172,16 +171,23 @@ struct SettingsDevicesStorageRelaysViewTests {
         )
         defer { host.close() }
 
-        #expect(await host.settle { !model.attachmentPages(.account).hasMore })
-        #expect(model.attachmentPages(.account).items.count == 1)
+        #expect(await host.settle { model.attachmentPages(.account).items.count == 50 })
+        // Give any accidental eager-loop task time to fire, then confirm page 2 remained unread.
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(runtime.largestRetainedAttachmentReads.count == 1)
+        #expect(model.attachmentPages(.account).items.count == 50)
+        #expect(model.attachmentPages(.account).hasMore)
         if let contentView = host.window.contentView {
             #expect(
                 !Self.descendants(of: contentView, as: NSTableView.self).isEmpty,
                 "Largest attachments view should render a native SwiftUI Table backed by NSTableView")
         }
 
-        await model.removeAllAttachments(inChat: "a1")
-        #expect(didChangeCount == 1)
+        // Loading the next page on demand brings in the remaining 25 rows.
+        await model.loadMoreAttachments(.account)
+        #expect(runtime.largestRetainedAttachmentReads.count == 2)
+        #expect(model.attachmentPages(.account).items.count == 75)
+        #expect(!model.attachmentPages(.account).hasMore)
     }
 
     // MARK: - #1111 Relays, Developer Tools, Key Packages, Quarantined Groups, AI Agents

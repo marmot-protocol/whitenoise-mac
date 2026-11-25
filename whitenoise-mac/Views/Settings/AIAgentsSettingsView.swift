@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct AIAgentsSettingsView: View {
@@ -35,10 +34,16 @@ struct AIAgentsSettingsView: View {
                 if let npub = model.publicNpub {
                     HStack(spacing: 8) {
                         SettingsValueRow(title: "npub", value: npub, monospaced: true, isSelectable: true)
-                        AgentCopyActionButton(
+                        CopyToClipboardButton(
                             value: npub,
-                            actionDescription: L10n.string("Copy npub")
-                        )
+                            actionDescription: L10n.string("Copy npub"),
+                            concealed: false
+                        ) { isConfirming in
+                            Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
+                                .foregroundStyle(isConfirming ? WNColor.intentionSuccessContent : WNColor.textPrimary)
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        .wnSecondaryButtonStyle()
                     }
                 } else {
                     Text(L10n.string("No active account."))
@@ -87,66 +92,20 @@ private struct AIAgentConnectorSettingsRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                AgentCopyActionButton(
-                    value: npub.map { connector.prompt(npub: $0) },
-                    actionDescription: L10n.string("Copy")
-                )
+                CopyToClipboardButton(
+                    value: npub.map { connector.prompt(npub: $0) } ?? "",
+                    actionDescription: L10n.string("Copy"),
+                    concealed: false
+                ) { isConfirming in
+                    Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
+                        .foregroundStyle(isConfirming ? WNColor.intentionSuccessContent : WNColor.textPrimary)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .wnSecondaryButtonStyle()
+                .disabled(npub == nil)
             }
         }
         .padding(.vertical, 3)
-    }
-}
-
-private struct AgentCopyActionButton: View {
-    @Environment(WorkspaceState.self) private var workspace: WorkspaceState?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let value: String?
-    let actionDescription: String
-
-    @State private var isConfirming = false
-    @State private var resetTask: Task<Void, Never>?
-
-    var body: some View {
-        Button {
-            guard let value else { return }
-            if let workspace {
-                workspace.copyText(value, concealed: false)
-            } else {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(value, forType: .string)
-            }
-            AccessibilityNotification.Announcement(L10n.string("Copied")).post()
-            resetTask?.cancel()
-            setConfirming(true)
-            resetTask = Task {
-                try? await Task.sleep(for: CopyConfirmation.defaultDuration)
-                guard !Task.isCancelled else { return }
-                setConfirming(false)
-            }
-        } label: {
-            Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
-                .foregroundStyle(isConfirming ? WNColor.intentionSuccessContent : WNColor.textPrimary)
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .wnSecondaryButtonStyle()
-        .disabled(value == nil)
-        .help(actionDescription)
-        .accessibilityLabel(actionDescription)
-        .onDisappear {
-            resetTask?.cancel()
-            resetTask = nil
-            isConfirming = false
-        }
-    }
-
-    private func setConfirming(_ confirming: Bool) {
-        if reduceMotion {
-            isConfirming = confirming
-        } else {
-            withAnimation(.smooth(duration: 0.15)) {
-                isConfirming = confirming
-            }
-        }
     }
 }
 

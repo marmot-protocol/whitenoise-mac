@@ -191,9 +191,17 @@ struct ManageStorageViewTests {
     }
 
     private static func attachmentRow(failed: Bool = false, inProgress: Bool = false) -> some View {
-        ManageStorageAttachmentRow(
-            attachment: attachments[0], chatTitle: "Weekend Hike", inProgress: inProgress, failed: failed,
-            onRemove: {}
+        let attachment = attachments[0]
+        return ManageStorageAttachmentNameCell(
+            row: ManageStorageAttachmentTableItem(
+                id: ManageStoragePresentation.attachmentID(attachment),
+                attachment: attachment,
+                title: ManageStoragePresentation.attachmentTitle(attachment),
+                chatTitle: "Weekend Hike",
+                receivedText: ManageStoragePresentation.attachmentSubtitle(attachment, chatTitle: nil),
+                inProgress: inProgress,
+                failed: failed
+            )
         )
         .frame(width: 520)
     }

@@ -8,13 +8,26 @@ extension View {
     /// device?" suggestion waits for that, and is never offered on a device that was already set up:
     /// only the new device can start a link, and on an established device's first check every other
     /// installation looks like an earlier sign-in.
-    func deviceLinkSheet(_ model: DeviceLinkingViewModel?, locale: Locale, suggestionAllowed: Bool) -> some View {
-        modifier(DeviceLinkSheetHost(model: model, locale: locale, suggestionAllowed: suggestionAllowed))
+    func deviceLinkSheet(
+        _ model: DeviceLinkingViewModel?,
+        profileName: String? = nil,
+        locale: Locale,
+        suggestionAllowed: Bool
+    ) -> some View {
+        modifier(
+            DeviceLinkSheetHost(
+                model: model,
+                profileName: profileName,
+                locale: locale,
+                suggestionAllowed: suggestionAllowed
+            )
+        )
     }
 }
 
 private struct DeviceLinkSheetHost: ViewModifier {
     let model: DeviceLinkingViewModel?
+    let profileName: String?
     let locale: Locale
     let suggestionAllowed: Bool
 
@@ -35,13 +48,13 @@ private struct DeviceLinkSheetHost: ViewModifier {
                 Group {
                     switch sheet {
                     case .newDevice:
-                        NewDeviceLinkSheet(model: model)
+                        NewDeviceLinkSheet(model: model, profileName: profileName)
                     case .linkSuggestion:
-                        DeviceLinkSuggestionSheet(model: model)
+                        DeviceLinkSuggestionSheet(model: model, profileName: profileName)
                     case .addNewDevice:
-                        AddNewDeviceSheet(model: model)
+                        AddNewDeviceSheet(model: model, profileName: profileName)
                     case .prompt(let id):
-                        DeviceLinkPromptSheet(model: model, promptId: id)
+                        DeviceLinkPromptSheet(model: model, promptId: id, profileName: profileName)
                     }
                 }
                 .id(ObjectIdentifier(model))
@@ -57,10 +70,12 @@ private struct DeviceLinkSheetHost: ViewModifier {
 /// The new device's side: wait for a device already signed in, compare the emoji, confirm.
 struct NewDeviceLinkSheet: View {
     let model: DeviceLinkingViewModel
+    var profileName: String?
 
     var body: some View {
         let state = model.snapshot.newDevice
         DeviceLinkSheetFrame(
+            profileName: profileName,
             title: state.map(DeviceLinkPresentation.title(for:)) ?? L10n.string("Link to Another Device"),
             message: state.map(DeviceLinkPresentation.message(for:))
                 ?? L10n.string("Asking your other devices to link this Mac…"),
@@ -139,9 +154,11 @@ private struct NewDeviceLinkFooter: View {
 /// the moment Signal and Element ask whether to link. Linking is what brings the chats over.
 struct DeviceLinkSuggestionSheet: View {
     let model: DeviceLinkingViewModel
+    var profileName: String?
 
     var body: some View {
         DeviceLinkSheetFrame(
+            profileName: profileName,
             title: L10n.string("Signed In on Another Device?"),
             message: L10n.string(
                 "This profile is also signed in on another device. Link this Mac to it to keep them in sync."
@@ -176,9 +193,11 @@ struct DeviceLinkSuggestionSheet: View {
 /// how and waits; the request's own sheet replaces this one when it arrives.
 struct AddNewDeviceSheet: View {
     let model: DeviceLinkingViewModel
+    var profileName: String?
 
     var body: some View {
         DeviceLinkSheetFrame(
+            profileName: profileName,
             title: L10n.string("Add a New Device"),
             message: L10n.string("Linking starts on the new device. Keep White Noise open here while you do this."),
             error: nil
@@ -224,6 +243,7 @@ struct AddNewDeviceSheet: View {
 struct DeviceLinkPromptSheet: View {
     let model: DeviceLinkingViewModel
     let promptId: String
+    var profileName: String?
 
     @State private var label = ""
     @State private var addToAllChats = true
@@ -235,6 +255,7 @@ struct DeviceLinkPromptSheet: View {
     var body: some View {
         if let prompt = model.prompt(id: promptId) {
             DeviceLinkSheetFrame(
+                profileName: profileName,
                 title: DeviceLinkPresentation.title(for: prompt.state),
                 message: DeviceLinkPresentation.message(for: prompt.state),
                 error: model.actionError
@@ -275,6 +296,7 @@ struct DeviceLinkPromptSheet: View {
             .interactiveDismissDisabled(DeviceLinkPresentation.needsAttention(prompt.state))
         } else {
             DeviceLinkSheetFrame(
+                profileName: profileName,
                 title: L10n.string("Linking Stopped"),
                 message: L10n.string("That link request has expired."),
                 error: nil
@@ -464,7 +486,7 @@ private struct DeviceLinkProgressRow: View {
 /// The chrome every linking sheet shares: active profile context, title, explanation, content,
 /// an inline error, and a native macOS action footer.
 private struct DeviceLinkSheetFrame<Content: View, Footer: View>: View {
-    @Environment(WorkspaceState.self) private var workspace: WorkspaceState?
+    var profileName: String?
     let title: String
     let message: String
     let error: String?
@@ -475,7 +497,7 @@ private struct DeviceLinkSheetFrame<Content: View, Footer: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let profileName = workspace?.activeAccount?.displayName, !profileName.isEmpty {
+                    if let profileName, !profileName.isEmpty {
                         Label(profileName, systemImage: "person.crop.circle")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(WNColor.backgroundContentSecondary)
@@ -492,13 +514,7 @@ private struct DeviceLinkSheetFrame<Content: View, Footer: View>: View {
 
                 content
 
-                if let error {
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundStyle(WNColor.intentionErrorContent)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                SettingsErrorView(error: error)
             }
             .padding(20)
 
