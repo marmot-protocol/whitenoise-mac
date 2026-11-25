@@ -125,7 +125,7 @@ struct OnboardingSignUpView: View {
         .controlSize(.large)
         .wnButtonShape(.capsule)
         .onExitCommand {
-            guard !isBusy else { return }
+            guard workspace.canDismissSignUpWithEscape else { return }
             cancel()
         }
         .sheet(isPresented: $workspace.isProfileImagePickerPresented) {

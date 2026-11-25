@@ -81,8 +81,8 @@ struct OnboardingWelcomeView: View {
         .controlSize(.large)
         .wnButtonShape(.capsule)
         .onExitCommand {
-            guard workspace.canLeaveAccountOnboarding, !workspace.isAuthenticating else { return }
-            workspace.leaveAccountOnboarding()
+            guard let exit, !workspace.isAuthenticating else { return }
+            exit.action()
         }
     }
 }
