@@ -25,7 +25,98 @@
 import AppKit
 
 nonisolated enum WNNSColor {
-    // MARK: - Backgrounds
+    // MARK: - Native macOS semantic roles (F01–F07)
+
+    /// Window chrome and primary window backdrop.
+    static let windowSurface = NSColor.windowBackgroundColor
+    /// Primary reading surface for transcripts, lists, and content panes.
+    static let readingSurface = NSColor.controlBackgroundColor
+    /// Grouped boxes and composer container surface.
+    static let groupedSurface = NSColor.quaternarySystemFill
+    /// Subtle content wells inside forms.
+    static let formContentSurface = NSColor.quinarySystemFill
+    /// Hairline dividers and separators.
+    static let separator = NSColor.separatorColor
+
+    /// Native text hierarchy on reading and window surfaces.
+    static let textPrimary = NSColor.labelColor
+    static let textSecondary = NSColor.secondaryLabelColor
+    static let textTertiary = NSColor.tertiaryLabelColor
+    static let textPlaceholder = NSColor.placeholderTextColor
+    static let textDisabled = NSColor.disabledControlTextColor
+
+    /// Native link color on standard reading and received-bubble surfaces.
+    static let link = NSColor.linkColor
+
+    /// Native macOS find highlight paired with high-contrast dark ink on both appearances.
+    static let findHighlight = NSColor.findHighlightColor
+    static let findHighlightContent = WNColorRamp.neutral950
+
+    /// Semantic status colors (symbols and short labels only; no tinted card washes).
+    static let statusError = NSColor.systemRed
+    static let statusWarning = NSColor.systemOrange
+    static let statusSuccess = NSColor.systemGreen
+    static let statusInfo = NSColor.systemBlue
+
+    /// Scoped on-state tint for native switches and checkboxes.
+    ///
+    /// Uses near-black in Light appearance and a neutral mid-gray (`systemGray.pressed` resolved in
+    /// Aqua, `#6F6F73`) in Dark appearance rather than white (`fillPrimary`), because a white track
+    /// erases the native white `NSSwitch` thumb in Dark Mode while `#6F6F73` clears 4.5:1 against
+    /// the white thumb and 3.0:1 against dark form surfaces.
+    static let switchOnTint = NSColor.wnDynamic(
+        "wn.switchOnTint",
+        light: WNColorRamp.neutral950,
+        dark: resolvedColor(in: .aqua) { NSColor.systemGray.withSystemEffect(.pressed) }
+    )
+
+    // MARK: - Paired message-bubble roles (F02 / T02)
+
+    /// Received bubble fill (`secondarySystemFill` over `readingSurface`) and paired content.
+    static let receivedBubbleSurface = NSColor.secondarySystemFill
+    static let receivedBubbleContent = NSColor.labelColor
+    static let receivedBubbleContentSecondary = NSColor.secondaryLabelColor
+    static let receivedBubbleQuoteSurface = NSColor.systemFill
+    static let receivedBubbleQuoteBar = NSColor.secondaryLabelColor
+    static let receivedBubbleLink = NSColor.linkColor
+
+    /// Sent bubble fill (inverted neutral) and paired content. Every foreground drawn on a sent
+    /// bubble derives from `sentBubbleContent` or resolves for the inverted polarity so outgoing
+    /// metadata, quotes, and links stay legible in both Light and Dark appearance.
+    static let sentBubbleSurface = fillPrimary
+    static let sentBubbleContent = fillContentPrimary
+    static let sentBubbleContentSecondary = NSColor.wnDynamic(
+        "wn.sentBubbleContentSecondary",
+        light: WNColorRamp.white.withAlphaComponent(0.72),
+        dark: WNColorRamp.neutral950.withAlphaComponent(0.72)
+    )
+    /// Quote / link-card inset on a sent bubble: `systemFill` resolved in the *opposite* polarity
+    /// (dark appearance's translucent white on the dark light-mode bubble; light appearance's
+    /// translucent black on the light dark-mode bubble).
+    static let sentBubbleQuoteSurface = NSColor.wnDynamic(
+        "wn.sentBubbleQuoteSurface",
+        light: resolvedColor(in: .darkAqua) { NSColor.systemFill },
+        dark: resolvedColor(in: .aqua) { NSColor.systemFill }
+    )
+    static let sentBubbleQuoteBar = sentBubbleContentSecondary
+    /// Readable link hue on the inverted sent bubble: Dark Aqua's bright `linkColor` on the dark
+    /// light-mode bubble, and Aqua's deeper `linkColor` on the light dark-mode bubble.
+    static let sentBubbleLink = NSColor.wnDynamic(
+        "wn.sentBubbleLink",
+        light: resolvedColor(in: .darkAqua) { NSColor.linkColor },
+        dark: resolvedColor(in: .aqua) { NSColor.linkColor }
+    )
+
+    private static func resolvedColor(in appearanceName: NSAppearance.Name, make: () -> NSColor) -> NSColor {
+        guard let appearance = NSAppearance(named: appearanceName) else { return make() }
+        var resolved: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = make().usingColorSpace(.sRGB)
+        }
+        return resolved ?? make()
+    }
+
+    // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 
     /// The app's base surface: the transcript, the chat list, a settings pane.
     static let backgroundPrimary = NSColor.wnDynamic(

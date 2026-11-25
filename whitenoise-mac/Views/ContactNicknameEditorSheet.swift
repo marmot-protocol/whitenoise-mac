@@ -159,13 +159,13 @@ private struct ContactNicknameEditorFooter: View {
             // nickname away is never the button a reader's eye lands on last.
             if canRemove {
                 Button(L10n.string("Remove"), action: onRemove)
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
             }
 
             Spacer()
 
             Button(L10n.string("Cancel"), action: onCancel)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .keyboardShortcut(.cancelAction)
 
             WNPrimaryButton(size: .small, action: onSave) {

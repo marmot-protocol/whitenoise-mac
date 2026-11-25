@@ -101,7 +101,7 @@ import Testing
         } label: {
             ProfileActionLabel(title: "Cancel", tier: .secondary)
         }
-        .buttonStyle(.wnSecondary)
+        .wnSecondaryButtonStyle()
     }
 
     private static var saveButton: some View {

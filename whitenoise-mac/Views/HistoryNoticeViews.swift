@@ -19,7 +19,7 @@ struct HistoryNoticeBanner: View {
             )
 
             Button(L10n.string("Dismiss"), action: onDismiss)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .controlSize(.small)
                 .disabled(isDismissing)
         }

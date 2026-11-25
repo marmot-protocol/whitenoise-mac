@@ -156,7 +156,7 @@ struct CustomEmojiManageSetsButton: View {
             Label(L10n.string("Emoji Sets"), systemImage: "square.grid.2x2")
                 .wnFont(.medium12)
         }
-        .buttonStyle(.wnSecondary)
+        .wnSecondaryButtonStyle()
         .controlSize(.small)
         .accessibilityIdentifier("emojiPicker.emojiSets")
     }
@@ -233,7 +233,7 @@ private struct EmojiSetBrowserPage: View {
                                 .onSubmit(lookUp)
                                 .accessibilityIdentifier("emojiSets.link")
                             Button(L10n.string("Open Link"), action: lookUp)
-                                .buttonStyle(.wnSecondary)
+                                .wnSecondaryButtonStyle()
                                 .controlSize(.small)
                                 .disabled(EmojiSetPresentation.lookupInput(link) == nil || isLookingUp)
                         }
@@ -380,7 +380,7 @@ private struct EmojiSetDiscoverList: View {
                     .wnFont(.medium12)
                 StickerBrowserNote(text: message)
                 Button(L10n.string("Try Again"), action: onRetry)
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
             }
         }
@@ -492,7 +492,7 @@ struct EmojiSetDetailPage: View {
                     EmojiSetEgressDisclosure()
                     if isInstalled, action == .update {
                         Button(L10n.string("Remove Set"), role: .destructive) { confirmingRemove = true }
-                            .buttonStyle(.wnSecondary)
+                            .wnSecondaryButtonStyle()
                             .controlSize(.small)
                             .disabled(isWorking || progress != nil)
                     }
@@ -565,16 +565,16 @@ private struct EmojiSetActionControl: View {
             switch action {
             case .install:
                 Button(L10n.string("Install")) { perform(.install) }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
                     .accessibilityIdentifier("emojiSets.install")
             case .update:
                 Button(L10n.string("Update")) { perform(.update) }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
             case .remove:
                 Button(L10n.string("Remove"), role: .destructive, action: confirmRemove)
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
             }
         }
@@ -625,7 +625,7 @@ private struct EmojiSetInstallProgressView: View {
                 .monospacedDigit()
                 Spacer()
                 Button(L10n.string("Cancel"), action: onCancel)
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
             }
         }

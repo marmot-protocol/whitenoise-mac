@@ -1497,26 +1497,17 @@ struct GroupsTests: WorkspaceTestSupport {
             #expect(source.contains(acceptCall))
         }
 
-        // The pair is one tier each, and the primary half carries the shape modifier rather than the
-        // bare glass style — without it the capsule comes back.
+        // The pair is one tier each, using the shared native push-button modifiers.
         let pairSource = try SourceContract.source(of: .pendingInviteActionButtons)
         #expect(pairSource.contains(".wnPrimaryButtonStyle()"))
-        #expect(pairSource.contains(".buttonStyle(.wnSecondary)"))
+        #expect(pairSource.contains(".wnSecondaryButtonStyle()"))
 
-        // Neither tier names a shape of its own any more: one table, or they drift apart again.
-        // The primary size still asks the table for a radius; the tiers that draw their own ground
-        // ask it for the whole outline, so that a pane can switch both to a capsule at once.
-        for (unit, call) in [
-            (SourceContract.ViewUnit.primaryButton, "WNButtonMetrics.borderShape("),
-            (SourceContract.ViewUnit.secondaryButtonStyle, "WNButtonMetrics.backgroundShape("),
-            (SourceContract.ViewUnit.destructiveButtonStyle, "WNButtonMetrics.backgroundShape("),
-        ] {
-            let source = try SourceContract.source(of: unit)
-            #expect(source.contains(call), "\(unit) no longer reads the shared table")
-            #expect(!source.contains("cornerRadius: CGFloat = "))
-        }
+        // All three native push-button tiers route through `WNButtonMetrics.borderShape(`.
+        let metricsSource = try SourceContract.source(of: .buttonMetrics)
+        #expect(metricsSource.contains("WNButtonMetrics.borderShape("))
+        #expect(!metricsSource.contains("cornerRadius: CGFloat = "))
 
-        // And no tier keeps a radius of its own to drift back to.
+        // And no size keeps a radius of its own to drift back to.
         let sizeSource = try SourceContract.source(of: .primaryButtonSize)
         #expect(!sizeSource.contains("cornerRadius"), "a size is naming a radius again")
     }

@@ -213,7 +213,7 @@ struct ProfileEditingActions: View {
                     } label: {
                         ProfileActionLabel(title: L10n.string("Cancel"), tier: .secondary)
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(isBusy)
                     .accessibilityIdentifier("settings.profile.cancel")
 
@@ -315,16 +315,10 @@ enum ProfileActionMetrics {
     /// from there rather than copied, so there is one place it can move.
     static let primaryChromeHeight: CGFloat = OnboardingLayout.primaryActionChromeHeight
 
-    /// What `.wnSecondary` draws around its label at `.large` — twice `WNSecondaryButtonStyle`'s
-    /// own vertical padding, its shadow falling outside the layout and adding nothing.
-    ///
-    /// **4pt more than the glass tier's, which is why neither number can be reasoned about from
-    /// the other.** The two styles step their interiors on different tables — `controlSize` for
-    /// this one, the native glass metrics for that one — so the gap between them changes with the
-    /// rung and even changes sign: at `.small`, where these actions used to be drawn, the glass was
-    /// the *taller* of the two. `SettingsProfileTests.bothProfileActionsDrawTheSameHeight`
-    /// re-measures both through `ImageRenderer` and fails if either table moves under us.
-    static let secondaryChromeHeight: CGFloat = 16
+    /// What native `.bordered` draws around its label at `.large` — matching `.borderedProminent`.
+    /// `SettingsProfileTests.bothProfileActionsDrawTheSameHeight` re-measures both through
+    /// `ImageRenderer` and fails if either style's chrome changes.
+    static let secondaryChromeHeight: CGFloat = 12
 
     /// The minimum height an action's *label* must claim for its button to come out `height` tall.
     static func labelHeight(for tier: ProfileActionLabel.Tier) -> CGFloat {
@@ -385,7 +379,7 @@ struct ProfileIdentityHeaderView: View {
                 Text(L10n.string(hasPhoto ? "Change photo" : "Add photo"))
                     .wnFont(OnboardingLayout.signUpPhotoPillTextStyle)
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             // The pill Sign Up and the account-setup step draw, at their size.
             .controlSize(OnboardingLayout.signUpPhotoPillControlSize)
             .accessibilityIdentifier("settings.profile.photo")

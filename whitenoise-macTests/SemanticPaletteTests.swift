@@ -389,6 +389,64 @@ struct SemanticPaletteTests {
         #expect(QRCodePalette.resolved(for: .light) != QRCodePalette.resolved(for: .dark))
     }
 
+    // MARK: - Native semantic roles (F01–F07)
+
+    /// Verifies native macOS semantic surface/foreground pairs, paired bubble roles, find
+    /// highlight, and the dark-safe switch tint against WCAG floors in both Aqua and Dark Aqua.
+    /// Translucent system tokens (`labelColor`, `secondarySystemFill`, `systemFill`) are alpha-
+    /// composited over their backing surface before computing contrast.
+    @Test func nativeSemanticPairsStayLegibleInBothAppearances() throws {
+        for appearance in try Self.appearances() {
+            let reading = try Self.composited(WNNSColor.readingSurface, over: WNNSColor.windowSurface, in: appearance)
+            let primaryText = try Self.composited(WNNSColor.textPrimary, over: reading, in: appearance)
+            let secondaryText = try Self.composited(WNNSColor.textSecondary, over: reading, in: appearance)
+            let link = try Self.composited(WNNSColor.link, over: reading, in: appearance)
+
+            #expect(Self.contrastRatio(reading, primaryText) >= 4.5)
+            #expect(Self.contrastRatio(reading, secondaryText) >= 3.0)
+            #expect(Self.contrastRatio(reading, link) >= 3.5)
+
+            // Received bubble: `secondarySystemFill` over `readingSurface`.
+            let receivedFill = try Self.composited(WNNSColor.receivedBubbleSurface, over: reading, in: appearance)
+            let receivedBody = try Self.composited(WNNSColor.receivedBubbleContent, over: receivedFill, in: appearance)
+            let receivedMeta = try Self.composited(
+                WNNSColor.receivedBubbleContentSecondary, over: receivedFill, in: appearance)
+            let receivedLink = try Self.composited(WNNSColor.receivedBubbleLink, over: receivedFill, in: appearance)
+            #expect(Self.contrastRatio(receivedFill, receivedBody) >= 4.5)
+            #expect(Self.contrastRatio(receivedFill, receivedMeta) >= 3.0)
+            #expect(Self.contrastRatio(receivedFill, receivedLink) >= 3.0)
+
+            // Sent bubble: inverted monochrome fill paired with inverted body, metadata, and link.
+            let sentFill = try Self.composited(WNNSColor.sentBubbleSurface, over: reading, in: appearance)
+            let sentBody = try Self.composited(WNNSColor.sentBubbleContent, over: sentFill, in: appearance)
+            let sentMeta = try Self.composited(WNNSColor.sentBubbleContentSecondary, over: sentFill, in: appearance)
+            let sentLink = try Self.composited(WNNSColor.sentBubbleLink, over: sentFill, in: appearance)
+            let sentQuote = try Self.composited(WNNSColor.sentBubbleQuoteSurface, over: sentFill, in: appearance)
+            #expect(Self.contrastRatio(sentFill, sentBody) >= 4.5)
+            #expect(Self.contrastRatio(sentFill, sentMeta) >= 4.5)
+            #expect(Self.contrastRatio(sentFill, sentLink) >= 4.5)
+            #expect(Self.contrastRatio(sentFill, sentQuote) > 1.05)
+
+            // Native find highlight paired with dark ink stays readable on both appearances.
+            let findFill = try Self.composited(WNNSColor.findHighlight, over: reading, in: appearance)
+            let findText = try Self.composited(WNNSColor.findHighlightContent, over: findFill, in: appearance)
+            #expect(Self.contrastRatio(findFill, findText) >= 7.0)
+
+            // Switch on-state tint clears 4.5:1 against the native white thumb AND 3.0:1 against
+            // the reading surface in both appearances.
+            let switchTrack = try Self.composited(WNNSColor.switchOnTint, over: reading, in: appearance)
+            let whiteThumb = try #require(WNColorRamp.white.usingColorSpace(.sRGB))
+            #expect(
+                Self.contrastRatio(switchTrack, whiteThumb) >= 4.5,
+                "switchOnTint does not contrast with the white thumb in \(appearance.name.rawValue)"
+            )
+            #expect(
+                Self.contrastRatio(switchTrack, reading) >= 3.0,
+                "switchOnTint blends into the surface in \(appearance.name.rawValue)"
+            )
+        }
+    }
+
     // MARK: - Helpers
 
     /// Every accent, read through `AvatarPalette`'s list so these tests cover the same twelve sets
@@ -455,6 +513,37 @@ struct SemanticPaletteTests {
             resolved = color.usingColorSpace(.sRGB)
         }
         return hexString(of: try #require(resolved))
+    }
+
+    /// Composites `foreground` over an already-resolved opaque `background` using source-over alpha
+    /// blending in `appearance`, so translucent system tokens (`labelColor`, `secondarySystemFill`)
+    /// are measured as the actual color they draw on screen.
+    private static func composited(
+        _ foreground: NSColor,
+        over background: NSColor,
+        in appearance: NSAppearance
+    ) throws -> NSColor {
+        var resolved: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            guard
+                let fg = foreground.usingColorSpace(.sRGB),
+                let bg = background.usingColorSpace(.sRGB)
+            else { return }
+            let alpha = fg.alphaComponent
+            resolved = NSColor(
+                srgbRed: fg.redComponent * alpha + bg.redComponent * (1 - alpha),
+                green: fg.greenComponent * alpha + bg.greenComponent * (1 - alpha),
+                blue: fg.blueComponent * alpha + bg.blueComponent * (1 - alpha),
+                alpha: 1
+            )
+        }
+        return try #require(resolved)
+    }
+
+    private static func contrastRatio(_ a: NSColor, _ b: NSColor) -> Double {
+        let first = relativeLuminance(of: a)
+        let second = relativeLuminance(of: b)
+        return (max(first, second) + 0.05) / (min(first, second) + 0.05)
     }
 
     private static func relativeLuminance(of color: NSColor) -> Double {

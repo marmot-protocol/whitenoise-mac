@@ -65,7 +65,7 @@ private struct BlockedUserSettingsRow: View {
                     isBusy: isSaving
                 )
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(isSaving)
         }
     }

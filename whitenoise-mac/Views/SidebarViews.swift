@@ -1444,7 +1444,7 @@ private struct ChatListSearchFailedState: View {
                 systemImage: "magnifyingglass"
             )
             Button(L10n.string("Try Again", locale: locale), action: retry)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .controlSize(.small)
                 .accessibilityIdentifier("chat.search.retry")
         }

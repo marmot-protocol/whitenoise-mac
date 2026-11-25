@@ -165,7 +165,7 @@ private struct ManageStorageCacheSection: View {
                     inProgress: model.operation == .clearCache
                 )
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(model.usage == nil || model.usage?.cacheBytes == 0)
             if model.failedOperation == .clearCache {
                 SettingsStatusNote(text: L10n.string("Couldn't clear the cache. Try again."), intention: .failure)
@@ -263,7 +263,7 @@ struct ManageStorageChatView: View {
                         inProgress: model.operation == .removeChat(groupIdHex)
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 ManageStorageRemoveOlderMenu(
                     pendingRemoval: $pendingRemoval,
                     inProgress: model.operation == .removeOlder(scope)
@@ -538,7 +538,7 @@ struct ManageStorageRetryRow: View {
         HStack(spacing: 8) {
             SettingsStatusNote(text: message, intention: .failure)
             Button(L10n.string("Try Again"), action: retry)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
         }
     }
 }

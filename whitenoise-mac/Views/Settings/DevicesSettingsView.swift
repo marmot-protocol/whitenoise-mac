@@ -74,7 +74,7 @@ private struct DeviceWarningsSection: View {
                         Button(L10n.string("Dismiss")) {
                             Task { await model.dismissCompromiseWarning() }
                         }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .disabled(model.isBusy(.dismissCompromise))
                     }
                 }
@@ -88,7 +88,7 @@ private struct DeviceWarningsSection: View {
                             intent: .warning
                         )
                         Button(L10n.string("Reset Device List…")) { confirmingReset = true }
-                            .buttonStyle(.wnSecondary)
+                            .wnSecondaryButtonStyle()
                             .disabled(model.isBusy(.reset))
                     }
                 }
@@ -199,7 +199,7 @@ private struct LinkedDeviceRow: View {
                 Button(L10n.string("Keep")) {
                     Task { await model.update(slotIdHex: device.slotIdHex, keepWhileInactive: true) }
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(model.isBusy(.device(slotIdHex: device.slotIdHex)))
             }
             Image(systemName: "chevron.right")
@@ -265,7 +265,7 @@ private struct DeviceLinkSection: View {
                 } label: {
                     Label(L10n.string("Add a New Device…"), systemImage: "plus")
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(linking)
                 Button {
                     Task { await model.startLink() }
@@ -276,7 +276,7 @@ private struct DeviceLinkSection: View {
                         isBusy: model.isBusy(.startLink)
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(linking || model.isBusy(.startLink))
             }
             if !model.otherDevices.isEmpty {
@@ -333,7 +333,7 @@ private struct DeviceLinkStatusRow: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button(actionTitle, action: action)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
         }
     }
 }
@@ -397,13 +397,13 @@ private struct SignInsSection: View {
                         isBusy: model.isBusy(.checkSignIns)
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(model.isBusy(.checkSignIns))
                 if offersStartFresh {
                     Button(L10n.string("I Don’t Have Those Devices")) {
                         Task { await model.startFresh() }
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(model.isBusy(.startFresh))
                 }
             }
@@ -439,21 +439,21 @@ private struct SignInRow: View {
                         Button(L10n.string("Not Now")) {
                             Task { await model.answer(slotIdHex: signIn.slotIdHex, response: .notNow) }
                         }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .disabled(busy)
                     }
                     // Linking starts on that device; this explains how and waits for its request.
                     Button(L10n.string("Link This Device…")) { model.showAddNewDevice() }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .disabled(busy)
-                    Button(L10n.string("This Wasn’t Me…")) { confirmingReject = true }
-                        .buttonStyle(.wnDestructive)
+                    Button(L10n.string("This Wasn’t Me…"), role: .destructive) { confirmingReject = true }
+                        .wnDestructiveButtonStyle()
                         .disabled(busy)
                 case .linkedElsewhere, .rejectedElsewhere:
                     Button(L10n.string("Dismiss")) {
                         Task { await model.answer(slotIdHex: signIn.slotIdHex, response: .dismiss) }
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(busy)
                 }
             }
@@ -494,11 +494,11 @@ struct LinkedDeviceSheet: View {
                 HStack(spacing: 8) {
                     if !device.isThisDevice && !device.removalPending {
                         Button(L10n.string("Remove Device…"), role: .destructive) { confirmingRemoval = true }
-                            .buttonStyle(.wnDestructive)
+                            .wnDestructiveButtonStyle()
                     }
                     Spacer(minLength: 0)
                     Button(L10n.string("Close")) { dismiss() }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                 }
                 .confirmationDialog(
                     String(format: L10n.string("Remove %@?"), DeviceLinkPresentation.name(of: device)),
@@ -518,7 +518,7 @@ struct LinkedDeviceSheet: View {
             } else {
                 Text(L10n.string("That device is no longer in your device list."))
                 Button(L10n.string("Close")) { dismiss() }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
             }
         }
         .padding(20)
@@ -557,7 +557,7 @@ private struct LinkedDeviceSheetContent: View {
             Button(L10n.string("Save")) {
                 Task { await model.rename(slotIdHex: device.slotIdHex, label: label) }
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(
                 busy || label == device.label
                     || label.trimmingCharacters(in: .whitespacesAndNewlines).utf8.count

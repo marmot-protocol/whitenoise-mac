@@ -281,7 +281,7 @@ struct MessageReactionDetailsView: View {
                     Label(L10n.string("Couldn’t load reactions"), systemImage: "exclamationmark.triangle")
                 } actions: {
                     Button(L10n.string("Retry")) { model.retry() }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                 }
             case .empty:
                 ContentUnavailableView {

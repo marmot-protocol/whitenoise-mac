@@ -39,7 +39,7 @@ struct GroupDisbandStatusSection: View {
                 HStack {
                     Spacer(minLength: 0)
                     Button(L10n.string("Dismiss"), action: onDismiss)
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .disabled(isDismissing)
                 }
             }

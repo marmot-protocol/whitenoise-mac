@@ -155,4 +155,48 @@ private let allTokens: [WNTextStyle] = [
             #expect(ladder.contains(role.size))
         }
     }
+
+    // MARK: - Native semantic typography (`WNSemanticFont`)
+
+    @Test func semanticRolesFollowAppleTextStyleHierarchy() {
+        let title3 = WNNSFont.font(for: .title3).pointSize
+        let headline = WNNSFont.font(for: .headline).pointSize
+        let body = WNNSFont.font(for: .body).pointSize
+        let callout = WNNSFont.font(for: .callout).pointSize
+        let subheadline = WNNSFont.font(for: .subheadline).pointSize
+        let caption = WNNSFont.font(for: .caption).pointSize
+
+        #expect(title3 > body)
+        #expect(headline == body)
+        #expect(body > callout)
+        #expect(callout > subheadline)
+        #expect(subheadline > caption)
+    }
+
+    @Test func semanticRolesMatchPreferredFontsAndCarryNoTracking() {
+        for role in WNSemanticFont.Role.allCases {
+            let semantic = WNSemanticFont(role: role)
+            let expected = NSFont.preferredFont(forTextStyle: role.appKitStyle)
+            let resolved = WNNSFont.font(for: semantic)
+
+            #expect(resolved.pointSize == expected.pointSize)
+            #expect(resolved.fontName == expected.fontName)
+            #expect(WNNSFont.attributes(for: semantic)[.kern] == nil)
+        }
+    }
+
+    @Test func semanticWeightAndDigitModifiersPreserveSizeAndSystemFace() {
+        let regular = WNNSFont.font(for: .subheadline)
+        let semibold = WNNSFont.font(for: .subheadline.semibold())
+        let bold = WNNSFont.font(for: .dayDivider)
+        let digits = WNNSFont.font(for: .caption.monospacedDigit())
+
+        #expect(semibold.pointSize == regular.pointSize)
+        #expect(bold.pointSize == regular.pointSize)
+        #expect(Set([regular.fontName, semibold.fontName, bold.fontName]).count == 3)
+
+        let one = ("1" as NSString).size(withAttributes: [.font: digits]).width
+        let eight = ("8" as NSString).size(withAttributes: [.font: digits]).width
+        #expect(one == eight)
+    }
 }

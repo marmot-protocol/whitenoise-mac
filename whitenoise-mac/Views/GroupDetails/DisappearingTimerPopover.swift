@@ -79,7 +79,7 @@ private struct DisappearingCustomDurationEditor: View {
                 Spacer()
                 Button(L10n.string("Set"), action: onSet)
                     .keyboardShortcut(.defaultAction)
-                    .nativeGlassProminentButtonStyle()
+                    .wnPrimaryButtonStyle()
                     .disabled(duration.seconds == nil)
             }
         }

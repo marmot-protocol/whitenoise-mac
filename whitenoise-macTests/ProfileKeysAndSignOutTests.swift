@@ -239,7 +239,7 @@ struct ProfileKeysSourceContractTests {
         // whichever account is active, and the typed confirmation was given for the old one.
         #expect(sheet.contains(".onChange(of: account.id)"))
         // One button, one label, in one place, armed or not.
-        #expect(sheet.contains(".buttonStyle(.wnDestructive)"))
+        #expect(sheet.contains(".wnDestructiveButtonStyle()"))
         #expect(sheet.contains("AccountWipeConfirmation.matches"))
         // The teardown's progress is drawn inside that button, not in a view swapped in for the
         // form: the sheet keeps its shape while the sign-out runs.
@@ -276,24 +276,17 @@ struct ProfileKeysSourceContractTests {
         #expect(!row.contains("workspace.signOutAccount"), "the sheet decides which teardown runs")
     }
 
-    /// The destructive tier is a ground, not a quiet button with red text — the thing
-    /// `WNSecondaryButtonStyle`'s own documentation says a genuinely destructive action wants.
-    @Test func theDestructiveTierDrawsAFillDestructiveGroundFromTheSharedShapeTable() throws {
-        let style = try SourceContract.source(of: .destructiveButtonStyle)
-
-        #expect(style.contains("WNColor.fillDestructive"))
-        #expect(style.contains("WNColor.fillDestructiveHover"))
-        #expect(style.contains("WNColor.fillDestructiveActive"))
-        // Paired content, never a `backgroundContent*` token — see the pairing rule in `WNNSColor`.
-        #expect(style.contains("WNColor.fillContentQuaternary"))
-        #expect(!style.contains("backgroundContentDestructive"))
-        // Disabled swaps to the neutral pair rather than fading red, so a gate that has not been
-        // cleared cannot look like a live destructive button.
-        #expect(style.contains("WNColor.fillDisabled"))
-        #expect(style.contains("WNColor.fillContentDisabled"))
-        // No radius of its own: one table, or the tiers drift apart again.
-        #expect(style.contains("WNButtonMetrics.backgroundShape("))
-        #expect(!style.contains("cornerRadius: "))
+    /// Destructive push buttons use native `.borderedProminent` tinted `statusError` through
+    /// `WNButtonMetrics` rather than custom button chrome.
+    @Test func theDestructiveTierUsesNativeProminentDestructiveChrome() throws {
+        let chrome = try SourceContract.declaration("WNDestructiveButtonChrome", in: .buttonMetrics)
+        #expect(chrome.contains("WNColor.statusError"))
+        #expect(chrome.contains(".buttonStyle(.borderedProminent)"))
+        #expect(chrome.contains("WNButtonMetrics.borderShape("))
+        #expect(!chrome.contains("cornerRadius:"))
+        for removed in ["WNSecondaryButtonStyle.swift", "WNDestructiveButtonStyle.swift"] {
+            #expect(!SourceContract.viewFileExists(removed), "\(removed) is back")
+        }
     }
 }
 

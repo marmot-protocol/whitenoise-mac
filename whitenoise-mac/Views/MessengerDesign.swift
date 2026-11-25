@@ -192,16 +192,26 @@ nonisolated enum MessagesPalette {
     /// It is inverted against the surface rather than an accent hue, which is why a sent
     /// bubble is near-black in light appearance and white in dark — White Noise has no
     /// blue "my messages" color, on any client.
-    static let sentBubble = WNColor.fillPrimary
+    static let sentBubble = WNColor.sentBubbleSurface
 
     /// Content on the sent bubble. Pairs with `sentBubble` and crosses over with it, so it
     /// is white on the light appearance's dark bubble and near-black on the dark
     /// appearance's white one. Never substitute a literal `.white` here.
-    static let sentBubbleContent = WNColor.fillContentPrimary
+    static let sentBubbleContent = WNColor.sentBubbleContent
+    static let sentBubbleContentSecondary = WNColor.sentBubbleContentSecondary
+    static let sentBubbleQuoteSurface = WNColor.sentBubbleQuoteSurface
+    static let sentBubbleQuoteBar = WNColor.sentBubbleQuoteBar
+    static let sentBubbleLink = WNColor.sentBubbleLink
 
     /// The received bubble's fill, and the content that goes on it.
+    /// Legacy bubble fill stays on `backgroundMessageIncoming` until `#1039` migrates bubbles to
+    /// `WNColor.receivedBubbleSurface` (`NSColor.secondarySystemFill`) alongside row measurement.
     static let receivedBubble = WNColor.backgroundMessageIncoming
     static let receivedBubbleContent = WNColor.backgroundContentPrimary
+    static let receivedBubbleContentSecondary = WNColor.receivedBubbleContentSecondary
+    static let receivedBubbleQuoteSurface = WNColor.receivedBubbleQuoteSurface
+    static let receivedBubbleQuoteBar = WNColor.receivedBubbleQuoteBar
+    static let receivedBubbleLink = WNColor.receivedBubbleLink
 
     static func bubbleFill(isOutgoing: Bool) -> Color {
         isOutgoing ? sentBubble : receivedBubble
@@ -209,6 +219,22 @@ nonisolated enum MessagesPalette {
 
     static func bubbleContent(isOutgoing: Bool) -> Color {
         isOutgoing ? sentBubbleContent : receivedBubbleContent
+    }
+
+    static func bubbleContentSecondary(isOutgoing: Bool) -> Color {
+        isOutgoing ? sentBubbleContentSecondary : receivedBubbleContentSecondary
+    }
+
+    static func bubbleQuoteSurface(isOutgoing: Bool) -> Color {
+        isOutgoing ? sentBubbleQuoteSurface : receivedBubbleQuoteSurface
+    }
+
+    static func bubbleQuoteBar(isOutgoing: Bool) -> Color {
+        isOutgoing ? sentBubbleQuoteBar : receivedBubbleQuoteBar
+    }
+
+    static func bubbleLink(isOutgoing: Bool) -> Color {
+        isOutgoing ? sentBubbleLink : receivedBubbleLink
     }
 }
 

@@ -26,7 +26,7 @@ struct ComposerNotice: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let action {
                 Button(action.title, action: action.perform)
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
                     .fixedSize()
             }

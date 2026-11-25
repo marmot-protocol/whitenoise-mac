@@ -533,8 +533,6 @@ private struct TranscriptRowCell: View {
         .padding(.bottom, row.verticalInsets.bottom)
         .frame(maxWidth: .infinity)
         .textSelection(.disabled)
-        .tint(WNColor.fillPrimary)
-        .foregroundStyle(WNColor.backgroundContentPrimary)
         .environment(workspace)
         .environment(session)
         .environment(\.locale, locale)

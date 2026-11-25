@@ -57,7 +57,7 @@ struct GroupProfileEditorSheet: View {
                         .controlSize(.small)
                 }
                 Button(L10n.string("Cancel"), role: .cancel) { dismiss() }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .keyboardShortcut(.cancelAction)
                 Button(L10n.string("Save")) {
                     Task {

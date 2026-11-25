@@ -94,7 +94,7 @@ private struct NewDeviceLinkFooter: View {
             Button(L10n.string("They Don’t Match")) {
                 Task { await model.cancelLink() }
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(model.isBusy(.cancelLink))
             WNPrimaryButton(L10n.string("They Match"), systemImage: "checkmark") {
                 Task { await model.confirmMatch() }
@@ -104,11 +104,11 @@ private struct NewDeviceLinkFooter: View {
             Button(L10n.string("Cancel Linking")) {
                 Task { await model.cancelLink() }
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(model.isBusy(.cancelLink))
         case .ended:
             Button(L10n.string("Done")) { model.closeSheet() }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
             WNPrimaryButton(L10n.string("Try Again"), systemImage: "arrow.clockwise") {
                 Task { await model.startLink() }
             }
@@ -118,7 +118,7 @@ private struct NewDeviceLinkFooter: View {
         case nil:
             // Before the first answer, or after `startDeviceLink` was refused.
             Button(L10n.string("Close")) { model.closeSheet() }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
             if model.actionError != nil {
                 WNPrimaryButton(L10n.string("Try Again"), systemImage: "arrow.clockwise") {
                     Task { await model.startLink() }
@@ -155,7 +155,7 @@ struct DeviceLinkSuggestionSheet: View {
             }
         } footer: {
             Button(L10n.string("Not Now")) { model.closeSheet() }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
             WNPrimaryButton(L10n.string("Link This Mac"), systemImage: "link") {
                 Task { await model.startLink() }
             }
@@ -195,7 +195,7 @@ struct AddNewDeviceSheet: View {
             }
         } footer: {
             Button(L10n.string("Close")) { model.closeSheet() }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
         }
     }
 
@@ -305,7 +305,7 @@ private struct NameThisMacField: View {
             Button(L10n.string("Save")) {
                 model.saveThisDeviceName(label)
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(!DeviceLinkPresentation.isValidLabel(label) || label == current)
         }
         .onAppear {
@@ -349,7 +349,7 @@ private struct DeviceLinkPromptFooter: View {
             Button(L10n.string("Not Now")) {
                 Task { await model.decline(promptId: prompt.promptId) }
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(model.isBusy(declineAction))
             WNPrimaryButton(L10n.string("Link Device"), systemImage: "link") { onLink() }
                 .disabled(!canLink || model.isBusy(.link(promptId: prompt.promptId)))
@@ -357,11 +357,11 @@ private struct DeviceLinkPromptFooter: View {
             Button(L10n.string("Not Now")) {
                 Task { await model.decline(promptId: prompt.promptId) }
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(model.isBusy(declineAction))
         case .linking:
             Button(L10n.string("Close")) { model.closePrompt(prompt.promptId) }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
         case .linked, .addedElsewhere, .ended:
             WNPrimaryButton(L10n.string("Done"), systemImage: "checkmark") { model.closePrompt(prompt.promptId) }
         }

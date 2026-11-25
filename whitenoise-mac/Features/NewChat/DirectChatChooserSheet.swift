@@ -140,7 +140,7 @@ private struct DirectChatChooserFooter: View {
                 .wnFont(WNPrimaryButtonSize.medium.font)
                 .lineLimit(1)
         }
-        .buttonStyle(.wnSecondary)
+        .wnSecondaryButtonStyle()
         .controlSize(.large)
         .accessibilityIdentifier("compose.chooser.startNew")
         .frame(maxWidth: .infinity)

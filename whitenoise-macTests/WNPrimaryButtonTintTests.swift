@@ -74,6 +74,38 @@ import Testing
         #expect(fill.brightnessComponent < 0.4)
     }
 
+    /// Native `.wnSecondaryButtonStyle()` stays neutral (no system-accent blue bleed) in both
+    /// appearances with no ambient tint.
+    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
+    func nativeSecondaryButtonDrawsNeutralChrome(appearance: NSAppearance.Name) throws {
+        let fill = try Self.fillOfButton(appearance: appearance) {
+            Button {
+            } label: {
+                Text("Cancel").frame(minWidth: 96).padding(8)
+            }
+            .wnSecondaryButtonStyle()
+            .controlSize(.large)
+        }
+
+        #expect(Self.chroma(fill) < 0.06)
+    }
+
+    /// Native `.wnDestructiveButtonStyle()` renders systemRed when enabled with no ambient tint.
+    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
+    func nativeDestructiveButtonDrawsSystemRed(appearance: NSAppearance.Name) throws {
+        let fill = try Self.fillOfButton(appearance: appearance) {
+            Button(role: .destructive) {
+            } label: {
+                Text("Delete").frame(minWidth: 96).padding(8)
+            }
+            .wnDestructiveButtonStyle()
+            .controlSize(.large)
+        }
+
+        #expect(fill.redComponent > 0.7)
+        #expect(fill.redComponent > fill.blueComponent + 0.3)
+    }
+
     // MARK: - Helpers
 
     /// Rasterizes `content` on a `backgroundPrimary` ground and samples its *fill*.

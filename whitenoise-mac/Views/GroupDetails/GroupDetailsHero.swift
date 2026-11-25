@@ -88,7 +88,7 @@ struct GroupDetailsHero<Avatar: View, TitleAccessory: View>: View {
             } else if let onEditProfile {
                 // Not `.link`: that is system blue, and blue is reserved for the unread badge.
                 Button(L10n.string("Add Description"), action: onEditProfile)
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
             }
         }

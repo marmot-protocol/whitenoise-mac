@@ -225,7 +225,7 @@ struct ChooseMembersPanelView: View {
                 Button(L10n.string("Next")) {
                     workspace.composeShowNameGroup()
                 }
-                .nativeGlassProminentButtonStyle()
+                .wnPrimaryButtonStyle()
                 .disabled(workspace.newChatRecipients.isEmpty)
                 .accessibilityIdentifier("compose.next")
             }
@@ -501,7 +501,7 @@ struct NameGroupPanelView: View {
                         Text(L10n.string("Create"))
                     }
                 }
-                .nativeGlassProminentButtonStyle()
+                .wnPrimaryButtonStyle()
                 .disabled(trimmedName.isEmpty || workspace.isCreatingChat || workspace.reachableDraftMembers.isEmpty)
                 .accessibilityIdentifier("compose.create")
             }
@@ -654,7 +654,7 @@ private struct GroupDraftInviteNotice: View {
             ShareLink(item: WhiteNoiseInvite.message) {
                 Text(L10n.string("Invite"))
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .accessibilityIdentifier("compose.invite")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -702,7 +702,7 @@ private struct StartChatInviteNotice: View {
             ShareLink(item: WhiteNoiseInvite.message) {
                 Text(L10n.string("Invite"))
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .accessibilityIdentifier("compose.invite")
         }
         .frame(maxWidth: .infinity, alignment: .leading)

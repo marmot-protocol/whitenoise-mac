@@ -192,7 +192,7 @@ struct SignOutSheet: View {
             }
         }
 
-        Button {
+        Button(role: .destructive) {
             Task { await signOut() }
         } label: {
             // The progress lives in the button that started it rather than in a view swapped in
@@ -212,7 +212,7 @@ struct SignOutSheet: View {
         // is the toggle above it — a second, differently-worded button appearing when the toggle
         // moves would make the sheet look like it had swapped tasks. Red in both states: without
         // wiping this still ends the session and drops the account's published key packages.
-        .buttonStyle(.wnDestructive)
+        .wnDestructiveButtonStyle()
         .controlSize(.large)
         // Stays red with its spinner while the teardown runs, as Delete Profile's button does,
         // rather than greying out as though the gate had closed. `signOut()` still ignores taps:

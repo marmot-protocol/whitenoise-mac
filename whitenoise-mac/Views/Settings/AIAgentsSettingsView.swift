@@ -74,7 +74,7 @@ private struct AIAgentConnectorSettingsRow: View {
                 } label: {
                     Image(systemName: "doc.on.doc")
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(npub == nil)
                 .help(L10n.string("Copy"))
             }

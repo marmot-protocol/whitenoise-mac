@@ -97,7 +97,7 @@ struct LaunchAtLoginStatusRows: View {
             Button(L10n.string("Open Login Items Settings")) {
                 controller.openSystemSettings()
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
 
         case .notFound:
             SettingsStatusNote(
@@ -174,7 +174,7 @@ struct QuickReactionsSettingsSection: View {
             Button(L10n.string("Restore defaults")) {
                 workspace.restoreDefaultQuickReactions()
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(workspace.quickReactions == ChatReactionDefaults.quick)
         }
     }

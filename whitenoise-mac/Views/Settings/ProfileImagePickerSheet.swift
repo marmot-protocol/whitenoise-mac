@@ -168,7 +168,7 @@ struct ProfileImagePickerSheet: View {
             Button(action: searchIfPossible) {
                 Label(L10n.string("Search"), systemImage: "magnifyingglass")
             }
-            .nativeGlassProminentButtonStyle()
+            .wnPrimaryButtonStyle()
             .disabled(!canSearch)
             .help(L10n.string("Search"))
         }
@@ -262,7 +262,7 @@ struct ProfileImagePickerSheet: View {
             }
 
             Button(L10n.string("Next"), action: cropSelectedResult)
-                .nativeGlassProminentButtonStyle()
+                .wnPrimaryButtonStyle()
                 .disabled(workspace.selectedProfileImageResult == nil || workspace.isUploadingProfileImage)
                 .accessibilityIdentifier("profile-image-picker.done")
         }

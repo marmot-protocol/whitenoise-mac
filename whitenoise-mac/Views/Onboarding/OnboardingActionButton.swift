@@ -62,7 +62,7 @@ extension View {
     func onboardingActionTier(_ tier: OnboardingActionTier) -> some View {
         switch tier {
         case .primary: wnPrimaryButtonStyle()
-        case .secondary: buttonStyle(.wnSecondary)
+        case .secondary: wnSecondaryButtonStyle()
         }
     }
 }

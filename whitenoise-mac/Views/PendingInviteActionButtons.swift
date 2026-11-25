@@ -65,7 +65,7 @@ struct PendingInviteActionButtons: View {
                     isInFlight: workspace.isDecliningGroupInvite
                 )
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .help(L10n.string("Decline invite"))
             .accessibilityLabel(
                 workspace.isDecliningGroupInvite ? L10n.string("Declining...") : L10n.string("Decline invite")

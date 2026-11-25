@@ -71,7 +71,7 @@ struct PrivacySecuritySettingsView: View {
                         isBusy: workspace.isDeletingAllData
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(workspace.isAccountMutationInProgress)
             }
         }
@@ -299,7 +299,7 @@ private struct StoredDiagnosticLogsSection: View {
                             isBusy: model.isUploadingAuditLogs
                         )
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(model.isUploadingAuditLogs)
 
                     Button {
@@ -312,7 +312,7 @@ private struct StoredDiagnosticLogsSection: View {
                             isBusy: model.isDeletingAuditLogs
                         )
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(model.isDeletingAuditLogs)
                 }
 

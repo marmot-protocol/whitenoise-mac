@@ -44,7 +44,7 @@ struct GroupDiagnosticsValueRow: View {
                     Image(systemName: "doc.on.doc")
                         .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .help(String(format: L10n.string("Copy %@"), title))
             }
         }
@@ -233,7 +233,7 @@ struct ContactFollowControl: View {
                         .frame(maxWidth: .infinity)
                     }
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(workspace.isTogglingFollow)
                 .accessibilityLabel(isFollowing ? L10n.string("Unfollow") : L10n.string("Follow"))
                 .accessibilityIdentifier("contact.details.follow")
@@ -245,7 +245,7 @@ struct ContactFollowControl: View {
                     Label(L10n.string("Retry"), systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .help(L10n.string("Couldn't check whether you follow this person."))
                 .accessibilityIdentifier("contact.details.follow.retry")
             }
@@ -340,7 +340,7 @@ struct GroupImagePickerSheet: View {
                         } label: {
                             Label(L10n.string("Search"), systemImage: "magnifyingglass")
                         }
-                        .nativeGlassProminentButtonStyle()
+                        .wnPrimaryButtonStyle()
                         .disabled(
                             workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                 || workspace.isSearchingGroupImages

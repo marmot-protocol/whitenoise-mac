@@ -118,11 +118,11 @@ enum OnboardingLayout {
     /// screen exists to perform, and it sits a step above the 40pt key field it submits.
     static let actionHeight: CGFloat = 44
 
-    /// What each style adds around its label at `.large`, measured rather than assumed —
-    /// `OnboardingTests.bothActionTiersDrawTheSameHeight` re-measures both through `ImageRenderer`
-    /// and fails if either style's padding moves under us.
-    static let secondaryActionChromeHeight: CGFloat = 16
-    /// The glass primary's chrome, which is 4pt tighter than the secondary tier's.
+    /// What each native push button style adds around its label at `.large` (both `.bordered` and
+    /// `.borderedProminent` draw 12pt of vertical chrome). `OnboardingTests.bothActionTiersDrawTheSameHeight`
+    /// re-measures both through `ImageRenderer` and fails if macOS padding moves under us.
+    static let secondaryActionChromeHeight: CGFloat = 12
+    /// The prominent primary's chrome at `.large`, matching `.bordered`.
     static let primaryActionChromeHeight: CGFloat = 12
 
     /// The minimum height an action's *label* must claim for its button to come out

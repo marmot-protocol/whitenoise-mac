@@ -36,15 +36,15 @@ import Testing
 /// `performAsCurrentDrawingAppearance` off the main thread takes the test host down with it.
 @Suite(.serialized) @MainActor struct WNToggleTintTests {
 
-    /// The track is `fillPrimary` — the value, resolved for the same appearance the switch was
-    /// laid out in, not merely "some neutral". Near-black in Light, white in Dark.
+    /// The switch track uses `switchOnTint` with no ambient tint — near-black in Light and a
+    /// dark-safe neutral gray in Dark so the native white `NSSwitch` thumb stays clearly visible.
     @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func theSwitchNamesFillPrimaryWithNoAmbientTint(appearance: NSAppearance.Name) throws {
+    func theSwitchNamesSwitchOnTintWithNoAmbientTint(appearance: NSAppearance.Name) throws {
         let track = try #require(
             Self.trackColor(of: WNToggle("Anonymous Telemetry", isOn: .constant(true)), in: appearance),
             "The switch left its track to the environment — the blue-in-a-sheet defect."
         )
-        let expected = try #require(Self.resolve(WNNSColor.fillPrimary, in: appearance))
+        let expected = try #require(Self.resolve(WNNSColor.switchOnTint, in: appearance))
 
         #expect(Self.distance(track, expected) < 0.01)
 
@@ -52,6 +52,20 @@ import Testing
         // and is blue on a default install.
         let accent = try #require(Self.resolve(.controlAccentColor, in: appearance))
         #expect(Self.distance(track, accent) > 0.3)
+
+        // In Dark appearance the track must stay distinct from the white switch thumb; pure white
+        // (`fillPrimary`) would erase the thumb on the track.
+        if appearance == .darkAqua {
+            #expect(track.brightnessComponent < 0.6)
+        }
+    }
+
+    /// Checkbox presentation uses the native checkbox style rather than forcing a switch.
+    @Test func checkboxPresentationDoesNotForceASwitch() {
+        let view = Self.platformView(
+            of: WNToggle("Subordinate option", isOn: .constant(true), presentation: .checkbox)
+        )
+        #expect(!(view is NSSwitch))
     }
 
     /// The negative control, and the reason the test above means anything.

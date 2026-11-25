@@ -36,9 +36,12 @@ struct ReportMessageSheet: View {
             if model.canReportToTeam {
                 VStack(alignment: .leading, spacing: 6) {
                     if model.reportsToGroup {
-                        Toggle(L10n.string("Send to White Noise"), isOn: $model.sendsToTeam)
-                            .toggleStyle(.checkbox)
-                            .disabled(model.isLocked)
+                        WNToggle(
+                            L10n.string("Send to White Noise"),
+                            isOn: $model.sendsToTeam,
+                            presentation: .checkbox
+                        )
+                        .disabled(model.isLocked)
                     }
                     if model.reportsToTeam {
                         ReportSheetFootnote(
@@ -68,7 +71,7 @@ struct ReportMessageSheet: View {
                         if model.isSubmitted { dismiss() }
                     }
                 }
-                .nativeGlassProminentButtonStyle()
+                .wnPrimaryButtonStyle()
                 .disabled(!model.canSubmit)
             }
         }

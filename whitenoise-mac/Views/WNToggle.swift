@@ -23,45 +23,66 @@
 
 import SwiftUI
 
-/// A boolean setting, drawn as a switch tinted `fillPrimary`.
+/// Native presentation style for `WNToggle` (C06).
 ///
-/// `.switch` is named rather than inherited. Inside a grouped `Form` macOS already resolves the
-/// default toggle style to a switch, which is why settings looked right, but outside one it
-/// resolves to a checkbox — so a `WNToggle` placed on a bare pane or in a sheet's own layout
-/// would have changed shape depending on what happened to enclose it. The prototype draws one
-/// switch everywhere; naming the style is what makes that true here too.
+/// Use `.switch` for immediate independent on/off rows inside grouped forms, and `.checkbox` for
+/// grouped options or subordinate choices.
+enum WNTogglePresentation: Sendable {
+    case `switch`
+    case checkbox
+}
+
+/// A native macOS boolean control with a scoped dark-safe monochrome tint (`WNColor.switchOnTint`).
 ///
-/// The label is whatever the call site passes. Settings pairs a title with its SF Symbol — the
-/// glyph is what makes a scanned column of switches legible, the same argument the sidebar row
-/// makes one level up — and `init(_:systemImage:isOn:)` is that shape. Nothing here explains the
-/// setting: that is the enclosing `SettingsSection`'s footer, or the sheet's own copy.
+/// Using `switchOnTint` rather than `fillPrimary` keeps the native white `NSSwitch` thumb clearly
+/// visible in Dark appearance, and scoping the tint on the control itself keeps sheets and
+/// popovers neutral without tinting the entire window.
 struct WNToggle<Label: View>: View {
     @Binding var isOn: Bool
+    var presentation: WNTogglePresentation = .switch
     @ViewBuilder let label: Label
 
+    @ViewBuilder
     var body: some View {
-        Toggle(isOn: $isOn) {
-            label
+        switch presentation {
+        case .switch:
+            Toggle(isOn: $isOn) {
+                label
+            }
+            .toggleStyle(.switch)
+            .tint(WNColor.switchOnTint)
+        case .checkbox:
+            Toggle(isOn: $isOn) {
+                label
+            }
+            .toggleStyle(.checkbox)
+            .tint(WNColor.switchOnTint)
         }
-        .toggleStyle(.switch)
-        .tint(WNColor.fillPrimary)
     }
 }
 
 extension WNToggle where Label == SwiftUI.Label<Text, Image> {
-    /// The common case: a title and its leading SF Symbol, the shape every switch in settings
-    /// takes.
-    init(_ title: String, systemImage: String, isOn: Binding<Bool>) {
-        self.init(isOn: isOn) {
+    /// A title and its leading SF Symbol, used in grouped settings rows.
+    init(
+        _ title: String,
+        systemImage: String,
+        isOn: Binding<Bool>,
+        presentation: WNTogglePresentation = .switch
+    ) {
+        self.init(isOn: isOn, presentation: presentation) {
             SwiftUI.Label(title, systemImage: systemImage)
         }
     }
 }
 
 extension WNToggle where Label == Text {
-    /// A switch with no glyph, for a row that is not part of a scanned column.
-    init(_ title: String, isOn: Binding<Bool>) {
-        self.init(isOn: isOn) {
+    /// A toggle with a plain text label.
+    init(
+        _ title: String,
+        isOn: Binding<Bool>,
+        presentation: WNTogglePresentation = .switch
+    ) {
+        self.init(isOn: isOn, presentation: presentation) {
             Text(title)
         }
     }
@@ -70,11 +91,13 @@ extension WNToggle where Label == Text {
 #Preview {
     @Previewable @State var withGlyph = true
     @Previewable @State var withoutGlyph = false
+    @Previewable @State var checked = true
 
     Form {
         Section {
             WNToggle("Anonymous Telemetry", systemImage: "waveform.path.ecg", isOn: $withGlyph)
             WNToggle("Audit Logging", isOn: $withoutGlyph)
+            WNToggle("Subordinate option", isOn: $checked, presentation: .checkbox)
         }
     }
     .formStyle(.grouped)

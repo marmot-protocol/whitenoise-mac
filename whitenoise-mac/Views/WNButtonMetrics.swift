@@ -110,28 +110,71 @@ enum WNButtonMetrics {
 }
 
 extension View {
-    /// The primary tier's ground *and* its border shape, for a button that builds its own label
-    /// rather than reaching for `WNPrimaryButton` — the invite pair's `Accept`, whose label carries
-    /// a spinner and has to fill half of its row.
-    ///
-    /// The shape is the whole point. `.glassProminent` on its own draws a capsule, so a primary
-    /// button that skips this will not match the `.wnSecondary` button standing next to it.
-    func wnPrimaryButtonStyle() -> some View {
-        modifier(WNPrimaryButtonChrome())
+    /// Native primary push button with scoped monochrome tint (`.borderedProminent` in content
+    /// surfaces; `.glassProminent` on macOS 26+ with `.borderedProminent` fallback only when
+    /// `elevated` is `true` for standalone floating/hero actions per C01).
+    func wnPrimaryButtonStyle(elevated: Bool = false) -> some View {
+        modifier(WNPrimaryButtonChrome(elevated: elevated))
+    }
+
+    /// Native neutral secondary push button (`.bordered`), letting AppKit own hover, pressed,
+    /// disabled, focus ring, and non-key window appearance (C02).
+    func wnSecondaryButtonStyle() -> some View {
+        modifier(WNSecondaryButtonChrome())
+    }
+
+    /// Native prominent destructive push button (`.borderedProminent` tinted `statusError`) for
+    /// confirmed irreversible actions (C04). Use with `Button(role: .destructive)`.
+    func wnDestructiveButtonStyle() -> some View {
+        modifier(WNDestructiveButtonChrome())
     }
 }
 
-/// A `ViewModifier` rather than a plain `View` extension so it can read the environment: the
-/// shape has to track whatever the row set, and a bare `.buttonBorderShape(…)` call site sees
-/// nothing.
+/// Applies native primary monochrome chrome with scoped `.tint(WNColor.fillPrimary)`.
 private struct WNPrimaryButtonChrome: ViewModifier {
+    let elevated: Bool
+
+    @Environment(\.controlSize) private var controlSize
+    @Environment(\.wnButtonShape) private var shape
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shaped =
+            content
+            .buttonBorderShape(WNButtonMetrics.borderShape(shape, for: controlSize))
+            .tint(WNColor.fillPrimary)
+
+        if elevated {
+            shaped.nativeGlassProminentButtonStyle()
+        } else {
+            shaped.buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+/// Applies native neutral `.bordered` chrome, matching `\.wnButtonShape` when a pane requests
+/// capsules (e.g. onboarding) while letting macOS own all control states.
+private struct WNSecondaryButtonChrome: ViewModifier {
     @Environment(\.controlSize) private var controlSize
     @Environment(\.wnButtonShape) private var shape
 
     func body(content: Content) -> some View {
         content
             .buttonBorderShape(WNButtonMetrics.borderShape(shape, for: controlSize))
-            .tint(WNColor.fillPrimary)
-            .nativeGlassProminentButtonStyle()
+            .buttonStyle(.bordered)
+    }
+}
+
+/// Applies native destructive prominent chrome (`.borderedProminent` tinted `statusError`) so
+/// macOS owns hover, pressed, disabled greying, focus ring, and non-key dimming.
+private struct WNDestructiveButtonChrome: ViewModifier {
+    @Environment(\.controlSize) private var controlSize
+    @Environment(\.wnButtonShape) private var shape
+
+    func body(content: Content) -> some View {
+        content
+            .buttonBorderShape(WNButtonMetrics.borderShape(shape, for: controlSize))
+            .tint(WNColor.statusError)
+            .buttonStyle(.borderedProminent)
     }
 }

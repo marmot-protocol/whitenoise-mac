@@ -33,9 +33,9 @@ enum SourceContract {
     /// else: a split becomes `["FirstHalf.swift", "SecondHalf.swift"]` and every assertion against
     /// the unit keeps reading the whole of it.
     enum ViewUnit: CaseIterable {
+        case buttonMetrics
         case composer
         case contactDetails
-        case destructiveButtonStyle
         case encryptedPrivateKeyExportSheet
         case group
         case messageMedia
@@ -49,7 +49,6 @@ enum SourceContract {
         case primaryButtonSize
         case profileKeysSettings
         case publicIdentity
-        case secondaryButtonStyle
         case settingsAccountSwitcher
         case settingsSidebarGroupCard
         case sidebar
@@ -58,6 +57,7 @@ enum SourceContract {
         /// Paths relative to `whitenoise-mac/Views`, in the order they should be read.
         var paths: [String] {
             switch self {
+            case .buttonMetrics: ["WNButtonMetrics.swift"]
             case .composer: ["ComposerViews.swift"]
             case .contactDetails:
                 [
@@ -65,7 +65,6 @@ enum SourceContract {
                     "ContactDetails/ContactIdentitySection.swift",
                     "ContactDetails/ContactProfileActionsRow.swift",
                 ]
-            case .destructiveButtonStyle: ["WNDestructiveButtonStyle.swift"]
             case .encryptedPrivateKeyExportSheet: ["Settings/EncryptedPrivateKeyExportSheet.swift"]
             case .group:
                 [
@@ -100,7 +99,6 @@ enum SourceContract {
             case .primaryButtonSize: ["WNPrimaryButtonSize.swift"]
             case .profileKeysSettings: ["Settings/ProfileKeysSettingsView.swift"]
             case .publicIdentity: ["Settings/PublicIdentityViews.swift"]
-            case .secondaryButtonStyle: ["WNSecondaryButtonStyle.swift"]
             case .settingsAccountSwitcher: ["Settings/SettingsAccountSwitcherViews.swift"]
             case .settingsSidebarGroupCard: ["Settings/SettingsSidebarGroupCard.swift"]
             case .sidebar: ["SidebarViews.swift"]

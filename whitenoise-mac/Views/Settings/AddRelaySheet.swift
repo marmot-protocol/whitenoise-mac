@@ -143,7 +143,7 @@ struct AddRelaySheet: View {
             Button(L10n.string("Cancel")) {
                 dismiss()
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .wnButtonShape(.capsule)
             .keyboardShortcut(.cancelAction)
 

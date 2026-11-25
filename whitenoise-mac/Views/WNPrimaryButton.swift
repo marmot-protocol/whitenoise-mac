@@ -31,13 +31,9 @@ import SwiftUI
 /// merely hold its neighbours further off.
 struct WNPrimaryButton<Label: View>: View {
     var size: WNPrimaryButtonSize = .medium
+    var isElevated = false
     let action: () -> Void
     @ViewBuilder let label: Label
-
-    /// Read even though this component names its own `controlSize`: the shape and the size are
-    /// different questions. A pane that asked for pills gets pills here too, rather than one
-    /// rounded rectangle among them.
-    @Environment(\.wnButtonShape) private var buttonShape
 
     var body: some View {
         Button(action: action) {
@@ -46,12 +42,8 @@ struct WNPrimaryButton<Label: View>: View {
                 .padding(.vertical, size.verticalPadding)
                 .padding(.horizontal, size.horizontalPadding)
         }
-        .buttonBorderShape(WNButtonMetrics.borderShape(buttonShape, for: size.controlSize))
         .controlSize(size.controlSize)
-        // Kept in step with `WNPrimaryButtonChrome`, which tints the same value for the callers
-        // that reach the tier through `.wnPrimaryButtonStyle()` instead of this component.
-        .tint(WNColor.fillPrimary)
-        .nativeGlassProminentButtonStyle()
+        .wnPrimaryButtonStyle(elevated: isElevated)
     }
 }
 
@@ -62,9 +54,10 @@ extension WNPrimaryButton where Label == SwiftUI.Label<Text, Image> {
         _ title: String,
         systemImage: String,
         size: WNPrimaryButtonSize = .medium,
+        isElevated: Bool = false,
         action: @escaping () -> Void
     ) {
-        self.init(size: size, action: action) {
+        self.init(size: size, isElevated: isElevated, action: action) {
             SwiftUI.Label(title, systemImage: systemImage)
         }
     }

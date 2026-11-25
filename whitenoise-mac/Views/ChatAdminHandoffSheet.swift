@@ -108,7 +108,7 @@ struct ChatAdminHandoffSheet: View {
                 Text(L10n.string("Make Admin & Leave")).frame(minWidth: 96)
             }
             .keyboardShortcut(.defaultAction)
-            .nativeGlassProminentButtonStyle()
+            .wnPrimaryButtonStyle()
             // Only the leave half is destructive, and it is the half the confirmation below the
             // button already describes — so the affordance stays a plain prominent action rather
             // than shouting at a user whose alternative is being stuck in the group forever.
