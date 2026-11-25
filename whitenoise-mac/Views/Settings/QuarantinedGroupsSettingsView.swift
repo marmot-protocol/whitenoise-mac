@@ -69,7 +69,7 @@ private struct QuarantinedGroupSettingsRow: View {
                         isBusy: isRetrying
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(isRetrying)
             } else {
                 Text(L10n.string("Quit and reopen White Noise to restore this group."))

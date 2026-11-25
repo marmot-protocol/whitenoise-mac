@@ -806,15 +806,6 @@ extension View {
     }
 
     @ViewBuilder
-    func nativeGlassProminentButtonStyle() -> some View {
-        if #available(macOS 26.0, *) {
-            self.buttonStyle(.glassProminent)
-        } else {
-            self.buttonStyle(.borderedProminent)
-        }
-    }
-
-    @ViewBuilder
     func nativeWindowGlassBackground() -> some View {
         if #available(macOS 26.0, *) {
             self
@@ -833,13 +824,13 @@ extension View {
 /// title, and glass gives it the emphasis of a filled control — so it takes `outline` instead:
 /// `MessagesCircleControlBackground`, the `WnIconButton.outline` disc this app already draws for
 /// the composer and account-rail controls. That puts every back affordance on the secondary tier,
-/// matching the settings header's chevron and `WNSecondaryButtonStyle`.
+/// matching the settings header's chevron and `.wnSecondaryButtonStyle()`.
 ///
 /// Note that circle control still strokes `borderTertiary`, which is the same value as its own
-/// `fillSecondary` in Dark Aqua — so its ring is invisible there. The push tier hit the same defect
-/// and answered it by dropping the ring altogether: `WNSecondaryButtonStyle` is raised now, not
-/// outlined. The demotion from glass holds either way; giving the discs a visible edge — or a lift
-/// — is a separate change, because it also restyles the composer and the account rail.
+/// `fillSecondary` in Dark Aqua — so its ring is invisible there. The push tier moved to native
+/// `.bordered` chrome (`.wnSecondaryButtonStyle()`). The demotion from glass holds either way; giving
+/// the discs a visible edge — or a lift — is a separate change, because it also restyles the
+/// composer and the account rail.
 struct GlassCircleCloseButton: View {
     enum Appearance {
         /// The glass disc. For a ✕ that dismisses and is meant to read as prominent.

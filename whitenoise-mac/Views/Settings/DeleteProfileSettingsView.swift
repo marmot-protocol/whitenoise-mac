@@ -201,7 +201,7 @@ struct DeleteProfileConfirmationForm: View {
 
             SettingsErrorView(error: model.error)
 
-            Button(action: submit) {
+            Button(role: .destructive, action: submit) {
                 HStack(spacing: 8) {
                     if model.isDeleting {
                         ProgressView().controlSize(.small)
@@ -210,7 +210,7 @@ struct DeleteProfileConfirmationForm: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.wnDestructive)
+            .wnDestructiveButtonStyle()
             .controlSize(.large)
             // Stays red with its spinner while the deletion runs, as iOS's loading button does,
             // rather than greying out as though the gate had closed. `submit` still ignores taps:

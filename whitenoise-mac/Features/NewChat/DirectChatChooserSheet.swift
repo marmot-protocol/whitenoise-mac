@@ -130,7 +130,7 @@ private struct DirectChatChoiceRow: View {
 ///
 /// Centred and drawn at `.large`, as the iOS chooser's lone pill is: with no second action to sit
 /// beside, a trailing small button read as an afterthought in the corner. The font is named here
-/// because `.wnSecondary` inherits whatever the column had rather than choosing one per size.
+/// because `.wnSecondaryButtonStyle()` inherits whatever the column had rather than choosing one per size.
 private struct DirectChatChooserFooter: View {
     let onStartNew: () -> Void
 
@@ -140,7 +140,7 @@ private struct DirectChatChooserFooter: View {
                 .wnFont(WNPrimaryButtonSize.medium.font)
                 .lineLimit(1)
         }
-        .buttonStyle(.wnSecondary)
+        .wnSecondaryButtonStyle()
         .controlSize(.large)
         .accessibilityIdentifier("compose.chooser.startNew")
         .frame(maxWidth: .infinity)

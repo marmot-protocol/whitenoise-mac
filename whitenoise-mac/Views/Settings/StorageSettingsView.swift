@@ -39,7 +39,7 @@ struct StorageSettingsView: View {
                 Button(L10n.string("Change Folder"), systemImage: "folder") {
                     workspace.changeMediaDownloadDestination()
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
 
                 WNToggle(
                     L10n.string("Always ask where to save"),
@@ -94,7 +94,7 @@ struct StorageSettingsView: View {
                             )
                         }
                     }
-                    .nativeGlassProminentButtonStyle()
+                    .wnPrimaryButtonStyle()
                     .disabled(model.isSaving)
 
                     if let error = model.error {
@@ -143,7 +143,7 @@ struct StorageSettingsView: View {
                 // Outline rather than red by explicit request, and with no destructive `role`
                 // to contradict that. The confirmation dialog it opens is system-rendered, so the
                 // irreversible step is still the one drawn in red.
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(
                     workspace.isClearingMediaCache
                         || workspace.isLoadingMediaCacheFootprint

@@ -358,10 +358,9 @@ struct AccountSetupRelayDraftEditor: View {
                     }
                     if showsRoles {
                         HStack(spacing: 16) {
-                            Toggle(L10n.string("Read", locale: locale), isOn: $entry.reads)
-                            Toggle(L10n.string("Write", locale: locale), isOn: $entry.writes)
+                            WNToggle(L10n.string("Read", locale: locale), isOn: $entry.reads, presentation: .checkbox)
+                            WNToggle(L10n.string("Write", locale: locale), isOn: $entry.writes, presentation: .checkbox)
                         }
-                        .toggleStyle(.checkbox)
                         .wnFont(.medium12)
                     }
                 }

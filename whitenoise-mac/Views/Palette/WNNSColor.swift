@@ -25,7 +25,26 @@
 import AppKit
 
 nonisolated enum WNNSColor {
-    // MARK: - Backgrounds
+    // MARK: - Native macOS semantic roles (F01–F07)
+
+    /// Native primary text on reading and window surfaces.
+    static let textPrimary = NSColor.labelColor
+    /// Semantic error / destructive status tint.
+    static let statusError = NSColor.systemRed
+
+    /// Scoped on-state tint for native switches and checkboxes.
+    ///
+    /// Uses near-black in Light appearance and a neutral mid-gray (`neutral500`, `#737373`) in
+    /// Dark appearance rather than white (`fillPrimary`), because a white track erases the native
+    /// white `NSSwitch` thumb in Dark Mode while `#737373` clears 4.5:1 against the white thumb
+    /// and 3.0:1 against dark form surfaces.
+    static let switchOnTint = NSColor.wnDynamic(
+        "wn.switchOnTint",
+        light: WNColorRamp.neutral950,
+        dark: WNColorRamp.neutral500
+    )
+
+    // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 
     /// The app's base surface: the transcript, the chat list, a settings pane.
     static let backgroundPrimary = NSColor.wnDynamic(
@@ -110,10 +129,6 @@ nonisolated enum WNNSColor {
     /// A destructive action's fill. Same in both appearances.
     static let fillDestructive = NSColor.wnDynamic(
         "wn.fillDestructive", light: WNColorRamp.red600, dark: WNColorRamp.red600)
-    static let fillDestructiveHover = NSColor.wnDynamic(
-        "wn.fillDestructiveHover", light: WNColorRamp.red500, dark: WNColorRamp.red500)
-    static let fillDestructiveActive = NSColor.wnDynamic(
-        "wn.fillDestructiveActive", light: WNColorRamp.red500, dark: WNColorRamp.red500)
 
     static let fillDisabled = NSColor.wnDynamic(
         "wn.fillDisabled", light: WNColorRamp.neutral300, dark: WNColorRamp.neutral650)

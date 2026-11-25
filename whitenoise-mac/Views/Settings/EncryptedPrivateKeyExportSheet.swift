@@ -89,7 +89,7 @@ struct EncryptedPrivateKeyExportSheet: View {
                 Button(L10n.string("Cancel")) {
                     dismiss()
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(workspace.isExportingPrivateKey)
 
                 WNPrimaryButton(action: { Task { await export() } }) {

@@ -48,7 +48,7 @@ struct GroupDraftImagePicker: View {
                     .accessibilityIdentifier("compose.groupImage.remove")
                 }
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .controlSize(.small)
             .disabled(!isEnabled)
         }

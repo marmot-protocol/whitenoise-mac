@@ -16,7 +16,13 @@
 import SwiftUI
 
 nonisolated enum WNColor {
-    // MARK: - Backgrounds
+    // MARK: - Native macOS semantic roles (F01–F07)
+
+    static let textPrimary = Color(nsColor: WNNSColor.textPrimary)
+    static let statusError = Color(nsColor: WNNSColor.statusError)
+    static let switchOnTint = Color(nsColor: WNNSColor.switchOnTint)
+
+    // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 
     static let backgroundPrimary = Color(nsColor: WNNSColor.backgroundPrimary)
     static let backgroundSecondary = Color(nsColor: WNNSColor.backgroundSecondary)
@@ -53,8 +59,6 @@ nonisolated enum WNColor {
     static let fillQuaternaryActive = Color(nsColor: WNNSColor.fillQuaternaryActive)
 
     static let fillDestructive = Color(nsColor: WNNSColor.fillDestructive)
-    static let fillDestructiveHover = Color(nsColor: WNNSColor.fillDestructiveHover)
-    static let fillDestructiveActive = Color(nsColor: WNNSColor.fillDestructiveActive)
 
     static let fillDisabled = Color(nsColor: WNNSColor.fillDisabled)
     static let fillContentDisabled = Color(nsColor: WNNSColor.fillContentDisabled)

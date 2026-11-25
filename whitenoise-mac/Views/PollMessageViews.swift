@@ -306,7 +306,7 @@ struct PollComposerSheet: View {
                         .controlSize(.small)
                 }
                 Button(L10n.string("Send"), action: send)
-                    .nativeGlassProminentButtonStyle()
+                    .wnPrimaryButtonStyle()
                     .disabled(isSending)
                     .keyboardShortcut(.defaultAction)
             }

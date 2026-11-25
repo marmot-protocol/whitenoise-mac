@@ -11,12 +11,11 @@ import Testing
 @testable import whitenoise_mac
 
 @Suite(.serialized) @MainActor struct SettingsProfileTests {
-    /// Cancel and Save are meant to be one button twice. They are drawn by two different styles,
-    /// though, and a style ignores a proposed height — so the only way the pair stays matched is a
-    /// per-tier minimum on the label, and the only way those numbers stay right is measuring them.
+    /// Cancel and Save are meant to be one button twice. They are drawn by two different native
+    /// styles, and neither stretches to a proposed height — so the label claims
+    /// `ProfileActionMetrics.labelHeight` and this test re-measures both tiers.
     ///
-    /// This fails if either tier's interior padding moves under us, which is the whole point: the
-    /// numbers live in `WNPrimaryButtonSize` and `WNSecondaryButtonStyle` and are free to change.
+    /// This fails if either native tier's interior padding moves under us.
     @Test func bothProfileActionsDrawTheSameHeight() throws {
         let secondary = try Self.drawnSize(Self.cancelButton).height
         let primary = try Self.drawnSize(Self.saveButton).height
@@ -24,9 +23,8 @@ import Testing
         #expect(
             abs(secondary - primary) <= 1,
             """
-            the action pair drew two heights: .wnSecondary \(secondary)pt, \
-            primary \(primary)pt. Move `ProfileActionMetrics.secondaryChromeHeight` or \
-            `primaryChromeHeight` by the difference.
+            the action pair drew two heights: .wnSecondaryButtonStyle() \(secondary)pt, \
+            primary \(primary)pt. Update `OnboardingLayout.actionChromeHeight` if native chrome changed.
             """)
     }
 
@@ -99,30 +97,28 @@ import Testing
     private static var cancelButton: some View {
         Button {
         } label: {
-            ProfileActionLabel(title: "Cancel", tier: .secondary)
+            ProfileActionLabel(title: "Cancel")
         }
-        .buttonStyle(.wnSecondary)
+        .wnSecondaryButtonStyle()
     }
 
     private static var saveButton: some View {
         Button {
         } label: {
-            ProfileActionLabel(title: "Save", tier: .primary)
+            ProfileActionLabel(title: "Save")
         }
         .wnPrimaryButtonStyle()
     }
 
-    /// Rendered at the app's own tint and at the control size the page names, because both change
-    /// what is drawn: `.glassProminent` carries no colour and falls back to the system accent
-    /// without a tint — see `WNPrimaryButton` — and `wnPrimaryButtonStyle()` reads `\.controlSize`
-    /// from outside itself, which is why `ProfileEditingActions` sets it on the stack.
+    /// Rendered at the control size the page names, because `wnPrimaryButtonStyle()` reads
+    /// `\.controlSize` from outside itself, which is why `ProfileEditingActions` sets it on the
+    /// stack.
     private static func drawnSize<Content: View>(_ content: Content) throws -> CGSize {
         let renderer = ImageRenderer(
             content:
                 content
                 .controlSize(.large)
                 .wnButtonShape(.capsule)
-                .tint(WNColor.fillPrimary)
         )
         renderer.scale = 2
         return try #require(renderer.nsImage?.size)

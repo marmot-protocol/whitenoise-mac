@@ -119,7 +119,7 @@ private struct GroupRejoinInvitationSheet: View {
                 Button(L10n.string("Accept")) {
                     Task { await decide(confirm: true) }
                 }
-                .nativeGlassProminentButtonStyle()
+                .wnPrimaryButtonStyle()
                 .disabled(model.isApplyingRecoveryDecision)
             }
         }

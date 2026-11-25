@@ -332,14 +332,14 @@ struct ProfileKeysBackupSection: View {
                     } label: {
                         Label(L10n.string("Back Up With a Password"), systemImage: "lock.doc")
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
 
                     Button {
                         isConfirmingRawExport = true
                     } label: {
                         Label(L10n.string("Back Up Without a Password"), systemImage: "arrow.down.doc")
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                 }
                 .disabled(isExporting)
             }

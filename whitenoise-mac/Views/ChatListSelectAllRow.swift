@@ -64,7 +64,7 @@ struct ChatListSelectAllRow: View {
             Button(L10n.string("Done", locale: locale)) {
                 model.end()
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .keyboardShortcut(.cancelAction)
             .accessibilityIdentifier("chat.selection.done")
         }

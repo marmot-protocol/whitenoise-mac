@@ -197,7 +197,7 @@ private struct StickerPickerPage: View {
                     Label(L10n.string("Sticker Packs"), systemImage: "plus")
                         .wnFont(.medium12)
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .controlSize(.small)
                 .accessibilityIdentifier("stickers.browse")
             }
@@ -236,7 +236,7 @@ private struct StickerPickerPage: View {
                         systemImage: "face.dashed"
                     )
                     Button(L10n.string("Browse Sticker Packs"), action: onBrowse)
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -419,7 +419,7 @@ private struct StickerPackBrowserPage: View {
                                 .onSubmit(lookUp)
                                 .accessibilityIdentifier("stickers.link")
                             Button(L10n.string("Open Link"), action: lookUp)
-                                .buttonStyle(.wnSecondary)
+                                .wnSecondaryButtonStyle()
                                 .controlSize(.small)
                                 .disabled(StickerPackPresentation.lookupInput(link) == nil || isLookingUp)
                         }
@@ -565,7 +565,7 @@ private struct StickerDiscoverList: View {
                     .wnFont(.medium12)
                 StickerBrowserNote(text: message)
                 Button(L10n.string("Try Again"), action: onRetry)
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
             }
         }
@@ -635,7 +635,7 @@ struct StickerPackDetailPage: View {
         VStack(spacing: 0) {
             StickerPageHeader(title: StickerPackPresentation.title(pack), onBack: onBack) {
                 Button(didCopyLink ? L10n.string("Copied") : L10n.string("Copy Link"), action: copyShareLink)
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
                     .help(L10n.string("Copy a link others can use to add this sticker pack."))
                     .accessibilityIdentifier("stickers.pack.copyLink")
@@ -645,7 +645,7 @@ struct StickerPackDetailPage: View {
                     Button(isInstalled ? L10n.string("Remove") : L10n.string("Add")) {
                         toggleInstall(installing: !isInstalled)
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .controlSize(.small)
                     .accessibilityIdentifier("stickers.pack.toggleInstall")
                 }

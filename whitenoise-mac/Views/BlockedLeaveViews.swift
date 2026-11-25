@@ -30,7 +30,7 @@ struct BlockedLeaveNotice: View {
             if canCancel {
                 HStack(spacing: 8) {
                     Button(BlockedLeavePresentation.cancelAction, action: onCancel)
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .controlSize(.small)
                         .disabled(isCancelling)
                     if isCancelling {

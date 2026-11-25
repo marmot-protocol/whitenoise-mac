@@ -194,9 +194,9 @@ struct VerifiedNostrAddressSeal: View {
 ///
 /// **Under the fields, full width, at the height an onboarding action draws.** Save publishes the
 /// same profile `Create profile` publishes, so it draws at the same `OnboardingLayout.actionHeight`.
-/// Neither style stretches to a proposed height — a `ButtonStyle` ignores `.frame(height:)` — so
-/// each tier's label claims that height minus its own chrome. `ProfileActionMetrics` holds both
-/// numbers and `SettingsProfileTests` re-measures them.
+/// Neither native style stretches to a proposed height — a `ButtonStyle` ignores `.frame(height:)`
+/// — so the label claims `ProfileActionMetrics.labelHeight` and `SettingsProfileTests` re-measures
+/// both tiers.
 struct ProfileEditingActions: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -211,9 +211,9 @@ struct ProfileEditingActions: View {
                     Button {
                         workspace.discardProfileEdits()
                     } label: {
-                        ProfileActionLabel(title: L10n.string("Cancel"), tier: .secondary)
+                        ProfileActionLabel(title: L10n.string("Cancel"))
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(isBusy)
                     .accessibilityIdentifier("settings.profile.cancel")
 
@@ -222,8 +222,7 @@ struct ProfileEditingActions: View {
                     } label: {
                         ProfileActionLabel(
                             title: workspace.isSavingProfile
-                                ? L10n.string("Saving...") : L10n.string("Save"),
-                            tier: .primary
+                                ? L10n.string("Saving...") : L10n.string("Save")
                         )
                     }
                     .wnPrimaryButtonStyle()
@@ -261,22 +260,15 @@ struct ProfileEditingActions: View {
 /// Internal rather than nested so the size test can stand one up on its own and measure what the
 /// two styles actually draw around it.
 struct ProfileActionLabel: View {
-    enum Tier {
-        case primary
-        case secondary
-    }
-
     let title: String
-    let tier: Tier
 
     var body: some View {
         Text(title)
             .lineLimit(1)
-            // Named here rather than left to the control size, because only one of the two tiers
-            // goes through `WNPrimaryButton` — `.wnSecondary` inherits whatever font the column had
-            // — and a pair in one row has to be one typeface at one size.
+            // Named here rather than left to the control size so both buttons in the pair use the
+            // same typeface and size as `WNPrimaryButton(size: .large)`.
             .wnFont(WNPrimaryButtonSize.large.font)
-            .frame(maxWidth: .infinity, minHeight: ProfileActionMetrics.labelHeight(for: tier))
+            .frame(maxWidth: .infinity, minHeight: ProfileActionMetrics.labelHeight)
     }
 }
 
@@ -308,31 +300,8 @@ enum ProfileActionMetrics {
     /// the gap, and this column has nothing between the About field and the buttons.
     static let fieldsToActionsSpacing: CGFloat = 8
 
-    /// What the glass primary draws around its label at `.large`.
-    ///
-    /// The onboarding panes measured this first and
-    /// `OnboardingTests.bothActionTiersDrawTheSameHeight` keeps re-measuring it; the number is read
-    /// from there rather than copied, so there is one place it can move.
-    static let primaryChromeHeight: CGFloat = OnboardingLayout.primaryActionChromeHeight
-
-    /// What `.wnSecondary` draws around its label at `.large` — twice `WNSecondaryButtonStyle`'s
-    /// own vertical padding, its shadow falling outside the layout and adding nothing.
-    ///
-    /// **4pt more than the glass tier's, which is why neither number can be reasoned about from
-    /// the other.** The two styles step their interiors on different tables — `controlSize` for
-    /// this one, the native glass metrics for that one — so the gap between them changes with the
-    /// rung and even changes sign: at `.small`, where these actions used to be drawn, the glass was
-    /// the *taller* of the two. `SettingsProfileTests.bothProfileActionsDrawTheSameHeight`
-    /// re-measures both through `ImageRenderer` and fails if either table moves under us.
-    static let secondaryChromeHeight: CGFloat = 16
-
     /// The minimum height an action's *label* must claim for its button to come out `height` tall.
-    static func labelHeight(for tier: ProfileActionLabel.Tier) -> CGFloat {
-        switch tier {
-        case .primary: height - primaryChromeHeight
-        case .secondary: height - secondaryChromeHeight
-        }
-    }
+    static let labelHeight: CGFloat = height - OnboardingLayout.actionChromeHeight
 }
 
 /// The top of the profile form: the avatar, centred and large enough to be the subject of the
@@ -385,7 +354,7 @@ struct ProfileIdentityHeaderView: View {
                 Text(L10n.string(hasPhoto ? "Change photo" : "Add photo"))
                     .wnFont(OnboardingLayout.signUpPhotoPillTextStyle)
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             // The pill Sign Up and the account-setup step draw, at their size.
             .controlSize(OnboardingLayout.signUpPhotoPillControlSize)
             .accessibilityIdentifier("settings.profile.photo")

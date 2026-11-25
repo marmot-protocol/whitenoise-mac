@@ -79,7 +79,7 @@ struct PureValueTests {
 
         // The radius is the fourth axis, and it is no longer the size's to hold: it comes from the
         // shared table by way of `controlSize`, which is what keeps a primary button and the
-        // `.wnSecondary` one beside it cut alike.
+        // `.wnSecondaryButtonStyle()` one beside it cut alike.
         #expect(
             WNButtonMetrics.cornerRadius(for: large.controlSize)
                 > WNButtonMetrics.cornerRadius(for: medium.controlSize))

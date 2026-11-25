@@ -119,7 +119,7 @@ struct GroupAddMembersSheet: View {
                 .wnFont(.semiBold14)
             Spacer()
             Button(L10n.string("Cancel")) { dismiss() }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -134,7 +134,7 @@ struct GroupAddMembersSheet: View {
                 Text(inviteLabel).frame(minWidth: 96)
             }
             .keyboardShortcut(returnInvites ? .defaultAction : nil)
-            .nativeGlassProminentButtonStyle()
+            .wnPrimaryButtonStyle()
             .disabled(
                 (reachableStaged.isEmpty && pendingIdentifier == nil)
                     || isGroupCommitInFlight

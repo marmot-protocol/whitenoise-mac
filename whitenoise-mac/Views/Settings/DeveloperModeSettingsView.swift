@@ -61,7 +61,7 @@ struct DeveloperModeSettingsView: View {
                 } label: {
                     Label(L10n.string("Open Storage Folder"), systemImage: "folder")
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
             }
 
             SettingsSection(title: L10n.string("Diagnostics")) {
@@ -104,7 +104,7 @@ struct AuditLogFilesSection: View {
                         isBusy: model.isLoadingAuditLogs
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(model.isLoadingAuditLogs)
 
                 if DiagnosticLogExport.latestFile(in: model.auditLogFiles) != nil {
@@ -117,7 +117,7 @@ struct AuditLogFilesSection: View {
                             isBusy: exportingPath == ""
                         )
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(exportingPath != nil)
                 }
             }

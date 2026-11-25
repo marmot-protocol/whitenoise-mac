@@ -35,7 +35,7 @@ struct DictationSettingsSection: View {
                     Button(L10n.string("Download Speech Model")) {
                         installer.install(localeIdentifiers: languages())
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                 }
             }
         }

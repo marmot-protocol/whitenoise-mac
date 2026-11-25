@@ -218,7 +218,7 @@ private struct AvatarCropFooter: View {
             }
 
             Button(L10n.string("Cancel"), action: onClose)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .keyboardShortcut(.cancelAction)
                 .disabled(model.isSaving)
 
@@ -227,8 +227,7 @@ private struct AvatarCropFooter: View {
                     if await model.save() { onClose() }
                 }
             }
-            .nativeGlassProminentButtonStyle()
-            .tint(WNColor.fillPrimary)
+            .wnPrimaryButtonStyle()
             .keyboardShortcut(.defaultAction)
             .disabled(!model.canSave)
             .accessibilityIdentifier("avatar-crop.done")

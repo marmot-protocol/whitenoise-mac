@@ -25,7 +25,7 @@ struct KeyPackageSettingsView: View {
                     } label: {
                         Label(L10n.string("Refresh"), systemImage: "arrow.clockwise")
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(model.isRefreshing)
 
                     if model.isRefreshing {

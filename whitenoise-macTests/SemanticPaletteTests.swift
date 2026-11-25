@@ -389,6 +389,44 @@ struct SemanticPaletteTests {
         #expect(QRCodePalette.resolved(for: .light) != QRCodePalette.resolved(for: .dark))
     }
 
+    // MARK: - Native semantic roles (F01–F07)
+
+    /// Verifies the native semantic roles introduced in PR 1 (`WNInput` label & validation colors
+    /// and `switchOnTint` against both the white switch thumb and dark form surfaces) clear WCAG
+    /// floors in both Aqua and Dark Aqua. Translucent system tokens (`labelColor`) are alpha-
+    /// composited over their backing surface before computing contrast.
+    @Test func nativeSemanticPairsStayLegibleInBothAppearances() throws {
+        for appearance in try Self.appearances() {
+            let pane = try Self.composited(
+                WNNSColor.backgroundPrimary, over: WNNSColor.backgroundPrimary, in: appearance)
+            let inputLabel = try Self.composited(WNNSColor.textPrimary, over: pane, in: appearance)
+            let inputError = try Self.composited(WNNSColor.intentionErrorContent, over: pane, in: appearance)
+
+            #expect(
+                Self.contrastRatio(pane, inputLabel) >= 4.5,
+                "WNInput label contrast below 4.5:1 in \(appearance.name.rawValue)"
+            )
+            #expect(
+                Self.contrastRatio(pane, inputError) >= 4.5,
+                "WNInput validation contrast below 4.5:1 in \(appearance.name.rawValue)"
+            )
+
+            // Switch on-state tint clears 4.5:1 against the native white thumb AND 3.0:1 against
+            // the native dark/light control background in both appearances.
+            let reading = try Self.composited(.controlBackgroundColor, over: .windowBackgroundColor, in: appearance)
+            let switchTrack = try Self.composited(WNNSColor.switchOnTint, over: reading, in: appearance)
+            let whiteThumb = try #require(WNColorRamp.white.usingColorSpace(.sRGB))
+            #expect(
+                Self.contrastRatio(switchTrack, whiteThumb) >= 4.5,
+                "switchOnTint does not contrast with the white thumb in \(appearance.name.rawValue)"
+            )
+            #expect(
+                Self.contrastRatio(switchTrack, reading) >= 3.0,
+                "switchOnTint blends into the surface in \(appearance.name.rawValue)"
+            )
+        }
+    }
+
     // MARK: - Helpers
 
     /// Every accent, read through `AvatarPalette`'s list so these tests cover the same twelve sets
@@ -455,6 +493,37 @@ struct SemanticPaletteTests {
             resolved = color.usingColorSpace(.sRGB)
         }
         return hexString(of: try #require(resolved))
+    }
+
+    /// Composites `foreground` over an already-resolved opaque `background` using source-over alpha
+    /// blending in `appearance`, so translucent system tokens (`labelColor`, `secondarySystemFill`)
+    /// are measured as the actual color they draw on screen.
+    private static func composited(
+        _ foreground: NSColor,
+        over background: NSColor,
+        in appearance: NSAppearance
+    ) throws -> NSColor {
+        var resolved: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            guard
+                let fg = foreground.usingColorSpace(.sRGB),
+                let bg = background.usingColorSpace(.sRGB)
+            else { return }
+            let alpha = fg.alphaComponent
+            resolved = NSColor(
+                srgbRed: fg.redComponent * alpha + bg.redComponent * (1 - alpha),
+                green: fg.greenComponent * alpha + bg.greenComponent * (1 - alpha),
+                blue: fg.blueComponent * alpha + bg.blueComponent * (1 - alpha),
+                alpha: 1
+            )
+        }
+        return try #require(resolved)
+    }
+
+    private static func contrastRatio(_ a: NSColor, _ b: NSColor) -> Double {
+        let first = relativeLuminance(of: a)
+        let second = relativeLuminance(of: b)
+        return (max(first, second) + 0.05) / (min(first, second) + 0.05)
     }
 
     private static func relativeLuminance(of color: NSColor) -> Double {
