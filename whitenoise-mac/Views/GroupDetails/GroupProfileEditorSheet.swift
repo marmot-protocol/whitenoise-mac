@@ -40,8 +40,11 @@ struct GroupProfileEditorSheet: View {
                     )
                 ) {
                     TextField(L10n.string("Group name"), text: $name)
-                    TextField(L10n.string("Description"), text: $description, axis: .vertical)
-                        .lineLimit(3...6)
+                    TextField(
+                        L10n.string("Description"), text: $description, prompt: Text(L10n.string("Add a description")),
+                        axis: .vertical
+                    )
+                    .lineLimit(3...6)
                     SettingsErrorView(error: error)
                 }
             }

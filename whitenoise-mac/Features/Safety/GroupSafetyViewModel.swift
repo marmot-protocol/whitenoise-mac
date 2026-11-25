@@ -203,14 +203,7 @@ final class GroupSafetyViewModel {
         guard !isModerating else { return false }
         isModerating = true
         defer { isModerating = false }
-        do {
-            let forgotten = try await runtime.forgetGroupLocal(accountRef: accountRef, groupIdHex: groupIdHex)
-            error = nil
-            return forgotten
-        } catch {
-            self.error = UserFacingError.message(for: error)
-            throw error
-        }
+        return try await runtime.forgetGroupLocal(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
     private func containsDisplayed(_ invitation: GroupRejoinInvitationFfi) -> Bool {

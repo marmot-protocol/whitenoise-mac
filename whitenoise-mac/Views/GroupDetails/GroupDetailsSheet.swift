@@ -131,11 +131,9 @@ struct GroupDetailsSheet: View {
 
                     // Actionable status stays near identity, never buried below members.
                     GroupRecoverySection(model: safetyModel)
-                    GroupModerationSection(
-                        model: safetyModel,
-                        canModerate: canModerate,
-                        onForgotten: { workspace.closeGroupDetails() }
-                    )
+                    if canModerate {
+                        GroupModerationSection(model: safetyModel)
+                    }
                     GroupMembershipStatusSections(snapshot: snapshot)
                     GroupDisbandStatusSection(
                         status: disbandModel.reconciled(snapshot.disband).status,
@@ -228,6 +226,21 @@ struct GroupDetailsSheet: View {
                     }
 
                     // 7. Destructive actions (terminal section)
+                    if canModerate {
+                        let accountId = workspace.activeAccountId
+                        DeleteLocalGroupSection(
+                            model: safetyModel,
+                            groupIsBusy: isGroupCommitInFlight || workspace.archivingChatId == chat.id
+                                || workspace.leavingChatId == chat.id || workspace.deletingChatId == chat.id
+                        ) {
+                            guard workspace.activeAccountId == accountId, workspace.selection == .chat(chat.id) else {
+                                return
+                            }
+                            workspace.closeGroupDetails()
+                        }
+                        .id(ObjectIdentifier(safetyModel))
+                    }
+
                     GroupDetailsLeaveSection(
                         chat: chat, snapshot: snapshot, conversationModel: conversationModel,
                         disbandModel: disbandModel)

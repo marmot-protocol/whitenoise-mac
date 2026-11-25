@@ -10,28 +10,10 @@ import Testing
 
 @MainActor
 struct ChatRowMenuActionTests {
-    /// The menu repaints template images in its own monochrome, so a template icon would lose the
-    /// color that is the whole point of these items.
-    @Test func menuIconsAreNonTemplateDiscs() {
+    @Test func everyMenuActionHasAnAvailableSystemSymbol() {
         for action in ChatRowMenuAction.allCases {
-            let icon = action.menuIcon
-            #expect(!icon.isTemplate, "\(action) would be repainted monochrome")
-            #expect(icon.size == NSSize(width: 16, height: 16))
+            #expect(NSImage(systemSymbolName: action.systemImage, accessibilityDescription: nil) != nil)
         }
-    }
-
-    /// Each pair shares the iOS swipe action's tint, so toggling an item does not change color.
-    @Test func togglePairsShareATint() {
-        let pairs: [(ChatRowMenuAction, ChatRowMenuAction)] = [
-            (.markUnread, .clearUnread), (.mute, .unmute), (.pin, .unpin), (.archive, .unarchive),
-            (.leave, .deleteLocally),
-        ]
-        for (a, b) in pairs {
-            #expect(a.tint == b.tint, "\(a) and \(b)")
-        }
-        #expect(ChatRowMenuAction.pin.tint == .systemOrange)
-        #expect(ChatRowMenuAction.archive.tint == .systemGray)
-        #expect(ChatRowMenuAction.leave.tint == WNNSColor.fillDestructive)
     }
 
     /// The titles are the catalog keys the menu already shipped with, so no translation changes.

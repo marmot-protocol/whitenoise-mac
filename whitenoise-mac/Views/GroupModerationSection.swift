@@ -3,36 +3,17 @@ import SwiftUI
 
 struct GroupModerationSection: View {
     let model: GroupSafetyViewModel
-    let canModerate: Bool
-    let onForgotten: () -> Void
     @State private var isPresented = false
 
     var body: some View {
-        if canModerate {
-            Section(L10n.string("Moderation")) {
-                Button {
-                    isPresented = true
-                } label: {
-                    HStack {
-                        Label(L10n.string("Reports"), systemImage: "exclamationmark.bubble")
-                        Spacer()
-                        if !model.reports.isEmpty {
-                            Text(String(model.reports.count))
-                                .foregroundStyle(WNColor.backgroundContentSecondary)
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $isPresented) {
-                GroupModerationSheet(
-                    model: model,
-                    dismiss: { isPresented = false },
-                    onForgotten: {
-                        isPresented = false
-                        onForgotten()
-                    }
-                )
-            }
+        Section(L10n.string("Moderation")) {
+            DetailsDisclosureRow(
+                title: L10n.string("Reports"), systemImage: "exclamationmark.bubble",
+                value: model.reports.isEmpty ? "" : model.reports.count.formatted()
+            ) { isPresented = true }
+        }
+        .sheet(isPresented: $isPresented) {
+            GroupModerationSheet(model: model, dismiss: { isPresented = false })
         }
     }
 }
@@ -40,9 +21,7 @@ struct GroupModerationSection: View {
 private struct GroupModerationSheet: View {
     let model: GroupSafetyViewModel
     let dismiss: () -> Void
-    let onForgotten: () -> Void
     @State private var dismissingReport: ContentReportFfi?
-    @State private var showsForgetConfirmation = false
     @State private var actionError: String?
 
     var body: some View {
@@ -89,13 +68,6 @@ private struct GroupModerationSheet: View {
                         SettingsErrorView(error: actionError)
                     }
 
-                    Divider()
-                        .padding(.top, 8)
-
-                    Button(L10n.string("Delete Local Group"), role: .destructive) {
-                        showsForgetConfirmation = true
-                    }
-                    .disabled(model.isModerating)
                 }
                 .padding(20)
             }
@@ -117,22 +89,7 @@ private struct GroupModerationSheet: View {
             }
             Button(L10n.string("Cancel"), role: .cancel) {}
         }
-        .confirmationDialog(
-            L10n.string("Delete local group?"),
-            isPresented: $showsForgetConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button(L10n.string("Delete Local Group"), role: .destructive) {
-                Task { await forgetGroup() }
-            }
-            Button(L10n.string("Cancel"), role: .cancel) {}
-        } message: {
-            Text(
-                L10n.string(
-                    "This deletes this group’s local history and state without leaving or ending the group for other members. Downloaded media caches on this device are also cleared. Old invitations cannot restore it; ask a member to send a fresh invitation after the reset."
-                )
-            )
-        }
+
     }
 
     private func dismiss(_ report: ContentReportFfi) async {
@@ -144,15 +101,6 @@ private struct GroupModerationSheet: View {
         }
     }
 
-    private func forgetGroup() async {
-        do {
-            if try await model.forgetLocally() {
-                onForgotten()
-            }
-        } catch {
-            actionError = UserFacingError.message(for: error)
-        }
-    }
 }
 
 private struct GroupModerationReportCard: View {

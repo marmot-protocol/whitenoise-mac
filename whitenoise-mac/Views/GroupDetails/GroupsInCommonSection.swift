@@ -45,10 +45,17 @@ struct GroupsInCommonSection: View {
                                     .font(.callout.weight(.semibold))
                                     .foregroundStyle(WNColor.backgroundContentPrimary)
                                     .lineLimit(1)
-                                Text(commonGroup.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                                    .lineLimit(1)
+                                let subtitle = commonGroup.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !subtitle.isEmpty,
+                                    subtitle.localizedCaseInsensitiveCompare(
+                                        commonGroup.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    ) != .orderedSame
+                                {
+                                    Text(subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                                        .lineLimit(1)
+                                }
                             }
                             Spacer()
                             Image(systemName: "chevron.right")

@@ -76,19 +76,25 @@ struct GroupDetailsSettingsSection: View {
             .disabled(workspace.isArchivingGroup)
         }
         .confirmationDialog(
-            L10n.string(snapshot.archived ? "Unarchive this group?" : "Archive this group?"),
+            isDirect
+                ? archiveActionTitle : L10n.string(snapshot.archived ? "Unarchive this group?" : "Archive this group?"),
             isPresented: $showArchiveConfirmation,
             titleVisibility: .visible
         ) {
             Button(
-                L10n.string(snapshot.archived ? "Unarchive Group" : "Archive Group"),
+                archiveActionTitle,
                 role: snapshot.archived ? nil : .destructive
             ) {
                 Task { await workspace.setSelectedGroupArchived(!snapshot.archived) }
             }
             Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text(L10n.string("Archived groups are hidden from the active chat list."))
+            if !isDirect || !snapshot.archived {
+                Text(
+                    isDirect
+                        ? L10n.string("Archiving hides the chat from your main list. It doesn't notify anyone.")
+                        : L10n.string("Archived groups are hidden from the active chat list."))
+            }
         }
     }
 
@@ -96,6 +102,11 @@ struct GroupDetailsSettingsSection: View {
         if workspace.isArchivingGroup {
             return L10n.string(snapshot.archived ? "Unarchiving..." : "Archiving...")
         }
+        return archiveActionTitle
+    }
+
+    private var archiveActionTitle: String {
+        if isDirect { return L10n.string(snapshot.archived ? "Unarchive Chat" : "Archive Chat") }
         return L10n.string(snapshot.archived ? "Unarchive Group" : "Archive Group")
     }
 }
