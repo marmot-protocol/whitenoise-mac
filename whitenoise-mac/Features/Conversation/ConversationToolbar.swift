@@ -40,18 +40,69 @@ struct ConversationToolbarModifier: ViewModifier {
     /// in-conversation search.
     let escapeEndsMessageSelection: Bool
 
+    private var toolbarTitle: String {
+        if messenger.workspace.isTimelineSelectionMode {
+            return L10n.plural(
+                "%lld selected", Int64(messenger.workspace.selectedTimelineMessageIds.count), locale: locale)
+        }
+        return chat.title
+    }
+
+    private var toolbarSubtitle: String {
+        guard !messenger.workspace.isTimelineSelectionMode else { return "" }
+        if isCatchingUp {
+            return L10n.string("Catching up…", locale: locale)
+        }
+        let baseSubtitle = metadata?.subtitle ?? chat.subtitle
+        if let durationSeconds = metadata?.disappearingMessageSecs, durationSeconds > 0 {
+            let duration = DisappearingMessageOption.option(for: durationSeconds).label
+            let retentionSummary = String(format: L10n.string("Disappearing messages: %@", locale: locale), duration)
+            if baseSubtitle.isEmpty {
+                return retentionSummary
+            }
+            return "\(baseSubtitle) · \(retentionSummary)"
+        }
+        return baseSubtitle
+    }
+
+    private func toggleChatInfo() {
+        let workspace = messenger.workspace
+        guard let currentChat = messenger.activeChat(matching: chat.id) else { return }
+        if isDetailsPanePresented {
+            workspace.closeGroupDetails()
+        } else {
+            Task {
+                guard let refreshedChat = messenger.activeChat(matching: currentChat.id) else {
+                    return
+                }
+                await workspace.showGroupDetails(for: refreshedChat)
+            }
+        }
+    }
+
     func body(content: Content) -> some View {
         let workspace = messenger.workspace
+        let infoTitle = L10n.string(
+            isDetailsPanePresented ? "Hide Info" : "Info",
+            locale: locale
+        )
 
         content
-            // Keep the chat title on the window (Window menu, Mission Control, VoiceOver) while
-            // hiding SwiftUI's duplicate plain toolbar title beside the custom `.navigation` item.
-            .navigationTitle(chat.title)
+            // Keep window title updated for Window menu / Mission Control while hosting a clickable
+            // avatar+title+subtitle in the leading toolbar slot (no pill chrome) and Search + More
+            // on the far trailing right.
+            .navigationTitle(toolbarTitle)
             .toolbar(removing: .title)
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .toolbar {
                 if workspace.isTimelineSelectionMode {
                     ToolbarItem(placement: .navigation) {
                         ConversationSelectionToolbarTitle(count: workspace.selectedTimelineMessageIds.count)
+                    }
+                    .sharedBackgroundVisibilityIfAvailable(.hidden)
+
+                    if #available(macOS 26.0, *) {
+                        ToolbarSpacer(.flexible, placement: .primaryAction)
                     }
 
                     ToolbarItemGroup(placement: .primaryAction) {
@@ -64,11 +115,20 @@ struct ConversationToolbarModifier: ViewModifier {
                     }
                 } else {
                     ToolbarItem(placement: .navigation) {
-                        ConversationToolbarIdentity(
-                            chat: chat,
-                            metadata: metadata,
-                            isCatchingUp: isCatchingUp
-                        )
+                        Button(action: toggleChatInfo) {
+                            ConversationToolbarHeaderLabel(chat: chat, subtitle: toolbarSubtitle)
+                        }
+                        .buttonStyle(.plain)
+                        .pointerStyle(.link)
+                        .help(infoTitle)
+                        .accessibilityLabel(chat.title)
+                        .accessibilityHint(infoTitle)
+                        .accessibilityIdentifier("conversation.info.open")
+                    }
+                    .sharedBackgroundVisibilityIfAvailable(.hidden)
+
+                    if #available(macOS 26.0, *) {
+                        ToolbarSpacer(.flexible, placement: .primaryAction)
                     }
 
                     ToolbarItemGroup(placement: .primaryAction) {
@@ -78,28 +138,16 @@ struct ConversationToolbarModifier: ViewModifier {
                         .help(L10n.string("Find in Conversation…", locale: locale))
                         .accessibilityIdentifier("conversation.search.open")
 
-                        let infoTitle = L10n.string(
-                            isDetailsPanePresented ? "Hide Chat Info" : "Show Chat Info",
-                            locale: locale
-                        )
-                        Button {
-                            guard let currentChat = messenger.activeChat(matching: chat.id) else { return }
-                            if isDetailsPanePresented {
-                                workspace.closeGroupDetails()
-                            } else {
-                                Task {
-                                    guard let refreshedChat = messenger.activeChat(matching: currentChat.id) else {
-                                        return
-                                    }
-                                    await workspace.showGroupDetails(for: refreshedChat)
-                                }
-                            }
-                        } label: {
-                            Label(infoTitle, systemImage: "info.circle")
-                                .symbolVariant(isDetailsPanePresented ? .fill : .none)
+                        Button(action: toggleChatInfo) {
+                            Label(
+                                infoTitle,
+                                systemImage: isDetailsPanePresented ? "chevron.right.2" : "info.circle"
+                            )
+                            .contentTransition(.symbolEffect(.replace))
                         }
                         .help(infoTitle)
-                        .accessibilityIdentifier("conversation.info.open")
+                        .accessibilityLabel(infoTitle)
+                        .accessibilityIdentifier("conversation.info.toggle")
 
                         Menu {
                             ConversationMenuItems(
@@ -113,8 +161,9 @@ struct ConversationToolbarModifier: ViewModifier {
                                 }
                             )
                         } label: {
-                            Label(L10n.string("More", locale: locale), systemImage: "ellipsis.circle")
+                            Label(L10n.string("More", locale: locale), systemImage: "ellipsis")
                         }
+                        .menuIndicator(.hidden)
                         .help(L10n.string("More", locale: locale))
                         .accessibilityIdentifier("conversation.more.menu")
                     }
@@ -132,6 +181,114 @@ struct ConversationToolbarModifier: ViewModifier {
                     .environment(\.endingGroupIds, endingGroupIds)
                     .environment(\.isBulkLeavingChats, isBulkLeavingChats)
             }
+    }
+}
+
+/// Shared leading header content (28pt chat avatar + title + subtitle) used by both the live
+/// conversation toolbar and the 1-frame switching placeholder so chat switches never flash.
+struct ConversationToolbarHeaderLabel: View {
+    let chat: ChatItem
+    let subtitle: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProfileImageAvatarView(
+                seed: chat.avatarSeed,
+                initials: chat.title,
+                sanitizedPictureURL: chat.sanitizedPictureURL,
+                localImagePayload: chat.groupImagePayload,
+                size: 28,
+                isSelected: false
+            )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(chat.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+        .frame(minWidth: 0, alignment: .leading)
+        .layoutPriority(-1)
+        .contentShape(Rectangle())
+    }
+}
+
+/// Holds the conversation toolbar layout steady during the brief async frame while a newly
+/// selected chat's `ConversationViewModel` binds, preventing a flash back to the default window
+/// titlebar.
+struct ConversationSwitchingPlaceholderView: View {
+    @Environment(\.locale) private var locale
+    let chat: ChatItem
+    let metadata: ConversationMetadata?
+
+    private var subtitle: String {
+        let baseSubtitle = metadata?.subtitle ?? chat.subtitle
+        if let durationSeconds = metadata?.disappearingMessageSecs, durationSeconds > 0 {
+            let duration = DisappearingMessageOption.option(for: durationSeconds).label
+            let retentionSummary = String(format: L10n.string("Disappearing messages: %@", locale: locale), duration)
+            if baseSubtitle.isEmpty { return retentionSummary }
+            return "\(baseSubtitle) · \(retentionSummary)"
+        }
+        return baseSubtitle
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle(chat.title)
+            .toolbar(removing: .title)
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    ConversationToolbarHeaderLabel(chat: chat, subtitle: subtitle)
+                }
+                .sharedBackgroundVisibilityIfAvailable(.hidden)
+
+                if #available(macOS 26.0, *) {
+                    ToolbarSpacer(.flexible, placement: .primaryAction)
+                }
+
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                    } label: {
+                        Label(L10n.string("Search messages", locale: locale), systemImage: "magnifyingglass")
+                    }
+                    .disabled(true)
+
+                    Button {
+                    } label: {
+                        Label(L10n.string("Info", locale: locale), systemImage: "info.circle")
+                    }
+                    .disabled(true)
+
+                    Button {
+                    } label: {
+                        Label(L10n.string("More", locale: locale), systemImage: "ellipsis")
+                    }
+                    .disabled(true)
+                }
+            }
+    }
+}
+
+extension ToolbarContent {
+    @ToolbarContentBuilder
+    func sharedBackgroundVisibilityIfAvailable(_ visibility: Visibility) -> some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            sharedBackgroundVisibility(visibility)
+        } else {
+            self
+        }
     }
 }
 

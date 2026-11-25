@@ -10,11 +10,13 @@
 import SwiftUI
 
 struct SettingsSidebarView: View {
+    @Environment(\.locale) private var locale
     let coordinator: SettingsWindowCoordinator
     let account: AccountItem
     let devicesAvailable: Bool
     let isAccountMutationInProgress: Bool
     let preferredLocale: Locale
+    var onBackToChats: (() -> Void)? = nil
 
     private var selection: Binding<SettingsPage?> {
         Binding(
@@ -27,49 +29,65 @@ struct SettingsSidebarView: View {
     }
 
     var body: some View {
-        List(selection: selection) {
-            Section {
-                SettingsSidebarActiveProfileRow(
-                    account: account,
-                    preferredLocale: preferredLocale
-                )
-                SettingsSidebarAddProfileRow(onAddProfile: coordinator.beginAddProfile)
-            }
-
-            ForEach(
-                Array(
-                    SettingsPage.sidebarGroups.map {
-                        Self.visiblePages(in: $0, devicesAvailable: devicesAvailable)
-                    }.enumerated()
-                ),
-                id: \.offset
-            ) { _, group in
+        VStack(spacing: 0) {
+            List(selection: selection) {
                 Section {
-                    ForEach(group) { page in
-                        SettingsSidebarCategoryRow(
-                            page: page,
-                            hasOpenChild: coordinator.page != page && coordinator.parentPage == page,
-                            onReselect: {
-                                coordinator.navigate(to: page)
-                            }
-                        )
-                        .tag(page)
+                    SettingsSidebarActiveProfileRow(
+                        account: account,
+                        preferredLocale: preferredLocale
+                    )
+                    SettingsSidebarAddProfileRow(onAddProfile: coordinator.beginAddProfile)
+                }
+
+                ForEach(
+                    Array(
+                        SettingsPage.sidebarGroups.map {
+                            Self.visiblePages(in: $0, devicesAvailable: devicesAvailable)
+                        }.enumerated()
+                    ),
+                    id: \.offset
+                ) { _, group in
+                    Section {
+                        ForEach(group) { page in
+                            SettingsSidebarCategoryRow(
+                                page: page,
+                                hasOpenChild: coordinator.page != page && coordinator.parentPage == page,
+                                onReselect: {
+                                    coordinator.navigate(to: page)
+                                }
+                            )
+                            .tag(page)
+                        }
                     }
                 }
-            }
 
-            SettingsSidebarDestructiveSection(
-                account: account,
-                isDisabled: isAccountMutationInProgress,
-                preferredLocale: preferredLocale
-            )
-        }
-        .listStyle(.sidebar)
-        .accessibilityIdentifier("settings.sidebar")
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+                SettingsSidebarDestructiveSection(
+                    account: account,
+                    isDisabled: isAccountMutationInProgress,
+                    preferredLocale: preferredLocale
+                )
+            }
+            .listStyle(.sidebar)
+            .textSelection(.disabled)
+            .accessibilityIdentifier("settings.sidebar")
+
+            Divider()
+
             SettingsVersionFooter()
-                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
                 .padding(.vertical, 8)
+        }
+        .toolbar {
+            if let onBackToChats {
+                ToolbarItem(placement: .automatic) {
+                    Button(action: onBackToChats) {
+                        Label(L10n.string("Back", locale: locale), systemImage: "chevron.backward")
+                    }
+                    .help(L10n.string("Back", locale: locale))
+                    .accessibilityIdentifier("settings.sidebar.back")
+                }
+            }
         }
     }
 
@@ -108,8 +126,8 @@ private struct SettingsSidebarActiveProfileRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(account.displayName)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(WNColor.textPrimary)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
 
                     CopyableKeyLabel(
@@ -149,10 +167,12 @@ private struct SettingsSidebarAddProfileRow: View {
 
     var body: some View {
         Button(action: onAddProfile) {
-            Label(
-                L10n.string("Add Profile", locale: locale),
-                systemImage: "person.crop.circle.badge.plus"
-            )
+            Label {
+                Text(L10n.string("Add Profile", locale: locale))
+            } icon: {
+                Image(systemName: "person.crop.circle.badge.plus")
+                    .foregroundStyle(.secondary)
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
@@ -167,20 +187,29 @@ private struct SettingsSidebarCategoryRow: View {
     let hasOpenChild: Bool
     let onReselect: () -> Void
 
+    private var label: some View {
+        Label {
+            Text(page.title(in: locale))
+        } icon: {
+            Image(systemName: page.systemImage)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     var body: some View {
         if hasOpenChild {
             // Clicking an already-selected parent row (for example Data Usage while viewing
             // Manage Storage) does not change `List(selection:)`, so wrap the active parent in a
             // plain button to return from the nested sub-page.
             Button(action: onReselect) {
-                Label(page.title(in: locale), systemImage: page.systemImage)
+                label
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(page.sidebarAccessibilityIdentifier)
         } else {
-            Label(page.title(in: locale), systemImage: page.systemImage)
+            label
                 .accessibilityIdentifier(page.sidebarAccessibilityIdentifier)
         }
     }
@@ -196,11 +225,13 @@ private struct SettingsSidebarDestructiveSection: View {
 
     var body: some View {
         Section {
-            Label(
-                SettingsPage.deleteProfile.title(in: locale),
-                systemImage: SettingsPage.deleteProfile.systemImage
-            )
-            .foregroundStyle(WNColor.intentionErrorContent)
+            Label {
+                Text(SettingsPage.deleteProfile.title(in: locale))
+                    .foregroundStyle(WNColor.intentionErrorContent)
+            } icon: {
+                Image(systemName: SettingsPage.deleteProfile.systemImage)
+                    .foregroundStyle(WNColor.intentionErrorContent)
+            }
             .tag(SettingsPage.deleteProfile)
             .disabled(isDisabled)
             .selectionDisabled(isDisabled)
@@ -209,11 +240,13 @@ private struct SettingsSidebarDestructiveSection: View {
             Button {
                 isSigningOut = true
             } label: {
-                Label(
-                    L10n.string("Sign Out", locale: locale),
-                    systemImage: "rectangle.portrait.and.arrow.right"
-                )
-                .foregroundStyle(WNColor.intentionErrorContent)
+                Label {
+                    Text(L10n.string("Sign Out", locale: locale))
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                } icon: {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }

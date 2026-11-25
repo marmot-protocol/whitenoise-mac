@@ -7,10 +7,7 @@
 
 import SwiftUI
 
-/// A small capsule beside a member's name. Admin is the one role that changes what someone can
-/// do in the group, so it takes the palette's warning pair, as iOS tints it orange; "You" is
-/// only orientation and stays neutral — outlined rather than filled, because every neutral fill
-/// one step off the surface resolves to the roster card's own `neutral100` in Light and vanishes.
+/// A small monochrome capsule beside a member's name (`You` / `Admin`, F01, inspector mockup).
 struct GroupMemberBadge: View {
     enum Kind {
         case admin
@@ -25,22 +22,22 @@ struct GroupMemberBadge: View {
 
         var content: Color {
             switch self {
-            case .admin: WNColor.intentionWarningContent
-            case .you: WNColor.fillContentSecondary
+            case .admin: .secondary
+            case .you: .secondary
             }
         }
 
         var background: Color {
             switch self {
-            case .admin: WNColor.intentionWarningBackground
+            case .admin: Color(nsColor: .quaternarySystemFill)
             case .you: .clear
             }
         }
 
         var border: Color {
             switch self {
-            case .admin: .clear
-            case .you: WNColor.borderSecondary
+            case .admin: Color(nsColor: .separatorColor).opacity(0.6)
+            case .you: Color(nsColor: .separatorColor)
             }
         }
     }
@@ -49,7 +46,7 @@ struct GroupMemberBadge: View {
 
     var body: some View {
         Text(kind.title)
-            .font(.caption2.weight(.semibold))
+            .font(.caption.weight(.medium))
             .foregroundStyle(kind.content)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)

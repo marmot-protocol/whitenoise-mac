@@ -17,35 +17,11 @@ struct UnreadCountBadge: View {
 
     var body: some View {
         Text(verbatim: count > 99 ? "99+" : "\(count)")
-            .font(.caption2.weight(.semibold).monospacedDigit())
+            .font(.caption.weight(.bold).monospacedDigit())
             .foregroundStyle(WNColor.fillContentPrimary)
             .padding(.horizontal, 5)
-            .frame(minWidth: 18, minHeight: 18)
+            .frame(minWidth: 19, minHeight: 19)
             .background(Capsule().fill(WNColor.fillPrimary))
-    }
-}
-
-/// Focuses the native `.searchable` `NSSearchField` in the sidebar column when `⌘⌥F` is invoked
-/// while the search field is already presented.
-@MainActor
-private enum SidebarSearchFieldFocuser {
-    static func focusSidebarSearchField(in window: NSWindow? = NSApp.keyWindow) {
-        guard let window, let root = window.contentView else { return }
-        if let field = firstSearchField(in: root) {
-            window.makeFirstResponder(field)
-        }
-    }
-
-    private static func firstSearchField(in view: NSView) -> NSSearchField? {
-        if let field = view as? NSSearchField, field.isEditable, !field.isHiddenOrHasHiddenAncestor {
-            return field
-        }
-        for subview in view.subviews {
-            if let found = firstSearchField(in: subview) {
-                return found
-            }
-        }
-        return nil
     }
 }
 
@@ -68,7 +44,7 @@ struct ChatListDrawerView: View {
     /// the composer leaves the group flow: closed (on Create, on cancel, on the account switch that
     /// closes it) or back on its first pane, which is also where New Chat restarts a draft.
     @State private var groupDraftImage: GroupDraftImage?
-    @State private var isSidebarSearchPresented = false
+    @State private var sidebarSearchFocusRequest: UUID?
 
     init(
         model: ChatListViewModel? = nil,
@@ -106,18 +82,6 @@ struct ChatListDrawerView: View {
                     onBack: { globalSearch.dismiss() },
                     onOpenResult: onOpenGlobalSearchResult
                 )
-
-                Divider()
-
-                SidebarProfileSwitcherView(
-                    signedInAccounts: workspace.signedInAccounts,
-                    activeAccount: workspace.activeAccount,
-                    isAccountMutationInProgress: workspace.isAccountMutationInProgress,
-                    attentionModel: attentionModel,
-                    onSelectAccount: { workspace.selectAccount($0) },
-                    onAddProfile: { workspace.showAccountOnboarding() },
-                    onOpenSettings: onOpenSettings
-                )
             } else if workspace.isNewChatComposerVisible {
                 switch workspace.composePane {
                 case .newChat:
@@ -138,13 +102,46 @@ struct ChatListDrawerView: View {
                 )
                 let activeSelection = showsBulkControls ? selection : nil
 
-                ChatListHeader(
-                    filter: filter,
-                    isShowingArchived: isShowingArchived,
-                    onOpenGlobalSearch: openGlobalMessageSearch
+                SidebarProfileSwitcherView(
+                    signedInAccounts: workspace.signedInAccounts,
+                    activeAccount: workspace.activeAccount,
+                    isAccountMutationInProgress: workspace.isAccountMutationInProgress,
+                    attentionModel: attentionModel,
+                    onSelectAccount: { workspace.selectAccount($0) },
+                    onAddProfile: { workspace.showAccountOnboarding() },
+                    onOpenSettings: onOpenSettings
                 )
 
-                Divider()
+                MessagesSearchField(
+                    text: $workspace.searchText,
+                    accessibilityIdentifier: "chat.search",
+                    placeholder: L10n.string("Search", locale: locale),
+                    focusRequest: sidebarSearchFocusRequest
+                )
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+
+                if filter != .active {
+                    HStack(spacing: 6) {
+                        Label(filter.title, systemImage: filter.systemImage)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Button {
+                            workspace.chatListFilter = .active
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(L10n.string("Clear", locale: locale))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    Divider()
+                }
 
                 if let deviceLinking {
                     AccountDeviceWarningsBanner(
@@ -180,7 +177,7 @@ struct ChatListDrawerView: View {
                             selection: showsBulkControls ? selection : nil
                         )
                         .tag(chat.id)
-                        .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
+                        .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
                         .listRowSeparator(.hidden)
                         .onAppear {
                             if isSearching {
@@ -207,12 +204,32 @@ struct ChatListDrawerView: View {
                     }
                 }
                 .listStyle(.sidebar)
-                .searchable(
-                    text: $workspace.searchText,
-                    isPresented: $isSidebarSearchPresented,
-                    placement: .sidebar,
-                    prompt: L10n.string("Search chats", locale: locale)
-                )
+                .textSelection(.disabled)
+                .toolbar {
+                    ToolbarItem(placement: .automatic) {
+                        ChatListFilterMenu()
+                    }
+                    ToolbarItem(placement: .automatic) {
+                        Button(action: openGlobalMessageSearch) {
+                            Label(
+                                L10n.string("Search all messages", locale: locale),
+                                systemImage: "text.magnifyingglass"
+                            )
+                        }
+                        .help(L10n.string("Search all messages", locale: locale))
+                        .accessibilityIdentifier("chat.search.global")
+                    }
+                    if !isShowingArchived {
+                        ToolbarItem(placement: .automatic) {
+                            Button {
+                                workspace.showNewChat()
+                            } label: {
+                                Label(L10n.string("New chat", locale: locale), systemImage: "square.and.pencil")
+                            }
+                            .help(L10n.string("New chat", locale: locale))
+                        }
+                    }
+                }
                 .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
                     if visibleChats.isEmpty {
@@ -312,18 +329,6 @@ struct ChatListDrawerView: View {
                     )
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
-
-                Divider()
-
-                SidebarProfileSwitcherView(
-                    signedInAccounts: workspace.signedInAccounts,
-                    activeAccount: workspace.activeAccount,
-                    isAccountMutationInProgress: workspace.isAccountMutationInProgress,
-                    attentionModel: attentionModel,
-                    onSelectAccount: { workspace.selectAccount($0) },
-                    onAddProfile: { workspace.showAccountOnboarding() },
-                    onOpenSettings: onOpenSettings
-                )
             }
         }
         .focusedSceneValue(
@@ -332,10 +337,7 @@ struct ChatListDrawerView: View {
                 if let globalSearch, globalSearch.isActive {
                     globalSearch.activate()
                 } else {
-                    isSidebarSearchPresented = true
-                    DispatchQueue.main.async {
-                        SidebarSearchFieldFocuser.focusSidebarSearchField()
-                    }
+                    sidebarSearchFocusRequest = UUID()
                 }
             }
         )
@@ -472,55 +474,6 @@ extension ChatListDrawerView {
     }
 }
 
-private struct ChatListHeader: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.locale) private var locale
-    let filter: ChatListFilter
-    let isShowingArchived: Bool
-    let onOpenGlobalSearch: () -> Void
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(filter.title)
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-
-            ChatListFilterMenu()
-
-            Button(action: onOpenGlobalSearch) {
-                Label(L10n.string("Search all messages", locale: locale), systemImage: "text.magnifyingglass")
-                    .labelStyle(.iconOnly)
-                    .font(.body)
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help(L10n.string("Search all messages", locale: locale))
-            .accessibilityIdentifier("chat.search.global")
-
-            if !isShowingArchived {
-                Button {
-                    workspace.showNewChat()
-                } label: {
-                    Label(L10n.string("New chat", locale: locale), systemImage: "square.and.pencil")
-                        .labelStyle(.iconOnly)
-                        .font(.body)
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.primary)
-                .help(L10n.string("New chat", locale: locale))
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-    }
-}
-
 /// Native menu Picker exposing the five real chat-list filters: Chats, Unread, Invites, Archived,
 /// and Left chats (N08, C07, #1037).
 private struct ChatListFilterMenu: View {
@@ -545,15 +498,8 @@ private struct ChatListFilterMenu: View {
                     ? "line.3.horizontal.decrease.circle"
                     : "line.3.horizontal.decrease.circle.fill"
             )
-            .labelStyle(.iconOnly)
-            .font(.body)
-            .foregroundStyle(workspace.chatListFilter == .active ? Color.secondary : Color.primary)
-            .frame(width: 26, height: 26)
-            .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .fixedSize()
         .help(L10n.string("Filter chats", locale: locale))
         .accessibilityLabel(L10n.string("Filter chats", locale: locale))
         .accessibilityIdentifier("chat.list.filter")
@@ -815,10 +761,10 @@ struct ChatRowContent: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(chat.title)
-                        .font(.headline)
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     // Precedence lives in `ChatRowStatus` so the badge and the row's
@@ -838,11 +784,11 @@ struct ChatRowContent: View {
                     }
                     if chat.muted {
                         Image(systemName: "bell.slash.fill")
-                            .font(.caption2)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                             .accessibilityLabel(L10n.string("Muted"))
                     }
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 6)
                     ChatTimestampText(
                         chat: chat,
                         timelineAt: searchResult?.timelineAt,
@@ -851,7 +797,7 @@ struct ChatRowContent: View {
                     )
                     .equatable()
                     // Monospaced digits so the row's trailing edge stays steady as the clock ticks.
-                    .font(.caption.monospacedDigit())
+                    .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
                 }
                 HStack(alignment: .top, spacing: 4) {
@@ -878,7 +824,7 @@ struct ChatRowContent: View {
                             Image(systemName: "at")
                                 .font(.caption2.weight(.bold))
                                 .foregroundStyle(WNColor.fillContentPrimary)
-                                .frame(width: 18, height: 18)
+                                .frame(width: 19, height: 19)
                                 .background(Circle().fill(WNColor.fillPrimary))
                                 .help(L10n.string("You were mentioned"))
                         }
@@ -894,8 +840,8 @@ struct ChatRowContent: View {
                 }
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 

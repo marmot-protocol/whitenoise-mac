@@ -16,6 +16,7 @@ struct SettingsPanelView: View {
     let deviceLinking: DeviceLinkingViewModel
 
     var page: SettingsPage = .profile
+    @State private var loadedLegacyAccountID: String?
 
     private var loadKey: SettingsPanelLoadKey {
         SettingsPanelLoadKey(accountID: workspace.activeAccountId, page: page)
@@ -89,7 +90,11 @@ struct SettingsPanelView: View {
             }
         }
         .task(id: loadKey) {
-            guard page.usesLegacyWorkspaceSettings else { return }
+            guard page.usesLegacyWorkspaceSettings,
+                let accountID = workspace.activeAccountId,
+                loadedLegacyAccountID != accountID
+            else { return }
+            loadedLegacyAccountID = accountID
             await workspace.loadSettingsData()
         }
     }

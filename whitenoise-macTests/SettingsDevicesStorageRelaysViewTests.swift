@@ -51,8 +51,8 @@ struct SettingsDevicesStorageRelaysViewTests {
             Issue.record("Expected snapshot of DevicesSettingsView")
             return
         }
-        #expect(DrawnText.contains(activeName, in: drawing))
         #expect(DrawnText.contains("Studio Mac", in: drawing))
+        #expect(DrawnText.contains("iPhone", in: drawing))
     }
 
     @Test func deviceLinkPromptSheetUsesCheckboxTogglesAndRendersEmojiCode() {

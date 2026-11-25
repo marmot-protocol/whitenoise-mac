@@ -10,7 +10,7 @@ struct ConversationSearchBar: View {
     let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             MessagesSearchField(
                 text: $model.query,
                 accessibilityIdentifier: "conversation.search.field",
@@ -18,6 +18,7 @@ struct ConversationSearchBar: View {
                 autofocus: true,
                 focusRequest: model.focusRequest
             )
+            .frame(maxWidth: .infinity)
             .onSubmit(submitSearch)
             // ↑ / ↓ step like the chevrons beside the field. The field is one line, so the caret
             // loses nothing; at boundaries or with no matches the keys fall through to it.
@@ -27,34 +28,33 @@ struct ConversationSearchBar: View {
 
             ConversationSearchStatus(model: model)
 
-            ControlGroup {
-                ConversationSearchControlButton(
+            HStack(spacing: 2) {
+                ConversationSearchIconButton(
                     systemImage: "chevron.up",
                     help: L10n.string("Previous match"),
+                    isDisabled: !model.canGoToOlderMatch,
                     action: model.goToOlderMatch
                 )
-                .disabled(!model.canGoToOlderMatch)
                 .accessibilityIdentifier("conversation.search.previous")
 
-                ConversationSearchControlButton(
+                ConversationSearchIconButton(
                     systemImage: "chevron.down",
                     help: L10n.string("Next match"),
+                    isDisabled: !model.canGoToNewerMatch,
                     action: model.goToNewerMatch
                 )
-                .disabled(!model.canGoToNewerMatch)
                 .accessibilityIdentifier("conversation.search.next")
             }
-            .controlGroupStyle(.automatic)
-            .fixedSize()
 
-            ConversationSearchControlButton(
+            ConversationSearchIconButton(
                 systemImage: "xmark",
                 help: L10n.string("Close"),
+                isDisabled: false,
                 action: onClose
             )
             .accessibilityIdentifier("conversation.search.close")
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .accessibilityIdentifier("conversation.search")
     }
@@ -101,7 +101,7 @@ private struct ConversationSearchStatus: View {
                 Text(L10n.string("No matches"))
             }
         }
-        .font(.caption)
+        .font(.subheadline)
         .monospacedDigit()
         .lineLimit(1)
         .fixedSize()
@@ -109,19 +109,29 @@ private struct ConversationSearchStatus: View {
     }
 }
 
-private struct ConversationSearchControlButton: View {
+private struct ConversationSearchIconButton: View {
     let systemImage: String
     let help: String
+    let isDisabled: Bool
     let action: () -> Void
+    @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.caption.weight(.semibold))
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
+                .foregroundStyle(isDisabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                .frame(width: 26, height: 26)
+                .background {
+                    if isHovering, !isDisabled {
+                        Circle().fill(Color(nsColor: .quaternarySystemFill))
+                    }
+                }
+                .contentShape(Circle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .onHover { isHovering = $0 }
         .help(help)
         .accessibilityLabel(help)
     }

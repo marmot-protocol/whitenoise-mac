@@ -11,11 +11,12 @@ struct ComposerDictationButton: View {
         Button(action: action) {
             Label(L10n.string("Dictate"), systemImage: "waveform")
                 .labelStyle(.iconOnly)
-                .frame(width: 20, height: 20)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .frame(width: 34, height: 36)
+                .contentShape(Rectangle())
         }
-        .wnSecondaryButtonStyle()
-        .wnButtonShape(.circle)
-        .controlSize(.regular)
+        .buttonStyle(.plain)
         .disabled(isDisabled)
         .help(L10n.string("Dictate"))
         .accessibilityLabel(L10n.string("Dictate"))

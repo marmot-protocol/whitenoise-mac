@@ -57,20 +57,6 @@ struct GroupDetailsLeaveSection: View {
                 )
             }
 
-            // Ending the group is offered to admins only, and stays on screen (disabled) when
-            // members on old clients hold it back, so the footer can say who has to update.
-            if disband.showsEndGroup {
-                DetailsDestructiveRow(
-                    title: isEndingThisGroup ? L10n.string("Ending group…") : L10n.string("End Group"),
-                    systemImage: "xmark.circle",
-                    isInProgress: isEndingThisGroup
-                ) {
-                    showEndGroupConfirmation = true
-                }
-                .disabled(
-                    !disband.canEndGroup || disbandModel.isBusy || isGroupCommitInFlight)
-            }
-
             // Giving up your own admin rights is reversible by another admin, so it stays
             // neutral: `group_member_screen.dart` builds "remove admin role" as `outline` and
             // keeps `destructive` for removing someone from the group.
@@ -126,6 +112,21 @@ struct GroupDetailsLeaveSection: View {
 
             case nil:
                 EmptyView()
+            }
+
+            // Ending the group is the most destructive action and sits last, below Leave Chat/Group.
+            // Offered to admins only, and stays on screen (disabled) when members on old clients
+            // hold it back, so the footer can say who has to update.
+            if disband.showsEndGroup {
+                DetailsDestructiveRow(
+                    title: isEndingThisGroup ? L10n.string("Ending group…") : L10n.string("End Group"),
+                    systemImage: "xmark.circle",
+                    isInProgress: isEndingThisGroup
+                ) {
+                    showEndGroupConfirmation = true
+                }
+                .disabled(
+                    !disband.canEndGroup || disbandModel.isBusy || isGroupCommitInFlight)
             }
         } footer: {
             // Sourced from the shared policy so the footer and the row menu's alert cannot drift

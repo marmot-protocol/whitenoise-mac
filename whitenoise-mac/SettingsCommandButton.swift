@@ -1,16 +1,14 @@
 import SwiftUI
 
-/// The app menu's single Settings command. Its environment supplies the native scene action.
+/// The app menu's single Settings command (`⌘,`), opening Settings inside the main window.
 struct SettingsCommandButton: View {
     let isEnabled: Bool
     let locale: Locale
     let coordinator: SettingsWindowCoordinator
 
-    @Environment(\.openSettings) private var openSettings
-
     var body: some View {
         Button(L10n.string("Settings…", locale: locale)) {
-            coordinator.open(show: { openSettings() })
+            coordinator.open()
         }
         .keyboardShortcut(",", modifiers: .command)
         .disabled(!isEnabled)

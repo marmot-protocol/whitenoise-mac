@@ -220,12 +220,7 @@ struct ComposerMentionPicker: View {
             }
         }
         .padding(.vertical, 4)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
-        }
-        .shadow(color: WNColor.shadow.opacity(0.1), radius: 12, y: 4)
+        .wnFloatingGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityIdentifier("composer.mentionPicker")
     }
 }
