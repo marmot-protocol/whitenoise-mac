@@ -84,6 +84,10 @@ final class MessageForwardViewModel: Identifiable {
         }
     }
 
+    /// The currently running forward task, exposed so tests can capture and await it synchronously
+    /// before cancellation clears the handle.
+    var activeTask: Task<Void, Never>? { task }
+
     var isSending: Bool {
         if case .sending = phase { return true }
         return false

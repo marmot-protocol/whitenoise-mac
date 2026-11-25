@@ -6,7 +6,6 @@ import SwiftUI
 struct ReportMessageSheet: View {
     let model: ReportMessageViewModel
     let dismiss: () -> Void
-    @State private var operation: Task<Void, Never>?
 
     var body: some View {
         @Bindable var model = model
@@ -66,20 +65,20 @@ struct ReportMessageSheet: View {
             Divider()
 
             HStack {
-                Button(L10n.string("Cancel"), action: dismiss)
-                    .wnSecondaryButtonStyle()
-                    .disabled(model.isSending)
-                    .keyboardShortcut(.cancelAction)
+                Button(L10n.string("Cancel")) {
+                    guard !model.isSending else { return }
+                    dismiss()
+                }
+                .wnSecondaryButtonStyle()
+                .disabled(model.isSending)
+                .keyboardShortcut(.cancelAction)
                 Spacer()
                 if model.isSending {
                     ProgressView()
                         .controlSize(.small)
                 }
                 Button(L10n.string("Report")) {
-                    operation = Task {
-                        await model.submit()
-                        if model.isSubmitted { dismiss() }
-                    }
+                    model.beginSubmit(onSubmitted: dismiss)
                 }
                 .wnPrimaryButtonStyle()
                 .disabled(!model.canSubmit)
@@ -90,8 +89,7 @@ struct ReportMessageSheet: View {
         .frame(width: 480)
         .interactiveDismissDisabled(model.isSending)
         .onDisappear {
-            operation?.cancel()
-            operation = nil
+            model.cancelSubmissionTask()
         }
     }
 }

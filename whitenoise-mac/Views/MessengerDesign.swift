@@ -320,25 +320,6 @@ nonisolated struct MessageEmbeddedCardPalette {
 /// Unlike the reply quote, these rows sit *beside* the bubble in `MessageBubble`'s stack rather than
 /// inside it, so they never inherit `BubbleBackground`'s fill and have to bring their own.
 nonisolated enum AttachmentRowPalette {
-    /// The same fill the sent bubble uses, which is what `outgoingContent` is drawn for.
-    ///
-    /// It has to stay **opaque**. A translucent wash composites against whatever is behind the
-    /// row, and what is behind it is the window background: dark in dark appearance, light in light
-    /// appearance. That is how sent voice notes and documents came to render white-on-white and
-    /// vanish in light mode while looking correct in dark.
-    static let outgoingFill = MessageBubblePolarity.sent.fill
-
-    /// Received rows take the received bubble's fill, so an attachment row reads as part of the
-    /// same message as the bubble above it.
-    static let incomingFill = MessageBubblePolarity.received.fill
-
-    /// The row's content — play button, waveform, detail text. Paired with the fill above, which
-    /// matters more here than anywhere else in the app: both fills invert between appearances, so a
-    /// literal `.white` (what these rows used to draw) is correct in exactly one of the four
-    /// combinations.
-    static let outgoingContent = MessageBubblePolarity.sent.content
-    static let incomingContent = MessageBubblePolarity.received.content
-
     static func fill(isOutgoing: Bool) -> Color {
         Color(nsColor: nsFill(isOutgoing: isOutgoing))
     }

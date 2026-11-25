@@ -229,9 +229,9 @@ struct ConversationActionsAndRichMediaTests {
         #expect(model.phase == MessageForwardViewModel.Phase.preparing(chatId: targetChat.id))
         #expect(!model.isSending)
 
-        // Start waiting on the in-flight preparation task before Escape clears the model's handle,
-        // then cancel via Escape (.cancelAction) while preparation is still paused.
-        let idleWait = Task { await model.waitUntilIdle() }
+        // Capture the in-flight preparation task synchronously before Escape clears the model's
+        // handle, then cancel via Escape (.cancelAction) while preparation is still paused.
+        let inFlightTask = try #require(model.activeTask)
 
         let escapeEvent = try #require(
             NSEvent.keyEvent(
@@ -253,7 +253,7 @@ struct ConversationActionsAndRichMediaTests {
         // Even after the paused fetch resumes with real attachment bytes and the task exits, the
         // cancelled forward must never transition into sending or deliver any message.
         gate.release()
-        await idleWait.value
+        await inFlightTask.value
         #expect(sendCount == 0)
     }
 
@@ -389,6 +389,73 @@ struct ConversationActionsAndRichMediaTests {
         #expect(!submitted)
     }
 
+    @Test func reportSheetEscapeDoesNotDismissWhileSubmissionIsInFlight() async throws {
+        let submitGate = AsyncFfiGate()
+        submitGate.isEnabled = true
+        var groupSubmitted = false
+        var dismissed = false
+        let model = ReportMessageViewModel(
+            eligibility: MessageModerationEligibility(
+                reportsToGroup: true,
+                reportsToTeam: false,
+                canBlockAuthor: false,
+                authorAccountIdHex: String(repeating: "a", count: 64)
+            ),
+            dependencies: ReportMessageDependencies(
+                reportToGroup: { _, _ in
+                    await submitGate.passIfArmed()
+                    groupSubmitted = true
+                    return .published
+                },
+                reportToTeam: { _, _ in .published },
+                present: { _ in }
+            )
+        )
+        let size = CGSize(width: 480, height: 380)
+        let host = HostedViewWindow(
+            ReportMessageSheet(model: model, dismiss: { dismissed = true }),
+            size: size
+        )
+        defer {
+            submitGate.release()
+            host.close()
+        }
+
+        _ = try #require(await host.steadyDrawing())
+
+        // Start submission synchronously (same entry point as the Report button), then dispatch a
+        // queued Escape immediately — before the async task has even entered `reportToGroup` — and
+        // again while the FFI call is held in flight. Neither may dismiss the sheet.
+        let submitTask = try #require(model.beginSubmit(onSubmitted: { dismissed = true }))
+        #expect(model.isSending)
+
+        let escapeEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        _ = host.window.performKeyEquivalent(with: escapeEvent)
+        #expect(!dismissed)
+
+        await submitGate.waitUntilReached()
+        _ = host.window.performKeyEquivalent(with: escapeEvent)
+        #expect(!dismissed)
+
+        submitGate.release()
+        await submitTask.value
+        #expect(groupSubmitted)
+        #expect(dismissed)
+    }
+
     @Test func editHistorySheetInvokesRetryAndDoneCallbacks() async throws {
         var retried = false
         var closed = false
@@ -436,18 +503,21 @@ struct ConversationActionsAndRichMediaTests {
     }
 
     private static func centerOfText(
-        _ phrase: String, in rep: NSBitmapImageRep, viewSize: CGSize
+        _ phrase: String, exact: Bool = false, in rep: NSBitmapImageRep, viewSize: CGSize
     ) -> CGPoint? {
         guard let image = rep.cgImage else { return nil }
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: image).perform([request])
-        let target = phrase.lowercased()
+        let target = phrase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         for observation in request.results ?? [] {
-            guard let text = observation.topCandidates(1).first?.string.lowercased(),
-                text.contains(target)
+            guard
+                let raw = observation.topCandidates(1).first?.string
+                    .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             else { continue }
+            let matches = exact ? raw == target : raw.contains(target)
+            guard matches else { continue }
             let box = observation.boundingBox
             return CGPoint(x: box.midX * viewSize.width, y: (1 - box.midY) * viewSize.height)
         }

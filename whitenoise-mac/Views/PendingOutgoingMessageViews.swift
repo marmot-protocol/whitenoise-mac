@@ -380,7 +380,7 @@ private struct PendingOutgoingMediaAttachmentRow: View {
 
     var body: some View {
         fileRow
-            .foregroundStyle(AttachmentRowPalette.outgoingContent)
+            .foregroundStyle(AttachmentRowPalette.content(isOutgoing: true))
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .frame(width: 260, alignment: .leading)
