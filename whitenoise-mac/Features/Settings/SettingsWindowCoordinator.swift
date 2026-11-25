@@ -15,7 +15,6 @@ final class SettingsWindowCoordinator {
     /// each other's failures.
     private(set) var lastError: String?
 
-    var isPresented: Bool { accountID != nil }
     var parentPage: SettingsPage { page == .overview ? .profile : page.drawerPage }
 
     private var interruptedPage: SettingsPage?
@@ -88,7 +87,11 @@ final class SettingsWindowCoordinator {
     func updateDeviceLinkHost(sheetIsPresented: Bool) {
         // A sheet already on screen stays on its originating window.
         guard !sheetIsPresented else { return }
-        hostsDeviceLinkSheet = accountID != nil && window?.isKeyWindow == true
+        guard let window, accountID != nil else {
+            hostsDeviceLinkSheet = false
+            return
+        }
+        hostsDeviceLinkSheet = window.isKeyWindow || NSApp.keyWindow?.sheetParent === window
     }
 
     func focusMainWindow() {
@@ -109,7 +112,11 @@ final class SettingsWindowCoordinator {
         accountID = account.id
         pendingPage = nil
         interruptedPage = nil
-        (show ?? showWindow)?()
+        if let window, window.isVisible {
+            (window.attachedSheet ?? window).makeKeyAndOrderFront(nil)
+        } else {
+            (show ?? showWindow)?()
+        }
     }
 
     func navigate(to destination: SettingsPage) {
@@ -201,7 +208,7 @@ final class SettingsWindowCoordinator {
         accountID = activeID
     }
 
-    func close() {
+    private func close() {
         accountID = nil
         hostsDeviceLinkSheet = false
         lastError = nil

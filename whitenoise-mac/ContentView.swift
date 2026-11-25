@@ -22,6 +22,7 @@ extension EnvironmentValues {
 struct ContentView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     let settings: SettingsWindowCoordinator
     @State private var timestampReferenceDate = Date()
@@ -30,7 +31,6 @@ struct ContentView: View {
         @Bindable var workspace = workspace
 
         MessengerShellView(settings: settings)
-            .environment(settings)
             .background { MainWindowRegistration() }
             // Attached here, not on the conversation pane: a chat-list delete is most likely with
             // no chat selected, and the sidebar row menu cannot host its own dialog.
@@ -40,7 +40,7 @@ struct ContentView: View {
             // A device-link request can arrive whatever the user is looking at, and wants an answer
             // while both screens show the code.
             .deviceLinkSheet(
-                currentAccountScope?.deviceLinking,
+                settings.hostsDeviceLinkSheet ? nil : currentAccountScope?.deviceLinking,
                 profileName: workspace.activeAccount?.displayName,
                 locale: workspace.preferredLocale,
                 suggestionAllowed: currentAccountScope.map {
@@ -111,7 +111,7 @@ struct ContentView: View {
             }
             .onAppear {
                 settings.installPresentationActions(
-                    showSettings: { openWindow(id: whitenoise_macApp.mainWindowID) },
+                    showSettings: { openSettings() },
                     showMain: { openWindow(id: whitenoise_macApp.mainWindowID) }
                 )
                 applyAppearance(workspace.appearancePreference)
@@ -157,10 +157,7 @@ struct ContentView: View {
                 // while it was in the background so the selected chat clears its unread
                 // state now that the user may be looking at it again.
                 Task {
-                    if !settings.isPresented {
-                        await workspace.handleConversationVisibilityChange(
-                            visibleMessageIds: visibleConversationMessageIds)
-                    }
+                    await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
                     workspace.recordForegroundLocalReady(since: foregroundStartedAt)
                     await workspace.refreshAccountProfiles()
                 }
@@ -172,7 +169,7 @@ struct ContentView: View {
             ) { notification in
                 settings.updateDeviceLinkHost(
                     sheetIsPresented: session.accountScope?.deviceLinking.presentedSheet != nil)
-                guard ConversationWindowIdentity.matches(notification.object), !settings.isPresented else { return }
+                guard ConversationWindowIdentity.matches(notification.object) else { return }
                 Task {
                     await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
                 }
@@ -192,7 +189,7 @@ struct ContentView: View {
                     for: NSWindow.didDeminiaturizeNotification
                 )
             ) { notification in
-                guard ConversationWindowIdentity.matches(notification.object), !settings.isPresented else { return }
+                guard ConversationWindowIdentity.matches(notification.object) else { return }
                 Task {
                     await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
                 }

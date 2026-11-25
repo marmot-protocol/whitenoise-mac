@@ -16,7 +16,6 @@ struct SettingsSidebarView: View {
     let devicesAvailable: Bool
     let isAccountMutationInProgress: Bool
     let preferredLocale: Locale
-    var onBackToChats: (() -> Void)? = nil
 
     private var selection: Binding<SettingsPage?> {
         Binding(
@@ -78,17 +77,7 @@ struct SettingsSidebarView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
         }
-        .toolbar {
-            if let onBackToChats {
-                ToolbarItem(placement: .automatic) {
-                    Button(action: onBackToChats) {
-                        Label(L10n.string("Back", locale: locale), systemImage: "chevron.backward")
-                    }
-                    .help(L10n.string("Back", locale: locale))
-                    .accessibilityIdentifier("settings.sidebar.back")
-                }
-            }
-        }
+
     }
 
     /// Navigates from the sidebar, refusing Delete Profile while an account mutation is active.
@@ -227,10 +216,9 @@ private struct SettingsSidebarDestructiveSection: View {
         Section {
             Label {
                 Text(SettingsPage.deleteProfile.title(in: locale))
-                    .foregroundStyle(WNColor.intentionErrorContent)
             } icon: {
                 Image(systemName: SettingsPage.deleteProfile.systemImage)
-                    .foregroundStyle(WNColor.intentionErrorContent)
+                    .foregroundStyle(.secondary)
             }
             .tag(SettingsPage.deleteProfile)
             .disabled(isDisabled)

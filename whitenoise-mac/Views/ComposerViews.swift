@@ -545,7 +545,13 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             // request writes observable state that must not change during a view update.
             DispatchQueue.main.async { [self] in
                 inFlightFocusRequestID = nil
-                guard let window = textView.window, window.makeFirstResponder(textView) else { return }
+                guard let window = textView.window else { return }
+                guard window.isKeyWindow else {
+                    if latestFocusRequestID == requestID { latestFocusRequestID = nil }
+                    onFocusRequestConsumed(requestID)
+                    return
+                }
+                guard window.makeFirstResponder(textView) else { return }
                 let end = (textView.string as NSString).length
                 textView.setSelectedRange(NSRange(location: end, length: 0))
                 if latestFocusRequestID == requestID { latestFocusRequestID = nil }

@@ -22,16 +22,8 @@ struct MessengerShellView: View {
         )
     }
 
-    private var isShowingSettings: Bool {
-        settings.isPresented
-            && workspace.showsMessengerChrome
-            && session.accountScope?.account.id == workspace.activeAccount?.id
-            && session.accountScope?.account.id == settings.accountID
-    }
-
     private var productScreen: ProductScreen? {
         guard workspace.phase == .ready, workspace.activeAccount != nil else { return nil }
-        if isShowingSettings { return .settings }
         switch workspace.selection {
         case .chat:
             return workspace.selectedChat == nil ? .inbox : .conversation
@@ -44,41 +36,25 @@ struct MessengerShellView: View {
         Group {
             if workspace.showsMessengerChrome {
                 NavigationSplitView(columnVisibility: sidebarVisibility) {
-                    Group {
-                        if isShowingSettings,
-                            let scope = session.accountScope,
-                            let activeAccount = workspace.activeAccount
-                        {
-                            SettingsSidebarView(
-                                coordinator: settings,
-                                account: activeAccount,
-                                devicesAvailable: scope.deviceLinking.isAvailable,
-                                isAccountMutationInProgress: workspace.isAccountMutationInProgress,
-                                preferredLocale: workspace.preferredLocale,
-                                onBackToChats: { settings.close() }
-                            )
-                        } else {
-                            ChatListDrawerView(
-                                model: session.accountScope?.chatListModel,
-                                historyNotices: session.accountScope?.historyNotices,
-                                recoveryStatus: session.accountScope?.recoveryStatus,
-                                selection: session.accountScope?.chatListSelection,
-                                search: session.accountScope?.chatListSearch,
-                                globalSearch: session.accountScope?.globalMessageSearch,
-                                attentionModel: session.accountScope?.attentionModel,
-                                deviceLinking: session.accountScope?.deviceLinking,
-                                onOpenSettings: { settings.open() },
-                                onOpenDevicesSettings: { settings.open(at: .devices) },
-                                onOpenGlobalSearchResult: { result, query in
-                                    session.accountScope?.globalMessageSearch.openResult(result, query: query) {
-                                        result, searchQuery in
-                                        await workspace.openGlobalMessageSearchResult(
-                                            result, searchQuery: searchQuery)
-                                    }
-                                }
-                            )
+                    ChatListDrawerView(
+                        model: session.accountScope?.chatListModel,
+                        historyNotices: session.accountScope?.historyNotices,
+                        recoveryStatus: session.accountScope?.recoveryStatus,
+                        selection: session.accountScope?.chatListSelection,
+                        search: session.accountScope?.chatListSearch,
+                        globalSearch: session.accountScope?.globalMessageSearch,
+                        attentionModel: session.accountScope?.attentionModel,
+                        deviceLinking: session.accountScope?.deviceLinking,
+                        onOpenSettings: { settings.open() },
+                        onOpenDevicesSettings: { settings.open(at: .devices) },
+                        onOpenGlobalSearchResult: { result, query in
+                            session.accountScope?.globalMessageSearch.openResult(result, query: query) {
+                                result, searchQuery in
+                                await workspace.openGlobalMessageSearchResult(
+                                    result, searchQuery: searchQuery)
+                            }
                         }
-                    }
+                    )
                     .navigationSplitViewColumnWidth(
                         min: ChatListWidthPolicy.minimumExpandedWidth,
                         ideal: max(workspace.chatListWidth, ChatListWidthPolicy.minimumExpandedWidth),
@@ -96,26 +72,14 @@ struct MessengerShellView: View {
                         workspace.resizeChatListDrawer(toProposedWidth: resolved)
                     }
                 } detail: {
-                    Group {
-                        if isShowingSettings, let scope = session.accountScope {
-                            SettingsDetailRouter(
-                                settings: settings,
-                                model: scope.settingsModel,
-                                deviceLinking: scope.deviceLinking
-                            )
-                            .id(scope.account.id)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else {
-                            DetailPaneView(settings: settings)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    DetailPaneView(settings: settings)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            if workspace.isOffline {
+                                OfflineNoticeBand()
+                                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                            }
                         }
-                    }
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        if workspace.isOffline {
-                            OfflineNoticeBand()
-                                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
-                        }
-                    }
                 }
             } else {
                 DetailPaneView(settings: settings)
@@ -156,17 +120,10 @@ struct MessengerShellView: View {
                     accountID: $0,
                     selectedConversation: { session.accountScope?.selectedConversationModel },
                     onSearchAllMessages: openSidebarGlobalSearch,
-                    isMessengerWindowTarget: {
-                        !settings.isPresented && MessengerCommandContext.acceptsCommandsInKeyWindow()
-                    }
+                    isMessengerWindowTarget: MessengerCommandContext.acceptsCommandsInKeyWindow
                 )
             }
         )
-        .onChange(of: settings.isPresented) { _, presented in
-            if presented {
-                workspace.isChatListVisible = true
-            }
-        }
         .onChange(of: workspace.showsMessengerChrome) { _, shows in
             if !shows { session.accountScope?.globalMessageSearch.dismiss() }
         }
@@ -182,22 +139,6 @@ struct MessengerShellView: View {
 
     private func openSidebarGlobalSearch() {
         SidebarGlobalSearchViewModel.open(in: workspace, globalSearch: session.accountScope?.globalMessageSearch)
-    }
-}
-
-/// Observes `settings.page` inside a leaf detail view so switching Settings categories never
-/// invalidates `MessengerShellView` or rebuilds the enclosing `NavigationSplitView`.
-private struct SettingsDetailRouter: View {
-    let settings: SettingsWindowCoordinator
-    let model: SettingsViewModel
-    let deviceLinking: DeviceLinkingViewModel
-
-    var body: some View {
-        SettingsPanelView(
-            model: model,
-            deviceLinking: deviceLinking,
-            page: settings.page
-        )
     }
 }
 
@@ -870,9 +811,9 @@ private struct ConversationView: View {
                     }
                     guard !Task.isCancelled else { return }
                     // Keep keyboard focus in the sidebar list during arrow-key navigation (N03).
-                    if ChatListRowClickPolicy.shouldFocusComposerOnChatOpen(
-                        firstResponder: NSApp.keyWindow?.firstResponder
-                    ) {
+                    if let window = ConversationWindowIdentity.window, window.isKeyWindow,
+                        ChatListRowClickPolicy.shouldFocusComposerOnChatOpen(firstResponder: window.firstResponder)
+                    {
                         composerFocusRequester.request()
                     }
                 }
