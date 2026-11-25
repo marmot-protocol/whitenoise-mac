@@ -1064,6 +1064,13 @@
         var listAccountsError: Error?
         /// Returned by `listAccounts` while set, in place of what is stored: a read that lags MDK.
         var listedAccountsOverride: [AccountSummaryFfi]?
+        private let listAccountsGate = BlockingFfiGate()
+        var listAccountsGateEnabled: Bool {
+            get { listAccountsGate.isEnabled }
+            set { listAccountsGate.isEnabled = newValue }
+        }
+        var didReachListAccountsGate: Bool { listAccountsGate.didReach }
+        func releaseListAccountsGate() { listAccountsGate.release() }
 
         /// Tests do not call this: the test target's convenience initialiser picks a storage root
         /// isolated to the running test (`TestStorageRoot`).
@@ -1091,6 +1098,7 @@
 
         func listAccounts() throws -> [AccountSummaryFfi] {
             recordSyncCall("listAccounts")
+            listAccountsGate.passIfArmed()
             if let listAccountsError { throw listAccountsError }
             return listedAccountsOverride ?? storedAccounts
         }
@@ -2569,10 +2577,10 @@
 
         func removeAccount(accountRef: String) async throws {
             removedAccountRefs.append(accountRef)
-            if let removeAccountError { throw removeAccountError }
             if let onRemoveAccountMidFlight {
                 await onRemoveAccountMidFlight(accountRef)
             }
+            if let removeAccountError { throw removeAccountError }
             storedAccounts.removeAll { $0.label == accountRef }
         }
 

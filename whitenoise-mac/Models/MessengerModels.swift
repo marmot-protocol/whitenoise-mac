@@ -3003,7 +3003,11 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// as a group (`ChatItem.isAuthoritativeGroup`). A read marker parked on the newest chat
     /// message leaves any member change after it unread, which is why the marker must consider
     /// these rows too.
-    nonisolated func countsAsReadActivity(inAuthoritativeGroup isAuthoritativeGroup: Bool) -> Bool {
+    nonisolated static func countsAsReadActivity(
+        presentation: MessagePresentation,
+        groupSystemType: String?,
+        inAuthoritativeGroup isAuthoritativeGroup: Bool
+    ) -> Bool {
         switch presentation {
         case .chat, .poll:
             return true
@@ -3012,6 +3016,14 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         case .agentActivity, .agentOperation, .unsupported:
             return false
         }
+    }
+
+    nonisolated func countsAsReadActivity(inAuthoritativeGroup isAuthoritativeGroup: Bool) -> Bool {
+        Self.countsAsReadActivity(
+            presentation: presentation,
+            groupSystemType: groupSystemType,
+            inAuthoritativeGroup: isAuthoritativeGroup
+        )
     }
     nonisolated func applyingSenderNickname(_ nickname: String?) -> MessageItem? {
         let published = publishedSenderName ?? senderName

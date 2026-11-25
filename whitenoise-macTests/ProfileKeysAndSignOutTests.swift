@@ -211,7 +211,7 @@ struct ProfileKeysSourceContractTests {
     @Test func theEncryptedExportSheetClearsTheSharedErrorBeforeShowingOne() throws {
         let sheet = try SourceContract.source(of: .encryptedPrivateKeyExportSheet)
 
-        #expect(sheet.contains("workspace.lastError = nil"))
+        #expect(sheet.contains("workspace.setSettingsError(nil)"))
         // It still shows one: the export flow sets its own, and the sheet is where it is read.
         #expect(sheet.contains("SettingsErrorView(error: error)"))
         // Dismiss stays gated on a written file, which is why an error has somewhere to be read.
@@ -254,9 +254,9 @@ struct ProfileKeysSourceContractTests {
         // `SignOutSheetExitTests` pins what the helper decides.
         #expect(sheet.contains("Self.exitSucceeded(for: account, wipedLocalData: wipes, in: workspace.accounts)"))
         #expect(!sheet.contains("guard workspace.lastError == nil"))
-        // The shared error is cleared on the way in, so an earlier profile or relay failure does
-        // not render here as if this sheet had produced it.
-        #expect(sheet.contains("workspace.lastError = nil"))
+        // Settings' error channel is cleared on the way in, so an earlier profile or relay failure
+        // does not render here as if this sheet had produced it.
+        #expect(sheet.contains("workspace.setSettingsError(nil)"))
 
         // And the two confirmations it replaced are gone rather than merely unreferenced.
         // These two have no `ViewUnit` entry precisely because they must not exist; a deleted file
@@ -500,6 +500,7 @@ struct SignOutSheetExitTests: WorkspaceTestSupport {
         runtime.accountRelayListsErrorByAccountRef = ["Backup Account": RelayListReadFailed()]
         UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
         let state = WorkspaceState(clientFactory: { runtime })
+        let settings = SettingsWindowCoordinator(workspace: state)
         await state.bootstrap()
         let active = try #require(state.activeAccount)
         try #require(active.id == "Desktop Account")
@@ -508,7 +509,7 @@ struct SignOutSheetExitTests: WorkspaceTestSupport {
 
         #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
         #expect(state.activeAccountId == "Backup Account")
-        #expect(state.lastError == RelayListReadFailed().errorDescription)
+        #expect(settings.lastError == RelayListReadFailed().errorDescription)
         #expect(SignOutSheet.exitSucceeded(for: active, wipedLocalData: false, in: state.accounts))
     }
 
@@ -521,12 +522,13 @@ struct SignOutSheetExitTests: WorkspaceTestSupport {
         runtime.signOutError = RelayListReadFailed()
         UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
         let state = WorkspaceState(clientFactory: { runtime })
+        let settings = SettingsWindowCoordinator(workspace: state)
         await state.bootstrap()
         let active = try #require(state.activeAccount)
 
         await state.signOutAccount(active)
 
-        #expect(state.lastError != nil)
+        #expect(settings.lastError != nil)
         #expect(state.activeAccountId == "Desktop Account")
         #expect(!SignOutSheet.exitSucceeded(for: active, wipedLocalData: false, in: state.accounts))
     }

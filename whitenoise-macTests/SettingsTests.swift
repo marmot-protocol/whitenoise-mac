@@ -488,61 +488,73 @@ struct SettingsTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func settingsSelectionUsesDetailPaneWithoutChangingAccount() async throws {
+    @Test func settingsWindowOpensWithoutChangingConversationOrDraft() throws {
         let state = WorkspaceState.preview()
-        let accountId = state.activeAccountId
+        let router = SettingsWindowCoordinator(workspace: state)
+        let chat = try #require(state.selectedChat)
+        state.draftText = "Half-written message"
 
-        state.showSettings()
+        router.open()
 
-        #expect(state.selection == .settings(.profile))
-        #expect(state.activeAccountId == accountId)
+        #expect(router.page == .profile)
+        #expect(router.accountID == state.activeAccountId)
+        #expect(state.selection == .chat(chat.id))
+        #expect(state.draftText == "Half-written message")
     }
 
     @MainActor
-    @Test func settingsSelectionCanTargetAllSettingsPages() async throws {
+    @Test func addProfileCancelReturnsToTheOriginatingPageAndKeepsTheDraft() throws {
         let state = WorkspaceState.preview()
+        let router = SettingsWindowCoordinator(workspace: state)
+        let accountID = try #require(state.activeAccountId)
+        let chat = try #require(state.selectedChat)
+        var openedPages: [SettingsPage] = []
+        var mainWindowRequests = 0
+        router.installPresentationActions(
+            showSettings: { [weak router] in if let router { openedPages.append(router.page) } },
+            showMain: { mainWindowRequests += 1 }
+        )
+        state.draftText = "Keep this draft"
+        router.open(at: .manageStorage)
+        #expect(router.parentPage == .storage)
 
-        state.showSettings(.preferences)
-        #expect(state.selection == .settings(.preferences))
+        router.beginAddProfile()
+        #expect(state.phase == .onboarding)
+        #expect(router.accountID == nil)
+        #expect(mainWindowRequests == 1)
+        router.open(at: .profile)
+        #expect(openedPages == [.manageStorage])
 
-        state.showSettings(.profile)
-        #expect(state.selection == .settings(.profile))
+        state.leaveAccountOnboarding()
+        #expect(openedPages == [.manageStorage, .manageStorage])
+        #expect(router.accountID == accountID)
+        #expect(state.selection == .chat(chat.id))
+        #expect(state.draftText == "Keep this draft")
+    }
 
-        state.showSettings(.identityKeys)
-        #expect(state.selection == .settings(.identityKeys))
+    @MainActor
+    @Test func losingTheOriginatingAccountDropsTheAddProfileReturn() throws {
+        let state = WorkspaceState.preview()
+        let router = SettingsWindowCoordinator(workspace: state)
+        let original = try #require(state.activeAccount)
+        let survivor = try #require(state.signedInAccounts.first(where: { $0.id != original.id }))
+        var openRequests = 0
+        router.installPresentationActions(showSettings: { openRequests += 1 }, showMain: {})
+        router.open(at: .relays)
+        router.beginAddProfile()
 
-        state.showSettings(.relays)
-        #expect(state.selection == .settings(.relays))
+        state.accountRoster.markSignedOut(accountId: original.id)
+        state.activeAccountId = nil
+        router.synchronize()
+        state.leaveAccountOnboarding()
+        #expect(router.accountID == nil)
+        #expect(router.pendingPage == nil)
+        #expect(openRequests == 1)
 
-        state.showSettings(.keyPackages)
-        #expect(state.selection == .settings(.keyPackages))
-
-        state.showSettings(.appearance)
-        #expect(state.selection == .settings(.appearance))
-
-        state.showSettings(.privacySecurity)
-        #expect(state.selection == .settings(.privacySecurity))
-
-        state.showSettings(.blockedUsers)
-        #expect(state.selection == .settings(.blockedUsers))
-
-        state.showSettings(.notifications)
-        #expect(state.selection == .settings(.notifications))
-
-        state.showSettings(.storage)
-        #expect(state.selection == .settings(.storage))
-
-        state.showSettings(.agents)
-        #expect(state.selection == .settings(.agents))
-
-        state.showSettings(.support)
-        #expect(state.selection == .settings(.support))
-
-        state.showSettings(.developerMode)
-        #expect(state.selection == .settings(.developerMode))
-
-        state.showSettings(.quarantinedGroups)
-        #expect(state.selection == .settings(.quarantinedGroups))
+        state.selectAccountFromSettings(survivor)
+        #expect(state.activeAccountId == survivor.id)
+        #expect(router.accountID == nil)
+        #expect(openRequests == 1)
     }
 
     /// Profile leads, not the startup toggles: settings used to open on "General", which put a
@@ -608,40 +620,26 @@ struct SettingsTests: WorkspaceTestSupport {
         defer { restoreDefault(previousDeveloperMode, forKey: "whitenoise.mac.developerMode") }
 
         let state = WorkspaceState.preview()
+        let router = SettingsWindowCoordinator(workspace: state)
         state.developerMode = true
-        state.showSettings(.keyPackages)
+        router.open(at: .keyPackages)
+        #expect(router.page == .keyPackages)
 
         state.developerMode = false
-        #expect(state.selection == .settings(.developerMode))
+        router.synchronize()
+        #expect(router.page == .developerMode)
 
         state.developerMode = true
-        state.showSettings(.quarantinedGroups)
+        router.navigate(to: .quarantinedGroups)
         state.developerMode = false
-        #expect(state.selection == .settings(.developerMode))
+        router.synchronize()
+        #expect(router.page == .developerMode)
 
-        // Every other page is unaffected: the toggle only owns its own destination.
-        state.showSettings(.relays)
+        router.navigate(to: .relays)
         state.developerMode = true
         state.developerMode = false
-        #expect(state.selection == .settings(.relays))
-    }
-
-    /// Account mutations that hand the app a different active identity stay on the settings page
-    /// the switcher was opened from, and fall back to the profile overview the switcher card sits
-    /// above when they were started from the account rail instead.
-    @MainActor
-    @Test func accountMutationLandingKeepsTheOpenSettingsPageOtherwiseTheOverview() async throws {
-        let state = WorkspaceState.preview()
-
-        state.showSettings(.keyPackages)
-        #expect(state.settingsSelectionAfterAccountMutation == .settings(.keyPackages))
-
-        state.selection = nil
-        #expect(state.settingsSelectionAfterAccountMutation == .settings(.overview))
-
-        let chat = try #require(state.activeChats.first)
-        state.selectChat(chat)
-        #expect(state.settingsSelectionAfterAccountMutation == .settings(.overview))
+        router.synchronize()
+        #expect(router.page == .relays)
     }
 
     /// The rail's sign-out lands in Settings on the overview, because the identity that owned the
@@ -672,11 +670,16 @@ struct SettingsTests: WorkspaceTestSupport {
         state.selectChat(chat)
         let active = try #require(state.accounts.first { $0.id == primary.label })
 
+        let router = SettingsWindowCoordinator(workspace: state)
         await state.signOutAccount(active)
 
         #expect(state.activeAccountId == secondary.label)
         #expect(state.signedInAccounts.map(\.id) == [secondary.label])
-        #expect(state.selection == .settings(.overview))
+        if case .settings = state.selection {
+            Issue.record("Settings handoff must not take over the main window selection")
+        }
+        #expect(router.page == .overview)
+        #expect(router.accountID == secondary.label)
     }
 
     @MainActor
@@ -897,14 +900,17 @@ struct SettingsTests: WorkspaceTestSupport {
     @MainActor
     @Test func settingsAccountSwitchStaysOnTheSettingsPageItWasStartedFrom() async throws {
         let state = WorkspaceState.preview()
-        state.showSettings(.relays)
+        let router = SettingsWindowCoordinator(workspace: state)
+        router.open(at: .relays)
         state.searchText = "relay"
         state.draftText = "half-written"
 
         state.selectAccountFromSettings(AccountItem.samples[1])
 
         #expect(state.activeAccountId == AccountItem.samples[1].id)
-        #expect(state.selection == .settings(.relays))
+        #expect(state.selection == nil)
+        #expect(router.accountID == AccountItem.samples[1].id)
+        #expect(router.page == .relays)
         #expect(state.searchText.isEmpty)
         #expect(state.draftText.isEmpty)
     }
@@ -1912,6 +1918,7 @@ struct SettingsTests: WorkspaceTestSupport {
 
         await state.bootstrap()
         runtime.setNativePushEnabledError = FakeMarmotRuntimeError.nativePushWriteFailed
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.setLocalNotificationsEnabled(false)
 
@@ -1922,7 +1929,7 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(!state.notificationSettings.localNotificationsEnabled)
         // …and the flag that did not move still reads as set, because in the core it is.
         #expect(state.notificationSettings.nativePushEnabled)
-        #expect(state.lastError != nil)
+        #expect(settings.lastError != nil)
     }
 
     @MainActor
@@ -1944,12 +1951,13 @@ struct SettingsTests: WorkspaceTestSupport {
             localNotificationCenter: notificationCenter,
             clientFactory: { runtime }
         )
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.bootstrap()
         await state.setNativePushEnabled(true)
 
         #expect(!state.notificationSettings.nativePushEnabled)
-        #expect(state.lastError != nil)
+        #expect(settings.lastError != nil)
     }
 
     @MainActor
@@ -1976,6 +1984,7 @@ struct SettingsTests: WorkspaceTestSupport {
             localNotificationCenter: notificationCenter,
             clientFactory: { runtime }
         )
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.bootstrap()
         await state.setLocalNotificationsEnabled(true)
@@ -1985,7 +1994,7 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(!state.notificationSettings.localNotificationsEnabled)
         #expect(state.notificationAuthorizationStatus == .denied)
         #expect(
-            state.lastError
+            settings.lastError
                 == "Open System Settings > Notifications and allow White Noise notifications, then try again.")
     }
 
@@ -2013,17 +2022,18 @@ struct SettingsTests: WorkspaceTestSupport {
             localNotificationCenter: notificationCenter,
             clientFactory: { runtime }
         )
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.bootstrap()
         await state.setLocalNotificationsEnabled(true)
-        #expect(state.lastError == WorkspaceState.notificationPermissionGuidance)
+        #expect(settings.lastError == WorkspaceState.notificationPermissionGuidance)
 
         // The user grants the permission in System Settings and returns to White Noise.
         notificationCenter.simulateSystemAuthorizationChange(.authorized)
         await state.refreshNotificationPermissionState()
 
         #expect(state.notificationAuthorizationStatus == .authorized)
-        #expect(state.lastError == nil)
+        #expect(settings.lastError == nil)
     }
 
     @MainActor
@@ -2044,18 +2054,19 @@ struct SettingsTests: WorkspaceTestSupport {
             localNotificationCenter: notificationCenter,
             clientFactory: { runtime }
         )
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.bootstrap()
-        state.lastError = "Could not reach relay."
+        state.setSettingsError("Could not reach relay.")
         await state.refreshNotificationPermissionState()
-        #expect(state.lastError == "Could not reach relay.")
+        #expect(settings.lastError == "Could not reach relay.")
 
         // Still denied: the guidance is exactly what the user needs to keep seeing.
         notificationCenter.simulateSystemAuthorizationChange(.denied)
-        state.lastError = WorkspaceState.notificationPermissionGuidance
+        state.setSettingsError(WorkspaceState.notificationPermissionGuidance)
         await state.refreshNotificationPermissionState()
         #expect(state.notificationAuthorizationStatus == .denied)
-        #expect(state.lastError == WorkspaceState.notificationPermissionGuidance)
+        #expect(settings.lastError == WorkspaceState.notificationPermissionGuidance)
     }
 
     @MainActor
@@ -2073,12 +2084,15 @@ struct SettingsTests: WorkspaceTestSupport {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
-        state.showSettingsPage(.notifications)
-        state.lastError = WorkspaceState.notificationPermissionGuidance
+        let router = SettingsWindowCoordinator(workspace: state)
+        router.open(at: .notifications)
+        state.setSettingsError(WorkspaceState.notificationPermissionGuidance)
+        #expect(router.lastError == WorkspaceState.notificationPermissionGuidance)
 
-        state.showSettingsPage(.storage)
+        router.navigate(to: .storage)
 
-        #expect(state.selection == .settings(.storage))
+        #expect(router.page == .storage)
+        #expect(router.lastError == nil)
         #expect(state.lastError == nil)
     }
 
@@ -2753,7 +2767,7 @@ struct SettingsTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func activeSelectedChatNotificationPostsLocalAlertWhenConversationWindowIsHidden() async throws {
+    @Test func activeSelectedChatStillPostsLocalAlertWhenSettingsIsKey() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -2780,10 +2794,15 @@ struct SettingsTests: WorkspaceTestSupport {
             )
         )
         let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let conversationWindow = ShellTestWindow()
+        let settingsWindow = ShellTestWindow()
         let state = WorkspaceState(
             localNotificationCenter: notificationCenter,
             appActivityProvider: { true },
-            conversationWindowVisibilityProvider: { false },
+            conversationWindowVisibilityProvider: {
+                WorkspaceState.defaultConversationWindowVisibilityProvider(
+                    keyWindow: settingsWindow, conversationWindow: conversationWindow)
+            },
             clientFactory: { runtime }
         )
 

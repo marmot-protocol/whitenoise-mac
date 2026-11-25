@@ -60,6 +60,7 @@ extension WorkspaceState {
     }
 
     func showNewChat() {
+        isChatListVisible = true
         leaveActiveConversation()
         isNewChatComposerVisible = true
         lastError = nil

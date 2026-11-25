@@ -32,26 +32,10 @@ struct AccountRailView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
 
-    private var isSettingsSelected: Bool {
-        if case .settings = workspace.selection { return true }
-        return false
-    }
+    let onOpenSettings: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
-            Button {
-                workspace.toggleChatList()
-            } label: {
-                Image(systemName: workspace.isChatListVisible ? "sidebar.leading" : "sidebar.right")
-                    .wnFont(.semiBold16)
-                    .frame(width: MessagesLayout.accountRailControlSize, height: MessagesLayout.accountRailControlSize)
-                    .background {
-                        MessagesCircleControlBackground(isSelected: workspace.isChatListVisible)
-                    }
-            }
-            .buttonStyle(.plain)
-            .help(workspace.isChatListVisible ? L10n.string("Hide chat list") : L10n.string("Show chat list"))
-
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 10) {
                     ForEach(workspace.signedInAccounts) { account in
@@ -68,24 +52,19 @@ struct AccountRailView: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                workspace.showSettings()
-            } label: {
+            Button(action: onOpenSettings) {
                 Image(systemName: "gearshape")
                     .wnFont(.semiBold18)
                     .frame(width: MessagesLayout.accountRailControlSize, height: MessagesLayout.accountRailControlSize)
                     .background {
-                        MessagesCircleControlBackground(isSelected: isSettingsSelected)
+                        MessagesCircleControlBackground()
                     }
             }
             .buttonStyle(.plain)
-            .foregroundStyle(
-                isSettingsSelected ? WNColor.fillContentSecondary : WNColor.fillContentTertiary
-            )
+            .foregroundStyle(WNColor.fillContentTertiary)
             .help(L10n.string("Settings"))
         }
-        .sidebarTitlebarClearance()
-        .padding(.bottom, 14)
+        .padding(.vertical, 12)
         .frame(width: MessagesLayout.accountRailWidth)
         .background {
             MessagesSidebarBackground(level: .rail)
@@ -174,18 +153,11 @@ struct ChatListDrawerView: View {
         self.search = search
     }
 
-    private var isShowingSettings: Bool {
-        if case .settings = workspace.selection { return true }
-        return false
-    }
-
     var body: some View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 0) {
-            if isShowingSettings {
-                SettingsListDrawerView()
-            } else if workspace.isNewChatComposerVisible {
+            if workspace.isNewChatComposerVisible {
                 switch workspace.composePane {
                 case .newChat:
                     NewChatPanelView()
@@ -199,24 +171,17 @@ struct ChatListDrawerView: View {
                 let isShowingArchived = filter == .archived
                 let listing = visibleChats(for: filter)
                 let visibleChats = listing.chats
-                let isCollapsed = workspace.isChatListCollapsed
-                // The avatar-only rail has no room for checkmarks or the action bar.
-                let rowSelection = isCollapsed ? nil : selection
-                let activeSelection = rowSelection?.isActive == true ? rowSelection : nil
+                let activeSelection = selection?.isActive == true ? selection : nil
 
-                if isCollapsed {
-                    CollapsedChatListHeader(isShowingArchived: isShowingArchived)
-                } else {
-                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived)
-                }
+                ChatListHeader(filter: filter, isShowingArchived: isShowingArchived)
 
                 GlassSeparator(axis: .horizontal)
 
-                if !isCollapsed, let historyNotices {
+                if let historyNotices {
                     AccountHistoryNoticesView(model: historyNotices)
                 }
 
-                if !isCollapsed, let recoveryStatus {
+                if let recoveryStatus {
                     AccountCatchingUpRow(model: recoveryStatus)
                 }
 
@@ -235,9 +200,8 @@ struct ChatListDrawerView: View {
                             ChatSidebarRow(
                                 chat: chat,
                                 isArchived: listing.archivedIds.contains(chat.id),
-                                isCollapsed: isCollapsed,
                                 searchResult: workspace.sidebarMessageSearchResult(for: chat),
-                                selection: rowSelection
+                                selection: selection
                             )
                             .onAppear {
                                 if isSearching {
@@ -266,10 +230,7 @@ struct ChatListDrawerView: View {
                 }
                 .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
-                    // The notice needs room for an icon over a line or two of prose; in the
-                    // collapsed rail it would render as a column of hyphenated fragments. An
-                    // empty rail is legible on its own, and widening it brings the wording back.
-                    if visibleChats.isEmpty, !isCollapsed {
+                    if visibleChats.isEmpty {
                         if isSearching, search?.phase != .ready, search?.phase != .failed {
                             ProgressView()
                                 .controlSize(.small)
@@ -361,9 +322,6 @@ struct ChatListDrawerView: View {
                 }
             }
         }
-        .background {
-            MessagesSidebarBackground(level: .drawer)
-        }
         .animation(.smooth(duration: 0.18), value: selection?.isActive == true)
         .onChange(of: showsSelectableList) { _, shows in
             // Selection belongs to the list on screen: settings, the composer or the collapsed rail
@@ -384,7 +342,7 @@ struct ChatListDrawerView: View {
     }
 
     private var showsSelectableList: Bool {
-        !isShowingSettings && !workspace.isNewChatComposerVisible && !workspace.isChatListCollapsed
+        !workspace.isNewChatComposerVisible && workspace.isChatListVisible
     }
 }
 
@@ -469,6 +427,7 @@ private struct ChatListHeader: View {
     @Environment(WorkspaceState.self) private var workspace
     let filter: ChatListFilter
     let isShowingArchived: Bool
+    @State private var searchFocusRequest: UUID?
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -502,7 +461,6 @@ private struct ChatListHeader: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .keyboardShortcut("n", modifiers: .command)
                     .help(L10n.string("New chat"))
                 }
             }
@@ -511,7 +469,8 @@ private struct ChatListHeader: View {
                 MessagesSearchField(
                     text: $workspace.searchText,
                     accessibilityIdentifier: "chat.search",
-                    placeholder: L10n.string("Search all messages")
+                    placeholder: L10n.string("Search all messages"),
+                    focusRequest: searchFocusRequest
                 )
                 .frame(maxWidth: .infinity)
                 .onChange(of: workspace.searchText) { _, _ in
@@ -525,57 +484,8 @@ private struct ChatListHeader: View {
                 ChatListFilterMenu()
             }
         }
-        .padding(.horizontal, 12)
-        .sidebarTitlebarClearance()
-        .padding(.bottom, 12)
-    }
-}
-
-/// Header for the avatar-only rail: the pane title and the row-filtering search field have no
-/// room, so what is left is the three controls that still make sense at 84pt, stacked. Global
-/// search stays reachable (it opens its own sheet), which is why dropping the inline field is
-/// survivable — and `resizeChatListDrawer` clears any query on the way in, so the rail can
-/// never show a silently filtered list.
-private struct CollapsedChatListHeader: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let isShowingArchived: Bool
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Button {
-                workspace.presentGlobalMessageSearch()
-            } label: {
-                Image(systemName: "text.magnifyingglass")
-                    .wnFont(.semiBold14)
-                    .frame(width: 34, height: 34)
-                    .background {
-                        MessagesCircleControlBackground()
-                    }
-            }
-            .buttonStyle(.plain)
-            .help(L10n.string("Search all messages"))
-
-            if !isShowingArchived {
-                Button {
-                    workspace.showNewChat()
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .wnFont(.semiBold14)
-                        .frame(width: 34, height: 34)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("n", modifiers: .command)
-                .help(L10n.string("New chat"))
-            }
-
-            ChatListFilterMenu()
-        }
-        .padding(.horizontal, 8)
-        .sidebarTitlebarClearance()
-        .padding(.bottom, 12)
+        .padding(12)
+        .focusedSceneValue(\.sidebarSearchFocus, SidebarSearchFocus { searchFocusRequest = UUID() })
     }
 }
 
@@ -692,7 +602,6 @@ private struct ChatSidebarRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
     let isArchived: Bool
-    let isCollapsed: Bool
     let searchResult: GlobalMessageSearchResult?
     /// `nil` where selection is unavailable (the collapsed rail). The row reads only `isActive`;
     /// the checkmark observes the selected set on its own.
@@ -713,7 +622,6 @@ private struct ChatSidebarRow: View {
                 ChatSidebarRowContent(
                     chat: chat,
                     isArchived: isArchived,
-                    isCollapsed: isCollapsed,
                     searchResult: searchResult
                 )
             }
@@ -764,41 +672,27 @@ private struct ChatSidebarRowContent: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
     let isArchived: Bool
-    let isCollapsed: Bool
     let searchResult: GlobalMessageSearchResult?
 
     var body: some View {
-        Group {
-            if isCollapsed {
-                CollapsedChatRowContent(
-                    chat: chat,
-                    isSelected: workspace.selection == .chat(chat.id),
-                    isPinned: !isArchived && workspace.isChatPinned(chat)
-                )
-            } else {
-                ChatRowContent(
-                    chat: chat,
-                    isSelected: workspace.selection == .chat(chat.id),
-                    isPinned: !isArchived && workspace.isChatPinned(chat),
-                    searchResult: searchResult
-                )
-            }
-        }
+        ChatRowContent(
+            chat: chat,
+            isSelected: workspace.selection == .chat(chat.id),
+            isPinned: !isArchived && workspace.isChatPinned(chat),
+            searchResult: searchResult
+        )
     }
 }
 
 private struct ChatSidebarRowMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.endingGroupIds) private var endingGroupIds
+    @Environment(\.locale) private var locale
     let chat: ChatItem
     let isArchived: Bool
     let selection: ChatListSelectionViewModel?
 
-    /// Any archive in flight, not just this chat's: `setChatArchived` refuses every call while one
-    /// is running, so an enabled item on another row would be a click that does nothing.
-    private var isArchiving: Bool {
-        workspace.archivingChatId != nil
-    }
+    private var actions: ChatMenuActions { ChatMenuActions(workspace: workspace, chat: chat) }
 
     var body: some View {
         Group {
@@ -825,37 +719,17 @@ private struct ChatSidebarRowMenuItems: View {
             }
             .disabled(workspace.isMutatingChatPreferences(chat))
 
-            if chat.muted {
-                Button {
-                    Task { await workspace.clearChatMuted(chat) }
-                } label: {
-                    ChatRowMenuLabel(action: .unmute)
-                }
-                .disabled(workspace.isMutatingChatPreferences(chat))
-            } else {
-                Menu {
-                    ForEach(ChatMuteDuration.allCases) { duration in
-                        Button {
-                            Task { await workspace.setChatMuted(chat, duration: duration.interval) }
-                        } label: {
-                            Label(L10n.string(duration.titleKey), systemImage: duration.systemImage)
-                        }
-                    }
-                } label: {
-                    ChatRowMenuLabel(action: .mute)
-                }
-                .disabled(workspace.isMutatingChatPreferences(chat))
-            }
+            ChatMuteMenu(actions: actions, locale: locale, showsRowIcon: true, isCurrent: { true })
 
             Divider()
 
             if isArchived {
                 Button {
-                    Task { await workspace.setChatArchived(chat, archived: false) }
+                    Task { await actions.setArchived(false) }
                 } label: {
                     ChatRowMenuLabel(action: .unarchive)
                 }
-                .disabled(isArchiving)
+                .disabled(!actions.canArchive)
             } else {
                 let isPinned = workspace.isChatPinned(chat)
                 Button {
@@ -868,11 +742,11 @@ private struct ChatSidebarRowMenuItems: View {
                 Divider()
 
                 Button {
-                    Task { await workspace.setChatArchived(chat, archived: true) }
+                    Task { await actions.setArchived(true) }
                 } label: {
                     ChatRowMenuLabel(action: .archive)
                 }
-                .disabled(isArchiving)
+                .disabled(!actions.canArchive)
             }
 
             destructiveItems
@@ -888,34 +762,27 @@ private struct ChatSidebarRowMenuItems: View {
         if let action = ChatDestructiveActions.action(for: chat) {
             Divider()
 
-            switch action {
-            case .leave:
-                Button(role: .destructive) {
-                    Task { await workspace.prepareChatLeave(for: chat) }
-                } label: {
-                    ChatRowMenuLabel(action: .leave)
+            Button(role: .destructive) {
+                switch action {
+                case .deleteLocally:
+                    actions.requestDeleteLocally(endingGroupIDs: endingGroupIds)
+                case .leave:
+                    let originAccountId = workspace.activeAccountId
+                    Task {
+                        guard workspace.activeAccountId == originAccountId else { return }
+                        await actions.requestLeave(endingGroupIDs: endingGroupIds)
+                    }
                 }
-                // An End Group run on this chat is a commit the row cannot see in `chat` until
-                // the read-back after it lands; a leave started meanwhile would race it.
-                .disabled(
-                    workspace.leavingChatId != nil
-                        || workspace.preparingChatLeaveId != nil
-                        || workspace.handingOffAdminChatId != nil
-                        || endingGroupIds.contains(chat.id))
-
-            case .deleteLocally:
-                Button(role: .destructive) {
-                    workspace.requestChatLocalDelete(for: chat)
-                } label: {
-                    ChatRowMenuLabel(action: .deleteLocally)
-                }
-                .disabled(workspace.isDeletingGroupLocally)
+            } label: {
+                ChatRowMenuLabel(action: action == .leave ? .leave : .deleteLocally)
             }
+            .disabled(!actions.canPerformDestructive(action, endingGroupIDs: endingGroupIds))
         }
     }
 }
 
 struct SettingsListDrawerView: View {
+    let coordinator: SettingsWindowCoordinator
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     // Localizing through `\.locale` (not the stored preference) is what re-renders this
@@ -928,8 +795,7 @@ struct SettingsListDrawerView: View {
                 .wnFont(.semiBold18)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)
-                .sidebarTitlebarClearance()
-                .padding(.bottom, 10)
+                .padding(.vertical, 10)
 
             // No rule under the title. The account card used to be pinned above a
             // `GlassSeparator`, which split the surface into a header and a list; the prototype's
@@ -940,16 +806,16 @@ struct SettingsListDrawerView: View {
                 // `wn-ios-prototype`'s hub takes. The gap between cards is the only grouping
                 // signal, because the prototype's hub carries no category headings.
                 LazyVStack(spacing: 12) {
-                    SettingsAccountSwitcherCard()
+                    SettingsAccountSwitcherCard(onAddProfile: coordinator.beginAddProfile)
 
                     ForEach(Array(SettingsPage.sidebarGroups.map(visiblePages).enumerated()), id: \.offset) {
                         _, group in
                         SettingsSidebarGroupCard {
                             ForEach(Array(group.enumerated()), id: \.element) { index, page in
                                 Button {
-                                    workspace.showSettingsPage(page)
+                                    coordinator.navigate(to: page)
                                 } label: {
-                                    SettingsSidebarRow(page: page)
+                                    SettingsSidebarRow(page: page, isSelected: coordinator.parentPage == page)
                                 }
                                 .buttonStyle(.plain)
 
@@ -960,7 +826,7 @@ struct SettingsListDrawerView: View {
                         }
                     }
 
-                    SettingsSignOutRow()
+                    SettingsSignOutRow(coordinator: coordinator)
                 }
                 // While `ProfileChooserView` asks which profile to continue with there is no
                 // account for these pages to describe, so the drawer waits behind it, as iOS's
@@ -990,18 +856,12 @@ struct SettingsListDrawerView: View {
 }
 
 struct SettingsSidebarRow: View {
-    @Environment(WorkspaceState.self) private var workspace
     // The row's labels are the only language-dependent thing in its body, so reading the
     // locale here is what makes SwiftUI re-render it on a language switch.
     @Environment(\.locale) private var locale
     let page: SettingsPage
 
-    private var isSelected: Bool {
-        // Compared through `drawerPage`, so Developer mode stays lit while its Key Packages
-        // destination is the open page — that page has no row of its own.
-        guard case .settings(let open) = workspace.selection else { return false }
-        return open.drawerPage == page
-    }
+    let isSelected: Bool
 
     var body: some View {
         // Glyph and title, nothing else: the prototype's hub states outright that it carries no
@@ -1036,19 +896,20 @@ struct SettingsSidebarRow: View {
 /// someone who came to delete their profile gets a row that says so and a page that spells out
 /// what goes, while the sheet's toggle stays the quick way to leave and erase at once.
 struct SettingsSignOutRow: View {
+    let coordinator: SettingsWindowCoordinator
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     @State private var isSigningOut = false
 
     private var isDeleteProfileOpen: Bool {
-        workspace.selection == .settings(.deleteProfile)
+        coordinator.page == .deleteProfile
     }
 
     var body: some View {
         if let account = workspace.activeAccount {
             SettingsSidebarGroupCard {
                 Button {
-                    workspace.showSettingsPage(.deleteProfile)
+                    coordinator.navigate(to: .deleteProfile)
                 } label: {
                     SettingsSidebarRowLabel(
                         systemImage: SettingsPage.deleteProfile.systemImage,
@@ -1249,91 +1110,6 @@ struct ChatRowContent: View {
     }
 }
 
-/// The chat row at the drawer's narrowest width: the avatar, and the one badge that says
-/// something is waiting on the reader.
-///
-/// This exists so the drawer never has to render a *truncated* row. Title, timestamp and
-/// preview are dropped wholesale rather than clipped — a group name cut mid-word tells the
-/// reader less than the avatar already does, and `ChatListWidthPolicy` snaps past the widths
-/// where that would be the only option.
-///
-/// Everything the row stops showing in words it still says on hover: the title, and "Muted"
-/// when the chat is, in the same `title — state` form the account rail uses.
-struct CollapsedChatRowContent: View {
-    let chat: ChatItem
-    let isSelected: Bool
-    var isPinned = false
-
-    private var rowStatus: ChatRowStatus? { ChatRowStatus.status(for: chat) }
-
-    private var hoverDescription: String {
-        chat.muted ? "\(chat.title) — \(L10n.string("Muted"))" : chat.title
-    }
-
-    var body: some View {
-        ProfileImageAvatarView(
-            seed: chat.avatarSeed,
-            initials: chat.title,
-            sanitizedPictureURL: chat.sanitizedPictureURL,
-            localImagePayload: chat.groupImagePayload,
-            size: MessagesLayout.chatRowAvatarSize,
-            isSelected: false
-        )
-        .overlay(alignment: .topTrailing) {
-            // Nudged onto the avatar's corner rather than centred over its face, the way the
-            // account rail places its own badge. The row's padding leaves room for it, so
-            // nothing is clipped.
-            badge
-                .offset(x: 3, y: -3)
-        }
-        // The other corner, so the pin never contends with the badge slot above. Moving the pin
-        // onto the avatar is what lets the collapsed row keep it at all — there is no title line
-        // here to put it beside.
-        .overlay(alignment: .bottomTrailing) {
-            if isPinned {
-                ChatAvatarPinBadge()
-            }
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
-        .background {
-            MessagesSidebarRowBackground(isSelected: isSelected)
-        }
-        .contentShape(.rect)
-        .help(hoverDescription)
-        .accessibilityLabel(hoverDescription)
-    }
-
-    /// One badge, in the rail's single badge slot, so it has to be the most urgent claim on the
-    /// reader rather than all of them: an unanswered invite, then a mention (which the bare count
-    /// beside it would not distinguish from ordinary traffic), then the count, then the
-    /// manually-marked-unread dot. The expanded row, which has the width for it, still shows the
-    /// mention pill and the count together.
-    @ViewBuilder
-    private var badge: some View {
-        if rowStatus == .pendingInvite {
-            PendingInviteBadge()
-        } else if chat.hasUnread {
-            if chat.hasMention {
-                Image(systemName: "at")
-                    .wnFont(.bold10)
-                    .foregroundStyle(WNColor.fillContentPrimary)
-                    .frame(width: 18, height: 18)
-                    .background(Circle().fill(WNColor.fillPrimary))
-                    .accessibilityLabel(L10n.string("You were mentioned"))
-            } else if chat.unreadCount > 0 {
-                UnreadCountBadge(count: chat.unreadCount, textStyle: MessagesType.badge)
-            } else {
-                Circle()
-                    .fill(WNColor.fillPrimary)
-                    .frame(width: 9, height: 9)
-                    .accessibilityLabel(L10n.string("Marked unread"))
-            }
-        }
-    }
-}
-
 private struct ChatDeliveryStateIcon: View {
     let state: ChatMessageDeliveryState
 
@@ -1482,11 +1258,8 @@ private struct ChatListSearchTruncatedNote: View {
 }
 
 #Preview("ChatSidebarRowContent") {
-    VStack(alignment: .leading, spacing: 12) {
-        ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, isCollapsed: false, searchResult: nil)
-        ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, isCollapsed: true, searchResult: nil)
-    }
-    .padding()
-    .frame(width: 320)
-    .environment(WorkspaceState.preview())
+    ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, searchResult: nil)
+        .padding()
+        .frame(width: 320)
+        .environment(WorkspaceState.preview())
 }

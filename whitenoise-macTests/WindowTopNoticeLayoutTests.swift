@@ -68,8 +68,8 @@ struct WindowTopNoticeLayoutTests {
         let normalized = body.components(separatedBy: .whitespacesAndNewlines).joined()
         #expect(!normalized.contains(".overlay(alignment:.top){OfflineNoticeBand()"))
 
-        // And the headers it pushes down have to be told the strip is taken, or they keep
-        // padding past traffic lights that are now inside the band.
-        #expect(body.contains(".environment(\\.hasWindowTopNoticeBand, workspace.isOffline)"))
+        // The unified native titlebar owns the traffic-light strip unconditionally, so headers
+        // never reserve hidden-titlebar clearance below the titlebar or the offline band.
+        #expect(body.contains(".environment(\\.hasWindowTopNoticeBand, true)"))
     }
 }

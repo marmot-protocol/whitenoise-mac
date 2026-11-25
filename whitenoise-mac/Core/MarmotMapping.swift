@@ -36,6 +36,36 @@ extension GroupMemberDetailsFfi {
 }
 
 extension ConversationWindowSnapshotFfi {
+    /// The newest non-deleted row in this snapshot that MDK counts as unread activity.
+    ///
+    /// Reading directly from the authoritative snapshot lets commands such as Mark as Read target
+    /// the exact page that established `hasMoreAfter == false`, even while the UI observer is
+    /// still presenting that page into the workspace's timeline store.
+    nonisolated func latestReadableActivityMarker(
+        inAuthoritativeGroup isAuthoritativeGroup: Bool
+    ) -> ReadMarker? {
+        for row in messages.reversed() {
+            let record = row.timeline
+            guard !record.deleted else { continue }
+            let presentation = MessageItem.presentation(for: record.kind, thread: record.thread)
+            let groupSystemType =
+                presentation == .groupSystem
+                ? record.groupSystem?.systemType ?? MessageItem.tagValue("system", in: record.tags)
+                : nil
+            if MessageItem.countsAsReadActivity(
+                presentation: presentation,
+                groupSystemType: groupSystemType,
+                inAuthoritativeGroup: isAuthoritativeGroup
+            ) {
+                return ReadMarker(
+                    sentAt: Date(timeIntervalSince1970: TimeInterval(record.timelineAt)),
+                    messageId: record.messageIdHex
+                )
+            }
+        }
+        return nil
+    }
+
     /// Maps the bounded identity table carried by a complete conversation snapshot into the
     /// renderer's value type. The only host-side overlay is the viewer's private nickname; no
     /// profile, directory, or group-member lookup is allowed on this path.
@@ -1511,7 +1541,7 @@ nonisolated extension MessageItem {
         }
     }
 
-    private static func tagValue(_ name: String, in tags: [MessageTagFfi]) -> String? {
+    fileprivate static func tagValue(_ name: String, in tags: [MessageTagFfi]) -> String? {
         tags.first { $0.values.first == name }?.values.dropFirst().first
     }
 
