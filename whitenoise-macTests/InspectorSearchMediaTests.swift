@@ -109,21 +109,34 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
         #expect(!ConversationFindCommandPolicy.canUseConversation(messenger: inactiveWindow, conversation: command))
     }
 
-    @Test func messengerCommandContextRoutesGlobalSearchCallback() throws {
+    @Test func messengerCommandContextRoutesGlobalSearchCallbackWithoutDiscardingNewGroupDraft() throws {
         let workspace = WorkspaceState.preview()
         let activeAccountId = try #require(workspace.activeAccountId)
+        workspace.showNewChat()
+        workspace.composePane = .nameGroup
+        workspace.groupDraftRetentionSecs = 86_400
 
-        var searchAllMessagesInvocations = 0
+        let globalSearch = SidebarGlobalSearchViewModel(debounce: .zero)
         let context = MessengerCommandContext(
             workspace: workspace,
             accountID: activeAccountId,
-            onSearchAllMessages: { searchAllMessagesInvocations += 1 },
+            onSearchAllMessages: {
+                workspace.isChatListVisible = true
+                globalSearch.activate(initialQuery: workspace.searchText)
+            },
             isMessengerWindowTarget: { true }
         )
 
         context.searchAllMessages()
-        #expect(searchAllMessagesInvocations == 1)
-        #expect(!workspace.isGlobalMessageSearchPresented)
+        #expect(globalSearch.isActive)
+        #expect(workspace.isNewChatComposerVisible)
+        #expect(workspace.composePane == .nameGroup)
+        #expect(workspace.groupDraftRetentionSecs == 86_400)
+
+        globalSearch.dismiss()
+        #expect(!globalSearch.isActive)
+        #expect(workspace.isNewChatComposerVisible)
+        #expect(workspace.groupDraftRetentionSecs == 86_400)
     }
 
     // MARK: - #1043: Search highlight contrast, ⌘E selection extraction, sidebar global search
@@ -277,19 +290,68 @@ struct InspectorSearchMediaTests: WorkspaceTestSupport {
         #expect(model.selectedResultID == hit.id)
         #expect(model.selectedResult() == hit)
 
-        model.recordConversationSearchJump(groupId: hit.groupId, query: model.query)
-        // Consuming for a different chat leaves the jump intact; matching chat consumes it once.
-        #expect(model.consumeConversationSearchJump(for: "other") == nil)
-        let consumed = model.consumeConversationSearchJump(for: "g1")
-        #expect(consumed == "release")
-        #expect(model.consumeConversationSearchJump(for: "g1") == nil)
+        let target = GlobalMessageNavigationTarget(requestId: UUID(), groupId: hit.groupId, messageId: hit.messageId)
+        let otherMessageInSameChat = GlobalMessageNavigationTarget(
+            requestId: UUID(), groupId: hit.groupId, messageId: "m99"
+        )
+        let otherChat = GlobalMessageNavigationTarget(requestId: UUID(), groupId: "other", messageId: hit.messageId)
 
-        // Account switch resets everything cleanly.
-        model.resetForAccountChange()
+        model.recordConversationSearchJump(target: target, query: model.query)
+        // A different chat or a superseded navigation in the same chat cannot steal the pending Find query.
+        #expect(model.consumeConversationSearchJump(for: otherChat) == nil)
+        #expect(model.consumeConversationSearchJump(for: otherMessageInSameChat) == nil)
+        let consumed = model.consumeConversationSearchJump(for: target)
+        #expect(consumed == "release")
+        #expect(model.consumeConversationSearchJump(for: target) == nil)
+
+        // Stopping (as AccountScope.cancelAll does on account switch) resets everything cleanly.
+        model.recordConversationSearchJump(target: target, query: "release")
+        model.stop()
         #expect(!model.isActive)
         #expect(model.query.isEmpty)
         #expect(model.results.isEmpty)
         #expect(model.selectedResultID == nil)
+        #expect(model.pendingConversationSearch == nil)
+    }
+
+    @Test func openGlobalMessageSearchResultReturnsNilWithoutRecordingJumpWhenChatIsMissing() async {
+        let workspace = WorkspaceState.preview()
+        let missing = GlobalMessageSearchResult(
+            messageId: "m1",
+            groupId: "missing-chat-id",
+            chatTitle: "Deleted",
+            senderName: "Alice",
+            timelineAt: 10,
+            snippet: GlobalMessageSearchSnippet(leading: "", match: "needle", trailing: "")
+        )
+
+        let target = await workspace.openGlobalMessageSearchResult(missing)
+        #expect(target == nil)
+        #expect(workspace.pendingMessageNavigation == nil)
+    }
+
+    @Test func attachmentViewModelKeepsTransferObservationAliveAcrossCoexistingMediaSurfaces() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let target = AttachmentLocalTargetFfi(
+            messageIdHex: "m1",
+            sourceMessageIdHex: "m1",
+            attachmentIndex: 0
+        )
+        runtime.attachmentTransferDelayNanoseconds = 500_000_000
+        let model = AttachmentViewModel(accountRef: "Desktop Account", groupIdHex: "g1", runtime: runtime)
+
+        let inspectorOwner = model.beginTransferObservation()
+        let libraryOwner = model.beginTransferObservation()
+        model.observeTransfers(for: [target])
+        #expect(model.isObservingTransfers)
+
+        // Closing the inspector while the Shared Media library stays open must keep transfers live.
+        model.endTransferObservation(inspectorOwner)
+        #expect(model.isObservingTransfers)
+
+        // Closing the final surface stops the subscription.
+        model.endTransferObservation(libraryOwner)
+        #expect(!model.isObservingTransfers)
     }
 
     // MARK: - #1044: Shared Media & Files icons, truthful metadata, categories

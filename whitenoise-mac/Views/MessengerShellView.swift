@@ -12,7 +12,6 @@ struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var globalSearch = SidebarGlobalSearchViewModel()
 
     let settings: SettingsWindowCoordinator
 
@@ -54,14 +53,21 @@ struct MessengerShellView: View {
                             recoveryStatus: session.accountScope?.recoveryStatus,
                             selection: session.accountScope?.chatListSelection,
                             search: session.accountScope?.chatListSearch,
-                            globalSearch: globalSearch,
+                            globalSearch: session.accountScope?.globalMessageSearch,
                             attentionModel: session.accountScope?.attentionModel,
                             deviceLinking: session.accountScope?.deviceLinking,
                             onOpenSettings: { settings.open() },
                             onOpenDevicesSettings: { settings.open(at: .devices) },
                             onOpenGlobalSearchResult: { result, query in
-                                globalSearch.recordConversationSearchJump(groupId: result.groupId, query: query)
-                                Task { await workspace.openGlobalMessageSearchResult(result) }
+                                guard let globalSearch = session.accountScope?.globalMessageSearch else { return }
+                                Task {
+                                    if let target = await workspace.openGlobalMessageSearchResult(result) {
+                                        globalSearch.dismiss()
+                                        globalSearch.recordConversationSearchJump(target: target, query: query)
+                                    } else {
+                                        globalSearch.invalidate(clearQuery: false, restartIfActive: true)
+                                    }
+                                }
                             }
                         )
                         .navigationSplitViewColumnWidth(
@@ -81,11 +87,11 @@ struct MessengerShellView: View {
                             workspace.resizeChatListDrawer(toProposedWidth: resolved)
                         }
                     } detail: {
-                        DetailPaneView(settings: settings, globalSearch: globalSearch)
+                        DetailPaneView(settings: settings)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
-                    DetailPaneView(settings: settings, globalSearch: globalSearch)
+                    DetailPaneView(settings: settings)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -124,13 +130,12 @@ struct MessengerShellView: View {
                 )
             }
         )
-        .onAppear(perform: configureGlobalSearchRunner)
-        .onChange(of: workspace.activeAccountId) { _, _ in
-            globalSearch.resetForAccountChange()
-            configureGlobalSearchRunner()
-        }
         .onChange(of: workspace.showsMessengerChrome) { _, shows in
-            if !shows { globalSearch.dismiss() }
+            if !shows { session.accountScope?.globalMessageSearch.dismiss() }
+        }
+        .onChange(of: workspace.activeChats.map(\.id)) { oldIds, newIds in
+            guard oldIds != newIds else { return }
+            session.accountScope?.globalMessageSearch.handleVisibleChatsChanged(visibleGroupIds: Set(newIds))
         }
         .task(id: productScreen) {
             guard let productScreen else { return }
@@ -140,35 +145,7 @@ struct MessengerShellView: View {
 
     private func openSidebarGlobalSearch() {
         workspace.isChatListVisible = true
-        if workspace.isNewChatComposerVisible {
-            workspace.closeNewChatComposer()
-        }
-        globalSearch.activate(initialQuery: workspace.searchText)
-    }
-
-    private func configureGlobalSearchRunner() {
-        globalSearch.installSearchRunner { [weak workspace] query, checkCancellation in
-            guard let workspace, let client = workspace.client, let account = workspace.activeAccount else {
-                return []
-            }
-            let scopes = workspace.activeChats.map { GlobalMessageSearchScope(groupId: $0.id, title: $0.title) }
-            let nicknames = workspace.activeContactNicknames
-            return try await FFIExecutor.runCancellable { ffiCheckCancellation in
-                try GlobalMessageSearchEngine.search(
-                    client: client,
-                    accountRef: account.accountRef,
-                    localAccountId: account.accountIdHex,
-                    localDisplayName: account.displayName,
-                    nicknames: nicknames,
-                    scopes: scopes,
-                    query: query,
-                    checkCancellation: {
-                        try checkCancellation()
-                        try ffiCheckCancellation()
-                    }
-                )
-            }
-        }
+        session.accountScope?.globalMessageSearch.activate(initialQuery: workspace.searchText)
     }
 }
 
@@ -176,7 +153,6 @@ private struct DetailPaneView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
     let settings: SettingsWindowCoordinator
-    let globalSearch: SidebarGlobalSearchViewModel
 
     var body: some View {
         Group {
@@ -240,7 +216,7 @@ private struct DetailPaneView: View {
                                 deviceLinking: scope.deviceLinking,
                                 blockedUsersModel: scope.blockedUsers,
                                 avatarAssets: scope.avatarAssets,
-                                globalSearch: globalSearch
+                                globalSearch: scope.globalMessageSearch
                             )
                         } else {
                             EmptyDetailView()
@@ -871,6 +847,7 @@ private struct ConversationView: View {
                         target.groupId == chat.id
                     else { return }
                     let outcome = await revealMessage(target.messageId)
+                    guard !Task.isCancelled, workspace.pendingMessageNavigation == target else { return }
                     if !hasLanded {
                         if case .shown(let requestId) = outcome {
                             openingRequestId = requestId
@@ -880,7 +857,9 @@ private struct ConversationView: View {
                             land()
                         }
                     }
-                    if let query = globalSearch.consumeConversationSearchJump(for: chat.id) {
+                    if let query = globalSearch.consumeConversationSearchJump(for: target),
+                        case .shown = outcome
+                    {
                         openSearch(withQuery: query, anchorMessageId: target.messageId)
                     }
                     workspace.completePendingMessageNavigation(target)
@@ -1025,6 +1004,7 @@ private struct ConversationView: View {
                 SharedMediaViewerOverlay(presentation: sharedMediaViewer, model: attachmentModel) {
                     self.sharedMediaViewer = nil
                 }
+                .id(sharedMediaViewer.id)
                 .transition(.opacity)
                 .zIndex(4)
             }

@@ -174,14 +174,8 @@ struct ContentView: View {
                     await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
                 }
             }
-            .sheet(isPresented: $workspace.isGlobalMessageSearchPresented) {
-                GlobalMessageSearchView()
-                    .environment(workspace)
-                    .environment(\.locale, workspace.preferredLocale)
-            }
-            // Presented here rather than from the messenger shell for the same reason as the
-            // search sheet: `\.locale` is injected at this root, and a sheet is a separate
-            // presentation that does not inherit it, so both have to re-inject it themselves.
+            // Presented here rather than from the messenger shell because `\.locale` is injected
+            // at this root, and a sheet is a separate presentation that does not inherit it.
             .sheet(isPresented: $workspace.isImprovementsPromptPresented) {
                 if let model = session.accountScope?.settingsModel.diagnostics {
                     HelpImproveWhiteNoiseSheet(model: model) {

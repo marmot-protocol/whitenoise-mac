@@ -33,7 +33,9 @@ final class SessionState {
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
         removeAccount: DeleteProfileViewModel.RemoveAccount? = nil,
         groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks(),
-        chatsDidChange: @escaping @MainActor (ChatListBatchChanges) async -> Void = { _ in }
+        chatsDidChange: @escaping @MainActor (ChatListBatchChanges) async -> Void = { _ in },
+        globalMessageSearchScopes: @escaping @MainActor () -> [GlobalMessageSearchScope] = { [] },
+        globalMessageSearchNicknames: @escaping @MainActor () -> ContactNicknames = { .none }
     ) async {
         guard let account, let runtime else {
             await deactivate()
@@ -54,7 +56,9 @@ final class SessionState {
             attachmentsDidChange: attachmentsDidChange,
             removeAccount: removeAccount,
             groupDisbandHooks: groupDisbandHooks,
-            chatsDidChange: chatsDidChange
+            chatsDidChange: chatsDidChange,
+            globalMessageSearchScopes: globalMessageSearchScopes,
+            globalMessageSearchNicknames: globalMessageSearchNicknames
         )
         accountScope = scope
         scope.start(connectivityAvailable: connectivityAvailable)

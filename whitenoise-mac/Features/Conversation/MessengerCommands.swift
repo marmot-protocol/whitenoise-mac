@@ -8,7 +8,7 @@ struct MessengerCommandContext {
     let workspace: WorkspaceState
     let accountID: String
     var selectedConversation: () -> ConversationViewModel? = { nil }
-    var onSearchAllMessages: (() -> Void)? = nil
+    var onSearchAllMessages: () -> Void = {}
 
     let isMessengerWindowTarget: () -> Bool
 
@@ -41,11 +41,7 @@ struct MessengerCommandContext {
 
     func searchAllMessages() {
         guard isAvailable else { return }
-        if let onSearchAllMessages {
-            onSearchAllMessages()
-        } else {
-            workspace.presentGlobalMessageSearch()
-        }
+        onSearchAllMessages()
     }
 }
 

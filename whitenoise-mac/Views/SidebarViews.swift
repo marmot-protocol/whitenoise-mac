@@ -100,16 +100,7 @@ struct ChatListDrawerView: View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 0) {
-            if workspace.isNewChatComposerVisible {
-                switch workspace.composePane {
-                case .newChat:
-                    NewChatPanelView()
-                case .chooseMembers:
-                    ChooseMembersPanelView()
-                case .nameGroup:
-                    NameGroupPanelView(draftImage: $groupDraftImage)
-                }
-            } else if let globalSearch, globalSearch.isActive {
+            if let globalSearch, globalSearch.isActive {
                 SidebarGlobalSearchView(
                     model: globalSearch,
                     onBack: { globalSearch.dismiss() },
@@ -127,6 +118,15 @@ struct ChatListDrawerView: View {
                     onAddProfile: { workspace.showAccountOnboarding() },
                     onOpenSettings: onOpenSettings
                 )
+            } else if workspace.isNewChatComposerVisible {
+                switch workspace.composePane {
+                case .newChat:
+                    NewChatPanelView()
+                case .chooseMembers:
+                    ChooseMembersPanelView()
+                case .nameGroup:
+                    NameGroupPanelView(draftImage: $groupDraftImage)
+                }
             } else {
                 let filter = workspace.chatListFilter
                 let isShowingArchived = filter == .archived
@@ -350,7 +350,11 @@ struct ChatListDrawerView: View {
         // leaves Escape to that missing button.
         .onDisappear { selection?.end() }
         .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
-            if !isVisible { groupDraftImage = nil }
+            if isVisible {
+                globalSearch?.dismiss()
+            } else {
+                groupDraftImage = nil
+            }
         }
         .onChange(of: workspace.composePane) { _, pane in
             if pane == .newChat { groupDraftImage = nil }
@@ -359,11 +363,7 @@ struct ChatListDrawerView: View {
     }
 
     private func openGlobalMessageSearch() {
-        if let globalSearch {
-            globalSearch.activate(initialQuery: workspace.searchText)
-        } else {
-            workspace.presentGlobalMessageSearch()
-        }
+        globalSearch?.activate(initialQuery: workspace.searchText)
     }
 
     private var showsSelectableList: Bool {

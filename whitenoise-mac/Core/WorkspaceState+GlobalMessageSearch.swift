@@ -379,89 +379,6 @@ nonisolated enum GlobalMessageSearchEngine {
 
 @MainActor
 extension WorkspaceState {
-    func presentGlobalMessageSearch() {
-        guard activeAccount != nil else { return }
-        isGlobalMessageSearchPresented = true
-        globalMessageSearchError = nil
-    }
-
-    func dismissGlobalMessageSearch() {
-        isGlobalMessageSearchPresented = false
-        invalidateGlobalMessageSearch(clearQuery: true)
-    }
-
-    func scheduleGlobalMessageSearch() {
-        globalMessageSearchTask?.cancel()
-        globalMessageSearchTask = nil
-        globalMessageSearchGeneration &+= 1
-        let generation = globalMessageSearchGeneration
-        globalMessageSearchResults = []
-        globalMessageSearchError = nil
-
-        let query = globalMessageSearchQuery
-        guard !GlobalMessageSearchText.tokens(in: query).isEmpty else {
-            isSearchingAllMessages = false
-            return
-        }
-        guard let client, let account = activeAccount else {
-            isSearchingAllMessages = false
-            return
-        }
-
-        let scopes = activeChats.map { GlobalMessageSearchScope(groupId: $0.id, title: $0.title) }
-        let visibleGroupIds = Set(scopes.map(\.groupId))
-        let nicknames = activeContactNicknames
-        isSearchingAllMessages = true
-        globalMessageSearchTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: .milliseconds(250))
-                guard let self else { return }
-                let results = try await FFIExecutor.runCancellable { checkCancellation in
-                    try GlobalMessageSearchEngine.search(
-                        client: client,
-                        accountRef: account.accountRef,
-                        localAccountId: account.accountIdHex,
-                        localDisplayName: account.displayName,
-                        nicknames: nicknames,
-                        scopes: scopes,
-                        query: query,
-                        checkCancellation: checkCancellation
-                    )
-                }
-                guard self.globalMessageSearchGeneration == generation,
-                    self.activeAccountId == account.id,
-                    Set(self.activeChats.map(\.id)) == visibleGroupIds,
-                    self.globalMessageSearchQuery == query,
-                    self.isGlobalMessageSearchPresented
-                else { return }
-                self.globalMessageSearchResults = results
-                self.isSearchingAllMessages = false
-                self.globalMessageSearchTask = nil
-            } catch is CancellationError {
-                return
-            } catch {
-                guard let self, self.globalMessageSearchGeneration == generation else { return }
-                self.globalMessageSearchError = UserFacingError.message(for: error)
-                self.isSearchingAllMessages = false
-                self.globalMessageSearchTask = nil
-            }
-        }
-    }
-
-    func invalidateGlobalMessageSearch(clearQuery: Bool, restartIfPresented: Bool = false) {
-        globalMessageSearchTask?.cancel()
-        globalMessageSearchTask = nil
-        globalMessageSearchGeneration &+= 1
-        globalMessageSearchResults = []
-        globalMessageSearchError = nil
-        isSearchingAllMessages = false
-        if clearQuery {
-            globalMessageSearchQuery = ""
-        } else if restartIfPresented, isGlobalMessageSearchPresented {
-            scheduleGlobalMessageSearch()
-        }
-    }
-
     func scheduleSidebarMessageSearch() {
         sidebarMessageSearchTask?.cancel()
         sidebarMessageSearchTask = nil
@@ -550,15 +467,14 @@ extension WorkspaceState {
         }
     }
 
-    func openGlobalMessageSearchResult(_ result: GlobalMessageSearchResult) async {
+    @discardableResult
+    func openGlobalMessageSearchResult(_ result: GlobalMessageSearchResult) async -> GlobalMessageNavigationTarget? {
         guard let account = activeAccount,
             let chat = activeChats.first(where: { $0.id == result.groupId })
         else {
-            invalidateGlobalMessageSearch(clearQuery: false, restartIfPresented: true)
-            return
+            return nil
         }
 
-        dismissGlobalMessageSearch()
         if selectedChat?.id != chat.id {
             selectChat(chat)
         }
@@ -578,16 +494,18 @@ extension WorkspaceState {
             guard selectedMessageIDs.first != previousFirstId else { break }
         }
 
-        guard activeAccountId == account.id, selectedChat?.id == chat.id else { return }
+        guard activeAccountId == account.id, selectedChat?.id == chat.id else { return nil }
         guard projectionOwnsTimeline || selectedTimelineContainsMessage(result.messageId) else {
             lastError = L10n.string("The selected message is no longer available.")
-            return
+            return nil
         }
-        pendingMessageNavigation = GlobalMessageNavigationTarget(
+        let target = GlobalMessageNavigationTarget(
             requestId: UUID(),
             groupId: chat.id,
             messageId: result.messageId
         )
+        pendingMessageNavigation = target
+        return target
     }
 
     func completePendingMessageNavigation(_ target: GlobalMessageNavigationTarget) {

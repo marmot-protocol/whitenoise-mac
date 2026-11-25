@@ -276,6 +276,18 @@ struct whitenoise_macApp: App {
                     workspace.pruneMessageCache(keeping: nil)
                 }
                 await workspace.reloadChats(forceFreshSnapshot: true)
+            },
+            globalMessageSearchScopes: { [weak workspace] in
+                guard let workspace, let accountID = activatingAccountID,
+                    workspace.activeAccountId == accountID
+                else { return [] }
+                return workspace.activeChats.map { GlobalMessageSearchScope(groupId: $0.id, title: $0.title) }
+            },
+            globalMessageSearchNicknames: { [weak workspace] in
+                guard let workspace, let accountID = activatingAccountID,
+                    workspace.activeAccountId == accountID
+                else { return .none }
+                return workspace.activeContactNicknames
             }
         )
         guard let scope = session.accountScope else { return }

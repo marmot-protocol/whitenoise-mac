@@ -15,9 +15,9 @@ extension EnvironmentValues {
 /// Only colors change, never the font, so marking a bubble cannot move a line break and the
 /// transcript row keeps the height it was measured at.
 nonisolated enum SearchMatchHighlightStyle {
-    static let nsBackground = NSColor.findHighlightColor
+    static let nsBackground = WNNSColor.searchHighlightBackground
     static let nsContent = WNNSColor.searchHighlightContent
-    static let background = Color(nsColor: .findHighlightColor)
+    static let background = Color(nsColor: nsBackground)
     static let content = Color(nsColor: nsContent)
 
     /// `text` with every match of `highlight` marked.

@@ -77,14 +77,47 @@ private struct RetainedSharedMediaStrip: View {
 
 extension View {
     /// Keeps the retained-asset map in step with the transfer projection while the view is up,
-    /// and stops the transfer subscription when it goes away.
+    /// and stops the transfer subscription once the last mounted media surface disappears.
     func retainedAttachmentTransferObservation(_ model: AttachmentViewModel) -> some View {
-        onChange(of: model.transfers) {
-            Task { await model.refreshLocalAssets() }
+        modifier(RetainedAttachmentTransferObservationModifier(model: model))
+    }
+}
+
+private struct RetainedAttachmentTransferObservationModifier: ViewModifier {
+    let model: AttachmentViewModel
+    @State private var observedModel: AttachmentViewModel?
+    @State private var observationToken: UUID?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                attach(to: model)
+            }
+            .onChange(of: ObjectIdentifier(model)) { _, _ in
+                detach()
+                attach(to: model)
+            }
+            .onChange(of: model.transfers) {
+                Task { await model.refreshLocalAssets() }
+            }
+            .onDisappear {
+                detach()
+            }
+    }
+
+    private func attach(to target: AttachmentViewModel) {
+        if observedModel === target, observationToken != nil { return }
+        detach()
+        observedModel = target
+        observationToken = target.beginTransferObservation()
+    }
+
+    private func detach() {
+        if let observedModel, let observationToken {
+            observedModel.endTransferObservation(observationToken)
         }
-        .onDisappear {
-            model.stopTransferObservation()
-        }
+        observedModel = nil
+        observationToken = nil
     }
 }
 
@@ -453,7 +486,7 @@ private struct RetainedFileRow: View {
                     )
                 }
             }
-            RetainedAttachmentControlMenu(model: model, status: transferStatus)
+            RetainedAttachmentControlMenu(model: model, status: transferStatus, includeTransferControls: false)
         }
         .padding(.vertical, 2)
         .retainedAttachmentErrorAlert($actionError)
@@ -535,20 +568,33 @@ nonisolated enum RetainedAttachmentFileCopy {
 private struct RetainedAttachmentControlMenu: View {
     let model: AttachmentViewModel
     let status: AttachmentTransferStatusFfi?
+    var includeTransferControls = true
+
+    private var showsCancel: Bool {
+        includeTransferControls && status?.isWorking == true
+    }
+
+    private var showsRetry: Bool {
+        includeTransferControls && status?.isWorking != true && status?.canRetry == true
+    }
+
+    private var showsRemove: Bool {
+        status?.canRemove == true
+    }
 
     var body: some View {
-        if let status, let reference = status.reference {
+        if let status, let reference = status.reference, showsCancel || showsRetry || showsRemove {
             Menu {
-                if status.isWorking {
+                if showsCancel {
                     Button(L10n.string("Cancel")) {
                         Task { _ = try? await model.control(reference: reference, .cancel) }
                     }
-                } else if status.canRetry {
+                } else if showsRetry {
                     Button(L10n.string("Retry")) {
                         Task { _ = try? await model.control(reference: reference, .retry) }
                     }
                 }
-                if status.canRemove {
+                if showsRemove {
                     Button(L10n.string("Remove"), role: .destructive) {
                         Task { _ = try? await model.control(reference: reference, .remove) }
                     }

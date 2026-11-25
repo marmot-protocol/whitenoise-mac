@@ -194,8 +194,8 @@ final class ConversationSearchViewModel {
 
     /// The transcript could not bring `messageId` into its window (deleted since the history was
     /// read, or expired). Forget it so the counter stops promising it; when the reader was on it,
-    /// move them on to the next match in the direction they were stepping, wrapping as a step
-    /// does, so the cursor never names a message they were not shown.
+    /// move them on to the next match in the direction they were stepping, clamping at the ends
+    /// rather than wrapping, so the cursor never names a message they were not shown.
     func matchUnavailable(_ messageId: String) {
         guard isActive, let index = matches.lastIndex(of: messageId) else { return }
         corpus?.removeAll { $0.messageId == messageId }

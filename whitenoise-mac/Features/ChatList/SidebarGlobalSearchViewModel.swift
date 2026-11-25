@@ -15,18 +15,22 @@ nonisolated enum SidebarSearchModeSelectionPolicy {
 }
 
 /// Carries a global search result's query into the opened conversation so the jumped-to match stays
-/// highlighted and ready for `⌘G` / `⇧⌘G` navigation.
+/// highlighted and ready for `⌘G` / `⇧⌘G` navigation. Keyed by the exact navigation request and
+/// message id so a bailed-out or superseded jump cannot hand its query to a different navigation.
 nonisolated struct PendingConversationSearchQuery: Equatable, Sendable {
     let requestId: UUID
     let groupId: String
+    let messageId: String
     let query: String
 }
 
 /// Sidebar-hosted global individual-message search (`⇧⌘F` / sidebar search button, #1043).
 ///
-/// Runs the existing `GlobalMessageSearchEngine.search` pipeline off the main actor with task
-/// cancellation as the staleness guard, keeps a truthful 50-match cap indicator, and preserves the
-/// chat list's own search query, filter, and bulk selection underneath until the user returns.
+/// Owned by `AccountScope` so switching or signing out of an account tears down search tasks and
+/// state automatically without a manual reset checklist. Runs `GlobalMessageSearchEngine.search`
+/// off the main actor with task cancellation as the staleness guard, keeps a truthful 50-match cap
+/// indicator, and preserves the chat list's own search query, filter, bulk selection, and any
+/// in-progress New Chat / New Group draft underneath until the user returns.
 @MainActor
 @Observable
 final class SidebarGlobalSearchViewModel {
@@ -62,7 +66,7 @@ final class SidebarGlobalSearchViewModel {
         hasQuery && !isSearching && error == nil && !results.isEmpty
     }
 
-    @ObservationIgnored private var searchRunner: SearchRunner?
+    @ObservationIgnored private let searchRunner: SearchRunner?
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var searchTask: Task<Void, Never>?
 
@@ -72,10 +76,6 @@ final class SidebarGlobalSearchViewModel {
     ) {
         self.debounce = debounce
         self.searchRunner = searchRunner
-    }
-
-    func installSearchRunner(_ runner: @escaping SearchRunner) {
-        searchRunner = runner
     }
 
     func activate(initialQuery: String? = nil) {
@@ -109,9 +109,42 @@ final class SidebarGlobalSearchViewModel {
         selectedResultID = nil
     }
 
-    func resetForAccountChange() {
+    func stop() {
         dismiss()
         pendingConversationSearch = nil
+    }
+
+    func invalidate(clearQuery: Bool, restartIfActive: Bool = false) {
+        searchTask?.cancel()
+        searchTask = nil
+        results = []
+        selectedResultID = nil
+        error = nil
+        isSearching = false
+        if clearQuery {
+            query = ""
+        } else if restartIfActive, isActive, hasQuery {
+            scheduleSearch()
+        }
+    }
+
+    /// Called when the account's visible active chats change (e.g., a chat is deleted, archived,
+    /// or added) so results from removed chats are never kept on screen and an active search
+    /// re-runs against the current chat roster.
+    func handleVisibleChatsChanged(visibleGroupIds: Set<String>) {
+        if isActive {
+            invalidate(clearQuery: false, restartIfActive: true)
+        } else if !results.isEmpty {
+            results.removeAll { !visibleGroupIds.contains($0.groupId) }
+            selectedResultID = GlobalMessageSearchSelection.reanchored(
+                selectedResultID,
+                in: results.map(\.id),
+                whileSearching: false
+            )
+        }
+        if let pending = pendingConversationSearch, !visibleGroupIds.contains(pending.groupId) {
+            pendingConversationSearch = nil
+        }
     }
 
     func retry() {
@@ -137,21 +170,26 @@ final class SidebarGlobalSearchViewModel {
         return results.first { $0.id == selectedResultID }
     }
 
-    func recordConversationSearchJump(groupId: String, query: String) {
+    func recordConversationSearchJump(target: GlobalMessageNavigationTarget, query: String) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             pendingConversationSearch = nil
             return
         }
         pendingConversationSearch = PendingConversationSearchQuery(
-            requestId: UUID(),
-            groupId: groupId,
+            requestId: target.requestId,
+            groupId: target.groupId,
+            messageId: target.messageId,
             query: trimmed
         )
     }
 
-    func consumeConversationSearchJump(for groupId: String) -> String? {
-        guard let pending = pendingConversationSearch, pending.groupId == groupId else { return nil }
+    func consumeConversationSearchJump(for target: GlobalMessageNavigationTarget) -> String? {
+        guard let pending = pendingConversationSearch,
+            pending.requestId == target.requestId,
+            pending.groupId == target.groupId,
+            pending.messageId == target.messageId
+        else { return nil }
         pendingConversationSearch = nil
         return pending.query
     }
