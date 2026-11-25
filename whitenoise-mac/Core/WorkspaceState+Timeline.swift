@@ -935,18 +935,31 @@ extension WorkspaceState {
         // Once confirmed, this batch belongs to the captured account and conversation.
         // Release its selection before suspending so edits to a later selection survive.
         selectedTimelineMessageIds.subtract(confirmed.map(\.message.id))
+        let chatTitle = selectedChat?.title
+        var skippedCount = 0
         for target in confirmed {
             // A send can fail or be retried while a previous deletion is suspended.
             // Look it up in its original conversation before dispatching either operation.
             guard activeAccountId == target.accountId else { return }
             guard let current = timelineMessage(groupIdHex: target.groupIdHex, messageId: target.message.id),
                 current.isLocalPublishFailure == target.message.isLocalPublishFailure
-            else { continue }
+            else {
+                skippedCount += 1
+                continue
+            }
             if current.isLocalPublishFailure {
                 await discardFailedSend(target.message)
             } else {
                 await deleteForEveryone(target)
             }
+        }
+        if skippedCount > 0, let accountId = confirmed.first?.accountId {
+            let locale = preferredLocale
+            let count = skippedCount.formatted(.number.locale(locale))
+            let skipped = L10n.string("Skipped", locale: locale)
+            let action = L10n.string("Delete", locale: locale)
+            let feedback = [chatTitle, action, "\(skipped) · \(count)"].compactMap { $0 }.joined(separator: " · ")
+            setBackgroundStatus(feedback, forAccount: accountId)
         }
     }
 

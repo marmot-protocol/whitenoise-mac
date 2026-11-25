@@ -7819,6 +7819,40 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func deletingASelectionReportsWhatWasSkippedWhenTheConversationCloses() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(chat)
+        let sentAt = Date()
+        let messages = ["failed", "delivered"].enumerated().map { index, id in
+            MessageItem(
+                id: id, groupIdHex: chat.id, sourceMessageIdHex: nil, senderAccountIdHex: account.accountIdHex,
+                senderName: "Desktop Account", body: id, sentAt: sentAt.addingTimeInterval(Double(index)),
+                invalidationStatus: index == 0 ? "local_publish_failed" : nil, isOutgoing: true)
+        }
+        state.messageTimelineStores[chat.id] = .loaded(with: messages)
+        state.selectedTimelineMessageIds = Set(messages.map(\.id))
+        let confirmed = state.selectedMessageDeletionTargets
+        await state.deleteSelectedMessages(confirming: confirmed) { _ in
+            state.pruneMessageCache(keeping: nil)
+        }
+        #expect(runtime.deletedMessage == nil)
+        let feedback = try #require(state.backgroundStatus)
+        #expect(feedback.contains(chat.title))
+        #expect(feedback.contains(L10n.string("Skipped", locale: state.preferredLocale)))
+        #expect(feedback.contains(1.formatted(.number.locale(state.preferredLocale))))
+        let originalAccountId = try #require(state.activeAccountId)
+        state.activeAccountId = nil
+        #expect(state.backgroundStatus == nil)
+        state.activeAccountId = originalAccountId
+        #expect(state.backgroundStatus == nil)
+    }
+
+    @MainActor
     @Test func switchingChatsEndsMessageSelection() {
         // The selection is per conversation; carrying it into another chat would leave the
         // toolbar acting on ids that are not in the transcript on screen.

@@ -166,7 +166,16 @@ final class WorkspaceState {
     /// observability refresh, read-marking). These are not tied to anything the user
     /// just did, so they are surfaced on a non-modal global banner instead of the
     /// per-screen error view, preventing misattribution and clobbering of `lastError`.
-    var backgroundStatus: String?
+    private var backgroundNotice: (message: String, accountId: String?)?
+    var backgroundStatus: String? {
+        get {
+            guard let notice = backgroundNotice, notice.accountId == nil || notice.accountId == activeAccountId else {
+                return nil
+            }
+            return notice.message
+        }
+        set { backgroundNotice = newValue.map { ($0, nil) } }
+    }
 
     /// `true` while nothing this app talks to is reachable: either macOS reports no network
     /// interface at all, or one exists and no default relay answers a TCP handshake. Drives the
@@ -183,7 +192,13 @@ final class WorkspaceState {
     /// by `flushPendingDeepLinkIfReady()` from `activateReadyState()`.
     @ObservationIgnored var pendingDeepLinkProfileReference: String?
 
-    var activeAccountId: String?
+    var activeAccountId: String? {
+        didSet {
+            if let owner = backgroundNotice?.accountId, owner != activeAccountId {
+                backgroundNotice = nil
+            }
+        }
+    }
     var selection: WorkspaceSelection? {
         didSet {
             // A pending delete-confirmation or edit-history sheet belongs to the conversation it
@@ -1887,8 +1902,9 @@ final class WorkspaceState {
     /// Record a background-task failure on the non-modal global status surface.
     /// Background failures must never write `lastError`, which is reserved for the
     /// user-initiated action on the current screen.
-    func setBackgroundStatus(_ message: String?) {
-        backgroundStatus = message
+    func setBackgroundStatus(_ message: String?, forAccount accountId: String? = nil) {
+        guard accountId == nil || accountId == activeAccountId else { return }
+        backgroundNotice = message.map { ($0, accountId) }
     }
 
     /// Dismiss the background status banner (e.g. user tapped the close control, or a
