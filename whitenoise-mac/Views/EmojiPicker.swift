@@ -266,6 +266,7 @@ struct ChatEmojiPicker: View {
 private struct ChatEmojiSearchField: View {
     @Binding var query: String
     @FocusState private var isFocused: Bool
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         HStack(spacing: 8) {
@@ -276,7 +277,11 @@ private struct ChatEmojiSearchField: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($isFocused)
                 .onExitCommand {
-                    if !query.isEmpty { query = "" }
+                    if !query.isEmpty {
+                        query = ""
+                    } else {
+                        dismiss()
+                    }
                 }
             if !query.isEmpty {
                 Button {

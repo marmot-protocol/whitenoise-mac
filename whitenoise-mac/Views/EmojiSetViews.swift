@@ -280,7 +280,11 @@ private struct EmojiSetBrowserPage: View {
                             TextField(L10n.string("Search emoji sets or paste an npub"), text: $search)
                                 .textFieldStyle(.roundedBorder)
                                 .onExitCommand {
-                                    if !search.isEmpty { search = "" }
+                                    if !search.isEmpty {
+                                        search = ""
+                                    } else {
+                                        onBack()
+                                    }
                                 }
                             if !search.isEmpty {
                                 Button {

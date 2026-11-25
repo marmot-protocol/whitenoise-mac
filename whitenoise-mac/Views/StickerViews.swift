@@ -449,7 +449,11 @@ private struct StickerPackBrowserPage: View {
                             TextField(L10n.string("Search sticker packs"), text: $search)
                                 .textFieldStyle(.roundedBorder)
                                 .onExitCommand {
-                                    if !search.isEmpty { search = "" }
+                                    if !search.isEmpty {
+                                        search = ""
+                                    } else {
+                                        onBack()
+                                    }
                                 }
                             if !search.isEmpty {
                                 Button {

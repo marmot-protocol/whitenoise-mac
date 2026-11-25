@@ -14,7 +14,7 @@ import Testing
     // MARK: - Composer typography & mentions (#1102)
 
     @Test func composerTextViewUsesNativeBodyTypographyAndBoldMentions() throws {
-        let bodyFont = NSFont.preferredFont(forTextStyle: .body)
+        let bodyFont = NSFont.preferredFont(forTextStyle: .body, options: [:])
         let typingFont = ComposerMessageTextViewRepresentable.typingFont
         let mentionFont = ComposerMessageTextViewRepresentable.mentionFont
 

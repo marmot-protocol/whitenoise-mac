@@ -363,7 +363,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     /// Native macOS semantic body font shared by displayed text, placeholder, and height
     /// measurement (F04, T08).
     static var typingFont: NSFont {
-        NSFont.preferredFont(forTextStyle: .body)
+        NSFont.preferredFont(forTextStyle: .body, options: [:])
     }
 
     /// Bold face at the typing font's own size, so a mention token and the words around it stay

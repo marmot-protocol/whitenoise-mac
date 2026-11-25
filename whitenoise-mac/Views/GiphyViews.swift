@@ -407,7 +407,11 @@ struct GiphySearchView: View {
                     .textFieldStyle(.roundedBorder)
                     .focused($isSearchFocused)
                     .onExitCommand {
-                        if !model.query.isEmpty { model.query = "" }
+                        if !model.query.isEmpty {
+                            model.query = ""
+                        } else {
+                            onDismiss()
+                        }
                     }
                     .accessibilityIdentifier("giphy.search")
                 if !model.query.isEmpty {
