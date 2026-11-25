@@ -24,6 +24,7 @@ import SwiftUI
 /// `PrivateKeyExportPasswordEntry`, so neither is a chain of `&&` inside this body.
 struct EncryptedPrivateKeyExportSheet: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     @Environment(\.dismiss) private var dismiss
 
     @State private var password = ""
@@ -103,18 +104,16 @@ struct EncryptedPrivateKeyExportSheet: View {
                 .disabled(!isReady || workspace.isExportingPrivateKey)
             }
 
-            if let error = workspace.lastError {
+            if let error = settings?.lastError {
                 SettingsErrorView(error: error)
             }
         }
         .padding(20)
         .frame(width: 420)
         .onAppear {
-            // `lastError` is shared app-wide state and nothing clears it on the way in, so a
-            // failed profile save or relay write from minutes ago would render under the password
-            // fields as though this sheet had produced it. The export flow sets its own: both key
-            // helpers clear it on entry, and a failed write replaces it.
-            workspace.lastError = nil
+            // Start from a clean Settings error so an earlier profile or relay failure doesn't
+            // render under the password fields as though this sheet had produced it.
+            workspace.setSettingsError(nil)
         }
     }
 

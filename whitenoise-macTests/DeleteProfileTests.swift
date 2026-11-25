@@ -303,18 +303,19 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), Self.backup])
         runtime.accountRelayListsErrorByAccountRef = ["Backup Account": RelayListReadFailed()]
         let (state, active) = try await signedInWorkspace(runtime)
+        let settings = SettingsWindowCoordinator(workspace: state)
 
-        let failure = await DeleteProfileRemoval.remover(for: state)(active)
+        let failure = await DeleteProfileRemoval.remover(for: state, settings: settings)(active)
 
         #expect(failure == nil)
         #expect(runtime.removedAccountRefs == ["Desktop Account"])
         #expect(!state.accounts.contains(where: { $0.id == "Desktop Account" }))
         #expect(state.activeAccountId == "Backup Account")
-        #expect(state.lastError == RelayListReadFailed().errorDescription)
+        #expect(settings.lastError == RelayListReadFailed().errorDescription)
     }
 
     /// The core refused and the account is still here: the page is told why, and the message moves
-    /// off `lastError` so the page's scaffold does not draw it a second time.
+    /// off Settings' error channel so the page's scaffold does not draw it a second time.
     @Test func aRefusedRemovalIsReportedToThePageOnly() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
         defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
@@ -322,12 +323,13 @@ struct DeleteProfileRemovalTests: WorkspaceTestSupport {
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), Self.backup])
         runtime.removeAccountError = RemovalRefused()
         let (state, active) = try await signedInWorkspace(runtime)
+        let settings = SettingsWindowCoordinator(workspace: state)
 
-        let failure = await DeleteProfileRemoval.remover(for: state)(active)
+        let failure = await DeleteProfileRemoval.remover(for: state, settings: settings)(active)
 
         #expect(failure == RemovalRefused().errorDescription)
         #expect(state.accounts.contains(where: { $0.id == "Desktop Account" }))
-        #expect(state.lastError == nil)
+        #expect(settings.lastError == nil)
     }
 
     /// Another account change holds the gate, so nothing ran and nothing said why. The page still

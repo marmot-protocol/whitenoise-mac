@@ -49,6 +49,10 @@ final class SettingsWindowCoordinator {
                     self.focusMainWindow()
                 case .settingsError(let message):
                     self.lastError = message
+                case .clearSettingsErrorIfEquals(let expected):
+                    if self.lastError == expected {
+                        self.lastError = nil
+                    }
                 }
             }
     }
@@ -96,11 +100,7 @@ final class SettingsWindowCoordinator {
     func navigate(to destination: SettingsPage) {
         guard let workspace, workspace.showsMessengerChrome else { return }
         page = availablePage(destination, developerModeEnabled: workspace.developerMode)
-        let previousSettingsError = lastError
         lastError = nil
-        if let previousSettingsError, workspace.lastError == previousSettingsError {
-            workspace.lastError = nil
-        }
     }
 
     func beginAddProfile() {
@@ -173,18 +173,21 @@ final class SettingsWindowCoordinator {
         guard let workspace else { return }
         let destination =
             pendingPage ?? (accountID == nil ? interruptedPage : page)?.pageAfterActiveAccountChange
-            ?? .overview
         interruptedPage = nil
 
         if workspace.showsMessengerChrome {
             pendingPage = nil
+            // Only resume Settings when a Settings window or pending chooser handoff originated the
+            // mutation. Choosing a survivor after a remote unlink has no pending Settings route and
+            // must not open Settings over the main window.
+            guard let destination else { return }
             // Preserve errors from the account operation. Page changes initiated in the Settings
             // window clear the old form's error, while a handoff may carry one for the survivor.
             page = availablePage(destination, developerModeEnabled: workspace.developerMode)
             accountID = workspace.activeAccount?.id
             showWindow?()
         } else if workspace.phase == .ready, !workspace.signedInAccounts.isEmpty {
-            pendingPage = destination
+            pendingPage = destination ?? .overview
             close()
             focusMainWindow()
         } else {

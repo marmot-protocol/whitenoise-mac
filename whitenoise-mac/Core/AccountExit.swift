@@ -173,6 +173,7 @@ enum WorkspaceAccountPresentation {
     case cancelledAddProfile
     case focusMainWindow
     case settingsError(String?)
+    case clearSettingsErrorIfEquals(String)
 
     static let eventKey = "event"
 

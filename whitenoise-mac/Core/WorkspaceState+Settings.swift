@@ -53,10 +53,9 @@ private enum ProfileImageSelectionContext {
 
 @MainActor
 extension WorkspaceState {
-    /// Records or clears an error owned by Settings so the Settings window banner shows and clears
-    /// its own errors without colliding with main-window Chat Info errors.
+    /// Records or clears an error owned by Settings without touching `workspace.lastError`, so
+    /// Settings panes/sheets and main-window Chat Info never overwrite or clear each other's errors.
     func setSettingsError(_ message: String?) {
-        lastError = message
         WorkspaceAccountPresentation.settingsError(message).post(from: self)
     }
 
@@ -214,10 +213,8 @@ extension WorkspaceState {
     /// Only that exact message is cleared, so an unrelated failure on the pane survives.
     func refreshNotificationPermissionState() async {
         await refreshNotificationAuthorizationStatus()
-        guard notificationAuthorizationStatus.canPostNotifications,
-            lastError == Self.notificationPermissionGuidance
-        else { return }
-        setSettingsError(nil)
+        guard notificationAuthorizationStatus.canPostNotifications else { return }
+        WorkspaceAccountPresentation.clearSettingsErrorIfEquals(Self.notificationPermissionGuidance).post(from: self)
     }
 
     func beginNotificationSettingsOperation() -> UInt64 {
@@ -563,11 +560,20 @@ extension WorkspaceState {
         presentProfileImagePicker(destination: .activeAccount)
     }
 
+    private func setProfileImageError(_ message: String?, for destination: ProfileImagePickerDestination) {
+        switch destination {
+        case .activeAccount:
+            setSettingsError(message)
+        case .signUpDraft:
+            lastError = message
+        }
+    }
+
     /// The shared body of `showProfileImagePicker()` and `showSignUpImagePicker()`. The caller
     /// owns the precondition — an account for one, the sign-up pane for the other — because the
     /// two have nothing in common beyond opening the same sheet.
     func presentProfileImagePicker(destination: ProfileImagePickerDestination) {
-        lastError = nil
+        setProfileImageError(nil, for: destination)
         profileImageSearchGeneration &+= 1
         profileImageSearchQuery = ""
         profileImageResults = []
@@ -603,7 +609,7 @@ extension WorkspaceState {
             guard authenticationMode == .signUp, !isAuthenticating else { return false }
         }
 
-        lastError = nil
+        setProfileImageError(nil, for: destination)
         profileImagePickerDestination = destination
         return true
     }
@@ -615,7 +621,7 @@ extension WorkspaceState {
     /// on every glance.
     func selectProfileImage(_ result: GroupImageSearchResult) {
         guard !isUploadingProfileImage else { return }
-        lastError = nil
+        setProfileImageError(nil, for: profileImagePickerDestination)
         selectedProfileImageResult = selectedProfileImageResult == result ? nil : result
     }
 
@@ -629,7 +635,8 @@ extension WorkspaceState {
             return
         }
 
-        lastError = nil
+        let destination = profileImagePickerDestination
+        setProfileImageError(nil, for: destination)
         profileImageSearchGeneration &+= 1
         let generation = profileImageSearchGeneration
         isSearchingProfileImages = true
@@ -653,7 +660,7 @@ extension WorkspaceState {
             // A search that failed answered nothing, so the empty state goes back to asking for
             // one rather than blaming the spelling of a query that was never run.
             profileImageResultsQuery = nil
-            lastError = UserFacingError.message(for: error)
+            setProfileImageError(UserFacingError.message(for: error), for: destination)
         }
     }
 
@@ -683,7 +690,7 @@ extension WorkspaceState {
         case .activeAccount:
             guard let client, let activeAccount else { return nil }
             profileImageUploadGeneration &+= 1
-            lastError = nil
+            setSettingsError(nil)
             isUploadingProfileImage = true
             return .upload(
                 ProfileImageUploadContext(

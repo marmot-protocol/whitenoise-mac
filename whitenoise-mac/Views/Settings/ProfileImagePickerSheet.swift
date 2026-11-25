@@ -33,6 +33,7 @@ import SwiftUI
 /// this screen changes between the two except the face in the header.
 struct ProfileImagePickerSheet: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     @FocusState private var isSearchFocused: Bool
     @State private var cropModel: AvatarCropViewModel?
 
@@ -83,8 +84,11 @@ struct ProfileImagePickerSheet: View {
             VStack(spacing: 12) {
                 searchField
                 ProfileImageSearchPrivacyNote()
-                SettingsErrorView(error: workspace.lastError)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                SettingsErrorView(
+                    error: workspace.profileImagePickerDestination == .activeAccount
+                        ? settings?.lastError : workspace.lastError
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 18)
             .padding(.top, 16)

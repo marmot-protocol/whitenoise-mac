@@ -36,6 +36,7 @@ struct SignOutSheet: View {
 
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     @Environment(\.dismiss) private var dismiss
 
     let account: AccountItem
@@ -83,10 +84,10 @@ struct SignOutSheet: View {
         .frame(width: 420)
         .interactiveDismissDisabled(stage != nil)
         .onAppear {
-            // The sheet draws the shared `lastError`, and `signOutAccount`/`removeAccount` clear it
+            // The sheet draws Settings' error channel, and `signOutAccount`/`removeAccount` clear it
             // only *after* their entry guard, so an error left behind by some earlier profile or
             // relay failure would otherwise render here as if this sheet had caused it.
-            workspace.lastError = nil
+            workspace.setSettingsError(nil)
         }
         .onChange(of: wipesLocalData) { _, wipesLocalData in
             // The typed name is scoped to the armed toggle. Leaving it behind would let a reader
@@ -219,7 +220,7 @@ struct SignOutSheet: View {
         // `canSignOut` is false while a stage is set.
         .disabled(stage == nil && !canSignOut)
 
-        if let error = workspace.lastError {
+        if let error = settings?.lastError {
             SettingsErrorView(error: error)
         }
     }

@@ -1918,6 +1918,7 @@ struct SettingsTests: WorkspaceTestSupport {
 
         await state.bootstrap()
         runtime.setNativePushEnabledError = FakeMarmotRuntimeError.nativePushWriteFailed
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.setLocalNotificationsEnabled(false)
 
@@ -1928,7 +1929,7 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(!state.notificationSettings.localNotificationsEnabled)
         // …and the flag that did not move still reads as set, because in the core it is.
         #expect(state.notificationSettings.nativePushEnabled)
-        #expect(state.lastError != nil)
+        #expect(settings.lastError != nil)
     }
 
     @MainActor
@@ -1950,12 +1951,13 @@ struct SettingsTests: WorkspaceTestSupport {
             localNotificationCenter: notificationCenter,
             clientFactory: { runtime }
         )
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.bootstrap()
         await state.setNativePushEnabled(true)
 
         #expect(!state.notificationSettings.nativePushEnabled)
-        #expect(state.lastError != nil)
+        #expect(settings.lastError != nil)
     }
 
     @MainActor
@@ -1982,6 +1984,7 @@ struct SettingsTests: WorkspaceTestSupport {
             localNotificationCenter: notificationCenter,
             clientFactory: { runtime }
         )
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.bootstrap()
         await state.setLocalNotificationsEnabled(true)
@@ -1991,7 +1994,7 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(!state.notificationSettings.localNotificationsEnabled)
         #expect(state.notificationAuthorizationStatus == .denied)
         #expect(
-            state.lastError
+            settings.lastError
                 == "Open System Settings > Notifications and allow White Noise notifications, then try again.")
     }
 
@@ -2019,17 +2022,18 @@ struct SettingsTests: WorkspaceTestSupport {
             localNotificationCenter: notificationCenter,
             clientFactory: { runtime }
         )
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.bootstrap()
         await state.setLocalNotificationsEnabled(true)
-        #expect(state.lastError == WorkspaceState.notificationPermissionGuidance)
+        #expect(settings.lastError == WorkspaceState.notificationPermissionGuidance)
 
         // The user grants the permission in System Settings and returns to White Noise.
         notificationCenter.simulateSystemAuthorizationChange(.authorized)
         await state.refreshNotificationPermissionState()
 
         #expect(state.notificationAuthorizationStatus == .authorized)
-        #expect(state.lastError == nil)
+        #expect(settings.lastError == nil)
     }
 
     @MainActor
@@ -2050,18 +2054,19 @@ struct SettingsTests: WorkspaceTestSupport {
             localNotificationCenter: notificationCenter,
             clientFactory: { runtime }
         )
+        let settings = SettingsWindowCoordinator(workspace: state)
 
         await state.bootstrap()
-        state.lastError = "Could not reach relay."
+        state.setSettingsError("Could not reach relay.")
         await state.refreshNotificationPermissionState()
-        #expect(state.lastError == "Could not reach relay.")
+        #expect(settings.lastError == "Could not reach relay.")
 
         // Still denied: the guidance is exactly what the user needs to keep seeing.
         notificationCenter.simulateSystemAuthorizationChange(.denied)
-        state.lastError = WorkspaceState.notificationPermissionGuidance
+        state.setSettingsError(WorkspaceState.notificationPermissionGuidance)
         await state.refreshNotificationPermissionState()
         #expect(state.notificationAuthorizationStatus == .denied)
-        #expect(state.lastError == WorkspaceState.notificationPermissionGuidance)
+        #expect(settings.lastError == WorkspaceState.notificationPermissionGuidance)
     }
 
     @MainActor

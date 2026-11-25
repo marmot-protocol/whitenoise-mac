@@ -304,6 +304,9 @@ extension WorkspaceState {
     /// The existing conversation stays selected for Cancel. The Settings window owns the
     /// originating page when the user entered from there.
     func showAccountOnboarding() {
+        // Stop any in-progress voice recording or live conversation state before onboarding
+        // replaces the messenger chrome (#311).
+        leaveActiveConversation()
         authenticationMode = .landing
         clearEnteredLoginIdentity()
         lastError = nil
@@ -488,27 +491,27 @@ extension WorkspaceState {
     func revealActiveAccountNsec() async -> String? {
         guard let client, let activeAccount else { return nil }
         let accountRef = activeAccount.accountRef
-        lastError = nil
+        setSettingsError(nil)
         do {
             return try await FFIExecutor.run { try client.revealNsec(accountRef: accountRef) }
         } catch {
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
             return nil
         }
     }
 
     /// Export the active account's private key as a passphrase-encrypted NIP-49
-    /// `ncryptsec1…` string. Returns `nil` (and sets `lastError`) on failure.
+    /// `ncryptsec1…` string. Returns `nil` (and reports a Settings error) on failure.
     func exportActiveAccountEncryptedKey(passphrase: String) async -> String? {
         guard let client, let activeAccount else { return nil }
         let accountRef = activeAccount.accountRef
-        lastError = nil
+        setSettingsError(nil)
         do {
             return try await FFIExecutor.run {
                 try client.exportEncryptedSecretKey(accountRef: accountRef, passphrase: passphrase)
             }
         } catch {
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
             return nil
         }
     }
@@ -570,7 +573,7 @@ extension WorkspaceState {
             )
             return true
         } catch {
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
             return false
         }
     }
@@ -612,7 +615,7 @@ extension WorkspaceState {
     func removeAccount(_ account: AccountItem) async -> WipeOutcomeFfi? {
         guard let client, !isAccountMutationInProgress else { return nil }
 
-        lastError = nil
+        setSettingsError(nil)
         isRemovingAccount = true
         defer { isRemovingAccount = false }
 
@@ -679,7 +682,7 @@ extension WorkspaceState {
             let activeAccountInvalid =
                 activeAccountId == nil
                 || !accounts.contains(where: { $0.id == activeAccountId })
-            let needsActiveReset = wasActive || activeAccountInvalid
+            let needsActiveReset = activeAccountInvalid
 
             if needsActiveReset {
                 resetActiveAccountUIState()
@@ -932,17 +935,18 @@ extension WorkspaceState {
                 if let recreationError = await recreateClientForOnboarding() {
                     setBackgroundStatus(recreationError.localizedDescription)
                 }
+                lastError = errorMessage
             } else {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
+                setSettingsError(errorMessage)
             }
-            setSettingsError(errorMessage)
             return
         }
 
         await mediaDiskCache.purgeAll(removeEncryptionKey: true)
         transitionToPostDeletionOnboarding(storageRootPath: client.storageRootPath)
         if let recreationError = await recreateClientForOnboarding() {
-            setSettingsError(recreationError.localizedDescription)
+            lastError = recreationError.localizedDescription
         }
     }
 

@@ -1721,6 +1721,7 @@ struct AccountTests: WorkspaceTestSupport {
 
         runtime.signOutError = nil
         runtime.removeAccountError = FakeMarmotRuntimeError.unused
+        let settings = SettingsWindowCoordinator(workspace: state)
         chatListBaseline = runtime.chatListSubscriptionCount
         timelineBaseline = runtime.timelineSubscriptionCount
         await state.removeAccount(activeAccount)
@@ -1731,7 +1732,7 @@ struct AccountTests: WorkspaceTestSupport {
             })
         #expect(state.activeAccountId == account.label)
         #expect(state.selection == .chat("group"))
-        #expect(state.lastError == "Unused fake runtime error.")
+        #expect(settings.lastError == "Unused fake runtime error.")
     }
 
     @MainActor
@@ -2469,6 +2470,7 @@ struct AccountTests: WorkspaceTestSupport {
         let notificationSubscriptionBaseline = runtime.notificationSubscriptionCount
         let chatListSubscriptionBaseline = runtime.chatListSubscriptionCount
         let timelineSubscriptionBaseline = runtime.timelineSubscriptionCount
+        let settings = SettingsWindowCoordinator(workspace: state)
         runtime.deleteAllLocalDataError = FakeMarmotRuntimeError.unused
 
         await state.deleteAllData()
@@ -2483,7 +2485,7 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.activeChats.contains { $0.id == "group" })
         #expect(runtime.chatListSubscriptionCount >= chatListSubscriptionBaseline + 1)
         #expect(runtime.timelineSubscriptionCount >= timelineSubscriptionBaseline + 1)
-        #expect(state.lastError == "Unused fake runtime error.")
+        #expect(settings.lastError == "Unused fake runtime error.")
     }
 
     @MainActor
