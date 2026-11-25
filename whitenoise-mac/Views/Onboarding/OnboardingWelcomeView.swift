@@ -80,5 +80,15 @@ struct OnboardingWelcomeView: View {
         // `WNButtonMetrics`.
         .controlSize(.large)
         .wnButtonShape(.capsule)
+        .onExitCommand {
+            guard let exit, !workspace.isAuthenticating else { return }
+            exit.action()
+        }
     }
+}
+
+#Preview {
+    OnboardingWelcomeView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 940, height: 620)
 }

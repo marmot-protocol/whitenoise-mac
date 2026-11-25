@@ -43,7 +43,7 @@ struct AccountSetupStepScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background { MessagesTranscriptBackground() }
+        .background { Color(nsColor: .windowBackgroundColor).ignoresSafeArea() }
         .controlSize(.large)
         .wnButtonShape(.capsule)
         .onExitCommand(perform: model.isBusy ? nil : { model.endReview() })
@@ -73,12 +73,12 @@ struct AccountSetupStepProgress: View {
                     Int64(position.count)
                 )
             )
-            .wnFont(.medium12)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .font(.subheadline)
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .monospacedDigit()
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .overlay(Capsule().strokeBorder(WNColor.borderTertiary))
+            .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
             .accessibilityIdentifier("onboarding.account-setup.progress")
         }
     }
@@ -97,8 +97,8 @@ struct AccountSetupStepTitle: View {
 
     var body: some View {
         Text(L10n.string(AccountSetupGuide.titleKey(step), locale: locale))
-            .wnFont(.bold24)
-            .foregroundStyle(WNColor.backgroundContentPrimary)
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(Color(nsColor: .labelColor))
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .accessibilityAddTraits(.isHeader)
@@ -202,9 +202,9 @@ struct AccountSetupCallout<Lines: View>: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: isError ? "exclamationmark.circle" : symbol)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.title3)
                         .foregroundStyle(
-                            isError ? WNColor.intentionErrorContent : WNColor.backgroundContentPrimary
+                            isError ? WNColor.intentionErrorContent : Color(nsColor: .labelColor)
                         )
                 }
             }
@@ -213,14 +213,14 @@ struct AccountSetupCallout<Lines: View>: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(L10n.string(titleKey, locale: locale))
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(isError ? WNColor.intentionErrorContent : WNColor.backgroundContentPrimary)
+                    .font(.headline)
+                    .foregroundStyle(isError ? WNColor.intentionErrorContent : Color(nsColor: .labelColor))
                     .accessibilityAddTraits(.isHeader)
                 VStack(alignment: .leading, spacing: 6) {
                     lines
                 }
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -252,8 +252,8 @@ struct AccountSetupFindingLines: View {
                 Text(L10n.string(problem.key, locale: locale))
                 if let endpoint = problem.endpoint {
                     Text(String(endpoint.prefix(200)))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .font(.caption)
+                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
@@ -270,8 +270,8 @@ struct AccountSetupErrorLine: View {
     var body: some View {
         if let message {
             Text(message)
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentDestructive)
+                .font(.subheadline)
+                .foregroundStyle(WNColor.intentionErrorContent)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -292,8 +292,8 @@ struct AccountSetupNoActionLines: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(keys, id: \.self) { Text(L10n.string($0, locale: locale)) }
             }
-            .wnFont(.medium12)
-            .foregroundStyle(WNColor.backgroundContentDestructive)
+            .font(.subheadline)
+            .foregroundStyle(WNColor.intentionErrorContent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
         }

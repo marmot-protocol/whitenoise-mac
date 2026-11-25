@@ -20,6 +20,7 @@ import SwiftUI
 /// the only thing any pane is allowed to change about the scaffold. See `OnboardingScaffold`.
 struct OnboardingView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: OnboardingCoordinator?
 
     var body: some View {
@@ -37,7 +38,7 @@ struct OnboardingView: View {
                 }
             }
         }
-        .animation(.smooth(duration: 0.2), value: workspace.authenticationMode)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: workspace.authenticationMode)
     }
 
     /// Whether the account-setup pane stands in for the sign-in panes: only for a checkpoint the

@@ -62,19 +62,23 @@ struct OnboardingKeyField: View {
                 onSubmit: onSubmit
             )
 
-            // The secondary disc, not a tinted one: iOS draws it as untinted `.glass`, a side
-            // control beside the input rather than an action competing with Sign In.
-            GlassCircleCloseButton(
-                symbol: isEmpty ? "doc.on.clipboard" : "xmark",
-                help: isEmpty ? "Paste" : "Clear",
-                appearance: .outline
-            ) {
+            // Native bordered circular accessory beside the input (C02/C03): pastes when empty,
+            // clears when filled, letting AppKit own hover, pressed, focus ring, and disabled state.
+            Button {
                 if isEmpty {
                     pasteFromClipboard()
                 } else {
                     text = ""
                 }
+            } label: {
+                Image(systemName: isEmpty ? "doc.on.clipboard" : "xmark")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 14, height: 14)
             }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .controlSize(.regular)
+            .help(L10n.string(isEmpty ? "Paste" : "Clear"))
             .accessibilityLabel(L10n.string(isEmpty ? "Paste" : "Clear"))
             .accessibilityIdentifier("onboarding.key-field.accessory")
         }
@@ -131,6 +135,7 @@ struct OnboardingKeyField: View {
 
 /// The pill itself: the key, and the show/hide toggle in its trailing edge.
 private struct OnboardingKeyInput: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var text: String
     let isEmpty: Bool
     @Binding var isRevealed: Bool
@@ -163,6 +168,7 @@ private struct OnboardingKeyInput: View {
             }
             .lineLimit(1)
             .textFieldStyle(.plain)
+            .font(.body)
             .privacySensitive()
             .focused(isFocused)
             .onSubmit(onSubmit)
@@ -171,10 +177,7 @@ private struct OnboardingKeyInput: View {
             Button(action: toggleReveal) {
                 Image(systemName: isRevealed ? "eye.slash" : "eye")
                     .contentTransition(.symbolEffect(.replace))
-                    // The glyph sits on `fillSecondary`, so it takes that family's content token
-                    // rather than the ambient `backgroundContentPrimary`. See the pairing rule in
-                    // `WNNSColor`.
-                    .foregroundStyle(WNColor.fillContentSecondary)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     .frame(width: 24, height: 24)
                     .contentShape(.rect)
             }
@@ -191,13 +194,13 @@ private struct OnboardingKeyInput: View {
             // `NSSecureTextField`: an implicit animation up there wraps the *editor* in an
             // animated transaction on the very keystroke that inserts text, which is not something
             // an AppKit field editor is asked to survive.
-            .animation(.default, value: isEmpty)
-            .animation(.default, value: isRevealed)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.15), value: isEmpty)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.15), value: isRevealed)
         }
         .padding(.leading, OnboardingKeyField.textInset)
         .padding(.trailing, 6)
         .frame(height: OnboardingKeyField.Metrics.height)
-        .background { shape.fill(WNColor.fillSecondary) }
+        .background { shape.fill(Color(nsColor: .controlBackgroundColor)) }
         // The field owns its own edge, rather than trusting the one AppKit happens to give it.
         //
         // A focused `SecureField` is drawn by a field editor — an `NSSecureTextView` that AppKit

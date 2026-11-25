@@ -124,6 +124,10 @@ struct OnboardingSignUpView: View {
         }
         .controlSize(.large)
         .wnButtonShape(.capsule)
+        .onExitCommand {
+            guard Self.canDismissWithEscape(workspace) else { return }
+            cancel()
+        }
         .sheet(isPresented: $workspace.isProfileImagePickerPresented) {
             ProfileImagePickerSheet()
                 // Sheets are hosted outside this view's hierarchy and inherit nothing from it, so
@@ -133,9 +137,26 @@ struct OnboardingSignUpView: View {
         }
     }
 
+    /// Whether pressing Escape on the sign-up pane may dismiss it back to the landing pane.
+    ///
+    /// Escape only dismisses an untouched draft before any identity has been minted: once the user
+    /// has typed a name/about, picked a photo, or has a pending retry after identity creation,
+    /// discarding or advancing requires the explicit Back button.
+    static func canDismissWithEscape(_ workspace: WorkspaceState) -> Bool {
+        !workspace.isAuthenticating && !workspace.isUploadingProfileImage
+            && workspace.signUpCreatedAccountRef == nil
+            && workspace.signUpDraft == SignUpDraft()
+    }
+
     /// Where "back" goes depends on whether a failed attempt already minted the identity — see
     /// `WorkspaceState.cancelSignUp()`, which owns that decision.
     private func cancel() {
         Task { await workspace.cancelSignUp() }
     }
+}
+
+#Preview {
+    OnboardingSignUpView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 940, height: 620)
 }
