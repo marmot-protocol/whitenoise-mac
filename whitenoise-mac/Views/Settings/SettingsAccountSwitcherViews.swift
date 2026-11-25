@@ -15,6 +15,7 @@ struct SettingsAccountSwitcherCard: View {
     // card when the language changes while settings are open — see
     // `L10n.string(_:locale:)`.
     @Environment(\.locale) private var locale
+    let onAddProfile: () -> Void
     @State private var isQRPresented = false
 
     var body: some View {
@@ -108,9 +109,7 @@ struct SettingsAccountSwitcherCard: View {
     /// second identity in. `person.crop.circle.badge.plus` is the prototype's own glyph for this
     /// line; the `arrow.up.arrow.down` it replaced described the switching this row no longer does.
     private var addProfileRow: some View {
-        Button {
-            workspace.showAccountOnboarding()
-        } label: {
+        Button(action: onAddProfile) {
             SettingsSidebarRowLabel(
                 systemImage: "person.crop.circle.badge.plus",
                 title: L10n.string("Add Profile", locale: locale)

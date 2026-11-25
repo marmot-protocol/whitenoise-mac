@@ -13,7 +13,11 @@ struct whitenoise_macApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var workspace: WorkspaceState
     @State private var session: SessionState
+    @State private var settings: SettingsWindowCoordinator
     @State private var dockBadge = DockBadgeController()
+    @State private var accountUpdate: Task<Void, Never>?
+    @State private var linkRequestsObservation: Task<Void, Never>?
+    @State private var unlinksObservation: Task<Void, Never>?
     /// Answers clicks on the app's banners. Installed over the workspace's own handler, which
     /// only knows the messenger; see `NotificationResponseRouter`.
     private let notificationResponses: NotificationResponseRouter
@@ -28,6 +32,7 @@ struct whitenoise_macApp: App {
         let session = SessionState()
         _workspace = State(initialValue: workspace)
         _session = State(initialValue: session)
+        _settings = State(initialValue: SettingsWindowCoordinator(workspace: workspace))
         let notificationResponses = NotificationResponseRouter(workspace: workspace) { [weak session] in
             session?.accountScope?.onboarding
         }
@@ -40,15 +45,9 @@ struct whitenoise_macApp: App {
     }
 
     var body: some Scene {
-        // A single `Window` scene (not `WindowGroup`) intentionally restricts the app to
-        // exactly one window. The whole UI is driven by one shared `WorkspaceState`
-        // (selection, search text, composer drafts, reply context, chat-list visibility,
-        // sheet-presentation flags, etc.), so a second window would not be an independent
-        // workspace — it would be a live mirror that fights the first over the same mutable
-        // state. `Window` also removes the automatic File ▸ New Window (⌘N) command and
-        // multi-window restoration that `WindowGroup` provides. See issue #46.
+        // The messenger keeps its single window and its existing selection, drafts and session.
         Window("White Noise", id: Self.mainWindowID) {
-            ContentView()
+            ContentView(settings: settings)
                 .environment(workspace)
                 .environment(session)
                 .task {
@@ -69,9 +68,6 @@ struct whitenoise_macApp: App {
                     // scope's diagnostics model, which `synchronizeAccountScope()` installs.
                     await workspace.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: restoredAccountIdHex)
                 }
-                .task(id: workspace.activeAccountId) {
-                    await synchronizeAccountScope()
-                }
                 // Keyed on the messenger being on screen, not on `activeAccountId`: launch restores
                 // the saved id before bootstrap loads the accounts and then keeps it, so a task on
                 // the id would run only while nothing could be asked and never again. Waiting for
@@ -85,24 +81,6 @@ struct whitenoise_macApp: App {
                 }
                 .task(id: workspace.isOffline) {
                     session.updateConnectivity(available: !workspace.isOffline)
-                }
-                // Relies on running before the replacement scope can publish a total:
-                // `SessionState.activate` clears the scope and the new attention model starts at
-                // `nil`, waiting for a subscription snapshot. If activation turned synchronous or
-                // seeded a cached total, this clear could blank a fresh, correct count with no
-                // later `applicationBadgeCount` change to repair it.
-                // A banner clicked during launch or onboarding opens its chat once the chats show.
-                .onChange(of: workspace.phase) {
-                    notificationResponses.phaseDidChange()
-                }
-                .onChange(of: workspace.activeAccountId) { previousAccountId, _ in
-                    dockBadge.activeAccountDidChange(
-                        from: previousAccountId,
-                        signedInAccountIds: Set(workspace.signedInAccounts.map(\.id))
-                    )
-                }
-                .onChange(of: applicationBadgeCount, initial: true) { _, count in
-                    dockBadge.apply(count: count)
                 }
                 .onChange(of: scenePhase) { _, phase in
                     let activity: ProductAnalyticsActivityFfi?
@@ -120,28 +98,78 @@ struct whitenoise_macApp: App {
                     Task { await session.updateProductAnalyticsActivity(activity) }
                 }
         }
-        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified)
         .windowResizability(.contentMinSize)
-        .commands {
-            CommandGroup(replacing: .appSettings) {
-                // The same condition the shell shows the messenger under: during onboarding (Add
-                // Profile) an account is still active, but selecting Settings would not show it.
-                SettingsCommandButton(
-                    isEnabled: workspace.showsMessengerChrome,
-                    locale: workspace.preferredLocale
-                ) {
-                    workspace.showSettings()
-                }
-            }
-            CommandMenu("Navigate") {
-                FindInConversationMenuButton()
-                Button(L10n.string("Search All Messages…")) {
-                    workspace.presentGlobalMessageSearch()
-                }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
-                .disabled(workspace.activeAccount == nil)
+        // Account lifetime belongs to the app scene, including when Settings is the only open
+        // window. Both windows use the same scope and observe the same account event streams.
+        .onChange(of: workspace.phase) {
+            notificationResponses.phaseDidChange()
+        }
+        .onChange(of: applicationBadgeCount, initial: true) { _, count in
+            dockBadge.apply(count: count)
+        }
+        .onChange(of: workspace.activeAccountId) { previousAccountId, _ in
+            // Clear the old account's badge before the replacement scope can publish its total.
+            dockBadge.activeAccountDidChange(
+                from: previousAccountId,
+                signedInAccountIds: Set(workspace.signedInAccounts.map(\.id))
+            )
+            accountUpdate?.cancel()
+            accountUpdate = Task {
+                guard !Task.isCancelled else { return }
+                await synchronizeAccountScope()
             }
         }
+        .onChange(of: runtimeIdentity, initial: true) {
+            unlinksObservation?.cancel()
+            guard let client = workspace.client else { return }
+            unlinksObservation = Task { [weak workspace, weak session] in
+                await session?.deviceUnlinks.observe(client) { [weak workspace] accountID in
+                    guard let workspace else { return }
+                    await AccountExit.leaveSignedOutAccount(accountIdHex: accountID, in: workspace)
+                }
+            }
+        }
+        .onChange(of: LinkRequestsObserveKey(runtime: runtimeIdentity, signedIn: workspace.signedInAccounts.map(\.id)))
+        {
+            linkRequestsObservation?.cancel()
+            guard let client = workspace.client else { return }
+            linkRequestsObservation = Task { [weak workspace, weak session] in
+                await session?.linkRequests.observe(client, accounts: { workspace?.signedInAccounts ?? [] })
+            }
+        }
+        .onChange(
+            of: LinkRequestAlertKey(
+                pending: session.linkRequests.pending,
+                active: workspace.activeAccountId,
+                showing: session.linkRequests.alert != nil
+            )
+        ) {
+            session.linkRequests.presentIfNeeded(
+                activeAccountIdHex: workspace.activeAccount?.accountIdHex, accounts: workspace.signedInAccounts)
+        }
+        .onChange(of: workspace.accounts.filter(\.unlinked).map(\.accountIdHex), initial: true) {
+            session.deviceUnlinks.remind(about: workspace.accounts)
+        }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                SettingsCommandButton(
+                    isEnabled: workspace.showsMessengerChrome,
+                    locale: workspace.preferredLocale,
+                    coordinator: settings
+                )
+            }
+            MessengerCommands(
+                locale: workspace.preferredLocale, endingGroupIDs: session.accountScope?.endingGroupIds ?? [])
+        }
+
+        Settings {
+            SettingsWindowView(coordinator: settings, workspace: workspace, session: session)
+        }
+    }
+
+    private var runtimeIdentity: ObjectIdentifier? {
+        workspace.client.map { ObjectIdentifier($0 as AnyObject) }
     }
 
     private var applicationBadgeCount: Int? {
@@ -320,4 +348,15 @@ struct whitenoise_macApp: App {
             await installSnapshot(snapshot)
         }
     }
+}
+
+private struct LinkRequestsObserveKey: Equatable {
+    let runtime: ObjectIdentifier?
+    let signedIn: [String]
+}
+
+private struct LinkRequestAlertKey: Equatable {
+    let pending: [String: [String]]
+    let active: String?
+    let showing: Bool
 }

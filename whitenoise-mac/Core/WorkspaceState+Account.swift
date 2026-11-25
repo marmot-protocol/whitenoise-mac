@@ -146,32 +146,12 @@ extension WorkspaceState {
         withRememberedChatPreserved(outcome.preservesMemory) { selectChat(chat) }
     }
 
-    /// Switch identity from a control anchored inside Settings, landing on the settings page the
-    /// user is already reading rather than on a conversation.
-    ///
-    /// Reached from `ProfileChooserView`, which the detail pane shows after the active profile is
-    /// deleted or signed out of: Settings stays selected behind the chooser, so the pick lands back on the settings
-    /// page the deletion left. The account rail uses `selectAccount(_:)`, which lands on a chat.
+    /// Choose a signed-in identity when the previous account no longer drives the workspace.
+    /// The shell delivers any pending Settings destination to its own window.
     func selectAccountFromSettings(_ account: AccountItem) {
-        guard !account.signedOut else { return }
-        // The row for the already-active account is a no-op: a switch anchored to the settings
-        // page the user is already reading would tear the session down and rebuild it only to
-        // land back on the same screen.
-        guard account.id != activeAccountId else { return }
-        switchActiveAccount(account, finalSelection: settingsSelectionAfterAccountMutation)
-    }
-
-    /// Where to land after an account mutation hands the app a different active identity.
-    ///
-    /// Identity work lives at the top of Settings rather than on an Accounts page of its own, so
-    /// these paths stay in Settings: on the page the user was already reading (it is simply
-    /// re-answered for the new identity — `SettingsPanelView` reloads off `activeAccountId`), or
-    /// on the profile overview when the mutation came from the account rail instead.
-    var settingsSelectionAfterAccountMutation: WorkspaceSelection {
-        if case .settings(let page) = selection {
-            return .settings(page.pageAfterActiveAccountChange)
-        }
-        return .settings(.overview)
+        guard !account.signedOut, account.id != activeAccountId else { return }
+        switchActiveAccount(account, finalSelection: nil)
+        WorkspaceAccountPresentation.settingsHandoff.post(from: self)
     }
 
     func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
@@ -321,8 +301,8 @@ extension WorkspaceState {
     /// more, the latter opening a popover instead of calling this — so the same row meant two
     /// different things depending on state the user had not thought about.
     ///
-    /// Deliberately leaves `selection` alone, so `leaveAccountOnboarding()` puts the user back on
-    /// the page they opened this from rather than somewhere merely plausible.
+    /// The existing conversation stays selected for Cancel. The Settings window owns the
+    /// originating page when the user entered from there.
     func showAccountOnboarding() {
         authenticationMode = .landing
         clearEnteredLoginIdentity()
@@ -357,6 +337,7 @@ extension WorkspaceState {
         clearEnteredLoginIdentity()
         lastError = nil
         phase = .ready
+        WorkspaceAccountPresentation.cancelledAddProfile.post(from: self)
     }
 
     func cancelLogin() {
@@ -729,15 +710,16 @@ extension WorkspaceState {
             // still-valid active account untouched needs no reselection.
             // Deleting the profile the user was in, with others still signed in, asks which one
             // to continue with — iOS's account exit does the same — rather than silently moving
-            // into whichever identity `accounts` happens to list first. Settings stays selected
-            // behind the chooser, so the pick lands back on Settings (see `ProfileChooserView`).
+            // into whichever identity `accounts` happens to list first. The shell keeps the
+            // Settings destination until the chooser supplies an account.
             // A racing selection of a still-valid account is the user's choice already, and a
             // racing selection of the removed one leaves the old active account to restore.
             if wasActive, activeAccountInvalid {
                 // A chooser with a single row is no choice: with exactly one profile left, go
                 // straight into it, still on the settings page the deletion left.
                 if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
-                    switchActiveAccount(remaining, finalSelection: settingsSelectionAfterAccountMutation)
+                    switchActiveAccount(remaining, finalSelection: nil)
+                    WorkspaceAccountPresentation.settingsHandoff.post(from: self)
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
                     return outcome
@@ -746,13 +728,15 @@ extension WorkspaceState {
                 invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 notificationSettings = .defaults
-                selection = settingsSelectionAfterAccountMutation
+                selection = nil
+                WorkspaceAccountPresentation.settingsHandoff.post(from: self)
                 return outcome
             }
 
             if needsActiveReset {
                 restoreOrSelectFirstAccount()
-                selection = settingsSelectionAfterAccountMutation
+                selection = nil
+                WorkspaceAccountPresentation.settingsHandoff.post(from: self)
                 await configureObservabilityRuntimeBestEffort()
                 await loadSettingsData()
                 await reloadChats()
@@ -894,7 +878,8 @@ extension WorkspaceState {
                     && activeAccountId != preAwaitActiveAccountId
                     && currentActiveAccount?.id != account.id
                 if !userRacedToDifferentAccount {
-                    switchActiveAccount(refreshed, finalSelection: settingsSelectionAfterAccountMutation)
+                    switchActiveAccount(refreshed, finalSelection: nil)
+                    WorkspaceAccountPresentation.settingsHandoff.post(from: self)
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
                 }

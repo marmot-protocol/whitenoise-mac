@@ -134,3 +134,91 @@ struct ChatRowMenuLabel: View {
     }
     .padding()
 }
+
+/// Shared account and chat operations for the clicked row and the selected conversation.
+struct ChatMenuActions {
+    let workspace: WorkspaceState
+    let chat: ChatItem
+
+    var canChangePreferences: Bool { !workspace.isMutatingChatPreferences(chat) }
+    var canArchive: Bool { workspace.archivingChatId == nil }
+
+    func setArchived(_ archived: Bool) async {
+        guard canArchive else { return }
+        await workspace.setChatArchived(chat, archived: archived)
+    }
+
+    func canPerformDestructive(_ action: ChatDestructiveActions.Action, endingGroupIDs: Set<String>) -> Bool {
+        switch action {
+        case .leave:
+            workspace.leavingChatId == nil
+                && workspace.preparingChatLeaveId == nil
+                && workspace.handingOffAdminChatId == nil
+                && !endingGroupIDs.contains(chat.id)
+        case .deleteLocally:
+            !workspace.isDeletingGroupLocally
+        }
+    }
+
+    func performDestructive(_ action: ChatDestructiveActions.Action, endingGroupIDs: Set<String>) async {
+        guard canPerformDestructive(action, endingGroupIDs: endingGroupIDs) else { return }
+        switch action {
+        case .leave: await workspace.prepareChatLeave(for: chat)
+        case .deleteLocally: workspace.requestChatLocalDelete(for: chat)
+        }
+    }
+}
+
+struct ChatMuteMenu: View {
+    let actions: ChatMenuActions
+    let locale: Locale
+    var showsRowIcon = false
+    let isCurrent: () -> Bool
+
+    var body: some View {
+        Group {
+            if actions.chat.muted {
+                Button {
+                    Task {
+                        guard isCurrent() else { return }
+                        await actions.workspace.clearChatMuted(actions.chat)
+                    }
+                } label: {
+                    label(.unmute)
+                }
+            } else {
+                Menu {
+                    ForEach(ChatMuteDuration.allCases) { duration in
+                        Button {
+                            Task {
+                                guard isCurrent() else { return }
+                                await actions.workspace.setChatMuted(actions.chat, duration: duration.interval)
+                            }
+                        } label: {
+                            Label(L10n.string(duration.titleKey, locale: locale), systemImage: duration.systemImage)
+                        }
+                    }
+                } label: {
+                    label(.mute)
+                }
+            }
+        }
+        .disabled(!actions.canChangePreferences)
+    }
+
+    @ViewBuilder
+    private func label(_ action: ChatRowMenuAction) -> some View {
+        if showsRowIcon {
+            ChatRowMenuLabel(action: action)
+        } else {
+            Text(L10n.string(action.titleKey, locale: locale))
+        }
+    }
+}
+
+#Preview("Mute commands") {
+    ChatMuteMenu(
+        actions: ChatMenuActions(workspace: .preview(), chat: ChatItem.samples[0]),
+        locale: .current, isCurrent: { true }
+    )
+}

@@ -115,7 +115,7 @@ struct SettingsFooterText: View {
 /// `wn-ios-prototype` reaches it, by a `NavigationLink` in Developer Tools rather than by a
 /// row in the settings hub.
 struct SettingsNavigationRow: View {
-    @Environment(WorkspaceState.self) private var workspace
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     // Same reason as `SettingsSidebarRow`: the title is the only language-dependent thing in
     // the body, so reading the locale here is what re-renders it on a language switch.
     @Environment(\.locale) private var locale
@@ -123,7 +123,7 @@ struct SettingsNavigationRow: View {
 
     var body: some View {
         Button {
-            workspace.showSettingsPage(page)
+            settings?.navigate(to: page)
         } label: {
             HStack(spacing: 8) {
                 Label(page.title(in: locale), systemImage: page.systemImage)

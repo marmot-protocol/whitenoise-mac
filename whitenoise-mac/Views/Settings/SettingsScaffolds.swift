@@ -113,6 +113,7 @@ struct SettingsNativeForm<Content: View>: View {
 
 struct SettingsScaffold<Content: View>: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     let title: String
     var subtitle: String?
     var errorSectionTitle: String?
@@ -144,7 +145,7 @@ struct SettingsScaffold<Content: View>: View {
                 subtitle: subtitle,
                 backAction: back.map { destination in
                     switch destination.route {
-                    case .page(let page): { workspace.showSettingsPage(page) }
+                    case .page(let page): { settings?.navigate(to: page) }
                     case .action(let dismiss): dismiss
                     }
                 },

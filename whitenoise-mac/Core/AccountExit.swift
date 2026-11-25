@@ -110,20 +110,21 @@ enum AccountExit {
             // Exactly one profile left: a chooser with a single row is no choice, so continue
             // straight into it, still on the settings page the sign-out left — as deleting
             // the active profile does (`removeAccount`).
-            workspace.switchActiveAccount(remaining, finalSelection: workspace.settingsSelectionAfterAccountMutation)
+            workspace.switchActiveAccount(remaining, finalSelection: nil)
+            WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
             await workspace.configureObservabilityRuntimeBestEffort()
             await workspace.loadSettingsData()
         } else if !signedInAccounts.isEmpty {
             // Signing out of the profile the user was in, with two or more others still
             // signed in, asks which one to continue with — exactly as deleting it does
             // (`removeAccount`) — rather than silently moving into whichever identity
-            // `accounts` lists first. Settings stays selected behind `ProfileChooserView`, so
-            // the pick lands back on Settings.
+            // `accounts` lists first. The shell retains the Settings destination for the chooser.
             workspace.activeAccountId = nil
             workspace.invalidateNotificationSettingsOperations()
             UserDefaults.standard.removeObject(forKey: WorkspaceState.activeAccountKey)
             workspace.notificationSettings = .defaults
-            workspace.selection = workspace.settingsSelectionAfterAccountMutation
+            workspace.selection = nil
+            WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
         } else {
             // Signing out the last identity is a way out of the app, so it lands where a
             // first launch does. It used to stay in `.ready` with no active account, which
@@ -155,4 +156,24 @@ enum AccountExit {
             }
         }
     }
+}
+
+/// Presentation intents from completed account transitions. The shell handles them for its
+/// workspace without making window state part of the account mutation or its recovery policy.
+enum WorkspaceAccountPresentation {
+    case settingsHandoff
+    case cancelledAddProfile
+
+    static let eventKey = "event"
+
+    @MainActor
+    func post(from workspace: WorkspaceState) {
+        NotificationCenter.default.post(
+            name: .workspaceAccountPresentation, object: workspace, userInfo: [Self.eventKey: self]
+        )
+    }
+}
+
+extension Notification.Name {
+    static let workspaceAccountPresentation = Notification.Name("workspaceAccountPresentation")
 }

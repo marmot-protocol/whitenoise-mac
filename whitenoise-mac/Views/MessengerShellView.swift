@@ -12,6 +12,15 @@ struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
 
+    let settings: SettingsWindowCoordinator
+
+    private var sidebarVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: { workspace.isChatListVisible ? .all : .detailOnly },
+            set: { workspace.isChatListVisible = $0 != .detailOnly }
+        )
+    }
+
     private var productScreen: ProductScreen? {
         guard workspace.phase == .ready, workspace.activeAccount != nil else { return nil }
         switch workspace.selection {
@@ -25,8 +34,6 @@ struct MessengerShellView: View {
     }
 
     var body: some View {
-        let ignoredEdges: Edge.Set = workspace.showsMessengerChrome ? .top : []
-
         VStack(spacing: 0) {
             // Laid out above the content rather than floating over it: being offline is a
             // standing condition, and a card on this edge sits on the pane title and the
@@ -41,46 +48,27 @@ struct MessengerShellView: View {
             Group {
                 if workspace.showsMessengerChrome {
                     HStack(spacing: 0) {
-                        AccountRailView()
-                        GlassSeparator()
-
-                        Group {
-                            if workspace.isChatListVisible {
-                                ChatListDrawerView(
-                                    model: session.accountScope?.chatListModel,
-                                    historyNotices: session.accountScope?.historyNotices,
-                                    recoveryStatus: session.accountScope?.recoveryStatus,
-                                    selection: session.accountScope?.chatListSelection,
-                                    search: session.accountScope?.chatListSearch
-                                )
-                                // Deliberately un-animated: the width is dragged, so animating
-                                // it would re-wrap the non-lazy transcript on every frame of the
-                                // drag *and* again through the collapse snap — the same layout
-                                // storm the `isChatListVisible` transition below is scoped away
-                                // from. The snap is a single jump instead.
-                                .frame(width: workspace.chatListDrawerWidth, alignment: .leading)
-                                .transition(.move(edge: .leading).combined(with: .opacity))
-
-                                ChatListResizeHandle()
-                                    .transition(.opacity)
-                                    // The handle's grab area is an overlay reaching a few points
-                                    // into both neighbours, and later siblings in an `HStack` are
-                                    // hit-tested first — without this the detail pane would swallow
-                                    // the right half of the strip and the divider would only be
-                                    // grabbable from the drawer side.
-                                    .zIndex(1)
-                            }
+                        AccountRailView(onOpenSettings: { settings.open() })
+                        NavigationSplitView(columnVisibility: sidebarVisibility) {
+                            ChatListDrawerView(
+                                model: session.accountScope?.chatListModel,
+                                historyNotices: session.accountScope?.historyNotices,
+                                recoveryStatus: session.accountScope?.recoveryStatus,
+                                selection: session.accountScope?.chatListSelection,
+                                search: session.accountScope?.chatListSearch
+                            )
+                            .navigationSplitViewColumnWidth(
+                                min: ChatListWidthPolicy.minimumExpandedWidth,
+                                ideal: max(workspace.chatListWidth, ChatListWidthPolicy.minimumExpandedWidth),
+                                max: ChatListWidthPolicy.maximumWidth
+                            )
+                        } detail: {
+                            DetailPaneView(settings: settings)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        // Scope the sidebar transition to the drawer. The detail pane
-                        // width should jump once, not animate through every intermediate
-                        // width and force the non-lazy transcript to re-wrap each frame.
-                        .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
-
-                        DetailPaneView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
-                    DetailPaneView()
+                    DetailPaneView(settings: settings)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -95,9 +83,7 @@ struct MessengerShellView: View {
         .background {
             MessagesWindowBackground()
         }
-        // The band has taken the strip the traffic lights float in, so the headers it pushed
-        // down must drop the clearance they keep for those buttons.
-        .environment(\.hasWindowTopNoticeBand, workspace.isOffline)
+        .environment(\.hasWindowTopNoticeBand, true)
         .animation(.smooth(duration: 0.2), value: workspace.isOffline)
         // Above the conversation pane rather than inside it: the image gallery is an overlay on
         // the transcript, and a download started from the gallery has to confirm itself over the
@@ -109,7 +95,16 @@ struct MessengerShellView: View {
                 MediaDownloadFeedbackToast()
             }
         }
-        .ignoresSafeArea(.container, edges: ignoredEdges)
+        .focusedSceneValue(
+            \.messengerCommands,
+            workspace.activeAccountId.map {
+                MessengerCommandContext(
+                    workspace: workspace,
+                    accountID: $0,
+                    isMessengerWindowTarget: MessengerCommandContext.acceptsCommandsInKeyWindow
+                )
+            }
+        )
         .task(id: productScreen) {
             guard let productScreen else { return }
             session.accountScope?.productAnalytics.record(.screen(productScreen))
@@ -120,6 +115,7 @@ struct MessengerShellView: View {
 private struct DetailPaneView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    let settings: SettingsWindowCoordinator
 
     var body: some View {
         Group {
@@ -131,7 +127,7 @@ private struct DetailPaneView: View {
             case .failed(let message):
                 FailureView(message: message)
             case .ready:
-                if workspace.activeAccount == nil, !workspace.signedInAccounts.isEmpty {
+                if !workspace.showsMessengerChrome, !workspace.signedInAccounts.isEmpty {
                     // The active profile was deleted or signed out of, and two or more others are
                     // still signed in. The user picks the next one, as on iOS, rather than being
                     // dropped into whichever identity happens to be listed first. With exactly one
@@ -149,7 +145,7 @@ private struct DetailPaneView: View {
                         },
                         onAddProfile: { workspace.showAccountOnboarding() }
                     )
-                } else if workspace.activeAccount == nil {
+                } else if !workspace.showsMessengerChrome {
                     // Nothing is signed in, so there is nothing to show but the way in. This used
                     // to be a `SignedOutAccountsView` listing the deactivated identities on this
                     // Mac, each one a single click from being reactivated — a sign-in that asked
@@ -169,7 +165,8 @@ private struct DetailPaneView: View {
                         if let chat = workspace.selectedChat,
                             let model = session.accountScope?.selectedConversationModel,
                             model.groupIdHex == chat.id,
-                            let scope = session.accountScope
+                            let scope = session.accountScope,
+                            scope.account.id == workspace.activeAccountId
                         {
                             ConversationView(
                                 chat: chat,
@@ -186,13 +183,7 @@ private struct DetailPaneView: View {
                         } else {
                             EmptyDetailView()
                         }
-                    case .settings:
-                        if let scope = session.accountScope {
-                            SettingsPanelView(model: scope.settingsModel, deviceLinking: scope.deviceLinking)
-                        } else {
-                            EmptyDetailView()
-                        }
-                    case nil:
+                    case .settings, nil:
                         EmptyDetailView()
                     }
                 }
@@ -1396,11 +1387,14 @@ private struct ConversationView: View {
         )
     }
 
-    /// Search within this chat, offered by the header button and Navigate ▸ Find in Conversation.
+    /// Search within this chat, offered by the header button and Edit ▸ Find in Conversation.
     /// Offered for an invite not yet accepted too: its transcript is on screen and global search
     /// already finds its messages, so in-chat search must not be the one place they are hidden.
     private var searchCommand: ConversationSearchCommand {
-        ConversationSearchCommand(open: openSearch)
+        ConversationSearchCommand(
+            accountID: model.account.id, chatID: chat.id, model: model.search,
+            open: openSearch, readableMessageIDs: { model.readableMessageIds }
+        )
     }
 
     private func openSearch() {

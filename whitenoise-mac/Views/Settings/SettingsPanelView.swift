@@ -15,10 +15,7 @@ struct SettingsPanelView: View {
     let model: SettingsViewModel
     let deviceLinking: DeviceLinkingViewModel
 
-    private var page: SettingsPage {
-        if case .settings(let page) = workspace.selection { return page }
-        return .overview
-    }
+    var page: SettingsPage = .profile
 
     private var loadKey: SettingsPanelLoadKey {
         SettingsPanelLoadKey(accountID: workspace.activeAccountId, page: page)

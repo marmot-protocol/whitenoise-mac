@@ -31,13 +31,11 @@ struct ConversationSearchBar: View {
                 ConversationSearchControlButton(
                     systemImage: "chevron.up",
                     help: L10n.string("Previous match"),
-                    shortcut: KeyboardShortcut("g", modifiers: .command),
                     action: model.goToOlderMatch
                 )
                 ConversationSearchControlButton(
                     systemImage: "chevron.down",
                     help: L10n.string("Next match"),
-                    shortcut: KeyboardShortcut("g", modifiers: [.command, .shift]),
                     action: model.goToNewerMatch
                 )
             }
@@ -46,7 +44,6 @@ struct ConversationSearchBar: View {
             ConversationSearchControlButton(
                 systemImage: "xmark",
                 help: L10n.string("Close"),
-                shortcut: nil,
                 action: onClose
             )
         }
@@ -100,7 +97,6 @@ private struct ConversationSearchStatus: View {
 private struct ConversationSearchControlButton: View {
     let systemImage: String
     let help: String
-    let shortcut: KeyboardShortcut?
     let action: () -> Void
 
     var body: some View {
@@ -112,7 +108,6 @@ private struct ConversationSearchControlButton: View {
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(shortcut)
         .help(help)
         .accessibilityLabel(help)
     }
