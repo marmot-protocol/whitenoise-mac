@@ -63,7 +63,13 @@ struct MessengerShellView: View {
                             .onGeometryChange(for: CGFloat.self) { proxy in
                                 proxy.size.width.rounded()
                             } action: { newWidth in
-                                workspace.adoptNativeSidebarWidth(newWidth)
+                                guard workspace.isChatListVisible,
+                                    let resolved = ChatListWidthPolicy.adoptedNativeSidebarWidth(
+                                        proposedWidth: newWidth,
+                                        storedWidth: workspace.chatListWidth
+                                    )
+                                else { return }
+                                workspace.resizeChatListDrawer(toProposedWidth: resolved)
                             }
                         } detail: {
                             DetailPaneView(settings: settings)

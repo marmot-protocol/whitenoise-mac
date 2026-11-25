@@ -1,4 +1,5 @@
 import AppKit
+import MarmotKit
 import SwiftUI
 
 /// One action in a chat row's right-click menu — the Mac's counterpart to the iOS chat list's
@@ -168,6 +169,73 @@ struct ChatMenuActions {
     func requestLeave(endingGroupIDs: Set<String>) async {
         guard canPerformDestructive(.leave, endingGroupIDs: endingGroupIDs) else { return }
         await workspace.prepareChatLeave(for: chat)
+    }
+
+    /// Explicitly marks `chat` as read from the Conversation menu using `conversation`'s
+    /// authoritative tail snapshot, advancing MDK's read position and clearing any manual unread
+    /// reminder. Surfaces fetch and commit failures in the messenger's status banner.
+    func markAsRead(conversation: ConversationViewModel) async {
+        guard let client = workspace.client,
+            let activeAccount = workspace.activeAccount,
+            canChangePreferences
+        else { return }
+        let accountId = activeAccount.id
+        workspace.mutatingChatPreferenceIds.insert(chat.id)
+        defer { workspace.mutatingChatPreferenceIds.remove(chat.id) }
+        do {
+            if conversation.snapshot?.hasMoreAfter == true {
+                await conversation.returnToLatest()
+                guard workspace.activeAccountId == accountId else { return }
+            }
+            guard let snapshot = conversation.snapshot, !snapshot.hasMoreAfter else {
+                let message: String? =
+                    switch conversation.error {
+                    case .unavailable(let text):
+                        text
+                    case .staleWindow:
+                        UserFacingError.message(for: MarmotKitError.ConversationWindowStale)
+                    case nil:
+                        nil
+                    }
+                if let message {
+                    workspace.setBackgroundStatus(message)
+                }
+                return
+            }
+
+            let marker = snapshot.latestReadableActivityMarker(inAuthoritativeGroup: chat.isAuthoritativeGroup)
+            var updatedRow: ChatListRowFfi?
+            if let marker {
+                updatedRow = try await workspace.commitReadMarker(
+                    marker,
+                    groupIdHex: chat.id,
+                    account: activeAccount,
+                    client: client
+                )
+                guard workspace.activeAccountId == accountId else { return }
+            }
+
+            if chat.manuallyMarkedUnread {
+                let row = try await FFIExecutor.run {
+                    try client.setChatManuallyUnread(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: chat.id,
+                        manuallyUnread: false
+                    )
+                }
+                guard workspace.activeAccountId == accountId else { return }
+                updatedRow = row ?? updatedRow
+            }
+
+            if let updatedRow {
+                await workspace.applyChatRow(updatedRow, account: activeAccount, shouldEnrich: false)
+            } else {
+                await workspace.reloadChats(forceFreshSnapshot: true)
+            }
+        } catch {
+            guard workspace.activeAccountId == accountId else { return }
+            workspace.setBackgroundStatus(UserFacingError.message(for: error))
+        }
     }
 }
 

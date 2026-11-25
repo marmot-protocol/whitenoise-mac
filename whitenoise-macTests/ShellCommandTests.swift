@@ -338,19 +338,36 @@ struct ShellCommandTests: WorkspaceTestSupport {
         )
         #expect(ConversationUnreadMenuAction.resolve(for: unreadChat) == .markRead)
         let messageId = String(repeating: "f", count: 64)
-        workspace.ensureMessageTimelineStore(for: groupId).replace(
-            with: [
-                MessageItem(
-                    id: messageId,
-                    senderName: "Peer",
-                    body: "New message",
-                    sentAt: Date(timeIntervalSince1970: 1_760_000_100),
-                    isOutgoing: false
-                )
-            ]
+        var snapshot = ProjectionMigrationTests.conversationSnapshot(
+            sequence: 1,
+            title: "Unread Group",
+            unreadCount: 3,
+            firstUnreadMessageIdHex: messageId,
+            anchorKind: .latest,
+            hasMoreAfter: false
         )
+        snapshot.messages = [
+            ProjectionMigrationTests.conversationMessage(
+                timelineMessage(
+                    id: messageId,
+                    groupIdHex: groupId,
+                    sender: String(repeating: "7", count: 64),
+                    plaintext: "New message",
+                    recordedAt: 1_760_000_100
+                )
+            )
+        ]
+        runtime.conversationWindowInitialSnapshots[groupId] = snapshot
+        let active = try #require(workspace.activeAccount)
+        let conversation = ConversationViewModel(account: active, groupIdHex: groupId, runtime: runtime)
+        await conversation.setSnapshotObserver { _ in }
+        conversation.start()
+        defer { conversation.stop() }
+        for _ in 0..<200 where !conversation.hasPresentedWindow {
+            await Task.yield()
+        }
 
-        await workspace.markChatAsRead(unreadChat)
+        await ChatMenuActions(workspace: workspace, chat: unreadChat).markAsRead(conversation: conversation)
 
         #expect(runtime.markedReadMessageIds == [messageId])
         #expect(runtime.setChatManuallyUnreadCallCount == 0)
@@ -417,12 +434,11 @@ struct ShellCommandTests: WorkspaceTestSupport {
             ]
         )
 
-        await workspace.markChatAsRead(unreadChat, conversation: conversation)
+        await ChatMenuActions(workspace: workspace, chat: unreadChat).markAsRead(conversation: conversation)
 
         #expect(runtime.markedReadMessageIds.isEmpty)
         #expect(runtime.setChatManuallyUnreadCallCount == 0)
         #expect(conversation.snapshot?.hasMoreAfter == true)
-        #expect(workspace.lastError != nil)
         #expect(workspace.backgroundStatus != nil)
     }
 
@@ -464,8 +480,38 @@ struct ShellCommandTests: WorkspaceTestSupport {
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.markTimelineMessageReadError = ReadFailure()
         let groupId = String(repeating: "4", count: 64)
+        let messageId = String(repeating: "5", count: 64)
+        var snapshot = ProjectionMigrationTests.conversationSnapshot(
+            sequence: 1,
+            title: "Group",
+            unreadCount: 1,
+            firstUnreadMessageIdHex: messageId,
+            anchorKind: .latest,
+            hasMoreAfter: false
+        )
+        snapshot.messages = [
+            ProjectionMigrationTests.conversationMessage(
+                timelineMessage(
+                    id: messageId,
+                    groupIdHex: groupId,
+                    sender: String(repeating: "7", count: 64),
+                    plaintext: "Hi",
+                    recordedAt: 1_760_000_100
+                )
+            )
+        ]
+        runtime.conversationWindowInitialSnapshots[groupId] = snapshot
         let workspace = WorkspaceState(clientFactory: { runtime })
         await workspace.bootstrap()
+
+        let active = try #require(workspace.activeAccount)
+        let conversation = ConversationViewModel(account: active, groupIdHex: groupId, runtime: runtime)
+        await conversation.setSnapshotObserver { _ in }
+        conversation.start()
+        defer { conversation.stop() }
+        for _ in 0..<200 where !conversation.hasPresentedWindow {
+            await Task.yield()
+        }
 
         let unreadChat = ChatItem(
             id: groupId,
@@ -479,19 +525,8 @@ struct ShellCommandTests: WorkspaceTestSupport {
             manuallyMarkedUnread: false,
             isDirect: false
         )
-        workspace.ensureMessageTimelineStore(for: groupId).replace(
-            with: [
-                MessageItem(
-                    id: String(repeating: "5", count: 64),
-                    senderName: "Peer",
-                    body: "Hi",
-                    sentAt: Date(timeIntervalSince1970: 1_760_000_100),
-                    isOutgoing: false
-                )
-            ]
-        )
 
-        await workspace.markChatAsRead(unreadChat)
+        await ChatMenuActions(workspace: workspace, chat: unreadChat).markAsRead(conversation: conversation)
         #expect(workspace.backgroundStatus != nil)
     }
 
@@ -541,12 +576,13 @@ struct ShellCommandTests: WorkspaceTestSupport {
         }
 
         // Closing the messenger window while Settings keeps the app running must tear down the
-        // active voice recording immediately.
+        // active voice recording immediately while preserving the weak window registration in case
+        // AppKit reuses the window on reopen.
         center.post(name: NSWindow.willCloseNotification, object: window)
         #expect(!workspace.isRecordingVoiceMessage)
         #expect(workspace.voiceRecorder == nil)
         #expect(!FileManager.default.fileExists(atPath: recordingURL.path))
-        #expect(ConversationWindowIdentity.window == nil)
+        #expect(ConversationWindowIdentity.window === window)
 
         // Quitting afterward (e.g. from Settings) must still flush the pending composer draft
         // synchronously through the app-lifetime observer.
@@ -634,7 +670,7 @@ struct ShellCommandTests: WorkspaceTestSupport {
             isDirect: false
         )
 
-        await workspace.markChatAsRead(unreadChat, conversation: conversation)
+        await ChatMenuActions(workspace: workspace, chat: unreadChat).markAsRead(conversation: conversation)
 
         #expect(runtime.markedReadMessageIds == [newestMessageId])
         #expect(runtime.setChatManuallyUnreadCallCount == 1)
@@ -983,7 +1019,12 @@ struct ShellCommandTests: WorkspaceTestSupport {
 
         let targetWidth = ChatListWidthPolicy.minimumExpandedWidth + 22
         let first = WorkspaceState()
-        first.adoptNativeSidebarWidth(targetWidth)
+        if let adopted = ChatListWidthPolicy.adoptedNativeSidebarWidth(
+            proposedWidth: targetWidth,
+            storedWidth: first.chatListWidth
+        ) {
+            first.resizeChatListDrawer(toProposedWidth: adopted)
+        }
         #expect(first.chatListWidth == targetWidth)
 
         let recreated = WorkspaceState()
@@ -994,17 +1035,32 @@ struct ShellCommandTests: WorkspaceTestSupport {
         // opens the sidebar expanded, but a subsequent drag wider than the minimum must persist.
         recreated.resizeChatListDrawer(toProposedWidth: ChatListWidthPolicy.collapsedWidth)
         #expect(recreated.isChatListCollapsed)
-        recreated.adoptNativeSidebarWidth(ChatListWidthPolicy.minimumExpandedWidth)
+        #expect(
+            ChatListWidthPolicy.adoptedNativeSidebarWidth(
+                proposedWidth: ChatListWidthPolicy.minimumExpandedWidth,
+                storedWidth: recreated.chatListWidth
+            ) == nil
+        )
         #expect(recreated.chatListWidth == ChatListWidthPolicy.collapsedWidth)
 
         recreated.isNewChatComposerVisible = true
         #expect(!recreated.isChatListCollapsed)
-        recreated.adoptNativeSidebarWidth(ChatListWidthPolicy.minimumExpandedWidth)
+        #expect(
+            ChatListWidthPolicy.adoptedNativeSidebarWidth(
+                proposedWidth: ChatListWidthPolicy.minimumExpandedWidth,
+                storedWidth: recreated.chatListWidth
+            ) == nil
+        )
         #expect(recreated.chatListWidth == ChatListWidthPolicy.collapsedWidth)
         recreated.isNewChatComposerVisible = false
 
         let draggedWidth = ChatListWidthPolicy.minimumExpandedWidth + 28
-        recreated.adoptNativeSidebarWidth(draggedWidth)
+        if let adopted = ChatListWidthPolicy.adoptedNativeSidebarWidth(
+            proposedWidth: draggedWidth,
+            storedWidth: recreated.chatListWidth
+        ) {
+            recreated.resizeChatListDrawer(toProposedWidth: adopted)
+        }
         #expect(recreated.chatListWidth == draggedWidth)
         #expect(!recreated.isChatListCollapsed)
 

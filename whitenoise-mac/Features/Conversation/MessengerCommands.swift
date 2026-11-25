@@ -198,7 +198,8 @@ private struct ConversationMenuItems: View {
                 guard isCurrent() else { return }
                 switch unreadAction {
                 case .markRead:
-                    await workspace.markChatAsRead(chat, conversation: conversation)
+                    guard let conversation else { return }
+                    await actions.markAsRead(conversation: conversation)
                 case .clearUnreadReminder:
                     await workspace.setChatManuallyUnread(chat, manuallyUnread: false)
                 case .markUnread:

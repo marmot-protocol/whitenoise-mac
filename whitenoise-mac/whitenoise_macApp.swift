@@ -23,7 +23,6 @@ final class AppLifecycleObserver {
             .sink { [weak workspace] notification in
                 guard ConversationWindowIdentity.matches(notification.object) else { return }
                 workspace?.leaveActiveConversation()
-                ConversationWindowIdentity.window = nil
             }
             .store(in: &cancellables)
 
@@ -108,9 +107,6 @@ struct whitenoise_macApp: App {
                 .task(id: workspace.selectedChat?.id) {
                     await synchronizeConversationProjection()
                 }
-                .task(id: workspace.isOffline) {
-                    session.updateConnectivity(available: !workspace.isOffline)
-                }
                 .onChange(of: scenePhase) { _, phase in
                     let activity: ProductAnalyticsActivityFfi?
                     switch phase {
@@ -136,6 +132,9 @@ struct whitenoise_macApp: App {
             notificationResponses.phaseDidChange()
         }
         .onChange(of: workspace.showsMessengerChrome, initial: true) { settings.synchronize() }
+        .onChange(of: workspace.isOffline, initial: true) {
+            session.updateConnectivity(available: !workspace.isOffline)
+        }
         .onChange(of: workspace.developerMode) { settings.synchronize() }
         .onChange(of: workspace.signedInAccounts.map(\.id)) { settings.synchronize() }
         .onChange(of: applicationBadgeCount, initial: true) { _, count in
