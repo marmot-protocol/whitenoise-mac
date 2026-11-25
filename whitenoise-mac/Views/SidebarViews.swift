@@ -25,6 +25,11 @@ struct UnreadCountBadge: View {
     }
 }
 
+private struct SidebarSnippetRequest: Equatable {
+    let text: String
+    let groups: Set<String>
+}
+
 struct ChatListDrawerView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
@@ -72,13 +77,8 @@ struct ChatListDrawerView: View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 0) {
-            if let globalSearch, globalSearch.isActive {
-                SidebarGlobalSearchView(
-                    model: globalSearch,
-                    onBack: { globalSearch.dismiss() },
-                    onOpenResult: onOpenGlobalSearchResult
-                )
-            } else if workspace.isNewChatComposerVisible && workspace.composePane == .newChat {
+            if workspace.isNewChatComposerVisible && workspace.composePane == .newChat && globalSearch?.isActive != true
+            {
                 NewChatPanelView()
             } else {
                 let filter = workspace.chatListFilter
@@ -87,10 +87,30 @@ struct ChatListDrawerView: View {
                 let visibleChats = listing.chats
                 let showsBulkControls = SidebarSearchModeSelectionPolicy.showsBulkSelectionControls(
                     isSelectionActive: selection?.isActive == true,
-                    isGlobalMessageSearchActive: globalSearch?.isActive == true
+                    isGlobalMessageSearchActive: globalSearch?.openedByCommand == true
                 )
                 let activeSelection = showsBulkControls ? selection : nil
 
+                let showsMessageMatches = activeSelection == nil && isSearching
+                let matchedMessages = Dictionary(
+                    (globalSearch?.results ?? []).map { ($0.groupId, $0) },
+                    uniquingKeysWith: { newest, _ in newest }
+                )
+                let snippetRequest = snippetRequest(
+                    chats: visibleChats, matchedMessages: matchedMessages, showsMessages: showsMessageMatches)
+
+                if globalSearch?.openedByCommand == true
+                    && (workspace.isNewChatComposerVisible || selection?.isActive == true)
+                {
+                    HStack {
+                        Button(L10n.string("Back", locale: locale)) {
+                            dismissSidebarSearch()
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                }
                 SidebarProfileSwitcherView(
                     signedInAccounts: workspace.signedInAccounts,
                     activeAccount: workspace.activeAccount,
@@ -105,12 +125,27 @@ struct ChatListDrawerView: View {
                     text: $workspace.searchText,
                     accessibilityIdentifier: "chat.search",
                     placeholder: L10n.string("Search", locale: locale),
+                    autofocus: globalSearch?.openedByCommand == true,
                     focusRequest: sidebarSearchFocusRequest
                 )
+                .onKeyPress(.downArrow) {
+                    showsMessageMatches && globalSearch?.moveSelection(down: true) == true ? .handled : .ignored
+                }
+                .onKeyPress(.upArrow) {
+                    showsMessageMatches && globalSearch?.moveSelection(down: false) == true ? .handled : .ignored
+                }
+                .onSubmit {
+                    if showsMessageMatches, let globalSearch, let result = globalSearch.selectedResult() {
+                        onOpenGlobalSearchResult(result, globalSearch.query)
+                    }
+                }
+                .onExitCommand {
+                    dismissSidebarSearch()
+                }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
 
-                if filter != .active {
+                if filter != .active && globalSearch?.openedByCommand != true {
                     HStack(spacing: 6) {
                         Label(filter.title, systemImage: filter.systemImage)
                             .font(.subheadline.weight(.medium))
@@ -157,150 +192,192 @@ struct ChatListDrawerView: View {
                         .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 }
 
-                List(selection: openChatSelection(in: visibleChats)) {
-                    ForEach(visibleChats) { chat in
-                        ChatSidebarRow(
-                            chat: chat,
-                            isArchived: listing.archivedIds.contains(chat.id),
-                            searchResult: workspace.sidebarMessageSearchResult(for: chat),
-                            selection: showsBulkControls ? selection : nil
-                        )
-                        .tag(chat.id)
-                        .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
-                        .listRowSeparator(.hidden)
-                        .onAppear {
-                            if isSearching {
-                                search?.setVisibleAnchor(groupIdHex: chat.id)
-                                if chat.id == visibleChats.last?.id { search?.pageForward() }
-                                if chat.id == visibleChats.first?.id { search?.pageBackward() }
-                                return
-                            }
-                            guard filter == .active else { return }
-                            model?.setVisibleWindowAnchor(groupIdHex: chat.id)
-                            if chat.id == visibleChats.last?.id {
-                                Task { await model?.pageWindow(.forward) }
-                            }
-                            if chat.id == visibleChats.first?.id {
-                                Task { await model?.pageWindow(.backward) }
-                            }
-                        }
-                    }
-
-                    if isSearching, search?.isTruncated == true, search?.hasMoreRows == false {
-                        ChatListSearchTruncatedNote()
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 8, trailing: 8))
-                    }
-                }
-                .listStyle(.sidebar)
-                .textSelection(.disabled)
-                .toolbar {
-                    ToolbarItem(placement: .automatic) {
-                        ChatListFilterMenu()
-                    }
-                    ToolbarItem(placement: .automatic) {
-                        Button(action: openGlobalMessageSearch) {
-                            Label(
-                                L10n.string("Search all messages", locale: locale),
-                                systemImage: "text.magnifyingglass"
-                            )
-                        }
-                        .help(L10n.string("Search all messages", locale: locale))
-                        .accessibilityIdentifier("chat.search.global")
-                    }
-                    if !isShowingArchived {
-                        ToolbarItem(placement: .automatic) {
-                            Button {
-                                workspace.showNewChat()
-                            } label: {
-                                Label(L10n.string("New chat", locale: locale), systemImage: "square.and.pencil")
-                            }
-                            .help(L10n.string("New chat", locale: locale))
-                        }
-                    }
-                }
-                .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
-                .overlay {
-                    if visibleChats.isEmpty {
-                        if isSearching, search?.phase != .ready, search?.phase != .failed {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else if isSearching, search?.phase == .failed {
-                            ChatListSearchFailedState {
-                                // The search key has not changed, so `.onChange` will not rerun it;
-                                // a failed search reruns the same text when asked again.
-                                search?.search(
-                                    workspace.searchText,
-                                    view: filter.chatListView,
-                                    condition: filter.chatListCondition
+                ScrollViewReader { proxy in
+                    List(selection: openChatSelection(in: visibleChats, isSelecting: showsBulkControls)) {
+                        Section {
+                            ForEach(visibleChats) { chat in
+                                ChatSidebarRow(
+                                    chat: chat,
+                                    isArchived: listing.archivedIds.contains(chat.id),
+                                    searchResult: matchedMessages[chat.id]
+                                        ?? workspace.sidebarMessageSearchResult(for: chat),
+                                    selection: globalSearch?.openedByCommand == true && selection?.isActive == true
+                                        ? nil : selection
                                 )
+                                .tag(chat.id)
+                                .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
+                                .listRowSeparator(.hidden)
+                                .onAppear {
+                                    if isSearching {
+                                        search?.setVisibleAnchor(groupIdHex: chat.id)
+                                        if chat.id == visibleChats.last?.id { search?.pageForward() }
+                                        if chat.id == visibleChats.first?.id { search?.pageBackward() }
+                                        return
+                                    }
+                                    guard filter == .active else { return }
+                                    model?.setVisibleWindowAnchor(groupIdHex: chat.id)
+                                    if chat.id == visibleChats.last?.id {
+                                        Task { await model?.pageWindow(.forward) }
+                                    }
+                                    if chat.id == visibleChats.first?.id {
+                                        Task { await model?.pageWindow(.backward) }
+                                    }
+                                }
                             }
-                            .padding()
-                        } else if isSearching {
-                            WNEmptyStateView(
-                                title: L10n.string("No matching chats", locale: locale),
-                                systemImage: "magnifyingglass"
-                            )
-                            .padding()
-                        } else {
-                            switch filter {
-                            case .archived:
-                                ArchivedEmptyDrawerState()
-                            case .unread:
-                                UnreadEmptyDrawerState()
-                            case .invites:
-                                InvitesEmptyDrawerState()
-                            case .left:
-                                LeftEmptyDrawerState()
-                            case .active:
-                                // An account with no chats at all is told so by the detail
-                                // pane, which has room for the invitation to start one and
-                                // nothing else to say. Repeating it here left the window
-                                // holding two notices about the same nothing. When the
-                                // active drawer is empty only because everything is
-                                // archived, the detail pane is back to "Select a chat" and
-                                // this rail is the only place that fact can be stated.
-                                if !workspace.hasNoChats {
-                                    EmptyDrawerState()
+
+                            if isSearching, search?.isTruncated == true, search?.hasMoreRows == false {
+                                ChatListSearchTruncatedNote()
+                                    .listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 8, trailing: 8))
+                            }
+                            if isSearching, visibleChats.isEmpty {
+                                if search?.phase == .failed {
+                                    ChatListSearchFailedState {
+                                        search?.search(
+                                            workspace.searchText, view: filter.chatListView,
+                                            condition: filter.chatListCondition)
+                                    }
+                                } else if search?.phase == .ready {
+                                    Text(L10n.string("No matching chats", locale: locale)).foregroundStyle(.secondary)
+                                } else {
+                                    ProgressView().controlSize(.small)
+                                }
+                            }
+                        } header: {
+                            if isSearching { Text(L10n.string("Chats", locale: locale)) }
+                        }
+                        if showsMessageMatches, let globalSearch {
+                            Section(L10n.string("Messages", locale: locale)) {
+                                if globalSearch.isSearching {
+                                    ProgressView().controlSize(.small)
+                                } else if let error = globalSearch.error {
+                                    Text(error).foregroundStyle(.secondary)
+                                    Button(L10n.string("Try Again", locale: locale)) { globalSearch.retry() }
+                                } else if globalSearch.results.isEmpty {
+                                    Text(L10n.string("No messages found", locale: locale)).foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(globalSearch.results) { result in
+                                        SidebarGlobalSearchRow(
+                                            result: result, isSelected: result.id == globalSearch.selectedResultID
+                                        ) {
+                                            globalSearch.selectedResultID = result.id
+                                            onOpenGlobalSearchResult(result, globalSearch.query)
+                                        }
+                                        .id(result.id)
+                                    }
+                                    if globalSearch.isTruncated {
+                                        Text(
+                                            L10n.string(
+                                                "Results include the newest 50 matches from your visible chats.",
+                                                locale: locale)
+                                        )
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                .onChange(of: workspace.searchText) { _, _ in
-                    // MDK's search (`ChatListSearchViewModel`) decides which chats match and owns
-                    // the progress shown in the list. This legacy search only supplies each
-                    // row's message snippet (`sidebarMessageSearchResult(for:)`), so it shows no
-                    // spinner of its own; a second one would duplicate the list's.
-                    workspace.scheduleSidebarMessageSearch()
-                }
-                .onChange(
-                    of: ChatListSearchKey(
-                        text: workspace.searchText,
-                        view: filter.chatListView,
-                        condition: filter.chatListCondition
-                    ),
-                    initial: true
-                ) { _, key in
-                    search?.search(key.text, view: key.view, condition: key.condition)
-                }
-                .onChange(
-                    of: ChatListSelectionScope(
-                        query: isSearching
-                            ? search?.matchesQuery ?? filter.unfilteredQuery
-                            : filter.unfilteredQuery,
-                        // Every tab reads Select All's universe from MDK. The inbox and search
-                        // results are bounded windows, and the other tabs are drawn by host
-                        // predicates that do not match MDK's views (MDK files a chat that is both
-                        // archived and left under Left only; the Archived tab lists it too). The
-                        // batch revalidates against MDK's view, so counting the host's rows would
-                        // promise chats it then silently drops.
-                        isWindowed: true,
-                        visibleIds: visibleChats.map(\.id)
-                    ),
-                    initial: true
-                ) { _, scope in
-                    selection?.updateVisibleChats(scope.visibleIds, query: scope.query, isWindowed: scope.isWindowed)
+                    .listStyle(.sidebar)
+                    .textSelection(.disabled)
+                    .toolbar {
+                        if globalSearch?.openedByCommand != true {
+                            ToolbarItem(placement: .automatic) {
+                                ChatListFilterMenu()
+                            }
+                        }
+                        if !isShowingArchived && !workspace.isNewChatComposerVisible
+                            && globalSearch?.openedByCommand != true
+                        {
+                            ToolbarItem(placement: .automatic) {
+                                Button {
+                                    workspace.showNewChat()
+                                } label: {
+                                    Label(L10n.string("New chat", locale: locale), systemImage: "square.and.pencil")
+                                }
+                                .help(L10n.string("New chat", locale: locale))
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
+                    .overlay {
+                        if visibleChats.isEmpty {
+                            if !isSearching {
+                                switch filter {
+                                case .archived:
+                                    ArchivedEmptyDrawerState()
+                                case .unread:
+                                    UnreadEmptyDrawerState()
+                                case .invites:
+                                    InvitesEmptyDrawerState()
+                                case .left:
+                                    LeftEmptyDrawerState()
+                                case .active:
+                                    // An account with no chats at all is told so by the detail
+                                    // pane, which has room for the invitation to start one and
+                                    // nothing else to say. Repeating it here left the window
+                                    // holding two notices about the same nothing. When the
+                                    // active drawer is empty only because everything is
+                                    // archived, the detail pane is back to "Select a chat" and
+                                    // this rail is the only place that fact can be stated.
+                                    if !workspace.hasNoChats {
+                                        EmptyDrawerState()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .onChange(of: snippetRequest, initial: true) { _, request in
+                        workspace.scheduleSidebarMessageSearch(in: request.groups)
+                    }
+                    .onChange(of: showsMessageMatches, initial: true) { _, shows in
+                        if shows {
+                            if globalSearch?.isActive == false {
+                                globalSearch?.activate(initialQuery: workspace.searchText)
+                            }
+                            globalSearch?.query = workspace.searchText
+                        } else {
+                            globalSearch?.query = ""
+                        }
+                    }
+                    .onChange(
+                        of: ChatListSearchKey(
+                            text: workspace.searchText,
+                            view: filter.chatListView,
+                            condition: filter.chatListCondition
+                        ),
+                        initial: true
+                    ) { _, key in
+                        search?.search(key.text, view: key.view, condition: key.condition)
+                        if showsMessageMatches {
+                            if globalSearch?.isActive == false { globalSearch?.activate(initialQuery: key.text) }
+                            globalSearch?.query = key.text
+                        } else if globalSearch?.hasQuery == true {
+                            globalSearch?.query = ""
+                        }
+                    }
+                    .onChange(
+                        of: ChatListSelectionScope(
+                            query: isSearching
+                                ? search?.matchesQuery ?? filter.unfilteredQuery
+                                : filter.unfilteredQuery,
+                            // Every tab reads Select All's universe from MDK. The inbox and search
+                            // results are bounded windows, and the other tabs are drawn by host
+                            // predicates that do not match MDK's views (MDK files a chat that is both
+                            // archived and left under Left only; the Archived tab lists it too). The
+                            // batch revalidates against MDK's view, so counting the host's rows would
+                            // promise chats it then silently drops.
+                            isWindowed: true,
+                            visibleIds: visibleChats.map(\.id)
+                        ),
+                        initial: true
+                    ) { _, scope in
+                        guard globalSearch?.openedByCommand != true else { return }
+                        selection?.updateVisibleChats(
+                            scope.visibleIds, query: scope.query, isWindowed: scope.isWindowed)
+                    }
+                    .onChange(of: globalSearch?.selectedResultID) { _, id in
+                        if showsMessageMatches, let id { proxy.scrollTo(id) }
+                    }
                 }
 
                 if let activeSelection {
@@ -323,13 +400,16 @@ struct ChatListDrawerView: View {
         .focusedSceneValue(
             \.sidebarSearchFocus,
             SidebarSearchFocus {
-                if let globalSearch, globalSearch.isActive {
-                    globalSearch.activate()
+                if workspace.isNewChatComposerVisible {
+                    SidebarGlobalSearchViewModel.open(in: workspace, globalSearch: globalSearch)
                 } else {
                     sidebarSearchFocusRequest = UUID()
                 }
             }
         )
+        .onChange(of: globalSearch?.focusRequest) { _, request in
+            if let request { sidebarSearchFocusRequest = request }
+        }
         .animation(reduceMotion ? .none : .smooth(duration: 0.18), value: selection?.isActive == true)
         .onChange(of: showsSelectableList) { _, shows in
             // Selection belongs to the list on screen: settings, the composer or the collapsed rail
@@ -340,6 +420,9 @@ struct ChatListDrawerView: View {
         // Selection would stay armed with no Done button on screen, and the conversation toolbar
         // leaves Escape to that missing button.
         .onDisappear { selection?.end() }
+        .onChange(of: workspace.isNewChatComposerVisible || selection?.isActive == true) { _, hasCoveredFlow in
+            if !hasCoveredFlow { globalSearch?.releaseCoveredFlow() }
+        }
         .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
             if isVisible {
                 globalSearch?.dismiss()
@@ -348,15 +431,31 @@ struct ChatListDrawerView: View {
         .modifier(ChatListSelectionDialogs(model: selection))
     }
 
-    private func openGlobalMessageSearch() {
-        globalSearch?.activate(initialQuery: workspace.searchText)
+    private func dismissSidebarSearch() {
+        workspace.searchText = globalSearch?.queryBeforeCommand ?? ""
+        globalSearch?.dismiss()
+    }
+
+    private func snippetRequest(
+        chats: [ChatItem], matchedMessages: [String: GlobalMessageSearchResult], showsMessages: Bool
+    ) -> SidebarSnippetRequest {
+        let text = workspace.searchText
+        guard isSearching else { return SidebarSnippetRequest(text: text, groups: []) }
+        // Message search already visited the chats in the selected filter. Look up a separate row snippet only
+        // when its match was beyond the cap, outside that scope or the message list is hidden.
+        let scopedIDs = Set(workspace.filteredMessageSearchChats.map(\.id))
+        let limited = globalSearch?.isTruncated == true || globalSearch?.error != nil
+        let groups = chats.filter {
+            matchedMessages[$0.id] == nil && (!showsMessages || !scopedIDs.contains($0.id) || limited)
+        }
+        return SidebarSnippetRequest(text: text, groups: Set(groups.map(\.id)))
     }
 
     private var showsSelectableList: Bool {
         !workspace.isNewChatComposerVisible && workspace.isChatListVisible
     }
 
-    private func openChatSelection(in visibleChats: [ChatItem]) -> Binding<String?> {
+    private func openChatSelection(in visibleChats: [ChatItem], isSelecting: Bool) -> Binding<String?> {
         Binding(
             get: {
                 if case .chat(let id) = workspace.selection { return id }
@@ -369,7 +468,7 @@ struct ChatListDrawerView: View {
                     ChatListRowClickPolicy.shouldApplyNativeListSelection(
                         newId: newId,
                         currentOpenChatId: currentOpenId,
-                        isBatchSelectionActive: selection?.isActive == true,
+                        isBatchSelectionActive: isSelecting,
                         modifiers: NSEvent.modifierFlags
                     ),
                     let newId,
@@ -478,9 +577,7 @@ private struct ChatListFilterMenu: View {
         } label: {
             Label(
                 L10n.string("Filter chats", locale: locale),
-                systemImage: workspace.chatListFilter == .active
-                    ? "line.3.horizontal.decrease.circle"
-                    : "line.3.horizontal.decrease.circle.fill"
+                systemImage: "line.3.horizontal.decrease"
             )
         }
         .menuIndicator(.hidden)

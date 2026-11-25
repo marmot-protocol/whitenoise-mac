@@ -32,7 +32,9 @@ final class SidebarGlobalSearchViewModel {
     private(set) var results: [GlobalMessageSearchResult] = []
     private(set) var isSearching = false
     private(set) var error: String?
-    private(set) var focusRequest = UUID()
+    private(set) var focusRequest: UUID?
+    private(set) var queryBeforeCommand: String?
+    var openedByCommand: Bool { queryBeforeCommand != nil }
     var selectedResultID: String?
 
     var query = "" {
@@ -72,13 +74,18 @@ final class SidebarGlobalSearchViewModel {
 
     /// Opens sidebar global message search without tearing down an active New Chat / New Group
     /// composer draft underneath (`⇧⌘F`, #1043).
-    static func open(in workspace: WorkspaceState, globalSearch: SidebarGlobalSearchViewModel?) {
+    static func open(
+        in workspace: WorkspaceState, globalSearch: SidebarGlobalSearchViewModel?, coveringSelection: Bool = false
+    ) {
         workspace.isChatListVisible = true
+        if workspace.isNewChatComposerVisible || coveringSelection, globalSearch?.queryBeforeCommand == nil {
+            globalSearch?.queryBeforeCommand = workspace.searchText
+        }
+        globalSearch?.focusRequest = UUID()
         globalSearch?.activate(initialQuery: workspace.searchText)
     }
 
     func activate(initialQuery: String? = nil) {
-        focusRequest = UUID()
         let trimmedInitial = initialQuery?.trimmingCharacters(in: .whitespacesAndNewlines)
         if !isActive {
             openResultTask?.cancel()
@@ -107,11 +114,16 @@ final class SidebarGlobalSearchViewModel {
         openResultTask = nil
         searchSessionID = UUID()
         isActive = false
+        queryBeforeCommand = nil
         query = ""
         results = []
         isSearching = false
         error = nil
         selectedResultID = nil
+    }
+
+    func releaseCoveredFlow() {
+        queryBeforeCommand = nil
     }
 
     func stop() {
@@ -163,11 +175,8 @@ final class SidebarGlobalSearchViewModel {
                 return
             }
             self.openResultTask = nil
-            if target != nil {
-                self.dismiss()
-            } else {
-                self.invalidate(clearQuery: false, restartIfActive: true)
-            }
+            guard self.query == query else { return }
+            if target == nil { self.invalidate(clearQuery: false, restartIfActive: true) }
         }
     }
 

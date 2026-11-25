@@ -18,7 +18,7 @@ struct ConversationSearchBar: View {
                 autofocus: true,
                 focusRequest: model.focusRequest
             )
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: 340)
             .onSubmit(submitSearch)
             // ↑ / ↓ step like the chevrons beside the field. The field is one line, so the caret
             // loses nothing; at boundaries or with no matches the keys fall through to it.
@@ -54,6 +54,7 @@ struct ConversationSearchBar: View {
             )
             .accessibilityIdentifier("conversation.search.close")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .accessibilityIdentifier("conversation.search")

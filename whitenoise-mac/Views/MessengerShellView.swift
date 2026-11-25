@@ -183,7 +183,7 @@ struct MessengerShellView: View {
         .onChange(of: workspace.showsMessengerChrome) { _, shows in
             if !shows { session.accountScope?.globalMessageSearch.dismiss() }
         }
-        .onChange(of: Set(workspace.activeChats.map(\.id))) { oldIds, newIds in
+        .onChange(of: Set(workspace.filteredMessageSearchChats.map(\.id))) { oldIds, newIds in
             guard oldIds != newIds else { return }
             session.accountScope?.globalMessageSearch.handleVisibleChatsChanged(visibleGroupIds: newIds)
         }
@@ -194,7 +194,9 @@ struct MessengerShellView: View {
     }
 
     private func openSidebarGlobalSearch() {
-        SidebarGlobalSearchViewModel.open(in: workspace, globalSearch: session.accountScope?.globalMessageSearch)
+        SidebarGlobalSearchViewModel.open(
+            in: workspace, globalSearch: session.accountScope?.globalMessageSearch,
+            coveringSelection: session.accountScope?.chatListSelection.isActive == true)
     }
 }
 

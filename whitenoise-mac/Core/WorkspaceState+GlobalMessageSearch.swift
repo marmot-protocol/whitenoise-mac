@@ -387,7 +387,7 @@ nonisolated enum GlobalMessageSearchEngine {
 
 @MainActor
 extension WorkspaceState {
-    func scheduleSidebarMessageSearch() {
+    func scheduleSidebarMessageSearch(in groups: Set<String>? = nil) {
         sidebarMessageSearchTask?.cancel()
         sidebarMessageSearchTask = nil
         sidebarMessageSearchGeneration &+= 1
@@ -396,7 +396,7 @@ extension WorkspaceState {
         sidebarMessageSearchResultQuery = ""
 
         let query = searchText
-        guard !GlobalMessageSearchText.tokens(in: query).isEmpty else {
+        guard groups?.isEmpty != true, !GlobalMessageSearchText.tokens(in: query).isEmpty else {
             isSearchingSidebarMessages = false
             return
         }
@@ -405,7 +405,7 @@ extension WorkspaceState {
             return
         }
 
-        let scopes = sidebarMessageSearchScopes
+        let scopes = sidebarMessageSearchScopes.filter { groups?.contains($0.groupId) != false }
         let visibleGroupIds = Set(scopes.map(\.groupId))
         let nicknames = activeContactNicknames
         isSearchingSidebarMessages = true
@@ -427,7 +427,7 @@ extension WorkspaceState {
                 }
                 guard self.sidebarMessageSearchGeneration == generation,
                     self.activeAccountId == account.id,
-                    Set(self.sidebarMessageSearchScopes.map(\.groupId)) == visibleGroupIds,
+                    visibleGroupIds.isSubset(of: Set(self.sidebarMessageSearchScopes.map(\.groupId))),
                     self.searchText == query
                 else { return }
                 self.sidebarMessageSearchResultsByGroupId = Dictionary(
@@ -467,6 +467,16 @@ extension WorkspaceState {
         return sidebarMessageSearchResultsByGroupId[chat.id]
     }
 
+    var filteredMessageSearchChats: [ChatItem] {
+        switch chatListFilter {
+        case .active: activeChats.filter { !$0.belongsToLeft }
+        case .unread: activeChats.filter { $0.hasUnread && !$0.belongsToLeft }
+        case .invites: activeChats.filter { $0.pendingConfirmation && !$0.belongsToLeft }
+        case .archived: archivedChats.filter { !$0.belongsToLeft }
+        case .left: (activeChats + archivedChats).filter(\.belongsToLeft)
+        }
+    }
+
     private var sidebarMessageSearchScopes: [GlobalMessageSearchScope] {
         var seen = Set<String>()
         return (activeChats + archivedChats).compactMap { chat in
@@ -481,7 +491,7 @@ extension WorkspaceState {
         searchQuery: String? = nil
     ) async -> GlobalMessageNavigationTarget? {
         guard let account = activeAccount,
-            let chat = activeChats.first(where: { $0.id == result.groupId })
+            let chat = (activeChats + archivedChats).first(where: { $0.id == result.groupId })
         else {
             return nil
         }

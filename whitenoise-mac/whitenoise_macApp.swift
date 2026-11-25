@@ -278,7 +278,9 @@ struct whitenoise_macApp: App {
                 guard let workspace, let accountID = activatingAccountID,
                     workspace.activeAccountId == accountID
                 else { return [] }
-                return workspace.activeChats.map { GlobalMessageSearchScope(groupId: $0.id, title: $0.title) }
+                return workspace.filteredMessageSearchChats.map {
+                    GlobalMessageSearchScope(groupId: $0.id, title: $0.title)
+                }
             },
             globalMessageSearchNicknames: { [weak workspace] in
                 guard let workspace, let accountID = activatingAccountID,
