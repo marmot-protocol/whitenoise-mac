@@ -2,51 +2,57 @@
 //  AppearanceSettingsView.swift
 //  whitenoise-mac
 //
-//  The Appearance page: how closely White Noise follows the macOS appearance.
+//  The Appearance page: how closely White Noise follows the macOS appearance and language.
 //
 
 import SwiftUI
 
 struct AppearanceSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.locale) private var locale
 
     var body: some View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: L10n.string("Appearance"),
-            subtitle: L10n.string("Choose the theme and language White Noise uses.")
+            title: L10n.string("Appearance", locale: locale),
+            subtitle: L10n.string("Choose the appearance and language White Noise uses.", locale: locale)
         ) {
-            // Three options, drawn as the three options rather than as a pop-up that hides two
-            // of them: what Light and Dark mean is only clear next to System.
-            //
-            // The note under them says what each one does rather than repeating the page title,
-            // because "System" is the only one of the three whose behaviour is not in its name —
-            // it is the one that keeps changing after it is chosen.
-            SettingsChoiceSection(
-                title: L10n.string("Theme"),
-                footer: L10n.string(
-                    "System follows your Mac appearance. Light and Dark keep the selected appearance."
-                ),
-                choices: AppearancePreference.allCases,
-                selection: $workspace.appearancePreference
-            ) { preference in
-                preference.label
-            }
-
-            // Language keeps the pop-up: ten of them is past the point where laying the list out
-            // in the group helps, and the chosen one is the only one that has to be legible.
             SettingsSection(
                 footer: L10n.string(
-                    "System follows your Mac language. Other choices update White Noise immediately."
+                    "System follows your Mac appearance. Light and Dark keep the selected appearance.",
+                    locale: locale
                 )
             ) {
-                Picker(L10n.string("Language"), selection: $workspace.languagePreference) {
-                    ForEach(AppLanguage.pickerChoices) { language in
-                        Text(language.displayName).tag(language)
+                Picker(L10n.string("Appearance", locale: locale), selection: $workspace.appearancePreference) {
+                    ForEach(AppearancePreference.allCases) { preference in
+                        Text(preference.label(in: locale)).tag(preference)
                     }
                 }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("settings.appearance.mode")
+            }
+
+            SettingsSection(
+                footer: L10n.string(
+                    "System follows your Mac language. Other choices update White Noise immediately.",
+                    locale: locale
+                )
+            ) {
+                Picker(L10n.string("Language", locale: locale), selection: $workspace.languagePreference) {
+                    ForEach(AppLanguage.pickerChoices) { language in
+                        Text(language.displayName(in: locale)).tag(language)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.appearance.language")
             }
         }
     }
+}
+
+#Preview("Appearance settings") {
+    AppearanceSettingsView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 560, height: 420)
 }

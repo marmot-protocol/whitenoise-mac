@@ -85,10 +85,10 @@ private struct HelpImproveWhiteNoiseHeader: View {
             if showsSharingDetails {
                 GlassCircleCloseButton(symbol: "chevron.left", help: "Back", appearance: .outline, action: onBack)
                 Text(L10n.string("What’s shared"))
-                    .wnFont(.semiBold14)
+                    .font(.headline)
             } else {
                 Text(L10n.string("Help Improve White Noise"))
-                    .wnFont(.semiBold14)
+                    .font(.headline)
             }
             Spacer()
             GlassCircleCloseButton(appearance: .outline, action: onClose)
@@ -125,7 +125,7 @@ private struct HelpImproveWhiteNoiseChoices: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(WNColor.backgroundContentPrimary)
                 }
-                .wnFont(.medium10)
+                .font(.caption)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -152,7 +152,6 @@ private struct HelpImproveWhiteNoiseFooter: View {
             WNPrimaryButton(size: .small, action: onDone) {
                 Text(L10n.string("Done")).frame(minWidth: 96)
             }
-            .wnButtonShape(.capsule)
             .keyboardShortcut(.defaultAction)
             .disabled(isDisabled)
         }

@@ -306,6 +306,7 @@ private struct ConcealedKeyBullets: View {
 /// `ncryptsec1` file that is useless to whoever finds it without the password; the other one is
 /// the account itself, in a file, and it goes behind a confirmation that says so.
 struct ProfileKeysBackupSection: View {
+    @Environment(\.locale) private var locale
     let isExporting: Bool
     let exportWithoutPassword: @MainActor () async -> Void
     /// Runs as the password sheet opens, so a revealed key is not left on the page behind it.
@@ -347,6 +348,7 @@ struct ProfileKeysBackupSection: View {
         }
         .sheet(isPresented: $isShowingEncryptedExport) {
             EncryptedPrivateKeyExportSheet()
+                .environment(\.locale, locale)
         }
         .confirmationDialog(
             L10n.string("Export Without a Password?"),

@@ -93,7 +93,7 @@ struct SettingsFooterText: View {
         // types and cannot meet in a ternary — the branch has to be over the view.
         let note =
             Text(text)
-            .wnFont(.medium10)
+            .font(.caption)
             .foregroundStyle(WNColor.backgroundContentSecondary)
             // A note is prose, so it wraps rather than truncating, and it stays left-aligned
             // against the group above it however wide the pane gets.
@@ -131,7 +131,7 @@ struct SettingsNavigationRow: View {
                 Spacer(minLength: 0)
 
                 Image(systemName: "chevron.right")
-                    .wnFont(.semiBold10)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(WNColor.backgroundContentTertiary)
             }
             // The whole row is the target, not just the words in it — the shape the account
@@ -139,39 +139,6 @@ struct SettingsNavigationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-/// A `WNSelect` with the group and the note around it, the shape a settings page reaches for.
-///
-/// A pop-up hides every option but the chosen one, which is the wrong trade for a setting
-/// whose options are the explanation — appearance, or how much of a message a notification
-/// may repeat. The alternatives are laid out in the group so the choice and the options it
-/// was made from are read together. Keep it to a handful; a long list wants the menu back.
-///
-/// The rows are written out rather than left to `Picker(.inline)`, which is the one thing the
-/// grouped `Form` draws differently from the shape this surface is designed against. An inline
-/// `Picker` on macOS puts a grey radio dot on *every* row, so three options cost three controls
-/// and the reader has to compare their fills to find the live one. The reference design marks
-/// only the selection, with a trailing checkmark — one mark on the page, in the column the eye
-/// is already scanning for it.
-///
-/// Writing them out is `WNSelect`'s job, not this type's, for the same reason the switch is
-/// `WNToggle`'s: settings is not the only surface that offers a choice. Reach past this to
-/// `WNSelect` directly only for a group that has something else to say *inside* the card — the
-/// notification preview, whose chosen mode is spelled out as the notification it would post,
-/// under the row that picks it.
-struct SettingsChoiceSection<Value: Hashable>: View {
-    var title: String?
-    var footer: String?
-    let choices: [Value]
-    @Binding var selection: Value
-    let label: (Value) -> String
-
-    var body: some View {
-        SettingsSection(title: title, footer: footer) {
-            WNSelect(options: choices, selection: $selection, label: label)
-        }
     }
 }
 
@@ -224,7 +191,7 @@ struct SettingsStatusNote: View {
             switch self {
             case .success: WNColor.intentionSuccessContent
             case .warning: WNColor.intentionWarningContent
-            case .failure: WNColor.backgroundContentDestructive
+            case .failure: WNColor.intentionErrorContent
             }
         }
 
@@ -243,7 +210,7 @@ struct SettingsStatusNote: View {
 
     var body: some View {
         Label(text, systemImage: systemImage ?? intention.systemImage)
-            .wnFont(.medium12)
+            .font(.subheadline)
             .foregroundStyle(intention.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,7 +224,7 @@ struct SettingsStatusNote: View {
 struct SettingsVersionFooter: View {
     var body: some View {
         Text(verbatim: "White Noise · \(Self.shortVersion) (\(Self.buildNumber))")
-            .wnFont(.medium10)
+            .font(.caption)
             .foregroundStyle(WNColor.backgroundContentTertiary)
             .frame(maxWidth: .infinity, alignment: .center)
     }

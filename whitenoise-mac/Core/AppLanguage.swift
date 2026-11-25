@@ -202,9 +202,13 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
     }
 
     var displayName: String {
+        displayName(in: AppLanguage.currentLocale)
+    }
+
+    func displayName(in locale: Locale) -> String {
         switch self {
         case .system:
-            L10n.string("System")
+            L10n.string("System", locale: locale)
         case .english:
             "English"
         case .german:

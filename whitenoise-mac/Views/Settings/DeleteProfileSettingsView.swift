@@ -75,7 +75,7 @@ private struct DeleteProfileIdentityRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(account.displayName)
-                    .wnFont(.semiBold14)
+                    .font(.headline)
                     .lineLimit(1)
                 CopyableKeyLabel(accountIdHex: account.accountIdHex)
             }
@@ -148,10 +148,10 @@ private struct DeleteProfileConsequenceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(L10n.string(consequence.title))
-                .wnFont(.semiBold14)
+                .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             Text(L10n.string(consequence.detail))
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -189,12 +189,12 @@ struct DeleteProfileConfirmationForm: View {
             .onSubmit(submit)
 
             Text(DeleteProfileConfirmationHint.text(challenge: challenge))
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .fixedSize(horizontal: false, vertical: true)
 
             if model.showsExtraWhitespaceHint(challenge: challenge) {
                 Text(L10n.string("Remove extra spaces before or after the profile name."))
-                    .wnFont(.medium12)
+                    .font(.subheadline)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

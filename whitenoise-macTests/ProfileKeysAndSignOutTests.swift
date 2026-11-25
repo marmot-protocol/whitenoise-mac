@@ -266,14 +266,14 @@ struct ProfileKeysSourceContractTests {
         }
     }
 
-    /// The drawer's Sign Out row is the only way out of an account, and it opens the sheet rather
+    /// The sidebar's Sign Out row is the only way out of an account, and it opens the sheet rather
     /// than the dialog it used to raise.
     @Test func theDrawerSignOutRowOpensTheSheet() throws {
-        let row = try SourceContract.declaration("SettingsSignOutRow")
+        let section = try SourceContract.declaration("SettingsSidebarDestructiveSection")
 
-        #expect(row.contains("SignOutSheet(account: account)"))
-        #expect(!row.contains("signOutConfirmation"))
-        #expect(!row.contains("workspace.signOutAccount"), "the sheet decides which teardown runs")
+        #expect(section.contains("SignOutSheet(account: account)"))
+        #expect(!section.contains("signOutConfirmation"))
+        #expect(!section.contains("workspace.signOutAccount"), "the sheet decides which teardown runs")
     }
 
     /// Destructive push buttons use native `.borderedProminent` tinted `statusError` through

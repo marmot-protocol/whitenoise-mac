@@ -214,11 +214,11 @@ private struct ProfileImageSourceButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
                     .frame(width: 16)
 
                 Text(title)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
 
                 Spacer(minLength: 0)
             }

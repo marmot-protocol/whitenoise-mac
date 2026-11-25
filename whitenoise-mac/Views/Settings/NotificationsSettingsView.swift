@@ -133,7 +133,7 @@ struct NotificationsOffRow: View {
                 Text(L10n.string("Notifications are off"))
 
                 Text(L10n.string("Turn them on in System Settings to use these options."))
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -171,7 +171,8 @@ struct NotificationDeliverySection: View {
                     set: { enabled in
                         Task { await workspace.setNativePushEnabled(enabled) }
                     }
-                )
+                ),
+                presentation: .checkbox
             )
         }
         .disabled(workspace.activeAccount == nil || workspace.isSavingNotifications || !isEnabled)
@@ -194,12 +195,14 @@ struct NotificationPreviewSection: View {
             title: L10n.string("Preview"),
             footer: workspace.notificationPreviewMode.detail
         ) {
-            WNSelect(
-                options: NotificationPreviewMode.allCases,
-                selection: $workspace.notificationPreviewMode
-            ) { mode in
-                mode.label
+            Picker(L10n.string("Preview"), selection: $workspace.notificationPreviewMode) {
+                ForEach(NotificationPreviewMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
             }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+            .accessibilityIdentifier("settings.notifications.preview")
 
             NotificationPreviewExample(text: workspace.notificationPreviewMode.example)
         }
@@ -225,4 +228,10 @@ struct NotificationPreviewExample: View {
             .foregroundStyle(isEnabled ? WNColor.backgroundContentSecondary : WNColor.backgroundContentTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+#Preview("Notifications settings") {
+    NotificationsSettingsView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 560, height: 600)
 }

@@ -13,16 +13,24 @@ struct SettingsWindowView: View {
         Group {
             if workspace.showsMessengerChrome,
                 let scope = session.accountScope,
-                scope.account.id == workspace.activeAccountId,
+                let account = workspace.activeAccount,
+                scope.account.id == account.id,
                 scope.account.id == coordinator.accountID
             {
                 NavigationSplitView {
-                    SettingsListDrawerView(coordinator: coordinator)
-                        .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 300)
+                    SettingsSidebarView(
+                        coordinator: coordinator,
+                        account: account,
+                        devicesAvailable: scope.deviceLinking.isAvailable,
+                        isAccountMutationInProgress: workspace.isAccountMutationInProgress,
+                        preferredLocale: workspace.preferredLocale
+                    )
+                    .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 300)
                 } detail: {
                     SettingsPanelView(
                         model: scope.settingsModel, deviceLinking: scope.deviceLinking, page: coordinator.page)
                 }
+                .navigationTitle(coordinator.page.title(in: workspace.preferredLocale))
                 .deviceLinkSheet(
                     coordinator.hostsDeviceLinkSheet ? scope.deviceLinking : nil,
                     locale: workspace.preferredLocale,
