@@ -38,11 +38,9 @@ struct PrivacySecuritySettingsView: View {
                 SettingsNavigationRow(page: .blockedUsers)
             }
 
-            RemoteGIFLoadingSection(preference: gifPreference)
-
-            StickerLoadingSection(preference: stickerPreference)
-
-            LinkPreviewSettingsSection(preference: linkPreviewPreference)
+            RemoteContentSection(
+                gifPreference: gifPreference, stickerPreference: stickerPreference,
+                linkPreviewPreference: linkPreviewPreference)
 
             DiagnosticsAndImprovementsSections(model: model)
 
@@ -112,104 +110,67 @@ struct PrivacySecuritySettingsView: View {
     }
 }
 
-/// Whether a received GIF loads from GIPHY without a click, with a footer saying what it gives
-/// away.
-struct RemoteGIFLoadingSection: View {
-    let preference: RemoteGIFLoadingPreference
+private struct RemoteContentSection: View {
+    let gifPreference: RemoteGIFLoadingPreference
+    let stickerPreference: StickerLoadingPreference
+    let linkPreviewPreference: LinkPreviewPreference
 
     var body: some View {
-        SettingsSection(
-            footer: L10n.string(
-                "When enabled, opening a conversation can tell GIPHY your IP address and which GIF was requested. Otherwise, received GIFs load only when you tap them."
-            )
-        ) {
-            WNToggle(
-                L10n.string("Automatically Load Remote GIFs"),
-                systemImage: "play.rectangle",
+        SettingsSection(title: L10n.string("Remote Content")) {
+            remoteSwitch(
+                title: L10n.string("Automatically Load Remote GIFs"), symbol: "play.rectangle",
+                explanation: L10n.string(
+                    "When enabled, opening a conversation can tell GIPHY your IP address and which GIF was requested. Otherwise, received GIFs load only when you tap them."
+                ),
                 isOn: Binding(
-                    get: { preference.automaticallyLoads },
-                    set: { preference.setAutomaticallyLoads($0) }
-                )
+                    get: { gifPreference.automaticallyLoads }, set: { gifPreference.setAutomaticallyLoads($0) })
             )
+            remoteSwitch(
+                title: L10n.string("Automatically Load Stickers"), symbol: "face.smiling",
+                explanation: L10n.string(
+                    "When enabled, opening a conversation can tell a sticker pack’s server your IP address and which sticker was requested. Otherwise, stickers from packs you haven’t installed load only when you click them."
+                ),
+                isOn: Binding(
+                    get: { stickerPreference.automaticallyLoads }, set: { stickerPreference.setAutomaticallyLoads($0) })
+            )
+            remoteSwitch(
+                title: L10n.string("Show Link Previews"), symbol: "link",
+                explanation: L10n.string(
+                    "Shows the title and image of links in chats, and the Nostr posts they point to. Loading a preview tells your IP address to the linked website, the sites hosting its images, and the relays and lookup services a post is fetched from."
+                ),
+                isOn: Binding(
+                    get: { linkPreviewPreference.showsPreviews }, set: { linkPreviewPreference.setShowsPreviews($0) })
+            )
+        }
+    }
+
+    private func remoteSwitch(title: String, symbol: String, explanation: String, isOn: Binding<Bool>) -> some View {
+        WNToggle(isOn: isOn) {
+            Label {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                    Text(explanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } icon: {
+                Image(systemName: symbol)
+            }
         }
     }
 }
 
-#Preview("Remote GIF loading") {
+#Preview("Remote Content") {
+    let defaults = UserDefaults(suiteName: "remote-content-settings-preview")!
     Form {
-        RemoteGIFLoadingSection(
-            preference: RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: "gif-settings-preview")!)
-        )
+        RemoteContentSection(
+            gifPreference: RemoteGIFLoadingPreference(defaults: defaults),
+            stickerPreference: StickerLoadingPreference(defaults: defaults),
+            linkPreviewPreference: LinkPreviewPreference(defaults: defaults))
     }
     .formStyle(.grouped)
-    .frame(width: 520, height: 200)
-}
-
-/// Whether a received sticker from a pack the viewer has not installed loads without a click,
-/// with a footer saying what it gives away.
-struct StickerLoadingSection: View {
-    let preference: StickerLoadingPreference
-
-    var body: some View {
-        SettingsSection(
-            footer: L10n.string(
-                "When enabled, opening a conversation can tell a sticker pack’s server your IP address and which sticker was requested. Otherwise, stickers from packs you haven’t installed load only when you click them."
-            )
-        ) {
-            WNToggle(
-                L10n.string("Automatically Load Stickers"),
-                systemImage: "face.smiling",
-                isOn: Binding(
-                    get: { preference.automaticallyLoads },
-                    set: { preference.setAutomaticallyLoads($0) }
-                )
-            )
-        }
-    }
-}
-
-#Preview("Sticker loading") {
-    Form {
-        StickerLoadingSection(
-            preference: StickerLoadingPreference(defaults: UserDefaults(suiteName: "sticker-settings-preview")!)
-        )
-    }
-    .formStyle(.grouped)
-    .frame(width: 520, height: 200)
-}
-
-/// Whether a message's first link shows a title-and-image card. Next to the GIF switch rather
-/// than under Appearance, because what it costs is the same kind of thing: a fetch from a server
-/// someone else picked, which learns the viewer's IP address.
-struct LinkPreviewSettingsSection: View {
-    let preference: LinkPreviewPreference
-
-    var body: some View {
-        SettingsSection(
-            footer: L10n.string(
-                "Shows the title and image of links in chats, and the Nostr posts they point to. Loading a preview tells your IP address to the linked website, the sites hosting its images, and the relays and lookup services a post is fetched from."
-            )
-        ) {
-            WNToggle(
-                L10n.string("Show Link Previews"),
-                systemImage: "link",
-                isOn: Binding(
-                    get: { preference.showsPreviews },
-                    set: { preference.setShowsPreviews($0) }
-                )
-            )
-        }
-    }
-}
-
-#Preview("Link previews") {
-    Form {
-        LinkPreviewSettingsSection(
-            preference: LinkPreviewPreference(defaults: UserDefaults(suiteName: "link-preview-settings-preview")!)
-        )
-    }
-    .formStyle(.grouped)
-    .frame(width: 520, height: 200)
+    .frame(width: 520)
 }
 
 /// The two data-sharing choices, one group each.

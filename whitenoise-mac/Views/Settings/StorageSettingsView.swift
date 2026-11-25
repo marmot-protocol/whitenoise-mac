@@ -16,9 +16,9 @@ struct StorageSettingsView: View {
     @State private var alwaysAsksWhereToSave = false
     /// The folder row says it cannot be opened only once a refresh has actually found that.
     @State private var hasRefreshedDownloadFolder = false
-    @State private var retainedMiB = 2_048
-    @State private var reserveMiB = 256
-    @State private var transferMiB = 64
+    @State private var retainedMiB: Int? = 2_048
+    @State private var reserveMiB: Int? = 256
+    @State private var transferMiB: Int? = 64
     let model: StorageSettingsViewModel
 
     var body: some View {
@@ -127,12 +127,15 @@ private struct StorageDownloadsSection: View {
 
 private struct StorageLimitsSection: View {
     let model: StorageSettingsViewModel
-    @Binding var retainedMiB: Int
-    @Binding var reserveMiB: Int
-    @Binding var transferMiB: Int
+    @Binding var retainedMiB: Int?
+    @Binding var reserveMiB: Int?
+    @Binding var transferMiB: Int?
 
     private var hasUnsavedChanges: Bool {
-        guard let policy = model.policy else { return false }
+        guard let policy = model.policy, let retainedMiB, let reserveMiB, let transferMiB,
+            (256...32_768).contains(retainedMiB), (0...8_192).contains(reserveMiB),
+            (1...min(512, retainedMiB)).contains(transferMiB)
+        else { return false }
         let mebibyte: UInt64 = 1_048_576
         return UInt64(retainedMiB) * mebibyte != policy.retainedBytes
             || UInt64(reserveMiB) * mebibyte != policy.diskReserve
@@ -161,31 +164,18 @@ private struct StorageLimitsSection: View {
                         .controlSize(.small)
                 }
             } else {
-                Stepper(value: $retainedMiB, in: max(256, transferMiB)...32_768, step: 256) {
-                    LabeledContent(L10n.string("Download storage limit")) {
-                        Text(StorageLimitUnits.mebibyteCount(retainedMiB))
-                            .monospacedDigit()
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                    }
-                }
-
-                Stepper(value: $reserveMiB, in: 0...8_192, step: 256) {
-                    LabeledContent(L10n.string("Keep disk space free")) {
-                        Text(StorageLimitUnits.mebibyteCount(reserveMiB))
-                            .monospacedDigit()
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                    }
-                }
-
-                Stepper(value: $transferMiB, in: 1...min(512, retainedMiB), step: 1) {
-                    LabeledContent(L10n.string("Automatic download size limit")) {
-                        Text(StorageLimitUnits.mebibyteCount(transferMiB))
-                            .monospacedDigit()
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                    }
-                }
+                StorageLimitRow(
+                    title: L10n.string("Download storage limit"), value: $retainedMiB,
+                    bounds: max(256, min(512, transferMiB ?? 1))...32_768, step: 256)
+                StorageLimitRow(
+                    title: L10n.string("Keep disk space free"), value: $reserveMiB,
+                    bounds: 0...8_192, step: 256)
+                StorageLimitRow(
+                    title: L10n.string("Automatic download size limit"), value: $transferMiB,
+                    bounds: 1...min(512, max(256, retainedMiB ?? 256)), step: 1)
 
                 Button {
+                    guard hasUnsavedChanges, let retainedMiB, let reserveMiB, let transferMiB else { return }
                     Task {
                         await model.saveLimits(
                             retainedBytes: StorageLimitUnits.bytes(fromMebibytes: retainedMiB),
@@ -211,6 +201,77 @@ private struct StorageLimitsSection: View {
             }
         }
     }
+}
+
+private struct StorageLimitRow: View {
+    @Environment(\.locale) private var locale
+    let title: String
+    @Binding var value: Int?
+    let bounds: ClosedRange<Int>
+    let step: Int
+    @State private var input: String?
+
+    private var unitLabel: String {
+        let formatter = MeasurementFormatter()
+        formatter.locale = locale
+        formatter.unitStyle = .medium
+        return formatter.string(from: UnitInformationStorage.mebibytes)
+    }
+
+    private var fieldText: Binding<String> {
+        Binding(
+            get: { input ?? value.map { $0.formatted(.number.grouping(.never).locale(locale)) } ?? "" },
+            set: { text in
+                input = text
+                value = Self.wholeNumber(text)
+            }
+        )
+    }
+
+    private static func wholeNumber(_ text: String) -> Int? {
+        let digits = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !digits.isEmpty, digits.unicodeScalars.allSatisfy(CharacterSet.decimalDigits.contains) else { return nil }
+        return Int(digits.compactMap(\.wholeNumberValue).map(String.init).joined())
+    }
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack(spacing: 6) {
+                if value.map(bounds.contains) != true {
+                    Text(
+                        verbatim:
+                            "\(bounds.lowerBound.formatted(.number.grouping(.never).locale(locale)))–\(bounds.upperBound.formatted(.number.grouping(.never).locale(locale)))"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                TextField(title, text: fieldText)
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(width: 70)
+                Text(verbatim: unitLabel).fixedSize()
+                Stepper(
+                    title,
+                    value: Binding(
+                        get: { min(bounds.upperBound, max(bounds.lowerBound, value ?? bounds.lowerBound)) },
+                        set: { value = $0 }),
+                    in: bounds, step: step
+                )
+                .labelsHidden()
+            }
+        }
+        .onChange(of: value) { _, newValue in
+            if let input, Self.wholeNumber(input) != newValue { self.input = nil }
+        }
+    }
+}
+
+#Preview("Storage limit") {
+    @Previewable @State var value: Int? = 256
+    Form { StorageLimitRow(title: "Storage", value: $value, bounds: 0...8_192, step: 256) }
+        .formStyle(.grouped)
 }
 
 private struct StorageMediaCacheSection: View {
@@ -275,13 +336,6 @@ private enum StorageLimitUnits {
 
     static func byteCount(_ bytes: UInt64) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
-    }
-
-    static func mebibyteCount(_ mebibytes: Int) -> String {
-        ByteCountFormatter.string(
-            fromByteCount: Int64(mebibytes) * 1_048_576,
-            countStyle: .binary
-        )
     }
 
     static func bytes(fromMebibytes mebibytes: Int) -> UInt64 {
