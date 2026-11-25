@@ -6646,5 +6646,7 @@ private final class NoopLocalNotificationCenter: LocalNotificationCenter {
 
     func post(_ notification: LocalNotificationRequest) async throws {}
 
+    func removeDeliveredNotifications(forAccountIdHex accountIdHex: String) async {}
+
     func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void) {}
 }

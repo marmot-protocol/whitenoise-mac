@@ -25,9 +25,14 @@ enum AccountExit {
     /// out. `AccountRoster` installs reads in order, so this one's read lands after that one, and
     /// every recovery decides from the installed list rather than from its own read.
     static func leaveSignedOutAccount(accountIdHex: String, in workspace: WorkspaceState) async {
+        let normalizedAccountIdHex = accountIdHex.lowercased()
         guard let client = workspace.client,
-            let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == accountIdHex })
-        else { return }
+            let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == normalizedAccountIdHex })
+        else {
+            await workspace.localNotificationCenter.removeDeliveredNotifications(
+                forAccountIdHex: normalizedAccountIdHex)
+            return
+        }
         let wasActive = workspace.activeAccountId == account.id
         let selectedGroupId = wasActive ? workspace.selectedChat?.id : nil
         // MDK has signed it out already, so the app follows even if the next read fails. The event
@@ -45,6 +50,7 @@ enum AccountExit {
             workspace.resetActiveAccountUIState()
             workspace.activeAccountId = nil
         }
+        await workspace.localNotificationCenter.removeDeliveredNotifications(forAccountIdHex: normalizedAccountIdHex)
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)
             try await finishSigningOut(accountId: account.id, in: workspace, client: client)
@@ -53,6 +59,49 @@ enum AccountExit {
                 await workspace.restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
             workspace.lastError = UserFacingError.message(for: error)
+        }
+    }
+
+    /// Removes delivered notifications belonging to every profile currently marked unlinked.
+    /// Covers accounts unlinked while the app was quit or when a live event was missed.
+    static func clearDeliveredNotificationsForUnlinkedAccounts(
+        in workspace: WorkspaceState,
+        excluding excludedAccountIds: Set<String> = []
+    ) async {
+        let unlinkedAccountIds = Set(
+            workspace.accounts
+                .filter(\.unlinked)
+                .map { $0.accountIdHex.lowercased() }
+        )
+        .subtracting(excludedAccountIds)
+        .sorted()
+        for accountIdHex in unlinkedAccountIds {
+            await workspace.localNotificationCenter.removeDeliveredNotifications(forAccountIdHex: accountIdHex)
+        }
+    }
+
+    /// Whether a notification's target account is currently marked unlinked in `workspace`.
+    static func isAccountUnlinked(
+        accountIdHex: String,
+        accountRef: String,
+        in workspace: WorkspaceState
+    ) -> Bool {
+        let normalized = accountIdHex.lowercased()
+        if let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == normalized }) {
+            return account.unlinked
+        }
+        return workspace.accounts.first(where: { $0.accountRef == accountRef || $0.id == accountRef })?.unlinked == true
+    }
+
+    /// Whether `workspace` currently lists an account matching `accountIdHex` or `accountRef`.
+    static func hasAccount(
+        accountIdHex: String,
+        accountRef: String,
+        in workspace: WorkspaceState
+    ) -> Bool {
+        let normalized = accountIdHex.lowercased()
+        return workspace.accounts.contains {
+            $0.accountIdHex.lowercased() == normalized || $0.accountRef == accountRef || $0.id == accountRef
         }
     }
 

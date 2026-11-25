@@ -54,6 +54,30 @@ final class MacLocalNotificationCenter: NSObject, LocalNotificationCenter, UNUse
         }
     }
 
+    func removeDeliveredNotifications(forAccountIdHex accountIdHex: String) async {
+        let delivered = await center.deliveredNotifications()
+        let identifiers = Self.deliveredNotificationIdentifiers(
+            matchingAccountIdHex: accountIdHex,
+            in: delivered.map { ($0.request.identifier, $0.request.content.userInfo) }
+        )
+        guard !identifiers.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+    }
+
+    nonisolated static func deliveredNotificationIdentifiers(
+        matchingAccountIdHex accountIdHex: String,
+        in delivered: [(identifier: String, userInfo: [AnyHashable: Any])]
+    ) -> [String] {
+        let target = accountIdHex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !target.isEmpty else { return [] }
+        return delivered.compactMap { entry in
+            guard let deliveredAccountId = entry.userInfo["accountIdHex"] as? String,
+                deliveredAccountId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == target
+            else { return nil }
+            return entry.identifier
+        }
+    }
+
     func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void) {
         responseHandler = handler
     }

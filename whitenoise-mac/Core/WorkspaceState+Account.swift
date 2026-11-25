@@ -50,6 +50,8 @@ extension WorkspaceState {
             loadContactNicknames()
             loadRememberedDirectPeers()
             try await accountRoster.reload(from: runtime)
+            let initiallyUnlinked = Set(accounts.filter(\.unlinked).map { $0.accountIdHex.lowercased() })
+            await AccountExit.clearDeliveredNotificationsForUnlinkedAccounts(in: self)
             restoreOrSelectFirstAccount()
             await configureObservabilityRuntimeBestEffort()
             // Not `accounts.isEmpty`: a Mac holding nothing but deactivated identities has
@@ -71,6 +73,7 @@ extension WorkspaceState {
 
             try await bringRuntimeOnline(runtime)
             try await accountRoster.reload(from: runtime)
+            await AccountExit.clearDeliveredNotificationsForUnlinkedAccounts(in: self, excluding: initiallyUnlinked)
             restoreOrSelectFirstAccount()
             await migrateLegacyPinnedChats(runtime: runtime)
             await activateReadyState()
@@ -1043,10 +1046,15 @@ extension WorkspaceState {
         // every read here, the local one first on every call (outside the relay refresh's guard, as
         // an earlier refresh may still be waiting on a relay) and again after the relay refresh.
         func reloadLeavingAMissedUnlink() async {
-            guard (try? await accountRoster.reload(from: client)) != nil,
-                let active = activeAccount, active.unlinked
-            else { return }
-            await AccountExit.leaveSignedOutAccount(accountIdHex: active.accountIdHex.lowercased(), in: self)
+            guard (try? await accountRoster.reload(from: client)) != nil else { return }
+            let activeUnlinkedId = activeAccount?.unlinked == true ? activeAccount?.accountIdHex.lowercased() : nil
+            if let activeUnlinkedId {
+                await AccountExit.leaveSignedOutAccount(accountIdHex: activeUnlinkedId, in: self)
+            }
+            await AccountExit.clearDeliveredNotificationsForUnlinkedAccounts(
+                in: self,
+                excluding: activeUnlinkedId.map { [$0] } ?? []
+            )
         }
         await reloadLeavingAMissedUnlink()
 
