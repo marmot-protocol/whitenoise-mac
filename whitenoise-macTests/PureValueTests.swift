@@ -1744,7 +1744,7 @@ struct PureValueTests {
             }
         }
 
-        let window = NSWindow(
+        let window = ShellTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
             styleMask: [.titled],
             backing: .buffered,
@@ -1758,6 +1758,7 @@ struct PureValueTests {
         let container = NSView()
         container.addSubview(other)
         window.contentView = container
+        window.key = true
         window.makeFirstResponder(other)
         let coordinator = makeCoordinator()
 
@@ -1785,6 +1786,16 @@ struct PureValueTests {
         makeCoordinator().scheduleFocus(requester.requestID, in: textView)
         await drainMainQueue()
         #expect(window.firstResponder !== textView)
+
+        // An action that finishes while Settings is in front must not move the background
+        // conversation’s insertion point. Returning to the conversation accepts a fresh request.
+        window.key = false
+        requester.request()
+        coordinator.scheduleFocus(requester.requestID, in: textView)
+        await drainMainQueue()
+        #expect(window.firstResponder !== textView)
+        #expect(requester.requestID == nil)
+        window.key = true
 
         // A fresh request (Reply clicked again) focuses again.
         requester.request()
