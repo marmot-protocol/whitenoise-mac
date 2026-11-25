@@ -95,7 +95,7 @@ struct MessageEditHistoryContentView: View {
 
             Divider()
 
-            ScrollView {
+            FittedSheetScrollView(maximumHeight: 440) {
                 VStack(alignment: .leading, spacing: 14) {
                     if versions.isEmpty, !isLoading, errorMessage == nil {
                         Text(L10n.string("No earlier versions."))
@@ -140,7 +140,8 @@ struct MessageEditHistoryContentView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(minWidth: 380, idealWidth: 420, minHeight: 320, idealHeight: 400)
+        .frame(width: 420)
+        .presentationSizing(.fitted)
     }
 }
 

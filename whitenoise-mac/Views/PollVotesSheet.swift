@@ -60,15 +60,24 @@ struct PollVotesSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PollVotesHeader(
-                question: model.poll?.question,
-                participants: model.poll?.participants ?? 0
-            )
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.string("Votes")).font(.headline)
+                Label(L10n.string("Votes in this poll are visible to everyone in the chat."), systemImage: "eye")
+                    .font(.caption)
+                    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 12)
 
             Divider()
 
-            ScrollView {
-                PollVotesList(model: model, blockedAccountIDs: blockedAccountIDs, voterDisplay: voterDisplay)
+            FittedSheetScrollView(maximumHeight: 440) {
+                VStack(alignment: .leading, spacing: 0) {
+                    PollVotesHeader(question: model.poll?.question, participants: model.poll?.participants ?? 0)
+                    PollVotesList(model: model, blockedAccountIDs: blockedAccountIDs, voterDisplay: voterDisplay)
+                }
             }
 
             Divider()
@@ -83,7 +92,7 @@ struct PollVotesSheet: View {
             .padding(.vertical, 12)
         }
         .frame(width: 380)
-        .frame(minHeight: 360, idealHeight: 480)
+        .presentationSizing(.fitted)
         .onDisappear { model.cancel() }
     }
 }
@@ -121,9 +130,6 @@ private struct PollVotesHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.string("Votes"))
-                .font(.headline)
-                .foregroundStyle(WNColor.textPrimary)
             if let question {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(PeerDisplayText.strippingBidiControls(question))
@@ -136,10 +142,7 @@ private struct PollVotesHeader: View {
                         .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                 }
             }
-            Label(L10n.string("Votes in this poll are visible to everyone in the chat."), systemImage: "eye")
-                .font(.caption)
-                .foregroundStyle(WNColor.messageReceivedSecondaryContent)
-                .fixedSize(horizontal: false, vertical: true)
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)

@@ -27,19 +27,8 @@ struct EncryptedPrivateKeyExportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(L10n.string("Encrypted Private Key"))
-                    .font(.headline)
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.borderless)
-                .disabled(workspace.isExportingPrivateKey)
-                .accessibilityLabel(Text(L10n.string("Close")))
-            }
+            Text(L10n.string("Encrypted Private Key"))
+                .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
                 SecureField(L10n.string("Password"), text: $password)

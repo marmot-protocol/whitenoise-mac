@@ -58,12 +58,12 @@ private struct GroupModerationSheet: View {
 
             Divider()
 
-            ScrollView {
+            FittedSheetScrollView(maximumHeight: 480) {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if model.reports.isEmpty, !model.isLoadingReports {
                         Text(L10n.string("No reports to review."))
                             .foregroundStyle(WNColor.backgroundContentSecondary)
-                            .frame(maxWidth: .infinity, minHeight: 160)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     ForEach(model.reports.filter { !$0.dismissed }, id: \.reportIdHex) { report in
@@ -100,7 +100,8 @@ private struct GroupModerationSheet: View {
                 .padding(20)
             }
         }
-        .frame(width: 620, height: 640)
+        .frame(width: 520)
+        .presentationSizing(.fitted)
         .interactiveDismissDisabled(model.isModerating)
         .confirmationDialog(
             L10n.string("Dismiss Report"),

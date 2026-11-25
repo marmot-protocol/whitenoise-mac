@@ -61,7 +61,8 @@ struct SignOutSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SignOutSheetHeader(isBusy: stage != nil, onClose: { dismiss() })
+            Text(L10n.string("Sign Out"))
+                .font(.headline)
 
             SignOutAccountIdentity(account: account)
 
@@ -178,25 +179,6 @@ struct SignOutSheet: View {
     static func exitSucceeded(for account: AccountItem, wipedLocalData: Bool, in accounts: [AccountItem]) -> Bool {
         guard let remaining = accounts.first(where: { $0.id == account.id }) else { return true }
         return !wipedLocalData && remaining.signedOut
-    }
-}
-
-private struct SignOutSheetHeader: View {
-    let isBusy: Bool
-    let onClose: () -> Void
-
-    var body: some View {
-        HStack {
-            Text(L10n.string("Sign Out"))
-                .font(.headline)
-            Spacer()
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .disabled(isBusy)
-            .accessibilityLabel(Text(L10n.string("Close")))
-        }
     }
 }
 
