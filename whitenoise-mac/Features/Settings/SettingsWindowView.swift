@@ -29,6 +29,9 @@ struct SettingsWindowView: View {
                     suggestionAllowed: scope.onboarding.canEnterChats && scope.onboarding.hasShownIncompleteSetup
                 )
                 .id(scope.account.id)
+                .task(id: scope.account.id) {
+                    scope.productAnalytics.record(.screen(.settings))
+                }
             }
         }
         .background {
@@ -74,10 +77,6 @@ struct SettingsWindowView: View {
         }
         .onChange(of: session.linkRequests.alert, initial: true) {
             if session.linkRequests.alert != nil { coordinator.focusMainWindow() }
-        }
-        .task(id: coordinator.accountID) {
-            guard coordinator.accountID != nil, workspace.showsMessengerChrome else { return }
-            session.accountScope?.productAnalytics.record(.screen(.settings))
         }
     }
 }

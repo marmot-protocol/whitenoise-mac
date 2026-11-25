@@ -356,6 +356,134 @@ struct ShellCommandTests: WorkspaceTestSupport {
         #expect(runtime.setChatManuallyUnreadCallCount == 0)
     }
 
+    @Test func conversationMenuMarkAsReadAbortsWhenLatestPageCannotBeFetched() async throws {
+        let account = AccountSummaryFfi(
+            label: "Reader",
+            accountIdHex: String(repeating: "c", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let groupId = String(repeating: "a", count: 64)
+        runtime.conversationWindowInitialSnapshots[groupId] = ProjectionMigrationTests.conversationSnapshot(
+            sequence: 1,
+            title: "Older Window",
+            unreadCount: 4,
+            firstUnreadMessageIdHex: "older-msg",
+            anchorKind: .message,
+            hasMoreAfter: true
+        )
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let active = try #require(workspace.activeAccount)
+        let conversation = ConversationViewModel(account: active, groupIdHex: groupId, runtime: runtime)
+        await conversation.setSnapshotObserver { _ in }
+        conversation.start()
+        defer { conversation.stop() }
+        for _ in 0..<200 where !conversation.hasPresentedWindow {
+            await Task.yield()
+        }
+        #expect(conversation.snapshot?.hasMoreAfter == true)
+        let window = try #require(runtime.openedConversationWindows[groupId])
+        // Exhaust returnToLatest()'s single stale retry so fetching the latest page fails.
+        window.staleReturnsRemaining = 3
+
+        let unreadChat = ChatItem(
+            id: groupId,
+            title: "Older Window",
+            subtitle: "",
+            preview: "Old message",
+            updatedAt: Date(timeIntervalSince1970: 1_760_000_100),
+            avatarSeed: groupId,
+            pictureURL: nil,
+            unreadCount: 4,
+            manuallyMarkedUnread: true,
+            isDirect: false
+        )
+        let olderMessageId = String(repeating: "b", count: 64)
+        workspace.ensureMessageTimelineStore(for: groupId).replace(
+            with: [
+                MessageItem(
+                    id: olderMessageId,
+                    senderName: "Peer",
+                    body: "Old message",
+                    sentAt: Date(timeIntervalSince1970: 1_760_000_000),
+                    isOutgoing: false
+                )
+            ]
+        )
+
+        await workspace.markChatAsRead(unreadChat, conversation: conversation)
+
+        #expect(runtime.markedReadMessageIds.isEmpty)
+        #expect(runtime.setChatManuallyUnreadCallCount == 0)
+        #expect(conversation.snapshot?.hasMoreAfter == true)
+    }
+
+    @Test func deleteEverythingOnRemoteUnlinkAlertKeepsChooserAndDoesNotOpenSettings() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "2", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let third = AccountSummaryFfi(
+            label: "Third",
+            accountIdHex: String(repeating: "3", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second, third])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        var settingsOpens = 0
+        coordinator.installPresentationActions(showSettings: { settingsOpens += 1 }, showMain: {})
+
+        coordinator.open(at: .relays)
+        #expect(settingsOpens == 1)
+
+        let unlinked = try #require(workspace.activeAccount)
+        runtime.unlinkFromAnotherDevice(accountRef: unlinked.accountRef)
+        await AccountExit.leaveSignedOutAccount(
+            accountIdHex: unlinked.accountIdHex.lowercased(),
+            in: workspace
+        )
+        coordinator.synchronize()
+        #expect(workspace.activeAccountId == nil)
+        #expect(settingsOpens == 1)
+
+        // Pressing "Delete Everything" on the remote-unlink alert removes the unlinked profile
+        // without skipping the chooser or popping Settings back open.
+        _ = await AccountExit.removeUnlinkedAccount(
+            accountIdHex: unlinked.accountIdHex.lowercased(),
+            in: workspace
+        )
+        coordinator.synchronize()
+        #expect(workspace.activeAccountId == nil)
+        #expect(settingsOpens == 1)
+    }
+
     @Test func confirmChatLocalDeleteRejectsTargetFromPreviousAccount() async throws {
         let first = AccountSummaryFfi(
             label: "First",
@@ -592,11 +720,20 @@ struct ShellCommandTests: WorkspaceTestSupport {
         #expect(recreated.chatListWidth == targetWidth)
 
         // A previously saved collapsed preference must not be overwritten when the split view
-        // reports its minimum expanded column width on initial layout.
+        // reports its minimum expanded column width on initial layout, but a subsequent drag
+        // wider than the minimum must persist across workspace reconstruction.
         recreated.resizeChatListDrawer(toProposedWidth: ChatListWidthPolicy.collapsedWidth)
         #expect(recreated.isChatListCollapsed)
         recreated.adoptNativeSidebarWidth(ChatListWidthPolicy.minimumExpandedWidth)
         #expect(recreated.chatListWidth == ChatListWidthPolicy.collapsedWidth)
+
+        let draggedWidth = ChatListWidthPolicy.minimumExpandedWidth + 28
+        recreated.adoptNativeSidebarWidth(draggedWidth)
+        #expect(recreated.chatListWidth == draggedWidth)
+        #expect(!recreated.isChatListCollapsed)
+
+        let relaunched = WorkspaceState()
+        #expect(relaunched.chatListWidth == draggedWidth)
     }
 
     @Test func removingActiveProfileWhileSwitchedToAnotherProfilePreservesNewActiveSession() async throws {

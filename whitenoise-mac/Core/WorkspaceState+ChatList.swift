@@ -22,54 +22,52 @@ extension WorkspaceState {
 
     /// Persists a user-driven native split-view sidebar drag without clobbering a previously
     /// saved collapsed drawer width when the split view enforces its expanded minimum on launch.
+    /// Once the user drags wider than the minimum, the new expanded width is persisted normally.
     func adoptNativeSidebarWidth(_ proposedWidth: CGFloat) {
         guard isChatListVisible,
-            !isChatListCollapsed,
             proposedWidth >= ChatListWidthPolicy.minimumExpandedWidth,
             proposedWidth <= ChatListWidthPolicy.maximumWidth
         else { return }
+        if isChatListCollapsed, proposedWidth <= ChatListWidthPolicy.minimumExpandedWidth {
+            return
+        }
         resizeChatListDrawer(toProposedWidth: proposedWidth)
     }
 
     /// Explicitly marks `chat` as read from a user command (such as the Conversation menu),
-    /// advancing MDK's read position to the newest readable activity message and clearing any
-    /// manual unread reminder.
+    /// advancing MDK's read position to the newest readable activity message on an authoritative
+    /// latest page and clearing any manual unread reminder.
     func markChatAsRead(_ chat: ChatItem, conversation: ConversationViewModel? = nil) async {
         guard let client, let activeAccount, !mutatingChatPreferenceIds.contains(chat.id) else { return }
         let accountId = activeAccount.id
         mutatingChatPreferenceIds.insert(chat.id)
         defer { mutatingChatPreferenceIds.remove(chat.id) }
         do {
-            if conversation?.snapshot?.hasMoreAfter == true {
-                await conversation?.returnToLatest()
+            if let conversation, conversation.snapshot?.hasMoreAfter == true {
+                await conversation.returnToLatest()
                 guard activeAccountId == accountId else { return }
+                // Do not advance the marker from a stale older page or clear a manual reminder if
+                // fetching the authoritative latest page did not succeed.
+                guard conversation.snapshot?.hasMoreAfter == false else {
+                    return
+                }
             }
 
-            let isAuthoritativeGroup = chat.isAuthoritativeGroup
-            let latest =
-                ensureMessageTimelineStore(for: chat.id).messages.last { message in
-                    message.countsAsReadActivity(inAuthoritativeGroup: isAuthoritativeGroup) && !message.isDeleted
-                }
+            let latest = latestReadableActivityMessage(
+                groupIdHex: chat.id,
+                isAuthoritativeGroup: chat.isAuthoritativeGroup
+            )
 
             var updatedRow: ChatListRowFfi?
             if let latest {
                 let marker = ReadMarker(sentAt: latest.sentAt, messageId: latest.id)
-                let row = try await FFIExecutor.run {
-                    try client.markTimelineMessageRead(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: chat.id,
-                        messageIdHex: latest.id
-                    )
-                }
-                guard activeAccountId == accountId else { return }
-                let committed = ReadMarker.afterSuccessfulCommit(
-                    current: lastMarkedReadMarkers[chat.id],
-                    confirmed: lastConfirmedReadMarkers[chat.id],
-                    attempted: marker
+                updatedRow = try await commitReadMarker(
+                    marker,
+                    groupIdHex: chat.id,
+                    account: activeAccount,
+                    client: client
                 )
-                lastMarkedReadMarkers[chat.id] = committed.current
-                lastConfirmedReadMarkers[chat.id] = committed.confirmed
-                updatedRow = row
+                guard activeAccountId == accountId else { return }
             }
 
             if chat.manuallyMarkedUnread {
@@ -86,7 +84,7 @@ extension WorkspaceState {
 
             if let updatedRow {
                 await applyChatRow(updatedRow, account: activeAccount, shouldEnrich: false)
-            } else if latest != nil || chat.manuallyMarkedUnread {
+            } else {
                 await reloadChats(forceFreshSnapshot: true)
             }
         } catch {

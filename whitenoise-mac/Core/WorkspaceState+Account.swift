@@ -754,7 +754,9 @@ extension WorkspaceState {
                 // straight into it, still on the settings page the deletion left.
                 if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
                     switchActiveAccount(remaining, finalSelection: nil)
-                    WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+                    if errorTarget == .settings {
+                        WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+                    }
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
                     return (outcome, nil)
@@ -764,17 +766,31 @@ extension WorkspaceState {
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 notificationSettings = .defaults
                 selection = nil
-                WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+                if errorTarget == .settings {
+                    WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+                }
                 return (outcome, nil)
             }
 
             if activeAccountInvalid {
-                restoreOrSelectFirstAccount()
-                selection = nil
-                WorkspaceAccountPresentation.settingsHandoff.post(from: self)
-                await configureObservabilityRuntimeBestEffort()
-                await loadSettingsData()
-                await reloadChats()
+                if errorTarget == .settings {
+                    restoreOrSelectFirstAccount()
+                    selection = nil
+                    WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+                    await configureObservabilityRuntimeBestEffort()
+                    await loadSettingsData()
+                    await reloadChats()
+                } else if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
+                    switchActiveAccount(remaining, finalSelection: nil)
+                    await configureObservabilityRuntimeBestEffort()
+                    await loadSettingsData()
+                    await reloadChats()
+                } else if signedInAccounts.isEmpty {
+                    restoreOrSelectFirstAccount()
+                }
+                // With 2+ signed-in profiles after a non-Settings removal (e.g. Delete Everything
+                // from the remote-unlink alert), preserve the profile chooser in the main window
+                // without popping Settings open.
             }
             return (outcome, nil)
         } catch {
