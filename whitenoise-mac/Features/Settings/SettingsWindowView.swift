@@ -13,13 +13,14 @@ struct SettingsWindowView: View {
         Group {
             if workspace.showsMessengerChrome,
                 let scope = session.accountScope,
-                scope.account.id == workspace.activeAccountId,
+                let account = workspace.activeAccount,
+                scope.account.id == account.id,
                 scope.account.id == coordinator.accountID
             {
                 NavigationSplitView {
                     SettingsSidebarView(
                         coordinator: coordinator,
-                        account: scope.account,
+                        account: account,
                         devicesAvailable: scope.deviceLinking.isAvailable,
                         isAccountMutationInProgress: workspace.isAccountMutationInProgress,
                         preferredLocale: workspace.preferredLocale

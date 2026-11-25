@@ -186,6 +186,14 @@ import Testing
         workspace.discardProfileEdits()
         #expect(!workspace.hasUnsavedProfileEdits)
         #expect(workspace.profileDraft.nip05.isEmpty)
+
+        // Saving a renamed profile updates `workspace.activeAccount` while staying on the same
+        // account ID, so SettingsWindowView feeds the fresh display name to SettingsSidebarView.
+        let originalAccountID = workspace.activeAccountId
+        workspace.profileDraft.displayName = "Alice Updated"
+        await workspace.saveProfile()
+        #expect(workspace.activeAccountId == originalAccountID)
+        #expect(workspace.activeAccount?.displayName == "Alice Updated")
     }
 
     // MARK: - #1108 Privacy & Notifications safe rendering
