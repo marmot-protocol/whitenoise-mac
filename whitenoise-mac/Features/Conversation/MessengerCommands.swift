@@ -155,6 +155,20 @@ enum ConversationUnreadMenuAction: Equatable {
         }
         return chat.manuallyMarkedUnread ? .clearUnreadReminder : .markUnread
     }
+
+    static func isEnabled(
+        action: Self,
+        canChangePreferences: Bool,
+        hasConversationSnapshot: Bool
+    ) -> Bool {
+        guard canChangePreferences else { return false }
+        switch action {
+        case .markRead:
+            return hasConversationSnapshot
+        case .clearUnreadReminder, .markUnread:
+            return true
+        }
+    }
 }
 
 private struct ConversationMenuItems: View {
@@ -192,7 +206,13 @@ private struct ConversationMenuItems: View {
                 }
             }
         }
-        .disabled(!actions.canChangePreferences)
+        .disabled(
+            !ConversationUnreadMenuAction.isEnabled(
+                action: unreadAction,
+                canChangePreferences: actions.canChangePreferences,
+                hasConversationSnapshot: conversation?.snapshot != nil
+            )
+        )
 
         Button(L10n.string("Show Chat Info", locale: locale)) {
             Task {

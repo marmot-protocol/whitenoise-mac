@@ -423,6 +423,136 @@ struct ShellCommandTests: WorkspaceTestSupport {
         #expect(runtime.setChatManuallyUnreadCallCount == 0)
         #expect(conversation.snapshot?.hasMoreAfter == true)
         #expect(workspace.lastError != nil)
+        #expect(workspace.backgroundStatus != nil)
+    }
+
+    @Test func conversationMenuMarkAsReadEligibilityAndCommitFailureFeedback() async throws {
+        #expect(
+            !ConversationUnreadMenuAction.isEnabled(
+                action: .markRead,
+                canChangePreferences: true,
+                hasConversationSnapshot: false
+            )
+        )
+        #expect(
+            ConversationUnreadMenuAction.isEnabled(
+                action: .markRead,
+                canChangePreferences: true,
+                hasConversationSnapshot: true
+            )
+        )
+        #expect(
+            ConversationUnreadMenuAction.isEnabled(
+                action: .markUnread,
+                canChangePreferences: true,
+                hasConversationSnapshot: false
+            )
+        )
+
+        struct ReadFailure: LocalizedError {
+            var errorDescription: String? { "read marker refused" }
+        }
+        let account = AccountSummaryFfi(
+            label: "Reader",
+            accountIdHex: String(repeating: "c", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.markTimelineMessageReadError = ReadFailure()
+        let groupId = String(repeating: "4", count: 64)
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let unreadChat = ChatItem(
+            id: groupId,
+            title: "Group",
+            subtitle: "",
+            preview: "Hi",
+            updatedAt: Date(timeIntervalSince1970: 1_760_000_100),
+            avatarSeed: groupId,
+            pictureURL: nil,
+            unreadCount: 1,
+            manuallyMarkedUnread: false,
+            isDirect: false
+        )
+        workspace.ensureMessageTimelineStore(for: groupId).replace(
+            with: [
+                MessageItem(
+                    id: String(repeating: "5", count: 64),
+                    senderName: "Peer",
+                    body: "Hi",
+                    sentAt: Date(timeIntervalSince1970: 1_760_000_100),
+                    isOutgoing: false
+                )
+            ]
+        )
+
+        await workspace.markChatAsRead(unreadChat)
+        #expect(workspace.backgroundStatus != nil)
+    }
+
+    @Test func closingMessengerWindowStopsVoiceRecordingAndTerminationStillFlushesDraft() async throws {
+        let account = AccountSummaryFfi(
+            label: "Recorder",
+            accountIdHex: String(repeating: "8", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let groupId = String(repeating: "9", count: 64)
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let chat = ChatItem(
+            id: groupId,
+            title: "Draft Chat",
+            subtitle: "",
+            preview: "",
+            updatedAt: Date(timeIntervalSince1970: 1_760_000_100),
+            avatarSeed: groupId,
+            pictureURL: nil,
+            unreadCount: 0,
+            manuallyMarkedUnread: false,
+            isDirect: false
+        )
+        let active = try #require(workspace.activeAccount)
+        workspace.chatsByAccount[active.id] = [chat]
+        workspace.selection = .chat(groupId)
+        workspace.draftText = "Unsaved draft before quit"
+
+        let recordingURL = try armInProgressVoiceRecording(on: workspace)
+        defer { try? FileManager.default.removeItem(at: recordingURL) }
+
+        let center = NotificationCenter()
+        let observer = AppLifecycleObserver(workspace: workspace, center: center)
+        let previousWindow = ConversationWindowIdentity.window
+        let window = NSWindow()
+        ConversationWindowIdentity.window = window
+        defer {
+            ConversationWindowIdentity.window = previousWindow
+            _ = observer
+        }
+
+        // Closing the messenger window while Settings keeps the app running must tear down the
+        // active voice recording immediately.
+        center.post(name: NSWindow.willCloseNotification, object: window)
+        #expect(!workspace.isRecordingVoiceMessage)
+        #expect(workspace.voiceRecorder == nil)
+        #expect(!FileManager.default.fileExists(atPath: recordingURL.path))
+        #expect(ConversationWindowIdentity.window == nil)
+
+        // Quitting afterward (e.g. from Settings) must still flush the pending composer draft
+        // synchronously through the app-lifetime observer.
+        runtime.clearSyncCallThreadRecords()
+        center.post(name: NSApplication.willTerminateNotification, object: NSApp)
+        #expect(!runtime.syncCallThreadRecord("saveMessageDraftInputsIfRevision").isEmpty)
     }
 
     @Test func conversationMenuMarkAsReadCommitsNewestSnapshotMessageWhileObserverIsPaused() async throws {

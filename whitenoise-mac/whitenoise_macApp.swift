@@ -5,8 +5,35 @@
 //  Created by Jeff Gardner on 26/05/2026.
 //
 
+import AppKit
+import Combine
 import MarmotKit
 import SwiftUI
+
+/// App-lifetime lifecycle bridge for events that must still fire when the messenger window is
+/// closed while the Settings window remains open: tearing down active conversation work (such as
+/// voice recording) when the messenger window closes, and flushing pending composer drafts on
+/// application termination.
+@MainActor
+final class AppLifecycleObserver {
+    private var cancellables: Set<AnyCancellable> = []
+
+    init(workspace: WorkspaceState, center: NotificationCenter = .default) {
+        center.publisher(for: NSWindow.willCloseNotification)
+            .sink { [weak workspace] notification in
+                guard ConversationWindowIdentity.matches(notification.object) else { return }
+                workspace?.leaveActiveConversation()
+                ConversationWindowIdentity.window = nil
+            }
+            .store(in: &cancellables)
+
+        center.publisher(for: NSApplication.willTerminateNotification)
+            .sink { [weak workspace] _ in
+                workspace?.flushComposerDraftPersistenceSynchronouslyForTermination()
+            }
+            .store(in: &cancellables)
+    }
+}
 
 @main
 struct whitenoise_macApp: App {
@@ -21,6 +48,7 @@ struct whitenoise_macApp: App {
     /// Answers clicks on the app's banners. Installed over the workspace's own handler, which
     /// only knows the messenger; see `NotificationResponseRouter`.
     private let notificationResponses: NotificationResponseRouter
+    private let lifecycleObserver: AppLifecycleObserver
     private let isUIFixture: Bool
     private let isUnitTestHost: Bool
 
@@ -40,6 +68,7 @@ struct whitenoise_macApp: App {
             notificationResponses?.route(userInfo)
         }
         self.notificationResponses = notificationResponses
+        self.lifecycleObserver = AppLifecycleObserver(workspace: workspace)
         isUIFixture = configuration.isUIFixture
         isUnitTestHost = configuration.isUnitTestHost
     }

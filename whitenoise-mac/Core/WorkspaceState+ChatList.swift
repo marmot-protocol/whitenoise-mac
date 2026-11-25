@@ -55,13 +55,18 @@ extension WorkspaceState {
                 // Do not advance the marker from a stale older page or clear a manual reminder if
                 // fetching the authoritative latest page did not succeed.
                 guard let snapshot = conversation.snapshot, !snapshot.hasMoreAfter else {
-                    switch conversation.error {
-                    case .unavailable(let message):
+                    let message: String? =
+                        switch conversation.error {
+                        case .unavailable(let text):
+                            text
+                        case .staleWindow:
+                            UserFacingError.message(for: MarmotKitError.ConversationWindowStale)
+                        case nil:
+                            nil
+                        }
+                    if let message {
                         lastError = message
-                    case .staleWindow:
-                        lastError = UserFacingError.message(for: MarmotKitError.ConversationWindowStale)
-                    case nil:
-                        break
+                        setBackgroundStatus(message)
                     }
                     return
                 }
@@ -106,7 +111,9 @@ extension WorkspaceState {
             }
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            let message = UserFacingError.message(for: error)
+            lastError = message
+            setBackgroundStatus(message)
         }
     }
 
@@ -131,7 +138,9 @@ extension WorkspaceState {
             }
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            let message = UserFacingError.message(for: error)
+            lastError = message
+            setBackgroundStatus(message)
         }
     }
 
@@ -155,7 +164,9 @@ extension WorkspaceState {
             await reloadChats(forceFreshSnapshot: true)
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            let message = UserFacingError.message(for: error)
+            lastError = message
+            setBackgroundStatus(message)
         }
     }
 
@@ -172,7 +183,9 @@ extension WorkspaceState {
             await reloadChats(forceFreshSnapshot: true)
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            let message = UserFacingError.message(for: error)
+            lastError = message
+            setBackgroundStatus(message)
         }
     }
 

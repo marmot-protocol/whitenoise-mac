@@ -48,14 +48,10 @@ extension ConversationWindowSnapshotFfi {
             let record = row.timeline
             guard !record.deleted else { continue }
             let presentation = MessageItem.presentation(for: record.kind, thread: record.thread)
-            let groupSystemType: String?
-            if presentation == .groupSystem {
-                groupSystemType =
-                    record.groupSystem?.systemType
-                    ?? record.tags.first(where: { $0.values.first == "system" })?.values.dropFirst().first
-            } else {
-                groupSystemType = nil
-            }
+            let groupSystemType =
+                presentation == .groupSystem
+                ? record.groupSystem?.systemType ?? MessageItem.tagValue("system", in: record.tags)
+                : nil
             if MessageItem.countsAsReadActivity(
                 presentation: presentation,
                 groupSystemType: groupSystemType,
@@ -1545,7 +1541,7 @@ nonisolated extension MessageItem {
         }
     }
 
-    private static func tagValue(_ name: String, in tags: [MessageTagFfi]) -> String? {
+    fileprivate static func tagValue(_ name: String, in tags: [MessageTagFfi]) -> String? {
         tags.first { $0.values.first == name }?.values.dropFirst().first
     }
 
