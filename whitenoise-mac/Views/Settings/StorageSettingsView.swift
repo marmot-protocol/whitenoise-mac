@@ -23,7 +23,7 @@ struct StorageSettingsView: View {
 
     var body: some View {
         SettingsScaffold(
-            title: L10n.string("Storage"),
+            title: L10n.string("Data Usage"),
             subtitle: L10n.string("Downloaded attachments stored on this Mac.")
         ) {
             StorageDownloadsSection(

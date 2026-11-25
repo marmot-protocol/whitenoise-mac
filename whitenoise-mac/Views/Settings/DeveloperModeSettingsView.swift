@@ -18,7 +18,7 @@ struct DeveloperModeSettingsView: View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: L10n.string("Developer mode"),
+            title: L10n.string("Developer Tools"),
             subtitle: L10n.string("Storage and diagnostics.")
         ) {
             SettingsSection(title: L10n.string("Developer")) {
