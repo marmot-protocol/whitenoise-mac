@@ -70,4 +70,12 @@ final class QuarantinedGroupsViewModel {
     static func preview() -> QuarantinedGroupsViewModel {
         QuarantinedGroupsViewModel(accountRef: "preview", runtime: nil)
     }
+
+    #if DEBUG
+        static func preview(groups: [AppQuarantinedGroupFfi]) -> QuarantinedGroupsViewModel {
+            let model = QuarantinedGroupsViewModel(accountRef: "preview", runtime: nil)
+            model.groups = groups
+            return model
+        }
+    #endif
 }

@@ -23,15 +23,14 @@ struct KeyPackageSettingsView: View {
                     Button {
                         Task { await model.refresh() }
                     } label: {
-                        Label(L10n.string("Refresh"), systemImage: "arrow.clockwise")
+                        SettingsBusyLabel(
+                            title: L10n.string("Refresh"),
+                            systemImage: "arrow.clockwise",
+                            isBusy: model.isRefreshing
+                        )
                     }
                     .wnSecondaryButtonStyle()
                     .disabled(model.isRefreshing)
-
-                    if model.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
 
                     Spacer()
                 }
@@ -63,11 +62,16 @@ struct KeyPackageSettingsView: View {
             }
 
             if let error = model.error {
-                Text(error.message)
-                    .foregroundStyle(WNColor.backgroundContentDestructive)
+                SettingsSection {
+                    Text(error.message)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        .task {
+        .task(id: ObjectIdentifier(model)) {
             await model.loadLocalInventory()
         }
     }
@@ -77,37 +81,27 @@ struct KeyPackageInventoryRow: View {
     let entry: AccountKeyPackageInventoryEntryFfi
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "key.fill")
-                    .wnFont(.semiBold16)
-                    .foregroundStyle(WNColor.fillContentPrimary)
-                    .frame(width: 30, height: 30)
-                    .background {
-                        Circle().fill(WNColor.fillPrimary)
-                    }
-
-                VStack(alignment: .leading, spacing: 5) {
-                    KeyPackageStateBadge(state: entry.localState)
-                    KeyPackageValueRow(title: L10n.string("Event"), value: entry.record.eventIdHex)
-                    KeyPackageValueRow(title: "KeyPackageRef", value: entry.record.keyPackageRefHex)
-                    KeyPackageValueRow(title: L10n.string("Slot"), value: entry.record.keyPackageId)
-                    Text(
-                        ByteCountFormatter.string(
-                            fromByteCount: Int64(clamping: entry.record.keyPackageBytes),
-                            countStyle: .file
-                        )
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                KeyPackageStateBadge(state: entry.localState)
+                Spacer(minLength: 0)
+                Text(
+                    ByteCountFormatter.string(
+                        fromByteCount: Int64(clamping: entry.record.keyPackageBytes),
+                        countStyle: .file
                     )
-                    .wnFont(.medium10.monospacedDigit())
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                }
-
-                Spacer()
+                )
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             }
+
+            KeyPackageValueRow(title: L10n.string("Event"), value: entry.record.eventIdHex)
+            KeyPackageValueRow(title: "KeyPackageRef", value: entry.record.keyPackageRefHex)
+            KeyPackageValueRow(title: L10n.string("Slot"), value: entry.record.keyPackageId)
 
             if !entry.record.sourceRelays.isEmpty {
                 KeyPackageRelayList(relays: entry.record.sourceRelays)
-                    .padding(.leading, 42)
             }
         }
         .padding(.vertical, 4)
@@ -126,24 +120,30 @@ struct KeyPackageRelayEventRow: View {
                     event.isCurrent ? L10n.string("Current") : L10n.string("Superseded"),
                     systemImage: event.isCurrent ? "checkmark.circle.fill" : "clock.arrow.circlepath"
                 )
-                .wnFont(.semiBold10)
-                .foregroundStyle(event.isCurrent ? Color.green : WNColor.backgroundContentSecondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(
+                    event.isCurrent ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary
+                )
 
                 Text(KeyPackageDisplay.date(event.createdAt))
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
+
+                Spacer(minLength: 0)
+
+                Text(
+                    ByteCountFormatter.string(
+                        fromByteCount: Int64(clamping: event.keyPackageBytes),
+                        countStyle: .file
+                    )
+                )
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             KeyPackageValueRow(title: L10n.string("Event"), value: event.eventIdHex)
             KeyPackageValueRow(title: "KeyPackageRef", value: event.keyPackageRefHex)
-            Text(
-                ByteCountFormatter.string(
-                    fromByteCount: Int64(clamping: event.keyPackageBytes),
-                    countStyle: .file
-                )
-            )
-            .wnFont(.medium10.monospacedDigit())
-            .foregroundStyle(WNColor.backgroundContentSecondary)
 
             if !event.sourceRelays.isEmpty {
                 KeyPackageRelayList(relays: event.sourceRelays)
@@ -159,11 +159,11 @@ struct KeyPackageStateBadge: View {
 
     var body: some View {
         Label(state.displayLabel, systemImage: state.symbol)
-            .wnFont(.semiBold10)
-            .foregroundStyle(state.tint)
-            .padding(.horizontal, 7)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(state.foreground)
+            .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(state.tint.opacity(0.12), in: Capsule())
+            .background(state.badgeBackground, in: Capsule())
     }
 }
 
@@ -172,14 +172,15 @@ struct KeyPackageValueRow: View {
     let value: String
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .wnFont(.semiBold10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+        LabeledContent {
             Text(value.isEmpty ? L10n.string("Unknown") : DisplayText.short(value, head: 12, tail: 10))
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .textSelection(.enabled)
+        } label: {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(WNColor.backgroundContentSecondary)
         }
     }
 }
@@ -190,7 +191,7 @@ struct KeyPackageRelayList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(L10n.string("Source relays"))
-                .wnFont(.semiBold10)
+                .font(.caption.weight(.medium))
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             ForEach(relays, id: \.self) { relay in
                 Text(relay)
@@ -238,12 +239,21 @@ private extension AccountKeyPackageLocalStateFfi {
         }
     }
 
-    var tint: Color {
+    var foreground: Color {
         switch self {
-        case .notLocal: .green
-        case .current: MessagesPalette.sentBubble
-        case .pendingReplacement: .orange
+        case .notLocal: WNColor.intentionSuccessContent
+        case .current: WNColor.textPrimary
+        case .pendingReplacement: WNColor.intentionWarningContent
         case .retainedPrivateMaterial, .otherOwned: WNColor.backgroundContentSecondary
+        }
+    }
+
+    var badgeBackground: Color {
+        switch self {
+        case .notLocal: WNColor.intentionSuccessBackground
+        case .current: WNColor.fillSecondary
+        case .pendingReplacement: WNColor.intentionWarningBackground
+        case .retainedPrivateMaterial, .otherOwned: WNColor.fillSecondary
         }
     }
 }

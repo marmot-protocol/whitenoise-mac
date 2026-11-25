@@ -44,6 +44,7 @@ private struct DeviceLinkSheetHost: ViewModifier {
                         DeviceLinkPromptSheet(model: model, promptId: id)
                     }
                 }
+                .id(ObjectIdentifier(model))
                 // A sheet is its own presentation and does not inherit the root's locale.
                 .environment(\.locale, locale)
             }
@@ -109,16 +110,19 @@ private struct NewDeviceLinkFooter: View {
         case .ended:
             Button(L10n.string("Done")) { model.closeSheet() }
                 .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
             WNPrimaryButton(L10n.string("Try Again"), systemImage: "arrow.clockwise") {
                 Task { await model.startLink() }
             }
             .disabled(model.isBusy(.startLink))
         case .linked:
             WNPrimaryButton(L10n.string("Done"), systemImage: "checkmark") { model.closeSheet() }
+                .keyboardShortcut(.defaultAction)
         case nil:
             // Before the first answer, or after `startDeviceLink` was refused.
             Button(L10n.string("Close")) { model.closeSheet() }
                 .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
             if model.actionError != nil {
                 WNPrimaryButton(L10n.string("Try Again"), systemImage: "arrow.clockwise") {
                     Task { await model.startLink() }
@@ -144,18 +148,20 @@ struct DeviceLinkSuggestionSheet: View {
             ),
             error: model.actionError
         ) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach(model.earlierSignIns, id: \.slotIdHex) { signIn in
                     Label(
                         DeviceLinkPresentation.subtitle(for: signIn),
                         systemImage: "iphone"
                     )
+                    .font(.subheadline)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
         } footer: {
             Button(L10n.string("Not Now")) { model.closeSheet() }
                 .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
             WNPrimaryButton(L10n.string("Link This Mac"), systemImage: "link") {
                 Task { await model.startLink() }
             }
@@ -181,9 +187,11 @@ struct AddNewDeviceSheet: View {
                 ForEach(Array(AddNewDeviceSheet.steps.enumerated()), id: \.offset) { index, step in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(verbatim: "\(index + 1).")
+                            .font(.subheadline)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .monospacedDigit()
                         Text(step)
+                            .font(.body)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -191,11 +199,13 @@ struct AddNewDeviceSheet: View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text(L10n.string("Waiting for a request…"))
+                    .font(.subheadline)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         } footer: {
             Button(L10n.string("Close")) { model.closeSheet() }
                 .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
         }
     }
 
@@ -280,16 +290,33 @@ struct DeviceLinkPromptSheet: View {
 /// A device name field with MDK's limit: not blank, at most 64 bytes.
 private struct DeviceLabelField: View {
     let title: String
+    var prompt: String = L10n.string("Mac")
     @Binding var label: String
+    var focusOnAppear = false
+
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        WNInput(
-            label: title,
-            prompt: L10n.string("Mac"),
-            text: $label,
-            validationMessage: label.utf8.count > DeviceLinkPresentation.maxLabelBytes
-                ? L10n.string("That name is too long.") : nil
-        )
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(WNColor.textPrimary)
+
+            TextField(title, text: $label, prompt: Text(prompt))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .focused($isFocused)
+                .onAppear {
+                    if focusOnAppear { isFocused = true }
+                }
+
+            if label.utf8.count > DeviceLinkPresentation.maxLabelBytes {
+                Text(L10n.string("That name is too long."))
+                    .font(.caption)
+                    .foregroundStyle(WNColor.intentionErrorContent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
@@ -322,16 +349,16 @@ private struct DeviceLinkPromptOptions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            WNInput(
-                label: L10n.string("Device Name"),
+            DeviceLabelField(
+                title: L10n.string("Device Name"),
                 prompt: L10n.string("e.g. iPhone"),
-                text: $label,
-                validationMessage: label.utf8.count > DeviceLinkPresentation.maxLabelBytes
-                    ? L10n.string("That name is too long.") : nil,
+                label: $label,
                 focusOnAppear: true
             )
-            WNToggle(L10n.string("Add to all my chats"), isOn: $addToAllChats)
-            WNToggle(L10n.string("Bring chat history"), isOn: $bringHistory)
+            VStack(alignment: .leading, spacing: 8) {
+                WNToggle(L10n.string("Add to all my chats"), isOn: $addToAllChats, presentation: .checkbox)
+                WNToggle(L10n.string("Bring chat history"), isOn: $bringHistory, presentation: .checkbox)
+            }
         }
     }
 }
@@ -362,8 +389,10 @@ private struct DeviceLinkPromptFooter: View {
         case .linking:
             Button(L10n.string("Close")) { model.closePrompt(prompt.promptId) }
                 .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
         case .linked, .addedElsewhere, .ended:
             WNPrimaryButton(L10n.string("Done"), systemImage: "checkmark") { model.closePrompt(prompt.promptId) }
+                .keyboardShortcut(.defaultAction)
         }
     }
 }
@@ -378,14 +407,16 @@ struct DeviceLinkCodeView: View {
     var body: some View {
         // Four over three, the shape `whitenoise-ios` draws, so both screens read alike and the order
         // is easy to compare line by line.
-        VStack(spacing: 16) {
-            DeviceLinkCodeRow(items: Array(code.prefix(4)), offset: 0, total: code.count)
-            if code.count > 4 {
-                DeviceLinkCodeRow(items: Array(code.dropFirst(4)), offset: 4, total: code.count)
+        GroupBox {
+            VStack(spacing: 16) {
+                DeviceLinkCodeRow(items: Array(code.prefix(4)), offset: 0, total: code.count)
+                if code.count > 4 {
+                    DeviceLinkCodeRow(items: Array(code.dropFirst(4)), offset: 4, total: code.count)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.string("Emoji to compare"))
     }
@@ -430,8 +461,10 @@ private struct DeviceLinkProgressRow: View {
     }
 }
 
-/// The chrome every linking sheet shares: title, explanation, content, an error line, a footer.
+/// The chrome every linking sheet shares: active profile context, title, explanation, content,
+/// an inline error, and a native macOS action footer.
 private struct DeviceLinkSheetFrame<Content: View, Footer: View>: View {
+    @Environment(WorkspaceState.self) private var workspace: WorkspaceState?
     let title: String
     let message: String
     let error: String?
@@ -439,33 +472,47 @@ private struct DeviceLinkSheetFrame<Content: View, Footer: View>: View {
     @ViewBuilder let footer: Footer
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .wnFont(.semiBold16)
-                Text(message)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let profileName = workspace?.activeAccount?.displayName, !profileName.isEmpty {
+                        Label(profileName, systemImage: "person.crop.circle")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                    }
+                    Text(title)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(WNColor.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-            content
+                content
 
-            if let error {
-                Text(error)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentDestructive)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let error {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .padding(20)
+
+            Divider()
 
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 footer
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
-        .padding(20)
-        .frame(width: 440)
+        .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
-        .wnButtonShape(.capsule)
     }
 }
 
