@@ -16,11 +16,10 @@ import SwiftUI
 /// Digits are monospaced so a count ticking 9 → 10 does not shift the pill's width mid-scroll.
 struct UnreadCountBadge: View {
     let count: Int
-    var font: Font = .caption2.weight(.semibold)
 
     var body: some View {
         Text(verbatim: count > 99 ? "99+" : "\(count)")
-            .font(font.monospacedDigit())
+            .font(.caption2.weight(.semibold).monospacedDigit())
             .foregroundStyle(WNColor.fillContentPrimary)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
@@ -347,7 +346,12 @@ struct ChatListDrawerView: View {
                 Divider()
 
                 SidebarProfileSwitcherView(
+                    signedInAccounts: workspace.signedInAccounts,
+                    activeAccount: workspace.activeAccount,
+                    isAccountMutationInProgress: workspace.isAccountMutationInProgress,
                     attentionModel: attentionModel,
+                    onSelectAccount: { workspace.selectAccount($0) },
+                    onAddProfile: { workspace.showAccountOnboarding() },
                     onOpenSettings: onOpenSettings
                 )
             }
@@ -388,7 +392,8 @@ struct ChatListDrawerView: View {
                     ChatListRowClickPolicy.shouldApplyNativeListSelection(
                         newId: newId,
                         currentOpenChatId: currentOpenId,
-                        isBatchSelectionActive: selection?.isActive == true
+                        isBatchSelectionActive: selection?.isActive == true,
+                        modifiers: NSEvent.modifierFlags
                     ),
                     let newId,
                     let chat = visibleChats.first(where: { $0.id == newId })
@@ -713,10 +718,8 @@ private struct ChatSidebarRowContent: View {
     var body: some View {
         ChatRowContent(
             chat: chat,
-            isSelected: workspace.selection == .chat(chat.id),
             isPinned: !isArchived && workspace.isChatPinned(chat),
-            searchResult: searchResult,
-            drawsRowBackground: false
+            searchResult: searchResult
         )
     }
 }
@@ -985,12 +988,8 @@ struct ChatRowContent: View {
     @Environment(\.locale) private var locale
     @Environment(\.timestampReferenceDate) private var timestampReferenceDate
     let chat: ChatItem
-    let isSelected: Bool
     var isPinned = false
     var searchResult: GlobalMessageSearchResult?
-    /// Native `List(selection:)` with `.listStyle(.sidebar)` owns row selection highlighting;
-    /// callers outside a sidebar `List` can keep the fallback pill background.
-    var drawsRowBackground = true
 
     private var rowStatus: ChatRowStatus? { ChatRowStatus.status(for: chat) }
 
@@ -1091,11 +1090,6 @@ struct ChatRowContent: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 6)
-        .background {
-            if drawsRowBackground {
-                MessagesSidebarRowBackground(isSelected: isSelected)
-            }
-        }
         .contentShape(Rectangle())
     }
 
@@ -1116,6 +1110,9 @@ struct ChatRowContent: View {
             + SearchMatchHighlightStyle.text(searchResult.snippet)
     }
 
+    /// Recovers the sender prefix from the composed preview line rather than rebuilding it from
+    /// `publishedSenderName`, because a user's private contact nickname may have been patched into
+    /// the preview. A line of your own ("You: …") carries no attribution and stays one plain run.
     private static func attributedPreview(for chat: ChatItem) -> Text {
         let glyph: Text =
             chat.previewAttachmentKind.map { kind in

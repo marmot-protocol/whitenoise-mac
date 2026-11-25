@@ -539,18 +539,6 @@ struct MessagesCircleControlBackground: View {
     }
 }
 
-/// The selected chat row in the sidebar. `fillTertiaryHover` is the ghost control's pointed-at
-/// fill — one neutral step off the surface — which is what the other clients highlight a selected
-/// list row with. An unselected row draws nothing at all, since `fillTertiary` is transparent.
-struct MessagesSidebarRowBackground: View {
-    let isSelected: Bool
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(isSelected ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
-    }
-}
-
 struct MessagesSearchFieldBackground: View {
     var body: some View {
         Capsule(style: .continuous)

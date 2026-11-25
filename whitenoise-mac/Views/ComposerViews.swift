@@ -2054,7 +2054,11 @@ private struct PendingInviteBlockControl: View {
                 }
             }
             Button(L10n.string("Block User", locale: locale), role: .destructive) {
-                Task { await blockedUsersModel.setBlocked(true, accountID: accountID) }
+                if let reporter, let reportedAccountId {
+                    reporter.startBlocking(accountIdHex: reportedAccountId, reporting: false)
+                } else {
+                    Task { await blockedUsersModel.setBlocked(true, accountID: accountID) }
+                }
             }
             Button(L10n.string("Cancel", locale: locale), role: .cancel) {}
         } message: {
@@ -2158,49 +2162,6 @@ struct ProfileImageAvatarView: View {
     private var ringColor: Color {
         let showsPicture = localImagePayload != nil || sanitizedPictureURL != nil
         return showsPicture ? AvatarChromeModifier.neutralRing : AvatarPalette.colors(for: seed).border
-    }
-}
-
-struct MessageSelectionToolbar: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.locale) private var locale
-    let conversationModel: ConversationViewModel
-
-    var body: some View {
-        let messages = workspace.selectedTimelineMessagesForAction
-        let canForward = messages.contains(where: \.canForward)
-        let canDelete = messages.contains(where: workspace.canDeleteMessage)
-
-        HStack(spacing: 10) {
-            Text(L10n.plural("%lld selected", Int64(workspace.selectedTimelineMessageIds.count), locale: locale))
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-
-            Spacer()
-
-            Button {
-                workspace.startForwarding(messages)
-            } label: {
-                Label(L10n.string("Forward", locale: locale), systemImage: "arrowshape.turn.up.right")
-            }
-            .wnSecondaryButtonStyle()
-            .disabled(!canForward)
-
-            Button(role: .destructive) {
-                Task {
-                    await workspace.deleteSelectedMessages { message in
-                        await FailedSendDiscard.run(message, model: conversationModel, workspace: workspace)
-                    }
-                }
-            } label: {
-                Label(L10n.string("Delete", locale: locale), systemImage: "trash")
-            }
-            .wnSecondaryButtonStyle()
-            .disabled(!canDelete)
-        }
-        .controlSize(.regular)
-        .frame(minHeight: 36)
     }
 }
 

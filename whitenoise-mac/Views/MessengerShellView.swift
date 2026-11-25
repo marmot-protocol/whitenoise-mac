@@ -836,47 +836,47 @@ private struct ConversationView: View {
                     }
                 }
 
-                GlassSeparator(axis: .horizontal)
+                if !workspace.isTimelineSelectionMode {
+                    GlassSeparator(axis: .horizontal)
 
-                VStack(spacing: 8) {
-                    ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
-                    // The core rejects sends to a group the local account left or was
-                    // removed from (`invalid_transition`), so the whole composer —
-                    // reply/media drafts included — gives way to an explanatory notice.
-                    if workspace.isTimelineSelectionMode {
-                        MessageSelectionToolbar(conversationModel: model)
-                    } else if !chat.lifecycle.allowsMessaging {
-                        // A disband ends the group for everyone, members included, so it
-                        // outranks where this account stood in it.
-                        GroupLifecycleComposerNotice(lifecycle: chat.lifecycle)
-                    } else if chat.isNoLongerMember {
-                        MembershipEndedComposerNotice(membership: chat.selfMembership)
-                    } else if isBlockedDirectPeer {
-                        BlockedConversationComposerNotice()
-                    } else if chat.pendingConfirmation {
-                        PendingGroupInviteComposerNotice(
-                            chat: chat,
-                            blockedUsersModel: blockedUsersModel,
-                            moderationReporter: session.accountScope?.moderationReporter
-                        )
-                    } else if BlockedLeavePresentation.isBlocked(
-                        leaveRequestPending: chat.leaveRequestPending, leaveBlocked: chat.leaveBlocked)
-                    {
-                        BlockedLeaveNotice(
-                            canCancel: model.canCancelBlockedLeave,
-                            isCancelling: model.isCancellingLeave,
-                            failure: model.cancelLeaveFailure,
-                            onCancel: { Task { await model.cancelBlockedLeave() } }
-                        )
-                    } else {
-                        composerControls
+                    VStack(spacing: 8) {
+                        ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
+                        // The core rejects sends to a group the local account left or was
+                        // removed from (`invalid_transition`), so the whole composer —
+                        // reply/media drafts included — gives way to an explanatory notice.
+                        if !chat.lifecycle.allowsMessaging {
+                            // A disband ends the group for everyone, members included, so it
+                            // outranks where this account stood in it.
+                            GroupLifecycleComposerNotice(lifecycle: chat.lifecycle)
+                        } else if chat.isNoLongerMember {
+                            MembershipEndedComposerNotice(membership: chat.selfMembership)
+                        } else if isBlockedDirectPeer {
+                            BlockedConversationComposerNotice()
+                        } else if chat.pendingConfirmation {
+                            PendingGroupInviteComposerNotice(
+                                chat: chat,
+                                blockedUsersModel: blockedUsersModel,
+                                moderationReporter: session.accountScope?.moderationReporter
+                            )
+                        } else if BlockedLeavePresentation.isBlocked(
+                            leaveRequestPending: chat.leaveRequestPending, leaveBlocked: chat.leaveBlocked)
+                        {
+                            BlockedLeaveNotice(
+                                canCancel: model.canCancelBlockedLeave,
+                                isCancelling: model.isCancellingLeave,
+                                failure: model.cancelLeaveFailure,
+                                onCancel: { Task { await model.cancelBlockedLeave() } }
+                            )
+                        } else {
+                            composerControls
+                        }
                     }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 14)
-                .background {
-                    MessagesComposerBarBackground()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 14)
+                    .background {
+                        MessagesComposerBarBackground()
+                    }
                 }
             }
             .background {
@@ -948,10 +948,20 @@ private struct ConversationView: View {
             }
         }
         .conversationToolbar(
+            messenger: MessengerCommandContext(
+                workspace: workspace,
+                accountID: workspace.activeAccountId ?? "",
+                selectedConversation: { model },
+                isMessengerWindowTarget: { true }
+            ),
             chat: chat,
             model: model,
-            recoveryStatus: session.accountScope?.recoveryStatus,
+            metadata: workspace.conversationMetadataByChat[chat.id],
+            isCatchingUp: session.accountScope?.recoveryStatus.isCatchingUp(groupIdHex: chat.id) == true,
+            isGroupDetailsPresented: workspace.isGroupDetailsPresented,
+            isDetailsPanePresented: workspace.isGroupDetailsPresented || workspace.contactDetailsTarget != nil,
             blockedUsersModel: blockedUsersModel,
+            isGroupImagePickerPresented: $workspace.isGroupImagePickerPresented,
             onSearch: searchCommand.open,
             escapeEndsMessageSelection: session.accountScope?.chatListSelection.isActive != true
         )

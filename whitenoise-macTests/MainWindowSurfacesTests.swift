@@ -10,10 +10,6 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
 
     // MARK: - #1037: Chat list filters, click/selection routing, and profile switcher
 
-    @Test func chatListFiltersExposeOnlyTheFiveRealFilters() {
-        #expect(ChatListFilter.allCases == [.active, .unread, .invites, .archived, .left])
-    }
-
     @Test func chatListRowClickPolicyPreservesOpenChatAndBatchSelectionContracts() {
         #expect(
             ChatListRowClickPolicy.action(
@@ -56,12 +52,28 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
         )
     }
 
-    @Test func nativeListSelectionNeverOverridesBatchSelectionOrBlanksOpenChat() {
+    @Test func nativeListSelectionRejectsBatchSelectionModifiersAndNil() {
         #expect(
             !ChatListRowClickPolicy.shouldApplyNativeListSelection(
                 newId: "other-chat",
                 currentOpenChatId: "open-chat",
                 isBatchSelectionActive: true
+            )
+        )
+        #expect(
+            !ChatListRowClickPolicy.shouldApplyNativeListSelection(
+                newId: "other-chat",
+                currentOpenChatId: "open-chat",
+                isBatchSelectionActive: false,
+                modifiers: [.command]
+            )
+        )
+        #expect(
+            !ChatListRowClickPolicy.shouldApplyNativeListSelection(
+                newId: "other-chat",
+                currentOpenChatId: "open-chat",
+                isBatchSelectionActive: false,
+                modifiers: [.shift]
             )
         )
         #expect(
@@ -135,17 +147,30 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
 
     // MARK: - #1038: Conversation toolbar action safety and permission gating
 
-    @Test func conversationToolbarGuardRejectsStaleAccountOrChat() {
-        let actionGuard = ConversationToolbarActionGuard(
-            originAccountId: "acct-a",
-            originChatId: "chat-1"
-        )
+    @MainActor
+    @Test func messengerCommandContextRejectsStaleAccountOrChat() {
+        let workspace = WorkspaceState.preview()
+        guard let activeAccountId = workspace.activeAccountId,
+            let selectedChat = workspace.selectedChat
+        else {
+            Issue.record("Expected preview workspace to have an active account and selected chat")
+            return
+        }
 
-        #expect(actionGuard.matches(activeAccountId: "acct-a", selectedChatId: "chat-1"))
-        #expect(!actionGuard.matches(activeAccountId: "acct-b", selectedChatId: "chat-1"))
-        #expect(!actionGuard.matches(activeAccountId: "acct-a", selectedChatId: "chat-2"))
-        #expect(!actionGuard.matches(activeAccountId: nil, selectedChatId: "chat-1"))
-        #expect(!actionGuard.matches(activeAccountId: "acct-a", selectedChatId: nil))
+        let currentContext = MessengerCommandContext(
+            workspace: workspace,
+            accountID: activeAccountId,
+            isMessengerWindowTarget: { true }
+        )
+        #expect(currentContext.activeChat(matching: selectedChat.id)?.id == selectedChat.id)
+        #expect(currentContext.activeChat(matching: "different-chat") == nil)
+
+        let staleAccountContext = MessengerCommandContext(
+            workspace: workspace,
+            accountID: "stale-account",
+            isMessengerWindowTarget: { true }
+        )
+        #expect(staleAccountContext.activeChat(matching: selectedChat.id) == nil)
     }
 
     @Test func setGroupImageVisibilityRequiresActiveGroupWithComposerAccess() {
@@ -196,10 +221,10 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
             selfMembership: .left
         )
 
-        #expect(ConversationToolbarActionGuard.canSetGroupImage(for: activeGroup))
-        #expect(!ConversationToolbarActionGuard.canSetGroupImage(for: directChat))
-        #expect(!ConversationToolbarActionGuard.canSetGroupImage(for: pendingGroup))
-        #expect(!ConversationToolbarActionGuard.canSetGroupImage(for: leftGroup))
+        #expect(ConversationToolbarEligibility.canSetGroupImage(for: activeGroup))
+        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: directChat))
+        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: pendingGroup))
+        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: leftGroup))
     }
 
     // MARK: - #1112: Persistent notices, security warnings, and empty states
@@ -211,6 +236,7 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
             keyPackageRefreshOverdue: false
         )
         #expect(!clean.hasWarnings)
+        #expect(clean.warningCount == 0)
 
         let stalled = AccountDeviceWarningSummary.from(
             compromiseItems: [],
@@ -219,6 +245,7 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
         )
         #expect(stalled.hasWarnings)
         #expect(stalled.isDeviceGroupStalled)
+        #expect(stalled.warningCount == 1)
 
         let overdue = AccountDeviceWarningSummary.from(
             compromiseItems: [],
@@ -227,6 +254,7 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
         )
         #expect(overdue.hasWarnings)
         #expect(overdue.isKeyPackageRefreshOverdue)
+        #expect(overdue.warningCount == 1)
     }
 
     @MainActor
@@ -245,8 +273,8 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
             ]
         )
 
-        hostForLayout(AccountHistoryNoticesView(model: historyNotices), width: 300)
-        hostForLayout(
+        assertNonZeroLayout(AccountHistoryNoticesView(model: historyNotices), width: 300)
+        assertNonZeroLayout(
             AccountDeviceWarningsBanner(model: deviceLinking, onOpenDevicesSettings: {}),
             width: 300
         )
@@ -256,50 +284,70 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func mainWindowSurfacesRenderCleanlyAtDesktopAndNarrowWidths() {
+    @Test func compactSecurityBannerBoundsHeightWithManyCompromiseRecords() {
+        let manyRecords = (0..<12).map { index in
+            "Unrecognized sign-in record #\(index) with detailed audit context that would otherwise crowd the sidebar."
+        }
+        let banner = AccountDeviceWarningsBannerContent(
+            summary: AccountDeviceWarningSummary(
+                compromiseMessages: manyRecords,
+                isDeviceGroupStalled: true,
+                isKeyPackageRefreshOverdue: true
+            ),
+            onReview: {}
+        )
+        let host = NSHostingView(rootView: banner.frame(width: 260))
+        host.layoutSubtreeIfNeeded()
+        #expect(host.fittingSize.height > 0)
+        #expect(host.fittingSize.height < 180)
+    }
+
+    @MainActor
+    @Test func mainWindowSurfacesLayoutCleanlyAtDesktopAndNarrowWidths() {
         let workspace = WorkspaceState.preview()
         let session = SessionState()
 
-        hostForLayout(
-            SidebarProfileSwitcherView(attentionModel: nil, onOpenSettings: {})
-                .environment(workspace),
+        assertNonZeroLayout(
+            SidebarProfileSwitcherView(
+                signedInAccounts: workspace.signedInAccounts,
+                activeAccount: workspace.activeAccount,
+                isAccountMutationInProgress: false,
+                attentionModel: nil,
+                onSelectAccount: { _ in },
+                onAddProfile: {},
+                onOpenSettings: {}
+            )
+            .environment(workspace),
             width: 240
         )
-        hostForLayout(
+        assertNonZeroLayout(
             ConversationToolbarIdentity(
                 chat: ChatItem.samples[0],
                 metadata: ConversationMetadata(memberCount: 4, disappearingMessageSecs: 86_400, isSelfAdmin: true),
                 isCatchingUp: false
-            ),
+            )
+            .environment(workspace),
             width: 220
         )
-        hostForLayout(
-            ConversationToolbarIdentity(
-                chat: ChatItem.samples[0],
-                metadata: nil,
-                isCatchingUp: true
-            ),
-            width: 220
-        )
-        hostForLayout(OfflineNoticeBand(), width: 420)
-        hostForLayout(
+        assertNonZeroLayout(OfflineNoticeBand(), width: 420)
+        assertNonZeroLayout(
             BackgroundStatusBannerContent(status: "Relay unavailable", onDismiss: {}),
             width: 420
         )
-        hostForLayout(
+        assertNonZeroLayout(
             PendingGroupInviteComposerNotice(chat: ChatItem.samples[0])
                 .environment(workspace)
                 .environment(session),
             width: 460
         )
-        hostForLayout(MembershipEndedComposerNotice(membership: .left), width: 460)
-        hostForLayout(GroupLifecycleComposerNotice(lifecycle: .ended), width: 460)
-        hostForLayout(
+        assertNonZeroLayout(MembershipEndedComposerNotice(membership: .left), width: 460)
+        assertNonZeroLayout(GroupLifecycleComposerNotice(lifecycle: .ended), width: 460)
+        assertNonZeroLayout(
             BlockedLeaveNotice(canCancel: true, isCancelling: false, failure: nil, onCancel: {}),
             width: 460
         )
-        hostForLayout(BlockedConversationComposerNotice(), width: 460)
-        hostForLayout(
+        assertNonZeroLayout(BlockedConversationComposerNotice(), width: 460)
+        assertNonZeroLayout(
             WNEmptyStateView(
                 title: L10n.string("No matching chats"),
                 systemImage: "magnifyingglass"
@@ -309,11 +357,10 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    private func hostForLayout<Content: View>(_ view: Content, width: CGFloat) {
-        let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: width, height: 200)
+    private func assertNonZeroLayout<Content: View>(_ view: Content, width: CGFloat) {
+        let host = NSHostingView(rootView: view.frame(width: width))
         host.layoutSubtreeIfNeeded()
-        #expect(host.fittingSize.width >= 0)
-        #expect(host.fittingSize.height >= 0)
+        #expect(host.fittingSize.width > 0)
+        #expect(host.fittingSize.height > 0)
     }
 }

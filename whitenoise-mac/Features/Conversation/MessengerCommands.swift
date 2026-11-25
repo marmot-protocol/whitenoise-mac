@@ -171,17 +171,30 @@ enum ConversationUnreadMenuAction: Equatable {
     }
 }
 
-private struct ConversationMenuItems: View {
+struct ConversationMenuItems: View {
     let messenger: MessengerCommandContext
     let conversation: ConversationViewModel?
     let chat: ChatItem
     let locale: Locale
+    let endingGroupIDs: Set<String>
+    var onSetGroupImage: (() -> Void)? = nil
 
     var body: some View {
         let workspace = messenger.workspace
         let actions = ChatMenuActions(workspace: workspace, chat: chat)
         let isArchived = workspace.archivedChatItem(accountId: messenger.accountID, chatId: chat.id) != nil
         let unreadAction = ConversationUnreadMenuAction.resolve(for: chat)
+
+        if let onSetGroupImage, !chat.isDirect, chat.canUseComposer {
+            Button {
+                guard isCurrent() else { return }
+                onSetGroupImage()
+            } label: {
+                Label(L10n.string("Set group image", locale: locale), systemImage: "photo.badge.plus")
+            }
+
+            Divider()
+        }
 
         ChatMuteMenu(actions: actions, locale: locale, isCurrent: isCurrent)
 
@@ -241,8 +254,6 @@ private struct ConversationMenuItems: View {
             .disabled(!actions.canPerformDestructive(destructive, endingGroupIDs: endingGroupIDs))
         }
     }
-
-    let endingGroupIDs: Set<String>
 
     private func isCurrent() -> Bool {
         messenger.activeChat(matching: chat.id) != nil

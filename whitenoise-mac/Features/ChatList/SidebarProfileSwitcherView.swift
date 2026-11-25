@@ -41,19 +41,22 @@ nonisolated enum SidebarAccountMenuFormatting {
 /// (S03, N02). Replaces the fixed-width left `AccountRailView` column while preserving the exact
 /// account-switching, Add Profile, Settings, and background-profile attention contracts.
 ///
-/// Only lists `workspace.signedInAccounts` (never signed-out identities) and carries no
-/// unconfirmed destructive account actions.
+/// Only lists `signedInAccounts` (never signed-out identities) and carries no unconfirmed
+/// destructive account actions.
 struct SidebarProfileSwitcherView: View {
-    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
+    let signedInAccounts: [AccountItem]
+    let activeAccount: AccountItem?
+    let isAccountMutationInProgress: Bool
     let attentionModel: AccountAttentionViewModel?
+    let onSelectAccount: (AccountItem) -> Void
+    let onAddProfile: () -> Void
     let onOpenSettings: () -> Void
 
     var body: some View {
-        let signedInAccounts = workspace.signedInAccounts
         let attention = SidebarProfileAttentionSummary.compute(
             signedInAccounts: signedInAccounts,
-            activeAccountId: workspace.activeAccountId,
+            activeAccountId: activeAccount?.id,
             unreadCountForAccountIdHex: { accountIdHex in
                 attentionModel?.unreadCount(accountIdHex: accountIdHex)
             }
@@ -63,11 +66,11 @@ struct SidebarProfileSwitcherView: View {
             Menu {
                 Section {
                     ForEach(signedInAccounts) { account in
-                        let isActive = account.id == workspace.activeAccountId
+                        let isActive = account.id == activeAccount?.id
                         let unread = attention.unreadCount(for: account)
                         Button {
                             guard !isActive else { return }
-                            workspace.selectAccount(account)
+                            onSelectAccount(account)
                         } label: {
                             if isActive {
                                 Label(
@@ -86,32 +89,30 @@ struct SidebarProfileSwitcherView: View {
                                 )
                             }
                         }
-                        .disabled(workspace.isAccountMutationInProgress)
+                        .disabled(isAccountMutationInProgress)
                     }
                 }
 
                 Divider()
 
-                Button {
-                    workspace.showAccountOnboarding()
-                } label: {
+                Button(action: onAddProfile) {
                     Label(L10n.string("Add Profile", locale: locale), systemImage: "person.badge.plus")
                 }
-                .disabled(workspace.isAccountMutationInProgress)
+                .disabled(isAccountMutationInProgress)
 
                 Button(action: onOpenSettings) {
                     Label(L10n.string("Settings…", locale: locale), systemImage: "gearshape")
                 }
             } label: {
                 SidebarProfileSwitcherLabel(
-                    activeAccount: workspace.activeAccount,
+                    activeAccount: activeAccount,
                     backgroundUnreadCount: attention.backgroundUnreadCount
                 )
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize(horizontal: false, vertical: true)
-            .help(workspace.activeAccount?.displayName ?? L10n.string("Choose a profile", locale: locale))
+            .help(activeAccount?.displayName ?? L10n.string("Choose a profile", locale: locale))
             .accessibilityIdentifier("sidebar.profileSwitcher")
 
             Spacer(minLength: 4)
@@ -179,9 +180,18 @@ private struct SidebarProfileSwitcherLabel: View {
 }
 
 #Preview("Sidebar profile switcher") {
-    SidebarProfileSwitcherView(attentionModel: nil, onOpenSettings: {})
-        .environment(WorkspaceState.preview())
-        .frame(width: 280)
+    let workspace = WorkspaceState.preview()
+    SidebarProfileSwitcherView(
+        signedInAccounts: workspace.signedInAccounts,
+        activeAccount: workspace.activeAccount,
+        isAccountMutationInProgress: false,
+        attentionModel: nil,
+        onSelectAccount: { _ in },
+        onAddProfile: {},
+        onOpenSettings: {}
+    )
+    .environment(workspace)
+    .frame(width: 280)
 }
 
 #Preview("Profile switcher label with background unread") {
@@ -189,6 +199,7 @@ private struct SidebarProfileSwitcherLabel: View {
         activeAccount: WorkspaceState.preview().activeAccount,
         backgroundUnreadCount: 7
     )
+    .environment(WorkspaceState.preview())
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
     .frame(width: 240)

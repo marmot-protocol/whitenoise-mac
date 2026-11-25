@@ -34,15 +34,22 @@ nonisolated enum ChatListRowClickPolicy {
         return .openChat
     }
 
-    /// Whether a native `List(selection:)` update (such as arrow-key navigation) should open a
-    /// chat. Suppressed while batch selection is active or when the list attempts to clear
-    /// selection to `nil` so the open conversation and batch set never collide.
+    /// Whether a native `List(selection:)` update (such as arrow-key navigation or a plain click)
+    /// should open a chat. Suppressed while batch selection is active, while Command or Shift is
+    /// held (so modifier-clicks never open a chat or overwrite the Shift range anchor before the
+    /// row handler runs), or when the list attempts to clear selection to `nil`.
     static func shouldApplyNativeListSelection(
         newId: String?,
         currentOpenChatId: String?,
-        isBatchSelectionActive: Bool
+        isBatchSelectionActive: Bool,
+        modifiers: NSEvent.ModifierFlags = []
     ) -> Bool {
-        guard !isBatchSelectionActive, let newId, newId != currentOpenChatId else { return false }
+        guard !isBatchSelectionActive,
+            !modifiers.contains(.command),
+            !modifiers.contains(.shift),
+            let newId,
+            newId != currentOpenChatId
+        else { return false }
         return true
     }
 }

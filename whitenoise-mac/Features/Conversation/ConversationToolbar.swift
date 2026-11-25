@@ -1,20 +1,8 @@
 import MarmotKit
 import SwiftUI
 
-/// Pure target-identity validation for conversation toolbar actions (#1038).
-///
-/// Toolbar closures capture the account and chat displayed when the button was clicked; checking
-/// against live workspace state before running guarantees a toolbar update or account switch can
-/// never fire an action against the previously selected chat or account.
-nonisolated struct ConversationToolbarActionGuard: Equatable, Sendable {
-    let originAccountId: String?
-    let originChatId: String
-
-    func matches(activeAccountId: String?, selectedChatId: String?) -> Bool {
-        guard let originAccountId, let activeAccountId else { return false }
-        return activeAccountId == originAccountId && selectedChatId == originChatId
-    }
-
+/// Pure eligibility helpers for the conversation toolbar (#1038).
+nonisolated enum ConversationToolbarEligibility {
     static func canSetGroupImage(for chat: ChatItem) -> Bool {
         !chat.isDirect && chat.canUseComposer
     }
@@ -24,18 +12,21 @@ nonisolated struct ConversationToolbarActionGuard: Equatable, Sendable {
 /// Find, Chat Info, More menu, and message-selection contextual controls into the native macOS
 /// window `.toolbar` (N04, N05, T11, K01–K06, #1038).
 ///
-/// Preserves the existing slide-in Chat Info route (`workspace.showGroupDetails(for:)`),
-/// permission-gated Set Group Image sheet, and conversation confirmation/history/poll-votes hosts
-/// until `#1042` migrates details into `.inspector`.
+/// Reuses `MessengerCommandContext` for target-identity revalidation and `ConversationMenuItems`
+/// for the More menu so menu-bar and toolbar actions stay in lockstep.
 struct ConversationToolbarModifier: ViewModifier {
-    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     @Environment(\.endingGroupIds) private var endingGroupIds
     @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
+    let messenger: MessengerCommandContext
     let chat: ChatItem
     let model: ConversationViewModel
-    let recoveryStatus: AccountRecoveryStatusViewModel?
+    let metadata: ConversationMetadata?
+    let isCatchingUp: Bool
+    let isGroupDetailsPresented: Bool
+    let isDetailsPanePresented: Bool
     let blockedUsersModel: BlockedUsersViewModel
+    let isGroupImagePickerPresented: Binding<Bool>
     let onSearch: () -> Void
     /// Whether Escape ends message selection. Off while chat-list selection is active so only one
     /// Escape target is installed: chat-list selection ends first, then message selection, then
@@ -43,19 +34,13 @@ struct ConversationToolbarModifier: ViewModifier {
     let escapeEndsMessageSelection: Bool
 
     func body(content: Content) -> some View {
-        @Bindable var workspace = workspace
-        let originAccountId = workspace.activeAccountId
-        let actionGuard = ConversationToolbarActionGuard(
-            originAccountId: originAccountId,
-            originChatId: chat.id
-        )
-        let metadata = workspace.conversationMetadataByChat[chat.id]
-        let isCatchingUp = recoveryStatus?.isCatchingUp(groupIdHex: chat.id) == true
+        let workspace = messenger.workspace
 
         content
-            // Suppress duplicate plain title text beside the custom avatar+title+subtitle
-            // `.navigation` toolbar item while keeping the window's own title in the Window menu.
-            .navigationTitle("")
+            // Keep the chat title on the window (Window menu, Mission Control, VoiceOver) while
+            // hiding SwiftUI's duplicate plain toolbar title beside the custom `.navigation` item.
+            .navigationTitle(chat.title)
+            .toolbar(removing: .title)
             .toolbar {
                 if workspace.isTimelineSelectionMode {
                     ToolbarItem(placement: .navigation) {
@@ -64,8 +49,9 @@ struct ConversationToolbarModifier: ViewModifier {
 
                     ToolbarItemGroup(placement: .primaryAction) {
                         ConversationSelectionToolbarActions(
+                            messenger: messenger,
+                            chatId: chat.id,
                             conversationModel: model,
-                            actionGuard: actionGuard,
                             escapeEndsMessageSelection: escapeEndsMessageSelection
                         )
                     }
@@ -83,41 +69,46 @@ struct ConversationToolbarModifier: ViewModifier {
                             Label(L10n.string("Search messages", locale: locale), systemImage: "magnifyingglass")
                         }
                         .help(L10n.string("Find in Conversation…", locale: locale))
+                        .disabled(isDetailsPanePresented)
                         .accessibilityIdentifier("conversation.search.open")
 
                         Button {
-                            guard
-                                actionGuard.matches(
-                                    activeAccountId: workspace.activeAccountId,
-                                    selectedChatId: workspace.selectedChat?.id
-                                )
-                            else { return }
-                            if workspace.isGroupDetailsPresented {
+                            guard let currentChat = messenger.activeChat(matching: chat.id) else { return }
+                            if isGroupDetailsPresented {
                                 workspace.closeGroupDetails()
                             } else {
                                 Task {
-                                    guard
-                                        actionGuard.matches(
-                                            activeAccountId: workspace.activeAccountId,
-                                            selectedChatId: workspace.selectedChat?.id
-                                        )
-                                    else { return }
-                                    await workspace.showGroupDetails(for: chat)
+                                    guard let refreshedChat = messenger.activeChat(matching: currentChat.id) else {
+                                        return
+                                    }
+                                    await workspace.showGroupDetails(for: refreshedChat)
                                 }
                             }
                         } label: {
                             Label(L10n.string("Show Chat Info", locale: locale), systemImage: "info.circle")
-                                .symbolVariant(workspace.isGroupDetailsPresented ? .fill : .none)
+                                .symbolVariant(isGroupDetailsPresented ? .fill : .none)
                         }
                         .help(L10n.string("Show Chat Info", locale: locale))
+                        .disabled(isDetailsPanePresented && !isGroupDetailsPresented)
                         .accessibilityIdentifier("conversation.info.open")
 
-                        ConversationToolbarMoreMenu(
-                            chat: chat,
-                            conversationModel: model,
-                            actionGuard: actionGuard,
-                            endingGroupIds: endingGroupIds
-                        )
+                        Menu {
+                            ConversationMenuItems(
+                                messenger: messenger,
+                                conversation: model,
+                                chat: chat,
+                                locale: locale,
+                                endingGroupIDs: endingGroupIds,
+                                onSetGroupImage: {
+                                    workspace.showGroupImagePicker(for: chat)
+                                }
+                            )
+                        } label: {
+                            Label(L10n.string("More", locale: locale), systemImage: "ellipsis.circle")
+                        }
+                        .help(L10n.string("More", locale: locale))
+                        .disabled(isDetailsPanePresented)
+                        .accessibilityIdentifier("conversation.more.menu")
                     }
                 }
             }
@@ -128,7 +119,7 @@ struct ConversationToolbarModifier: ViewModifier {
                 blockedUsersModel: blockedUsersModel,
                 voterDisplay: { workspace.reactionReactorDisplay(accountIdHex: $0) }
             )
-            .sheet(isPresented: $workspace.isGroupImagePickerPresented) {
+            .sheet(isPresented: isGroupImagePickerPresented) {
                 GroupImagePickerSheet()
                     .environment(\.endingGroupIds, endingGroupIds)
                     .environment(\.isBulkLeavingChats, isBulkLeavingChats)
@@ -138,19 +129,29 @@ struct ConversationToolbarModifier: ViewModifier {
 
 extension View {
     func conversationToolbar(
+        messenger: MessengerCommandContext,
         chat: ChatItem,
         model: ConversationViewModel,
-        recoveryStatus: AccountRecoveryStatusViewModel?,
+        metadata: ConversationMetadata?,
+        isCatchingUp: Bool,
+        isGroupDetailsPresented: Bool,
+        isDetailsPanePresented: Bool,
         blockedUsersModel: BlockedUsersViewModel,
+        isGroupImagePickerPresented: Binding<Bool>,
         onSearch: @escaping () -> Void,
         escapeEndsMessageSelection: Bool
     ) -> some View {
         modifier(
             ConversationToolbarModifier(
+                messenger: messenger,
                 chat: chat,
                 model: model,
-                recoveryStatus: recoveryStatus,
+                metadata: metadata,
+                isCatchingUp: isCatchingUp,
+                isGroupDetailsPresented: isGroupDetailsPresented,
+                isDetailsPanePresented: isDetailsPanePresented,
                 blockedUsersModel: blockedUsersModel,
+                isGroupImagePickerPresented: isGroupImagePickerPresented,
                 onSearch: onSearch,
                 escapeEndsMessageSelection: escapeEndsMessageSelection
             )
@@ -223,19 +224,22 @@ private struct ConversationSelectionToolbarTitle: View {
 }
 
 private struct ConversationSelectionToolbarActions: View {
-    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
+    let messenger: MessengerCommandContext
+    let chatId: String
     let conversationModel: ConversationViewModel
-    let actionGuard: ConversationToolbarActionGuard
     let escapeEndsMessageSelection: Bool
 
     var body: some View {
+        let workspace = messenger.workspace
         let messages = workspace.selectedTimelineMessagesForAction
         let canForward = messages.contains(where: \.canForward)
-        let canDelete = messages.contains(where: workspace.canDeleteMessage)
+        // Must match `WorkspaceState.deleteSelectedMessages`: bulk deletion acts only on messages
+        // the user may delete for everyone (never silently mixing in local hides).
+        let canDelete = messages.contains { workspace.messageDeletionCapability($0).canDeleteForEveryone }
 
         Button {
-            guard isCurrent() else { return }
+            guard messenger.activeChat(matching: chatId) != nil else { return }
             workspace.startForwarding(messages)
         } label: {
             Label(L10n.string("Forward", locale: locale), systemImage: "arrowshape.turn.up.right")
@@ -245,9 +249,8 @@ private struct ConversationSelectionToolbarActions: View {
         .accessibilityIdentifier("conversation.selection.forward")
 
         Button(role: .destructive) {
-            guard isCurrent() else { return }
             Task {
-                guard isCurrent() else { return }
+                guard messenger.activeChat(matching: chatId) != nil else { return }
                 await workspace.deleteSelectedMessages { message in
                     await FailedSendDiscard.run(message, model: conversationModel, workspace: workspace)
                 }
@@ -266,122 +269,6 @@ private struct ConversationSelectionToolbarActions: View {
         .help(L10n.string("Cancel selection", locale: locale))
         .accessibilityIdentifier("conversation.selection.cancel")
     }
-
-    private func isCurrent() -> Bool {
-        actionGuard.matches(
-            activeAccountId: workspace.activeAccountId,
-            selectedChatId: workspace.selectedChat?.id
-        )
-    }
-}
-
-private struct ConversationToolbarMoreMenu: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.locale) private var locale
-    let chat: ChatItem
-    let conversationModel: ConversationViewModel
-    let actionGuard: ConversationToolbarActionGuard
-    let endingGroupIds: Set<String>
-
-    var body: some View {
-        let actions = ChatMenuActions(workspace: workspace, chat: chat)
-        let isArchived =
-            actionGuard.originAccountId.map {
-                workspace.archivedChatItem(accountId: $0, chatId: chat.id) != nil
-            } ?? false
-        let unreadAction = ConversationUnreadMenuAction.resolve(for: chat)
-
-        Menu {
-            Button {
-                Task {
-                    guard isCurrent() else { return }
-                    await workspace.showGroupDetails(for: chat)
-                }
-            } label: {
-                Label(L10n.string("Show Chat Info", locale: locale), systemImage: "info.circle")
-            }
-
-            if ConversationToolbarActionGuard.canSetGroupImage(for: chat) {
-                Button {
-                    guard isCurrent() else { return }
-                    workspace.showGroupImagePicker(for: chat)
-                } label: {
-                    Label(L10n.string("Set group image", locale: locale), systemImage: "photo.badge.plus")
-                }
-            }
-
-            Divider()
-
-            ChatMuteMenu(actions: actions, locale: locale, isCurrent: isCurrent)
-
-            Button {
-                Task {
-                    guard isCurrent() else { return }
-                    switch unreadAction {
-                    case .markRead:
-                        await actions.markAsRead(conversation: conversationModel)
-                    case .clearUnreadReminder:
-                        await workspace.setChatManuallyUnread(chat, manuallyUnread: false)
-                    case .markUnread:
-                        await workspace.setChatManuallyUnread(chat, manuallyUnread: true)
-                    }
-                }
-            } label: {
-                Text(L10n.string(unreadAction.titleKey, locale: locale))
-            }
-            .disabled(
-                !ConversationUnreadMenuAction.isEnabled(
-                    action: unreadAction,
-                    canChangePreferences: actions.canChangePreferences,
-                    hasConversationSnapshot: conversationModel.snapshot != nil
-                )
-            )
-
-            Button {
-                Task {
-                    guard isCurrent() else { return }
-                    await actions.setArchived(!isArchived)
-                }
-            } label: {
-                Label(
-                    L10n.string(isArchived ? "Unarchive" : "Archive", locale: locale),
-                    systemImage: isArchived ? "tray.and.arrow.up" : "archivebox"
-                )
-            }
-            .disabled(!actions.canArchive)
-
-            if let destructive = ChatDestructiveActions.action(for: chat) {
-                Divider()
-                let item: ChatRowMenuAction = destructive == .leave ? .leave : .deleteLocally
-                Button(role: .destructive) {
-                    switch destructive {
-                    case .deleteLocally:
-                        guard isCurrent() else { return }
-                        actions.requestDeleteLocally(endingGroupIDs: endingGroupIds)
-                    case .leave:
-                        Task {
-                            guard isCurrent() else { return }
-                            await actions.requestLeave(endingGroupIDs: endingGroupIds)
-                        }
-                    }
-                } label: {
-                    Label(L10n.string(item.titleKey, locale: locale), systemImage: item.systemImage)
-                }
-                .disabled(!actions.canPerformDestructive(destructive, endingGroupIDs: endingGroupIds))
-            }
-        } label: {
-            Label(L10n.string("More", locale: locale), systemImage: "ellipsis.circle")
-        }
-        .help(L10n.string("More", locale: locale))
-        .accessibilityIdentifier("conversation.more.menu")
-    }
-
-    private func isCurrent() -> Bool {
-        actionGuard.matches(
-            activeAccountId: workspace.activeAccountId,
-            selectedChatId: workspace.selectedChat?.id
-        )
-    }
 }
 
 #Preview("Conversation toolbar identity — timer") {
@@ -390,6 +277,7 @@ private struct ConversationToolbarMoreMenu: View {
         metadata: ConversationMetadata(memberCount: 3, disappearingMessageSecs: 86_400, isSelfAdmin: true),
         isCatchingUp: false
     )
+    .environment(WorkspaceState.preview())
     .padding()
 }
 
@@ -399,6 +287,7 @@ private struct ConversationToolbarMoreMenu: View {
         metadata: ConversationMetadata(memberCount: 3, disappearingMessageSecs: 0, isSelfAdmin: false),
         isCatchingUp: true
     )
+    .environment(WorkspaceState.preview())
     .padding()
 }
 

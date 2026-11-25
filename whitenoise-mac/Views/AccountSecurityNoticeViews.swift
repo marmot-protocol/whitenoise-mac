@@ -16,6 +16,12 @@ nonisolated struct AccountDeviceWarningSummary: Equatable, Sendable {
         !compromiseMessages.isEmpty || isDeviceGroupStalled || isKeyPackageRefreshOverdue
     }
 
+    var warningCount: Int {
+        (compromiseMessages.isEmpty ? 0 : 1)
+            + (isDeviceGroupStalled ? 1 : 0)
+            + (isKeyPackageRefreshOverdue ? 1 : 0)
+    }
+
     static func from(
         compromiseItems: [CompromiseWarningItemFfi],
         deviceGroupStalled: Bool,
@@ -29,8 +35,9 @@ nonisolated struct AccountDeviceWarningSummary: Equatable, Sendable {
     }
 }
 
-/// Persistent sidebar banner surfacing account security and device-sync warnings with a direct
-/// Review route to Settings → Devices. Never auto-dismisses or auto-acknowledges warnings.
+/// Compact persistent sidebar banner surfacing account security and device-sync warnings with a
+/// direct Review route to Settings → Devices. Keeps the sidebar bounded so multiple compromise
+/// records never crowd out the chat list; full records and repair actions live on Settings → Devices.
 struct AccountDeviceWarningsBanner: View {
     let model: DeviceLinkingViewModel
     let onOpenDevicesSettings: () -> Void
@@ -57,37 +64,44 @@ struct AccountDeviceWarningsBannerContent: View {
     let summary: AccountDeviceWarningSummary
     let onReview: () -> Void
 
+    private var primaryIntent: WNCalloutIntent {
+        summary.compromiseMessages.isEmpty ? .warning : .error
+    }
+
+    private var primaryTitle: String {
+        if !summary.compromiseMessages.isEmpty {
+            return L10n.string("Someone Else May Have Your Private Key", locale: locale)
+        }
+        if summary.isDeviceGroupStalled {
+            return L10n.string("This Mac Can’t Catch Up With Your Other Devices", locale: locale)
+        }
+        return L10n.string("Key Package Refresh Overdue", locale: locale)
+    }
+
+    private var primaryMessage: String {
+        if let first = summary.compromiseMessages.first {
+            return first
+        }
+        if summary.isDeviceGroupStalled {
+            return L10n.string(
+                "Reset this Mac’s copy of your device list, then link it again. Your chats and messages stay on this Mac.",
+                locale: locale
+            )
+        }
+        return L10n.string(
+            "Your devices couldn’t sync this Mac’s new key package. After 30 days, people may not be able to add this Mac to chats.",
+            locale: locale
+        )
+    }
+
     var body: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            if !summary.compromiseMessages.isEmpty {
-                WNCallout(
-                    title: L10n.string("Someone Else May Have Your Private Key", locale: locale),
-                    message: summary.compromiseMessages.joined(separator: "\n"),
-                    intent: .error
-                )
-            }
-
-            if summary.isDeviceGroupStalled {
-                WNCallout(
-                    title: L10n.string("This Mac Can’t Catch Up With Your Other Devices", locale: locale),
-                    message: L10n.string(
-                        "Reset this Mac’s copy of your device list, then link it again. Your chats and messages stay on this Mac.",
-                        locale: locale
-                    ),
-                    intent: .warning
-                )
-            }
-
-            if summary.isKeyPackageRefreshOverdue {
-                WNCallout(
-                    title: L10n.string("Key Package Refresh Overdue", locale: locale),
-                    message: L10n.string(
-                        "Your devices couldn’t sync this Mac’s new key package. After 30 days, people may not be able to add this Mac to chats.",
-                        locale: locale
-                    ),
-                    intent: .warning
-                )
-            }
+        VStack(alignment: .trailing, spacing: 6) {
+            WNCallout(
+                title: primaryTitle,
+                message: primaryMessage,
+                intent: primaryIntent
+            )
+            .lineLimit(2)
 
             Button(L10n.string("Review", locale: locale), action: onReview)
                 .wnSecondaryButtonStyle()
