@@ -378,10 +378,10 @@ private struct ManageStorageAttachmentsTablePane: View {
     let nicknames: ContactNicknames
     let scope: ManageStorageViewModel.Scope
     @State private var selectedID: String?
-    @State private var isLoadingMore = false
 
     var body: some View {
         let pages = model.attachmentPages(scope)
+        let isLoadingMore = model.loadingAttachments.contains(scope)
         let rows = pages.items.map { attachment in
             let id = ManageStoragePresentation.attachmentID(attachment)
             return ManageStorageAttachmentTableItem(
@@ -404,7 +404,7 @@ private struct ManageStorageAttachmentsTablePane: View {
                 if model.attachmentsFailed.contains(scope) {
                     VStack(spacing: 12) {
                         ManageStorageRetryRow(message: L10n.string("Couldn't load attachments")) {
-                            Task { await loadNextPage() }
+                            Task { await model.loadMoreAttachments(scope) }
                         }
                     }
                     .padding(28)
@@ -442,7 +442,7 @@ private struct ManageStorageAttachmentsTablePane: View {
                         isLoadingMore: isLoadingMore,
                         failed: model.attachmentsFailed.contains(scope),
                         onRemoveSelected: { attachment in Task { await model.remove(attachment) } },
-                        onLoadMore: { Task { await loadNextPage() } }
+                        onLoadMore: { Task { await model.loadMoreAttachments(scope) } }
                     )
                 }
             }
@@ -452,18 +452,11 @@ private struct ManageStorageAttachmentsTablePane: View {
         // via the footer's Load more button so large profiles never scan every page up front.
         .task(id: "\(ObjectIdentifier(model))/\(model.epoch)") {
             guard pages.items.isEmpty, pages.hasMore, !model.attachmentsFailed.contains(scope) else { return }
-            await loadNextPage()
+            await model.loadMoreAttachments(scope)
         }
         .onChange(of: model.epoch) { _, _ in
             selectedID = nil
         }
-    }
-
-    private func loadNextPage() async {
-        guard !isLoadingMore else { return }
-        isLoadingMore = true
-        defer { isLoadingMore = false }
-        await model.loadMoreAttachments(scope)
     }
 }
 
