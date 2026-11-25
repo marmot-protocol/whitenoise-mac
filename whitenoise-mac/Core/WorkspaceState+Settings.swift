@@ -55,8 +55,8 @@ private enum ProfileImageSelectionContext {
 extension WorkspaceState {
     /// Records or clears an error owned by Settings without touching `workspace.lastError`, so
     /// Settings panes/sheets and main-window Chat Info never overwrite or clear each other's errors.
-    func setSettingsError(_ message: String?) {
-        WorkspaceAccountPresentation.settingsError(message).post(from: self)
+    func setSettingsError(_ message: String?, accountId: String? = nil) {
+        WorkspaceAccountPresentation.settingsError(message, accountId: accountId ?? activeAccountId).post(from: self)
     }
 
     /// Loads the legacy aggregate settings snapshot (profile, relays, and notifications)
@@ -165,7 +165,7 @@ extension WorkspaceState {
             beginProfileNostrAddressCheck()
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             profileDraft = ProfileDraft(fallbackName: fallbackName)
             // A profile that could not be read is not a profile with unsaved edits in it. Without
             // this the page would open showing Cancel and Save over a form nobody has touched.
@@ -191,7 +191,7 @@ extension WorkspaceState {
             relaySettings = RelaySettingsSnapshot(lists: lists)
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             relaySettings = .defaults
         }
 
@@ -233,14 +233,20 @@ extension WorkspaceState {
     }
 
     func requestLocalNotificationPermission() async {
-        setSettingsError(nil)
+        let accountId = activeAccountId
+        setSettingsError(nil, accountId: accountId)
         do {
-            notificationAuthorizationStatus = try await localNotificationCenter.requestAuthorization()
+            let status = try await localNotificationCenter.requestAuthorization()
+            guard activeAccountId == accountId else { return }
+            notificationAuthorizationStatus = status
             if !notificationAuthorizationStatus.canPostNotifications {
-                setSettingsError(Self.notificationPermissionGuidance)
+                setSettingsError(Self.notificationPermissionGuidance, accountId: accountId)
             }
         } catch {
-            await handleNotificationPermissionError(error)
+            guard activeAccountId == accountId else { return }
+            await handleNotificationPermissionError(error, accountId: accountId) { [accountId] in
+                self.activeAccountId == accountId
+            }
         }
     }
 
@@ -266,7 +272,7 @@ extension WorkspaceState {
                 } catch {
                     let isCurrent = ownsNotificationSettingsOperation(accountId: accountId, generation: generation)
                     guard isCurrent else { return }
-                    await handleNotificationPermissionError(error) { [accountId, generation] in
+                    await handleNotificationPermissionError(error, accountId: accountId) { [accountId, generation] in
                         self.ownsNotificationSettingsOperation(accountId: accountId, generation: generation)
                     }
                     return
@@ -275,7 +281,7 @@ extension WorkspaceState {
 
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             guard status.canPostNotifications else {
-                setSettingsError(Self.notificationPermissionGuidance)
+                setSettingsError(Self.notificationPermissionGuidance, accountId: accountId)
                 return
             }
         }
@@ -290,7 +296,7 @@ extension WorkspaceState {
             }
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             return
         }
 
@@ -318,7 +324,7 @@ extension WorkspaceState {
             // The snapshot keeps saying native push is on, because in the core it is. The pane
             // still draws that switch off — it reads local alerts first — so the reader is not
             // told about a wake-up that can no longer reach them, and the next load reconciles.
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
         }
     }
 
@@ -332,7 +338,7 @@ extension WorkspaceState {
         let accountRef = activeAccount.accountRef
         let generation = beginNotificationSettingsOperation()
 
-        setSettingsError(nil)
+        setSettingsError(nil, accountId: accountId)
         isSavingNotifications = true
         defer { isSavingNotifications = false }
 
@@ -342,7 +348,7 @@ extension WorkspaceState {
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
         }
     }
 
@@ -385,7 +391,7 @@ extension WorkspaceState {
             beginProfileNostrAddressCheck()
         } catch {
             guard activeAccountId == accountId else { return }
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
         }
     }
 
@@ -792,7 +798,7 @@ extension WorkspaceState {
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             notificationSettings = .defaults
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
         }
     }
 }

@@ -19,6 +19,8 @@ final class SettingsWindowCoordinator {
 
     private var interruptedPage: SettingsPage?
     private var addProfileReturn: AddProfileReturn?
+    private var lastErrorAccountID: String?
+    private var suppressNextSettingsChooserHandoff = false
     @ObservationIgnored private weak var workspace: WorkspaceState?
     @ObservationIgnored private weak var window: NSWindow?
     @ObservationIgnored private var handoffs: AnyCancellable?
@@ -42,16 +44,26 @@ final class SettingsWindowCoordinator {
                 switch event {
                 case .settingsHandoff:
                     self.routeAccountMutation()
+                case .remoteUnlinkChooser:
+                    if self.accountID == nil, self.pendingPage == nil, self.interruptedPage == nil {
+                        self.suppressNextSettingsChooserHandoff = true
+                    }
                 case .cancelledAddProfile:
                     self.returnFromAddProfile()
                 case .focusMainWindow:
                     self.addProfileReturn = nil
                     self.focusMainWindow()
-                case .settingsError(let message):
+                case .settingsError(let message, let originAccountID):
+                    let currentAccountID = self.accountID ?? workspace.activeAccountId
+                    if let originAccountID, let currentAccountID, originAccountID != currentAccountID {
+                        return
+                    }
                     self.lastError = message
+                    self.lastErrorAccountID = message == nil ? nil : (originAccountID ?? currentAccountID)
                 case .clearSettingsErrorIfEquals(let expected):
                     if self.lastError == expected {
                         self.lastError = nil
+                        self.lastErrorAccountID = nil
                     }
                 }
             }
@@ -87,6 +99,10 @@ final class SettingsWindowCoordinator {
 
     func open(at destination: SettingsPage? = nil, show: (() -> Void)? = nil) {
         guard let workspace, workspace.showsMessengerChrome, let account = workspace.activeAccount else { return }
+        if let lastErrorAccountID, lastErrorAccountID != account.id {
+            lastError = nil
+            self.lastErrorAccountID = nil
+        }
         if let destination {
             navigate(to: destination)
         } else if accountID == nil {
@@ -94,6 +110,7 @@ final class SettingsWindowCoordinator {
         }
         accountID = account.id
         interruptedPage = nil
+        suppressNextSettingsChooserHandoff = false
         (show ?? showWindow)?()
     }
 
@@ -101,6 +118,7 @@ final class SettingsWindowCoordinator {
         guard let workspace, workspace.showsMessengerChrome else { return }
         page = availablePage(destination, developerModeEnabled: workspace.developerMode)
         lastError = nil
+        lastErrorAccountID = nil
     }
 
     func beginAddProfile() {
@@ -117,6 +135,9 @@ final class SettingsWindowCoordinator {
     /// account removes its forms immediately, even if the account mutation is still finishing.
     func synchronize() {
         guard let workspace else { return }
+        if case .bootstrapping = workspace.phase {
+            return
+        }
         if let origin = addProfileReturn,
             !workspace.signedInAccounts.contains(where: { $0.id == origin.accountID })
                 || workspace.phase == .ready
@@ -135,6 +156,15 @@ final class SettingsWindowCoordinator {
             }
             return
         }
+        if let lastErrorAccountID, lastErrorAccountID != activeID {
+            lastError = nil
+            self.lastErrorAccountID = nil
+        }
+        if accountID == nil, window != nil {
+            adoptVisibleWindow()
+            updateDeviceLinkHost(sheetIsPresented: window?.attachedSheet != nil)
+            return
+        }
         // Switching via the chooser delivers its route synchronously. Reaching a ready account
         // through another path (for example, adding a profile from the chooser) consumes the chooser.
         pendingPage = nil
@@ -142,6 +172,8 @@ final class SettingsWindowCoordinator {
         if let accountID, accountID != activeID {
             page = page.pageAfterActiveAccountChange
             self.accountID = activeID
+            lastError = nil
+            lastErrorAccountID = nil
         }
         page = availablePage(page, developerModeEnabled: workspace.developerMode)
     }
@@ -150,12 +182,21 @@ final class SettingsWindowCoordinator {
     /// without going through `open(at:show:)`.
     private func adoptVisibleWindow() {
         guard let workspace else { return }
+        // Cold-launch restoration can register the window before bootstrap finishes; keep it
+        // parked until startup either resolves to a signed-in account or leaves messenger chrome.
+        if case .bootstrapping = workspace.phase {
+            return
+        }
         guard workspace.showsMessengerChrome, let activeID = workspace.activeAccount?.id else {
             close()
             focusMainWindow()
             return
         }
         guard accountID == nil else { return }
+        if let lastErrorAccountID, lastErrorAccountID != activeID {
+            lastError = nil
+            self.lastErrorAccountID = nil
+        }
         page = availablePage(pendingPage ?? page, developerModeEnabled: workspace.developerMode)
         pendingPage = nil
         interruptedPage = nil
@@ -166,6 +207,7 @@ final class SettingsWindowCoordinator {
         accountID = nil
         hostsDeviceLinkSheet = false
         lastError = nil
+        lastErrorAccountID = nil
         window?.close()
     }
 
@@ -177,20 +219,23 @@ final class SettingsWindowCoordinator {
 
         if workspace.showsMessengerChrome {
             pendingPage = nil
-            // Only resume Settings when a Settings window or pending chooser handoff originated the
-            // mutation. Choosing a survivor after a remote unlink has no pending Settings route and
-            // must not open Settings over the main window.
-            guard let destination else { return }
+            if suppressNextSettingsChooserHandoff, destination == nil {
+                suppressNextSettingsChooserHandoff = false
+                return
+            }
+            suppressNextSettingsChooserHandoff = false
             // Preserve errors from the account operation. Page changes initiated in the Settings
             // window clear the old form's error, while a handoff may carry one for the survivor.
-            page = availablePage(destination, developerModeEnabled: workspace.developerMode)
+            page = availablePage(destination ?? .overview, developerModeEnabled: workspace.developerMode)
             accountID = workspace.activeAccount?.id
             showWindow?()
         } else if workspace.phase == .ready, !workspace.signedInAccounts.isEmpty {
+            suppressNextSettingsChooserHandoff = false
             pendingPage = destination ?? .overview
             close()
             focusMainWindow()
         } else {
+            suppressNextSettingsChooserHandoff = false
             pendingPage = nil
         }
     }

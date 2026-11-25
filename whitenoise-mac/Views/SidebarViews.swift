@@ -763,7 +763,16 @@ private struct ChatSidebarRowMenuItems: View {
             Divider()
 
             Button(role: .destructive) {
-                Task { await actions.performDestructive(action, endingGroupIDs: endingGroupIds) }
+                switch action {
+                case .deleteLocally:
+                    actions.requestDeleteLocally(endingGroupIDs: endingGroupIds)
+                case .leave:
+                    let originAccountId = workspace.activeAccountId
+                    Task {
+                        guard workspace.activeAccountId == originAccountId else { return }
+                        await actions.performDestructive(.leave, endingGroupIDs: endingGroupIds)
+                    }
+                }
             } label: {
                 ChatRowMenuLabel(action: action == .leave ? .leave : .deleteLocally)
             }

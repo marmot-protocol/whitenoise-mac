@@ -287,13 +287,145 @@ struct ShellCommandTests: WorkspaceTestSupport {
         workspace.switchActiveAccount(secondAccount, finalSelection: .chat("second-chat"))
         #expect(workspace.activeAccountId == secondAccount.id)
         #expect(workspace.selection == .chat("second-chat"))
+        let recordingURL = try armInProgressVoiceRecording(on: workspace)
+        defer { workspace.cancelVoiceRecording() }
+        #expect(workspace.isRecordingVoiceMessage)
 
         gate.release()
         _ = await removal.value
 
         #expect(workspace.activeAccountId == secondAccount.id)
         #expect(workspace.selection == .chat("second-chat"))
+        #expect(workspace.isRecordingVoiceMessage)
+        #expect(FileManager.default.fileExists(atPath: recordingURL.path))
         #expect(settingsOpens == 0)
+    }
+
+    @Test func coldLaunchRestoredSettingsWindowWaitsForBootstrapAndAdoptsReadyAccount() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: String(repeating: "7", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        try #require(workspace.phase == .bootstrapping)
+
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        let window = ShellTestWindow()
+        window.key = true
+        coordinator.register(window, sheetIsPresented: false)
+
+        #expect(!window.didClose)
+        #expect(coordinator.accountID == nil)
+
+        await workspace.bootstrap()
+        coordinator.synchronize()
+
+        let activeID = try #require(workspace.activeAccountId)
+        #expect(!window.didClose)
+        #expect(coordinator.accountID == activeID)
+        #expect(coordinator.hostsDeviceLinkSheet)
+    }
+
+    @Test func coldLaunchRestoredSettingsWindowClosesWhenStartupResolvesToOnboarding() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        try #require(workspace.phase == .bootstrapping)
+
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        var focusedMain = false
+        coordinator.installPresentationActions(showSettings: {}, showMain: { focusedMain = true })
+        let window = ShellTestWindow()
+        coordinator.register(window, sheetIsPresented: false)
+        #expect(!window.didClose)
+
+        await workspace.bootstrap()
+        coordinator.synchronize()
+
+        #expect(workspace.phase == .onboarding)
+        #expect(window.didClose)
+        #expect(coordinator.accountID == nil)
+        #expect(focusedMain)
+    }
+
+    @Test func settingsErrorsClearOnAccountSwitchAndDropLateErrorsFromPreviousAccount() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "8", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "9", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let firstAccount = try #require(workspace.accounts.first { $0.id == "First" })
+        let secondAccount = try #require(workspace.accounts.first { $0.id == "Second" })
+        workspace.switchActiveAccount(firstAccount, finalSelection: nil)
+
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        coordinator.open(at: .notifications)
+        workspace.setSettingsError("First profile notification error", accountId: firstAccount.id)
+        #expect(coordinator.lastError == "First profile notification error")
+
+        // Switching to profile B clears profile A's Settings error.
+        workspace.switchActiveAccount(secondAccount, finalSelection: nil)
+        coordinator.synchronize()
+        #expect(coordinator.accountID == secondAccount.id)
+        #expect(coordinator.lastError == nil)
+
+        // A delayed failure owned by profile A must not surface under profile B.
+        workspace.setSettingsError("Delayed first profile key export error", accountId: firstAccount.id)
+        #expect(coordinator.lastError == nil)
+
+        // An error owned by the current profile B still surfaces normally.
+        workspace.setSettingsError("Second profile error", accountId: secondAccount.id)
+        #expect(coordinator.lastError == "Second profile error")
+    }
+
+    @Test func remoteUnlinkRemovalFailureReportsToMainWindowError() async throws {
+        let account = AccountSummaryFfi(
+            label: "Unlinked",
+            accountIdHex: String(repeating: "b", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.removeAccountError = FakeMarmotRuntimeError.unused
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+
+        let target = try #require(workspace.activeAccount)
+        runtime.unlinkFromAnotherDevice(accountRef: target.accountRef)
+        let removal = await AccountExit.removeUnlinkedAccount(
+            accountIdHex: target.accountIdHex.lowercased(),
+            in: workspace
+        )
+
+        #expect(removal.leftBehind?.id == target.id)
+        #expect(workspace.lastError != nil)
+        #expect(coordinator.lastError == nil)
     }
 
     @Test func notificationClickFocusesMainWindowAndCancelsAddProfileReturn() async throws {

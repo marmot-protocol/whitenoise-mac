@@ -490,12 +490,13 @@ extension WorkspaceState {
     /// mode. Returns `nil` (and sets `lastError`) on failure.
     func revealActiveAccountNsec() async -> String? {
         guard let client, let activeAccount else { return nil }
+        let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
-        setSettingsError(nil)
+        setSettingsError(nil, accountId: accountId)
         do {
             return try await FFIExecutor.run { try client.revealNsec(accountRef: accountRef) }
         } catch {
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             return nil
         }
     }
@@ -504,14 +505,15 @@ extension WorkspaceState {
     /// `ncryptsec1…` string. Returns `nil` (and reports a Settings error) on failure.
     func exportActiveAccountEncryptedKey(passphrase: String) async -> String? {
         guard let client, let activeAccount else { return nil }
+        let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
-        setSettingsError(nil)
+        setSettingsError(nil, accountId: accountId)
         do {
             return try await FFIExecutor.run {
                 try client.exportEncryptedSecretKey(accountRef: accountRef, passphrase: passphrase)
             }
         } catch {
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             return nil
         }
     }
@@ -573,7 +575,7 @@ extension WorkspaceState {
             )
             return true
         } catch {
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: exportingAccount.id)
             return false
         }
     }
@@ -612,10 +614,15 @@ extension WorkspaceState {
     /// account the user signed out has nothing left to tell the network, so it is removed locally
     /// and returns nil.
     @discardableResult
-    func removeAccount(_ account: AccountItem) async -> WipeOutcomeFfi? {
+    func removeAccount(_ account: AccountItem, reportErrorsToSettings: Bool = true) async -> WipeOutcomeFfi? {
         guard let client, !isAccountMutationInProgress else { return nil }
 
-        setSettingsError(nil)
+        let originAccountId = activeAccountId
+        if reportErrorsToSettings {
+            setSettingsError(nil, accountId: originAccountId)
+        } else {
+            lastError = nil
+        }
         isRemovingAccount = true
         defer { isRemovingAccount = false }
 
@@ -677,14 +684,12 @@ extension WorkspaceState {
             // selected an account from settings while this removal was in flight. Decide
             // recovery from the post-await state, not the pre-await `wasActive` snapshot,
             // so we never leave `activeAccountId`/UserDefaults pointing at a removed
-            // account. `needsActiveReset` is true if the removed account was driving the
-            // UI, or if the (possibly newly-selected) active account no longer exists.
+            // account. Reset only when the post-await active account is gone.
             let activeAccountInvalid =
                 activeAccountId == nil
                 || !accounts.contains(where: { $0.id == activeAccountId })
-            let needsActiveReset = activeAccountInvalid
 
-            if needsActiveReset {
+            if activeAccountInvalid {
                 resetActiveAccountUIState()
             } else {
                 // Decoded peer/group avatars derive from account contacts' attacker-controlled
@@ -738,7 +743,7 @@ extension WorkspaceState {
                 return outcome
             }
 
-            if needsActiveReset {
+            if activeAccountInvalid {
                 restoreOrSelectFirstAccount()
                 selection = nil
                 WorkspaceAccountPresentation.settingsHandoff.post(from: self)
@@ -751,7 +756,12 @@ extension WorkspaceState {
             if wasActive, activeAccountId == removedAccountId {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            setSettingsError(UserFacingError.message(for: error))
+            let errorMessage = UserFacingError.message(for: error)
+            if reportErrorsToSettings {
+                setSettingsError(errorMessage, accountId: originAccountId)
+            } else {
+                lastError = errorMessage
+            }
             return outcome
         }
     }
@@ -825,7 +835,8 @@ extension WorkspaceState {
     /// remain.
     func signOutAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
-        setSettingsError(nil)
+        let originAccountId = activeAccountId
+        setSettingsError(nil, accountId: originAccountId)
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
 
@@ -855,14 +866,15 @@ extension WorkspaceState {
             if wasActive, activeAccountId == account.id {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: originAccountId)
         }
     }
 
     /// Re-activate a previously signed-out account and make it the active one.
     func signInAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
-        setSettingsError(nil)
+        let originAccountId = activeAccountId
+        setSettingsError(nil, accountId: originAccountId)
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
 
@@ -890,15 +902,16 @@ extension WorkspaceState {
                 }
             }
         } catch {
-            setSettingsError(UserFacingError.message(for: error))
+            setSettingsError(UserFacingError.message(for: error), accountId: originAccountId)
         }
     }
 
     func deleteAllData() async {
         guard let client, !isAccountMutationInProgress else { return }
 
+        let originAccountId = activeAccountId
         isDeletingAllData = true
-        setSettingsError(nil)
+        setSettingsError(nil, accountId: originAccountId)
         suppressAllMediaDiskStores()
         defer { resumeAllMediaDiskStores() }
         defer { isDeletingAllData = false }
@@ -938,7 +951,7 @@ extension WorkspaceState {
                 lastError = errorMessage
             } else {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
-                setSettingsError(errorMessage)
+                setSettingsError(errorMessage, accountId: originAccountId)
             }
             return
         }

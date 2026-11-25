@@ -83,14 +83,14 @@ struct MessengerCommands: Commands {
 
                 Button(L10n.string("Find Next", locale: locale)) {
                     guard canUseConversation else { return }
-                    conversation?.model.goToNewerMatch()
+                    conversation?.model.goToOlderMatch()
                 }
                 .keyboardShortcut("g", modifiers: .command)
                 .disabled(!canUseConversation || conversation?.model.canStep != true)
 
                 Button(L10n.string("Find Previous", locale: locale)) {
                     guard canUseConversation else { return }
-                    conversation?.model.goToOlderMatch()
+                    conversation?.model.goToNewerMatch()
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(!canUseConversation || conversation?.model.canStep != true)
@@ -171,9 +171,15 @@ private struct ConversationMenuItems: View {
             Divider()
             let item: ChatRowMenuAction = destructive == .leave ? .leave : .deleteLocally
             Button(L10n.string(item.titleKey, locale: locale), role: .destructive) {
-                Task {
+                switch destructive {
+                case .deleteLocally:
                     guard isCurrent() else { return }
-                    await actions.performDestructive(destructive, endingGroupIDs: endingGroupIDs)
+                    actions.requestDeleteLocally(endingGroupIDs: endingGroupIDs)
+                case .leave:
+                    Task {
+                        guard isCurrent() else { return }
+                        await actions.performDestructive(.leave, endingGroupIDs: endingGroupIDs)
+                    }
                 }
             }
             .disabled(!actions.canPerformDestructive(destructive, endingGroupIDs: endingGroupIDs))

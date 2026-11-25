@@ -30,12 +30,12 @@ struct ConversationSearchBar: View {
             HStack(spacing: 6) {
                 ConversationSearchControlButton(
                     systemImage: "chevron.up",
-                    help: L10n.string("Previous match"),
+                    help: L10n.string("Next match"),
                     action: model.goToOlderMatch
                 )
                 ConversationSearchControlButton(
                     systemImage: "chevron.down",
-                    help: L10n.string("Next match"),
+                    help: L10n.string("Previous match"),
                     action: model.goToNewerMatch
                 )
             }
