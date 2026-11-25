@@ -221,10 +221,25 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
             selfMembership: .left
         )
 
-        #expect(ConversationToolbarEligibility.canSetGroupImage(for: activeGroup))
-        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: directChat))
-        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: pendingGroup))
-        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: leftGroup))
+        let adminMetadata = ConversationMetadata(memberCount: 3, disappearingMessageSecs: 0, isSelfAdmin: true)
+        let memberMetadata = ConversationMetadata(memberCount: 3, disappearingMessageSecs: 0, isSelfAdmin: false)
+
+        #expect(ConversationToolbarEligibility.canSetGroupImage(for: activeGroup, metadata: adminMetadata))
+        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: activeGroup, metadata: memberMetadata))
+        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: directChat, metadata: adminMetadata))
+        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: pendingGroup, metadata: adminMetadata))
+        #expect(!ConversationToolbarEligibility.canSetGroupImage(for: leftGroup, metadata: adminMetadata))
+    }
+
+    @MainActor
+    @Test func composerAutoFocusPreservesSidebarTableFocusForArrowNavigation() {
+        let sidebarTable = NSTableView()
+        let transcriptTable = NSTableView()
+        transcriptTable.setAccessibilityIdentifier("conversation.transcript")
+
+        #expect(!ChatListRowClickPolicy.shouldFocusComposerOnChatOpen(firstResponder: sidebarTable))
+        #expect(ChatListRowClickPolicy.shouldFocusComposerOnChatOpen(firstResponder: transcriptTable))
+        #expect(ChatListRowClickPolicy.shouldFocusComposerOnChatOpen(firstResponder: nil))
     }
 
     // MARK: - #1112: Persistent notices, security warnings, and empty states
@@ -236,7 +251,6 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
             keyPackageRefreshOverdue: false
         )
         #expect(!clean.hasWarnings)
-        #expect(clean.warningCount == 0)
 
         let stalled = AccountDeviceWarningSummary.from(
             compromiseItems: [],
@@ -245,7 +259,6 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
         )
         #expect(stalled.hasWarnings)
         #expect(stalled.isDeviceGroupStalled)
-        #expect(stalled.warningCount == 1)
 
         let overdue = AccountDeviceWarningSummary.from(
             compromiseItems: [],
@@ -254,7 +267,6 @@ struct MainWindowSurfacesTests: WorkspaceTestSupport {
         )
         #expect(overdue.hasWarnings)
         #expect(overdue.isKeyPackageRefreshOverdue)
-        #expect(overdue.warningCount == 1)
     }
 
     @MainActor

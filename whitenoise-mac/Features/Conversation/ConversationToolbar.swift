@@ -3,8 +3,15 @@ import SwiftUI
 
 /// Pure eligibility helpers for the conversation toolbar (#1038).
 nonisolated enum ConversationToolbarEligibility {
-    static func canSetGroupImage(for chat: ChatItem) -> Bool {
-        !chat.isDirect && chat.canUseComposer
+    /// Matches `GroupDetailsPermissions`: only active groups the user can compose in AND edit
+    /// (per MDK's `canEditGroup` capability, falling back to `isSelfAdmin` before the header loads).
+    static func canSetGroupImage(
+        for chat: ChatItem,
+        capabilities: ConversationCapabilitiesFfi? = nil,
+        metadata: ConversationMetadata? = nil
+    ) -> Bool {
+        guard !chat.isDirect, chat.canUseComposer, chat.lifecycle == .active else { return false }
+        return capabilities?.canEditGroup ?? metadata?.isSelfAdmin ?? false
     }
 }
 

@@ -759,7 +759,12 @@ private struct ConversationView: View {
                         await workspace.restoreComposerDraftIfNeeded(accountId: accountId, groupIdHex: chat.id)
                     }
                     guard !Task.isCancelled else { return }
-                    composerFocusRequester.request()
+                    // Keep keyboard focus in the sidebar list during arrow-key navigation (N03).
+                    if ChatListRowClickPolicy.shouldFocusComposerOnChatOpen(
+                        firstResponder: NSApp.keyWindow?.firstResponder
+                    ) {
+                        composerFocusRequester.request()
+                    }
                 }
                 // Pressing Send scrolls to the live edge, off the send itself rather than off
                 // the message it produces. Arrivals while following are pinned by the table, and
@@ -836,11 +841,14 @@ private struct ConversationView: View {
                     }
                 }
 
+                ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, workspace.isTimelineSelectionMode ? 8 : 0)
+
                 if !workspace.isTimelineSelectionMode {
                     GlassSeparator(axis: .horizontal)
 
                     VStack(spacing: 8) {
-                        ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
                         // The core rejects sends to a group the local account left or was
                         // removed from (`invalid_transition`), so the whole composer —
                         // reply/media drafts included — gives way to an explanatory notice.

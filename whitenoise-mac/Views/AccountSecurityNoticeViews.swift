@@ -16,12 +16,6 @@ nonisolated struct AccountDeviceWarningSummary: Equatable, Sendable {
         !compromiseMessages.isEmpty || isDeviceGroupStalled || isKeyPackageRefreshOverdue
     }
 
-    var warningCount: Int {
-        (compromiseMessages.isEmpty ? 0 : 1)
-            + (isDeviceGroupStalled ? 1 : 0)
-            + (isKeyPackageRefreshOverdue ? 1 : 0)
-    }
-
     static func from(
         compromiseItems: [CompromiseWarningItemFfi],
         deviceGroupStalled: Bool,

@@ -52,4 +52,12 @@ nonisolated enum ChatListRowClickPolicy {
         else { return false }
         return true
     }
+
+    /// Preserves sidebar keyboard focus when opening a chat via arrow-key navigation in the
+    /// sidebar `List`, while still focusing the composer for pointer clicks and explicit opens.
+    @MainActor
+    static func shouldFocusComposerOnChatOpen(firstResponder: NSResponder?) -> Bool {
+        guard let tableView = firstResponder as? NSTableView else { return true }
+        return tableView.accessibilityIdentifier() == "conversation.transcript"
+    }
 }

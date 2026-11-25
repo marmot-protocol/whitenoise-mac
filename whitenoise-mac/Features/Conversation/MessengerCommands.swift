@@ -1,4 +1,5 @@
 import AppKit
+import MarmotKit
 import SwiftUI
 
 /// Commands are published by the main messenger scene. Capture the owning account and revalidate
@@ -62,6 +63,9 @@ struct MessengerCommands: Commands {
     private var canUseMessenger: Bool { messenger?.isAvailable == true }
     private var canUseConversation: Bool {
         guard let conversation, let messenger, conversation.accountID == messenger.accountID else { return false }
+        guard !messenger.workspace.isGroupDetailsPresented,
+            messenger.workspace.contactDetailsTarget == nil
+        else { return false }
         return messenger.activeChat(matching: conversation.chatID) != nil
     }
 
@@ -185,9 +189,23 @@ struct ConversationMenuItems: View {
         let isArchived = workspace.archivedChatItem(accountId: messenger.accountID, chatId: chat.id) != nil
         let unreadAction = ConversationUnreadMenuAction.resolve(for: chat)
 
-        if let onSetGroupImage, !chat.isDirect, chat.canUseComposer {
+        let capabilities = conversation?.snapshot?.header.capabilities
+        let metadata = workspace.conversationMetadataByChat[chat.id]
+        if let onSetGroupImage,
+            ConversationToolbarEligibility.canSetGroupImage(
+                for: chat,
+                capabilities: capabilities,
+                metadata: metadata
+            )
+        {
             Button {
-                guard isCurrent() else { return }
+                guard let currentChat = messenger.activeChat(matching: chat.id),
+                    ConversationToolbarEligibility.canSetGroupImage(
+                        for: currentChat,
+                        capabilities: conversation?.snapshot?.header.capabilities,
+                        metadata: workspace.conversationMetadataByChat[currentChat.id]
+                    )
+                else { return }
                 onSetGroupImage()
             } label: {
                 Label(L10n.string("Set group image", locale: locale), systemImage: "photo.badge.plus")
