@@ -308,24 +308,13 @@ enum ProfileActionMetrics {
     /// the gap, and this column has nothing between the About field and the buttons.
     static let fieldsToActionsSpacing: CGFloat = 8
 
-    /// What the glass primary draws around its label at `.large`.
-    ///
-    /// The onboarding panes measured this first and
-    /// `OnboardingTests.bothActionTiersDrawTheSameHeight` keeps re-measuring it; the number is read
-    /// from there rather than copied, so there is one place it can move.
-    static let primaryChromeHeight: CGFloat = OnboardingLayout.primaryActionChromeHeight
-
-    /// What native `.bordered` draws around its label at `.large` — matching `.borderedProminent`.
-    /// `SettingsProfileTests.bothProfileActionsDrawTheSameHeight` re-measures both through
-    /// `ImageRenderer` and fails if either style's chrome changes.
-    static let secondaryChromeHeight: CGFloat = 12
+    /// Vertical chrome native `.bordered` and `.borderedProminent` draw around their label at
+    /// `.large`, shared with `OnboardingLayout.actionChromeHeight`.
+    static let chromeHeight: CGFloat = OnboardingLayout.actionChromeHeight
 
     /// The minimum height an action's *label* must claim for its button to come out `height` tall.
-    static func labelHeight(for tier: ProfileActionLabel.Tier) -> CGFloat {
-        switch tier {
-        case .primary: height - primaryChromeHeight
-        case .secondary: height - secondaryChromeHeight
-        }
+    static func labelHeight(for _: ProfileActionLabel.Tier) -> CGFloat {
+        height - chromeHeight
     }
 }
 

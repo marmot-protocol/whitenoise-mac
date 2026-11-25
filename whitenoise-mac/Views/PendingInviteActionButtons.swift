@@ -52,9 +52,7 @@ struct PendingInviteActionButtons: View {
             )
             .accessibilityIdentifier("invite.accept")
 
-            // No destructive `role`: both sibling clients build Decline as their outline button, and
-            // marking it destructive while rendering it secondary is a trap — see the note in
-            // `WNSecondaryButtonStyle`, which is deliberately blind to the role.
+            // No destructive `role`: Decline is a routine secondary action beside Accept.
             Button {
                 Task { await decline(askToStepDown) }
             } label: {

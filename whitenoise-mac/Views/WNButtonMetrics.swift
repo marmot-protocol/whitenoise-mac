@@ -2,10 +2,10 @@
 //  WNButtonMetrics.swift
 //  whitenoise-mac
 //
-//  The one shape the push-button tiers draw, so a primary button and the
-//  secondary one beside it cannot disagree about their outline. The tiers
-//  themselves are `WNPrimaryButton`, `WNSecondaryButtonStyle` and
-//  `WNDestructiveButtonStyle`.
+//  The one shape the native push-button tiers draw, so a primary button and the
+//  secondary or destructive one beside it cannot disagree about their outline.
+//  The tiers are `.wnPrimaryButtonStyle()`, `.wnSecondaryButtonStyle()`, and
+//  `.wnDestructiveButtonStyle()`.
 //
 
 import SwiftUI
@@ -110,11 +110,9 @@ enum WNButtonMetrics {
 }
 
 extension View {
-    /// Native primary push button with scoped monochrome tint (`.borderedProminent` in content
-    /// surfaces; `.glassProminent` on macOS 26+ with `.borderedProminent` fallback only when
-    /// `elevated` is `true` for standalone floating/hero actions per C01).
-    func wnPrimaryButtonStyle(elevated: Bool = false) -> some View {
-        modifier(WNPrimaryButtonChrome(elevated: elevated))
+    /// Native primary push button (`.borderedProminent`) with scoped monochrome tint (C01).
+    func wnPrimaryButtonStyle() -> some View {
+        modifier(WNPrimaryButtonChrome())
     }
 
     /// Native neutral secondary push button (`.bordered`), letting AppKit own hover, pressed,
@@ -132,23 +130,14 @@ extension View {
 
 /// Applies native primary monochrome chrome with scoped `.tint(WNColor.fillPrimary)`.
 private struct WNPrimaryButtonChrome: ViewModifier {
-    let elevated: Bool
-
     @Environment(\.controlSize) private var controlSize
     @Environment(\.wnButtonShape) private var shape
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        let shaped =
-            content
+        content
             .buttonBorderShape(WNButtonMetrics.borderShape(shape, for: controlSize))
             .tint(WNColor.fillPrimary)
-
-        if elevated {
-            shaped.nativeGlassProminentButtonStyle()
-        } else {
-            shaped.buttonStyle(.borderedProminent)
-        }
+            .buttonStyle(.borderedProminent)
     }
 }
 

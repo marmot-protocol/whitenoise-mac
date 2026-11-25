@@ -59,7 +59,7 @@ struct WNInput<Accessory: View>: View {
         VStack(alignment: .leading, spacing: WNInputMetrics.labelSpacing) {
             Text(label)
                 .wnSemanticFont(.subheadline.semibold())
-                .foregroundStyle(WNColor.textSecondary)
+                .foregroundStyle(WNColor.textPrimary)
 
             HStack(spacing: WNInputMetrics.accessorySpacing) {
                 content
@@ -78,7 +78,7 @@ struct WNInput<Accessory: View>: View {
             if let validationMessage {
                 Text(validationMessage)
                     .wnSemanticFont(.caption)
-                    .foregroundStyle(WNColor.statusError)
+                    .foregroundStyle(WNColor.intentionErrorContent)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

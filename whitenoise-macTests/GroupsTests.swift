@@ -1503,9 +1503,11 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(pairSource.contains(".wnSecondaryButtonStyle()"))
 
         // All three native push-button tiers route through `WNButtonMetrics.borderShape(`.
-        let metricsSource = try SourceContract.source(of: .buttonMetrics)
-        #expect(metricsSource.contains("WNButtonMetrics.borderShape("))
-        #expect(!metricsSource.contains("cornerRadius: CGFloat = "))
+        for chrome in ["WNPrimaryButtonChrome", "WNSecondaryButtonChrome", "WNDestructiveButtonChrome"] {
+            let decl = try SourceContract.declaration(chrome, in: .buttonMetrics)
+            #expect(decl.contains("WNButtonMetrics.borderShape("), "\(chrome) no longer reads the shared table")
+            #expect(!decl.contains("cornerRadius:"), "\(chrome) defines a hardcoded radius")
+        }
 
         // And no size keeps a radius of its own to drift back to.
         let sizeSource = try SourceContract.source(of: .primaryButtonSize)

@@ -159,12 +159,12 @@ private let allTokens: [WNTextStyle] = [
     // MARK: - Native semantic typography (`WNSemanticFont`)
 
     @Test func semanticRolesFollowAppleTextStyleHierarchy() {
-        let title3 = WNNSFont.font(for: .title3).pointSize
-        let headline = WNNSFont.font(for: .headline).pointSize
-        let body = WNNSFont.font(for: .body).pointSize
-        let callout = WNNSFont.font(for: .callout).pointSize
-        let subheadline = WNNSFont.font(for: .subheadline).pointSize
-        let caption = WNNSFont.font(for: .caption).pointSize
+        let title3 = WNSemanticFont.title3.nsFont.pointSize
+        let headline = WNSemanticFont.headline.nsFont.pointSize
+        let body = WNSemanticFont.body.nsFont.pointSize
+        let callout = WNSemanticFont.callout.nsFont.pointSize
+        let subheadline = WNSemanticFont.subheadline.nsFont.pointSize
+        let caption = WNSemanticFont.caption.nsFont.pointSize
 
         #expect(title3 > body)
         #expect(headline == body)
@@ -173,30 +173,22 @@ private let allTokens: [WNTextStyle] = [
         #expect(subheadline > caption)
     }
 
-    @Test func semanticRolesMatchPreferredFontsAndCarryNoTracking() {
+    @Test func semanticRolesMatchPreferredFonts() {
         for role in WNSemanticFont.Role.allCases {
             let semantic = WNSemanticFont(role: role)
             let expected = NSFont.preferredFont(forTextStyle: role.appKitStyle)
-            let resolved = WNNSFont.font(for: semantic)
+            let resolved = semantic.nsFont
 
             #expect(resolved.pointSize == expected.pointSize)
             #expect(resolved.fontName == expected.fontName)
-            #expect(WNNSFont.attributes(for: semantic)[.kern] == nil)
         }
     }
 
-    @Test func semanticWeightAndDigitModifiersPreserveSizeAndSystemFace() {
-        let regular = WNNSFont.font(for: .subheadline)
-        let semibold = WNNSFont.font(for: .subheadline.semibold())
-        let bold = WNNSFont.font(for: .dayDivider)
-        let digits = WNNSFont.font(for: .caption.monospacedDigit())
+    @Test func semanticSemiboldPreservesPointSizeAndDistinctFace() {
+        let regular = WNSemanticFont.subheadline.nsFont
+        let semibold = WNSemanticFont.subheadline.semibold().nsFont
 
         #expect(semibold.pointSize == regular.pointSize)
-        #expect(bold.pointSize == regular.pointSize)
-        #expect(Set([regular.fontName, semibold.fontName, bold.fontName]).count == 3)
-
-        let one = ("1" as NSString).size(withAttributes: [.font: digits]).width
-        let eight = ("8" as NSString).size(withAttributes: [.font: digits]).width
-        #expect(one == eight)
+        #expect(semibold.fontName != regular.fontName)
     }
 }

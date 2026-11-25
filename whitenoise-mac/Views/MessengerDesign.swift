@@ -192,26 +192,16 @@ nonisolated enum MessagesPalette {
     /// It is inverted against the surface rather than an accent hue, which is why a sent
     /// bubble is near-black in light appearance and white in dark — White Noise has no
     /// blue "my messages" color, on any client.
-    static let sentBubble = WNColor.sentBubbleSurface
+    static let sentBubble = WNColor.fillPrimary
 
     /// Content on the sent bubble. Pairs with `sentBubble` and crosses over with it, so it
     /// is white on the light appearance's dark bubble and near-black on the dark
     /// appearance's white one. Never substitute a literal `.white` here.
-    static let sentBubbleContent = WNColor.sentBubbleContent
-    static let sentBubbleContentSecondary = WNColor.sentBubbleContentSecondary
-    static let sentBubbleQuoteSurface = WNColor.sentBubbleQuoteSurface
-    static let sentBubbleQuoteBar = WNColor.sentBubbleQuoteBar
-    static let sentBubbleLink = WNColor.sentBubbleLink
+    static let sentBubbleContent = WNColor.fillContentPrimary
 
     /// The received bubble's fill, and the content that goes on it.
-    /// Legacy bubble fill stays on `backgroundMessageIncoming` until `#1039` migrates bubbles to
-    /// `WNColor.receivedBubbleSurface` (`NSColor.secondarySystemFill`) alongside row measurement.
     static let receivedBubble = WNColor.backgroundMessageIncoming
     static let receivedBubbleContent = WNColor.backgroundContentPrimary
-    static let receivedBubbleContentSecondary = WNColor.receivedBubbleContentSecondary
-    static let receivedBubbleQuoteSurface = WNColor.receivedBubbleQuoteSurface
-    static let receivedBubbleQuoteBar = WNColor.receivedBubbleQuoteBar
-    static let receivedBubbleLink = WNColor.receivedBubbleLink
 
     static func bubbleFill(isOutgoing: Bool) -> Color {
         isOutgoing ? sentBubble : receivedBubble
@@ -219,22 +209,6 @@ nonisolated enum MessagesPalette {
 
     static func bubbleContent(isOutgoing: Bool) -> Color {
         isOutgoing ? sentBubbleContent : receivedBubbleContent
-    }
-
-    static func bubbleContentSecondary(isOutgoing: Bool) -> Color {
-        isOutgoing ? sentBubbleContentSecondary : receivedBubbleContentSecondary
-    }
-
-    static func bubbleQuoteSurface(isOutgoing: Bool) -> Color {
-        isOutgoing ? sentBubbleQuoteSurface : receivedBubbleQuoteSurface
-    }
-
-    static func bubbleQuoteBar(isOutgoing: Bool) -> Color {
-        isOutgoing ? sentBubbleQuoteBar : receivedBubbleQuoteBar
-    }
-
-    static func bubbleLink(isOutgoing: Bool) -> Color {
-        isOutgoing ? sentBubbleLink : receivedBubbleLink
     }
 }
 
@@ -859,13 +833,13 @@ extension View {
 /// title, and glass gives it the emphasis of a filled control — so it takes `outline` instead:
 /// `MessagesCircleControlBackground`, the `WnIconButton.outline` disc this app already draws for
 /// the composer and account-rail controls. That puts every back affordance on the secondary tier,
-/// matching the settings header's chevron and `WNSecondaryButtonStyle`.
+/// matching the settings header's chevron and `.wnSecondaryButtonStyle()`.
 ///
 /// Note that circle control still strokes `borderTertiary`, which is the same value as its own
-/// `fillSecondary` in Dark Aqua — so its ring is invisible there. The push tier hit the same defect
-/// and answered it by dropping the ring altogether: `WNSecondaryButtonStyle` is raised now, not
-/// outlined. The demotion from glass holds either way; giving the discs a visible edge — or a lift
-/// — is a separate change, because it also restyles the composer and the account rail.
+/// `fillSecondary` in Dark Aqua — so its ring is invisible there. The push tier moved to native
+/// `.bordered` chrome (`.wnSecondaryButtonStyle()`). The demotion from glass holds either way; giving
+/// the discs a visible edge — or a lift — is a separate change, because it also restyles the
+/// composer and the account rail.
 struct GlassCircleCloseButton: View {
     enum Appearance {
         /// The glass disc. For a ✕ that dismisses and is meant to read as prominent.

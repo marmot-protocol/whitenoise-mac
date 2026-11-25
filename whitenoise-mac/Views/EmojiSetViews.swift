@@ -409,6 +409,7 @@ private struct EmojiSetRow: View {
                     if let progress {
                         ProgressView(value: EmojiSetPresentation.fraction(progress) ?? 0)
                             .controlSize(.small)
+                            .tint(WNColor.fillPrimary)
                             .accessibilityLabel(L10n.string("Installing"))
                     } else if set.installed?.updateAvailable == true {
                         Text(L10n.string("Update available"))
@@ -611,6 +612,7 @@ private struct EmojiSetInstallProgressView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let fraction = EmojiSetPresentation.fraction(progress) {
                 ProgressView(value: fraction)
+                    .tint(WNColor.fillPrimary)
             } else {
                 ProgressView().controlSize(.small)
             }

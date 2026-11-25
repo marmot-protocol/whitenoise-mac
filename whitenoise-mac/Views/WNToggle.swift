@@ -2,23 +2,9 @@
 //  WNToggle.swift
 //  whitenoise-mac
 //
-//  The app's switch — the one way a boolean setting is drawn, wherever it is drawn.
-//
-//  It exists for the same reason `WNPrimaryButton` does, and it fixes the same defect. A bare
-//  `Toggle` carries no colour of its own and takes its "on" track from the environment's tint,
-//  whose only app-wide source is `ContentView`'s `.tint(WNColor.fillPrimary)`. Settings sits
-//  inside that root and so drew correctly; the "Help Improve White Noise" sheet is a separate
-//  presentation that inherits none of it — same trap as `\.locale` — so its two switches fell
-//  back to the system accent and drew **blue**, the one hue this palette reserves for links and
-//  search hits. Naming the tint on the component makes the switch correct wherever it is used
-//  rather than only under the root.
-//
-//  `wn-ios-prototype` is the reference for the *shape* — a switch for every boolean preference —
-//  but deliberately not for how one is coloured. It tints only its App Security pair, per view,
-//  from a locally computed black/`systemGray`, and leaves its own diagnostics prompt on the
-//  platform default; that split is exactly the inconsistency this component exists to remove. The
-//  colour comes from this app's palette instead: `fillPrimary`, near-black on Light and white on
-//  Dark, the token every other primary surface here already names.
+//  Native macOS toggle (switch or checkbox) with a scoped dark-safe monochrome
+//  tint (`WNColor.switchOnTint`) so switches and checkboxes stay consistent in
+//  windows, sheets, and popovers without tinting the whole window.
 //
 
 import SwiftUI

@@ -17,16 +17,6 @@
 import AppKit
 
 nonisolated enum WNNSFont {
-    /// Native macOS text style for TextKit / AppKit measurement.
-    static func font(for style: WNSemanticFont) -> NSFont {
-        style.nsFont
-    }
-
-    /// Native macOS text style as a `TextKit` attribute dictionary.
-    static func attributes(for style: WNSemanticFont) -> [NSAttributedString.Key: Any] {
-        style.attributes
-    }
-
     /// The legacy system face at a fixed rung's size and weight.
     static func font(for style: WNTextStyle) -> NSFont {
         style.usesMonospacedDigits

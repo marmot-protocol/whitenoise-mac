@@ -18,45 +18,9 @@ import SwiftUI
 nonisolated enum WNColor {
     // MARK: - Native macOS semantic roles (F01–F07)
 
-    static let windowSurface = Color(nsColor: WNNSColor.windowSurface)
-    static let readingSurface = Color(nsColor: WNNSColor.readingSurface)
-    static let groupedSurface = Color(nsColor: WNNSColor.groupedSurface)
-    static let formContentSurface = Color(nsColor: WNNSColor.formContentSurface)
-    static let separator = Color(nsColor: WNNSColor.separator)
-
     static let textPrimary = Color(nsColor: WNNSColor.textPrimary)
-    static let textSecondary = Color(nsColor: WNNSColor.textSecondary)
-    static let textTertiary = Color(nsColor: WNNSColor.textTertiary)
-    static let textPlaceholder = Color(nsColor: WNNSColor.textPlaceholder)
-    static let textDisabled = Color(nsColor: WNNSColor.textDisabled)
-
-    static let link = Color(nsColor: WNNSColor.link)
-
-    static let findHighlight = Color(nsColor: WNNSColor.findHighlight)
-    static let findHighlightContent = Color(nsColor: WNNSColor.findHighlightContent)
-
     static let statusError = Color(nsColor: WNNSColor.statusError)
-    static let statusWarning = Color(nsColor: WNNSColor.statusWarning)
-    static let statusSuccess = Color(nsColor: WNNSColor.statusSuccess)
-    static let statusInfo = Color(nsColor: WNNSColor.statusInfo)
-
     static let switchOnTint = Color(nsColor: WNNSColor.switchOnTint)
-
-    // MARK: - Paired message-bubble roles (F02 / T02)
-
-    static let receivedBubbleSurface = Color(nsColor: WNNSColor.receivedBubbleSurface)
-    static let receivedBubbleContent = Color(nsColor: WNNSColor.receivedBubbleContent)
-    static let receivedBubbleContentSecondary = Color(nsColor: WNNSColor.receivedBubbleContentSecondary)
-    static let receivedBubbleQuoteSurface = Color(nsColor: WNNSColor.receivedBubbleQuoteSurface)
-    static let receivedBubbleQuoteBar = Color(nsColor: WNNSColor.receivedBubbleQuoteBar)
-    static let receivedBubbleLink = Color(nsColor: WNNSColor.receivedBubbleLink)
-
-    static let sentBubbleSurface = Color(nsColor: WNNSColor.sentBubbleSurface)
-    static let sentBubbleContent = Color(nsColor: WNNSColor.sentBubbleContent)
-    static let sentBubbleContentSecondary = Color(nsColor: WNNSColor.sentBubbleContentSecondary)
-    static let sentBubbleQuoteSurface = Color(nsColor: WNNSColor.sentBubbleQuoteSurface)
-    static let sentBubbleQuoteBar = Color(nsColor: WNNSColor.sentBubbleQuoteBar)
-    static let sentBubbleLink = Color(nsColor: WNNSColor.sentBubbleLink)
 
     // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 

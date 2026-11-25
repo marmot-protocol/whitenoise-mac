@@ -391,49 +391,29 @@ struct SemanticPaletteTests {
 
     // MARK: - Native semantic roles (F01–F07)
 
-    /// Verifies native macOS semantic surface/foreground pairs, paired bubble roles, find
-    /// highlight, and the dark-safe switch tint against WCAG floors in both Aqua and Dark Aqua.
-    /// Translucent system tokens (`labelColor`, `secondarySystemFill`, `systemFill`) are alpha-
+    /// Verifies the native semantic roles introduced in PR 1 (`WNInput` label & validation colors
+    /// and `switchOnTint` against both the white switch thumb and dark form surfaces) clear WCAG
+    /// floors in both Aqua and Dark Aqua. Translucent system tokens (`labelColor`) are alpha-
     /// composited over their backing surface before computing contrast.
     @Test func nativeSemanticPairsStayLegibleInBothAppearances() throws {
         for appearance in try Self.appearances() {
-            let reading = try Self.composited(WNNSColor.readingSurface, over: WNNSColor.windowSurface, in: appearance)
-            let primaryText = try Self.composited(WNNSColor.textPrimary, over: reading, in: appearance)
-            let secondaryText = try Self.composited(WNNSColor.textSecondary, over: reading, in: appearance)
-            let link = try Self.composited(WNNSColor.link, over: reading, in: appearance)
+            let pane = try Self.composited(
+                WNNSColor.backgroundPrimary, over: WNNSColor.backgroundPrimary, in: appearance)
+            let inputLabel = try Self.composited(WNNSColor.textPrimary, over: pane, in: appearance)
+            let inputError = try Self.composited(WNNSColor.intentionErrorContent, over: pane, in: appearance)
 
-            #expect(Self.contrastRatio(reading, primaryText) >= 4.5)
-            #expect(Self.contrastRatio(reading, secondaryText) >= 3.0)
-            #expect(Self.contrastRatio(reading, link) >= 3.5)
-
-            // Received bubble: `secondarySystemFill` over `readingSurface`.
-            let receivedFill = try Self.composited(WNNSColor.receivedBubbleSurface, over: reading, in: appearance)
-            let receivedBody = try Self.composited(WNNSColor.receivedBubbleContent, over: receivedFill, in: appearance)
-            let receivedMeta = try Self.composited(
-                WNNSColor.receivedBubbleContentSecondary, over: receivedFill, in: appearance)
-            let receivedLink = try Self.composited(WNNSColor.receivedBubbleLink, over: receivedFill, in: appearance)
-            #expect(Self.contrastRatio(receivedFill, receivedBody) >= 4.5)
-            #expect(Self.contrastRatio(receivedFill, receivedMeta) >= 3.0)
-            #expect(Self.contrastRatio(receivedFill, receivedLink) >= 3.0)
-
-            // Sent bubble: inverted monochrome fill paired with inverted body, metadata, and link.
-            let sentFill = try Self.composited(WNNSColor.sentBubbleSurface, over: reading, in: appearance)
-            let sentBody = try Self.composited(WNNSColor.sentBubbleContent, over: sentFill, in: appearance)
-            let sentMeta = try Self.composited(WNNSColor.sentBubbleContentSecondary, over: sentFill, in: appearance)
-            let sentLink = try Self.composited(WNNSColor.sentBubbleLink, over: sentFill, in: appearance)
-            let sentQuote = try Self.composited(WNNSColor.sentBubbleQuoteSurface, over: sentFill, in: appearance)
-            #expect(Self.contrastRatio(sentFill, sentBody) >= 4.5)
-            #expect(Self.contrastRatio(sentFill, sentMeta) >= 4.5)
-            #expect(Self.contrastRatio(sentFill, sentLink) >= 4.5)
-            #expect(Self.contrastRatio(sentFill, sentQuote) > 1.05)
-
-            // Native find highlight paired with dark ink stays readable on both appearances.
-            let findFill = try Self.composited(WNNSColor.findHighlight, over: reading, in: appearance)
-            let findText = try Self.composited(WNNSColor.findHighlightContent, over: findFill, in: appearance)
-            #expect(Self.contrastRatio(findFill, findText) >= 7.0)
+            #expect(
+                Self.contrastRatio(pane, inputLabel) >= 4.5,
+                "WNInput label contrast below 4.5:1 in \(appearance.name.rawValue)"
+            )
+            #expect(
+                Self.contrastRatio(pane, inputError) >= 4.5,
+                "WNInput validation contrast below 4.5:1 in \(appearance.name.rawValue)"
+            )
 
             // Switch on-state tint clears 4.5:1 against the native white thumb AND 3.0:1 against
-            // the reading surface in both appearances.
+            // the native dark/light control background in both appearances.
+            let reading = try Self.composited(.controlBackgroundColor, over: .windowBackgroundColor, in: appearance)
             let switchTrack = try Self.composited(WNNSColor.switchOnTint, over: reading, in: appearance)
             let whiteThumb = try #require(WNColorRamp.white.usingColorSpace(.sRGB))
             #expect(

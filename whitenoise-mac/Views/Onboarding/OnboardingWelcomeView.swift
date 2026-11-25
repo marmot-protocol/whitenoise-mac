@@ -23,7 +23,7 @@ import SwiftUI
 /// buttons, for one of the two things this screen exists to do.
 ///
 /// Both actions are now push buttons, one tier apart: the raised secondary
-/// (`WNSecondaryButtonStyle`) for signing in, and the glass primary for signing up.
+/// (`.wnSecondaryButtonStyle()`) for signing in, and `.wnPrimaryButtonStyle()` for signing up.
 ///
 /// `Sign Up` no longer creates anything. It opens `OnboardingSignUpView`, which is where the
 /// identity is made — the button that minted one outright, in the time it took to press it, is

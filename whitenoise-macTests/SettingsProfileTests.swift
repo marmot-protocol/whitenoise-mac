@@ -15,8 +15,7 @@ import Testing
     /// though, and a style ignores a proposed height — so the only way the pair stays matched is a
     /// per-tier minimum on the label, and the only way those numbers stay right is measuring them.
     ///
-    /// This fails if either tier's interior padding moves under us, which is the whole point: the
-    /// numbers live in `WNPrimaryButtonSize` and `WNSecondaryButtonStyle` and are free to change.
+    /// This fails if either native tier's interior padding moves under us.
     @Test func bothProfileActionsDrawTheSameHeight() throws {
         let secondary = try Self.drawnSize(Self.cancelButton).height
         let primary = try Self.drawnSize(Self.saveButton).height
@@ -24,9 +23,8 @@ import Testing
         #expect(
             abs(secondary - primary) <= 1,
             """
-            the action pair drew two heights: .wnSecondary \(secondary)pt, \
-            primary \(primary)pt. Move `ProfileActionMetrics.secondaryChromeHeight` or \
-            `primaryChromeHeight` by the difference.
+            the action pair drew two heights: .wnSecondaryButtonStyle() \(secondary)pt, \
+            primary \(primary)pt. Update `ProfileActionMetrics.chromeHeight` if native chrome changed.
             """)
     }
 

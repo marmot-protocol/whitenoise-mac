@@ -90,10 +90,11 @@ import Testing
         #expect(Self.chroma(fill) < 0.06)
     }
 
-    /// Native `.wnDestructiveButtonStyle()` renders systemRed when enabled with no ambient tint.
+    /// Native `.wnDestructiveButtonStyle()` renders systemRed when enabled and dims when disabled
+    /// so a gated destructive confirmation never reads as armed before its gate is cleared.
     @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func nativeDestructiveButtonDrawsSystemRed(appearance: NSAppearance.Name) throws {
-        let fill = try Self.fillOfButton(appearance: appearance) {
+    func nativeDestructiveButtonDrawsSystemRedAndDimsWhenDisabled(appearance: NSAppearance.Name) throws {
+        let enabled = try Self.fillOfButton(appearance: appearance) {
             Button(role: .destructive) {
             } label: {
                 Text("Delete").frame(minWidth: 96).padding(8)
@@ -101,9 +102,39 @@ import Testing
             .wnDestructiveButtonStyle()
             .controlSize(.large)
         }
+        let disabled = try Self.fillOfButton(appearance: appearance) {
+            Button(role: .destructive) {
+            } label: {
+                Text("Delete").frame(minWidth: 96).padding(8)
+            }
+            .wnDestructiveButtonStyle()
+            .controlSize(.large)
+            .disabled(true)
+        }
 
-        #expect(fill.redComponent > 0.7)
-        #expect(fill.redComponent > fill.blueComponent + 0.3)
+        #expect(enabled.redComponent > 0.7)
+        #expect(enabled.redComponent > enabled.blueComponent + 0.3)
+        #expect(Self.distance(enabled, disabled) > 0.15)
+    }
+
+    /// `WNPrimaryButton` applies its own `controlSize` outside `.wnPrimaryButtonStyle()` so a
+    /// smaller button inside a `.large` container keeps its own corner radius and height.
+    @Test func primaryButtonUsesItsOwnControlSizeInsideALargeContainer() throws {
+        let smallInLarge = try Self.sizeOfButton {
+            WNPrimaryButton(size: .small) {
+            } label: {
+                Text("Done")
+            }
+            .controlSize(.large)
+        }
+        let standaloneSmall = try Self.sizeOfButton {
+            WNPrimaryButton(size: .small) {
+            } label: {
+                Text("Done")
+            }
+        }
+
+        #expect(abs(smallInLarge.height - standaloneSmall.height) <= 1)
     }
 
     // MARK: - Helpers
@@ -141,6 +172,12 @@ import Testing
         // A transparent sample means the glass never drew; assert rather than compare against it.
         #expect(pixel.alphaComponent > 0.99)
         return pixel
+    }
+
+    private static func sizeOfButton<Content: View>(@ViewBuilder content: () -> Content) throws -> CGSize {
+        let renderer = ImageRenderer(content: content())
+        renderer.scale = 2
+        return try #require(renderer.nsImage?.size)
     }
 
     /// How far the three channels spread — 0 for any neutral, large for a saturated hue.

@@ -15,9 +15,9 @@ import SwiftUI
 /// `OnboardingLayout.actionHeight` tall, and the two numbers differ per style. Keeping them
 /// together is what makes a stacked pair the same height.
 enum OnboardingActionTier {
-    /// The glass primary. One per pane.
+    /// Native `.borderedProminent` primary. One per pane.
     case primary
-    /// The secondary — `WNSecondaryButtonStyle`. Shadowed, not ringed.
+    /// Native `.bordered` secondary.
     case secondary
 }
 

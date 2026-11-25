@@ -2,36 +2,20 @@
 //  WNPrimaryButton.swift
 //  whitenoise-mac
 //
-//  The app's primary push button — the other clients' `WnButton.primary`. Its
-//  companion is `WNSecondaryButtonStyle` (`.wnSecondary`), the raised tier every
-//  lesser action wears; between them they cover the two push-button tiers a
-//  screen normally offers. The sizes it draws at live in
+//  The app's primary push button — native `.borderedProminent` with scoped
+//  monochrome tint (`WNColor.fillPrimary`). Its companion is
+//  `.wnSecondaryButtonStyle()` (`.bordered`). The sizes it draws at live in
 //  `WNPrimaryButtonSize.swift`.
 //
 
 import SwiftUI
 
-/// The primary push button: one per screen, on the app's liquid glass.
+/// The primary push button: native `.borderedProminent` with scoped monochrome tint.
 ///
-/// **The glass is deliberate and is not this component's to change.** Only the secondary tier went
-/// flat when the palette was ported; the primary action stays on `.glassProminent`, so what a
-/// *size* controls here is the type ramp, the interior padding and the border shape — never the
-/// ground.
-///
-/// The ground itself is named right here, though, and has to be: `.glassProminent` carries no
-/// colour of its own and tints from the environment, whose only app-wide source is
-/// `ContentView`'s `.tint(WNColor.fillPrimary)`. A sheet is a separate presentation and inherits
-/// none of it — same trap as `\.locale` — so a primary button inside one fell back to the system
-/// accent and drew **blue**, the one hue the palette reserves for links and search hits. Naming
-/// `fillPrimary` on the component makes the tier correct wherever it is used instead of only
-/// under the root.
-///
-/// Because the style is native, the label has to carry its own padding: the chrome is drawn around
-/// the label's frame, so padding *outside* the `Button` would leave the glass its original size and
-/// merely hold its neighbours further off.
+/// `.controlSize` is applied *outside* `.wnPrimaryButtonStyle()` so the style's
+/// `@Environment(\.controlSize)` reads `size.controlSize` rather than an outer container's size.
 struct WNPrimaryButton<Label: View>: View {
     var size: WNPrimaryButtonSize = .medium
-    var isElevated = false
     let action: () -> Void
     @ViewBuilder let label: Label
 
@@ -42,8 +26,8 @@ struct WNPrimaryButton<Label: View>: View {
                 .padding(.vertical, size.verticalPadding)
                 .padding(.horizontal, size.horizontalPadding)
         }
+        .wnPrimaryButtonStyle()
         .controlSize(size.controlSize)
-        .wnPrimaryButtonStyle(elevated: isElevated)
     }
 }
 
@@ -54,10 +38,9 @@ extension WNPrimaryButton where Label == SwiftUI.Label<Text, Image> {
         _ title: String,
         systemImage: String,
         size: WNPrimaryButtonSize = .medium,
-        isElevated: Bool = false,
         action: @escaping () -> Void
     ) {
-        self.init(size: size, isElevated: isElevated, action: action) {
+        self.init(size: size, action: action) {
             SwiftUI.Label(title, systemImage: systemImage)
         }
     }
