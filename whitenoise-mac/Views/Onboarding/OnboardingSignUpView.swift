@@ -124,6 +124,10 @@ struct OnboardingSignUpView: View {
         }
         .controlSize(.large)
         .wnButtonShape(.capsule)
+        .onExitCommand {
+            guard !isBusy else { return }
+            cancel()
+        }
         .sheet(isPresented: $workspace.isProfileImagePickerPresented) {
             ProfileImagePickerSheet()
                 // Sheets are hosted outside this view's hierarchy and inherit nothing from it, so

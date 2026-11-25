@@ -80,6 +80,10 @@ struct OnboardingWelcomeView: View {
         // `WNButtonMetrics`.
         .controlSize(.large)
         .wnButtonShape(.capsule)
+        .onExitCommand {
+            guard workspace.canLeaveAccountOnboarding, !workspace.isAuthenticating else { return }
+            workspace.leaveAccountOnboarding()
+        }
     }
 }
 

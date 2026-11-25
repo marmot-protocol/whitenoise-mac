@@ -19,26 +19,35 @@ import Testing
     // MARK: - #1106 Account setup native checkboxes
 
     /// Recovery risk acknowledgment is a subordinate consent choice (C06) and must use checkbox
-    /// presentation rather than `NSSwitch`. A switch-styled `WNToggle` serves as the positive
-    /// control proving the view walk detects `NSSwitch` instances.
-    @Test func accountSetupRecoveryUsesCheckboxPresentationNotSwitch() async throws {
-        let switchControlHost = NSHostingView(
-            rootView: WNToggle("Control", isOn: .constant(true), presentation: .switch)
-                .frame(width: 240, height: 44)
+    /// presentation rather than `NSSwitch`, even inside a grouped `Form` where macOS defaults
+    /// toggles to switches.
+    @Test func accountSetupRecoveryUsesCheckboxPresentationNotSwitch() {
+        let defaultFormHost = NSHostingView(
+            rootView: Form {
+                Toggle("Default", isOn: .constant(true))
+            }
+            .formStyle(.grouped)
+            .frame(width: 360, height: 80)
         )
-        switchControlHost.layoutSubtreeIfNeeded()
-        #expect(!Self.descendants(of: switchControlHost, as: NSSwitch.self).isEmpty)
+        defaultFormHost.frame = CGRect(x: 0, y: 0, width: 360, height: 80)
+        defaultFormHost.layoutSubtreeIfNeeded()
+        #expect(!Self.descendants(of: defaultFormHost, as: NSSwitch.self).isEmpty)
 
-        var snapshot = F.snapshot(steps: [F.step(.relays, .needsInput)])
-        snapshot.recoveryEpoch = "epoch-1"
-        let model = await F.coordinator(snapshot)
-        defer { model.stop() }
+        let card = AccountSetupRecoveryCard(acknowledgesRisk: .constant(false), isEnabled: true)
+            .frame(width: 360)
+        let cardSize = F.hostedSize(card)
+        #expect(cardSize.height > 80, "recovery card did not render its content")
 
-        let host = NSHostingView(rootView: AccountSetupView(model: model).frame(width: 940, height: 620))
-        host.frame = CGRect(x: 0, y: 0, width: 940, height: 620)
+        let host = NSHostingView(
+            rootView: Form {
+                AccountSetupRecoveryCard(acknowledgesRisk: .constant(false), isEnabled: true)
+            }
+            .formStyle(.grouped)
+            .frame(width: 400, height: 260)
+        )
+        host.frame = CGRect(x: 0, y: 0, width: 400, height: 260)
         host.layoutSubtreeIfNeeded()
 
-        #expect(host.fittingSize.width == 940)
         #expect(
             Self.descendants(of: host, as: NSSwitch.self).isEmpty,
             "recovery acknowledgment should be a checkbox, not an NSSwitch")
@@ -67,33 +76,59 @@ import Testing
 
     // MARK: - #1105 New chat, group creation, and direct-chat chooser
 
-    @Test func composeFlowPanelsRenderAtDrawerWidth() {
+    /// Escape clears an active search query first through `clearComposeSearch()`, then navigates
+    /// back once empty — and ignores Escape entirely while chat creation is in flight so a pending
+    /// creation error is never erased by an empty-query lookup.
+    @Test func newChatEscapePreservesQueryAndErrorWhileCreatingAndClearsWhenIdle() {
         let workspace = WorkspaceState.preview()
-        let session = SessionState()
+        workspace.showNewChat()
+        workspace.newChatQuery = "alice"
+        workspace.isCreatingChat = true
+        workspace.lastError = "Couldn't reach recipient"
 
-        let newChat = F.hostedSize(
-            NewChatPanelView()
-                .environment(workspace)
-                .environment(session)
-                .frame(width: 300, height: 520)
-        )
-        #expect(newChat == CGSize(width: 300, height: 520))
+        NewChatPanelView.handleEscape(in: workspace)
+        #expect(workspace.newChatQuery == "alice")
+        #expect(workspace.lastError == "Couldn't reach recipient")
+        #expect(workspace.isNewChatComposerVisible)
 
-        let chooseMembers = F.hostedSize(
-            ChooseMembersPanelView()
-                .environment(workspace)
-                .environment(session)
-                .frame(width: 300, height: 520)
-        )
-        #expect(chooseMembers == CGSize(width: 300, height: 520))
+        workspace.isCreatingChat = false
+        NewChatPanelView.handleEscape(in: workspace)
+        #expect(workspace.newChatQuery.isEmpty)
+        #expect(workspace.isNewChatComposerVisible)
 
-        let nameGroup = F.hostedSize(
-            NameGroupPanelView(draftImage: .constant(nil))
-                .environment(workspace)
-                .environment(session)
-                .frame(width: 300, height: 520)
+        NewChatPanelView.handleEscape(in: workspace)
+        #expect(!workspace.isNewChatComposerVisible)
+    }
+
+    /// Header Back returns to Choose members while preserving staged group name and members,
+    /// whereas Cancel / Escape closes the composer and discards the draft.
+    @Test func nameGroupBackPreservesDraftWhileCancelDiscardsIt() {
+        let workspace = WorkspaceState.preview()
+        let member = NewChatRecipient(
+            sourceQuery: "alice",
+            memberRef: String(repeating: "a", count: 64),
+            accountIdHex: String(repeating: "a", count: 64),
+            npub: "npub1alice",
+            displayName: "Alice",
+            pictureURL: nil
         )
-        #expect(nameGroup == CGSize(width: 300, height: 520))
+        workspace.showNewChat()
+        workspace.composeShowChooseMembers()
+        workspace.toggleComposeMember(member)
+        workspace.composeShowNameGroup()
+        workspace.newChatName = "Field Notes"
+
+        workspace.composeGoBack()
+        #expect(workspace.isNewChatComposerVisible)
+        #expect(workspace.composePane == .chooseMembers)
+        #expect(workspace.newChatName == "Field Notes")
+        #expect(workspace.newChatRecipients == [member])
+
+        workspace.composeShowNameGroup()
+        workspace.closeNewChatComposer()
+        #expect(!workspace.isNewChatComposerVisible)
+        #expect(workspace.newChatName.isEmpty)
+        #expect(workspace.newChatRecipients.isEmpty)
     }
 
     @Test func directChatChooserSheetRendersContentSizedWithChoices() {

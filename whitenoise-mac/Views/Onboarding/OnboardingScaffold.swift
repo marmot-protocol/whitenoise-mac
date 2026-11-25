@@ -109,7 +109,6 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
             Color(nsColor: .windowBackgroundColor)
                 .ignoresSafeArea()
         }
-        .onExitCommand(perform: exit.map { control in { control.action() } })
     }
 }
 

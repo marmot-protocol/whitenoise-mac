@@ -84,6 +84,10 @@ struct OnboardingSignInView: View {
         }
         .controlSize(.large)
         .wnButtonShape(.capsule)
+        .onExitCommand {
+            guard !workspace.isAuthenticating else { return }
+            workspace.cancelLogin()
+        }
     }
 
     private func submit() {

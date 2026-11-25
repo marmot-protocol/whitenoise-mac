@@ -30,7 +30,7 @@ struct NewChatPanelView: View {
                 workspace.composeGoBack()
             }
 
-            ComposeSearchField(
+            MessagesSearchField(
                 text: $workspace.newChatQuery,
                 accessibilityIdentifier: "compose.search",
                 placeholder: L10n.string("Name or npub"),
@@ -111,12 +111,7 @@ struct NewChatPanelView: View {
             .accessibilityIdentifier("compose.list")
         }
         .onExitCommand {
-            // Escape first cancels the active search context before closing the compose flow (C13).
-            if !workspace.newChatQuery.isEmpty {
-                workspace.newChatQuery = ""
-            } else {
-                workspace.composeGoBack()
-            }
+            Self.handleEscape(in: workspace)
         }
         .task {
             await workspace.refreshComposeContacts()
@@ -130,6 +125,17 @@ struct NewChatPanelView: View {
             )
             // A sheet does not inherit the injected locale.
             .environment(\.locale, workspace.preferredLocale)
+        }
+    }
+
+    /// Escape clears an active search query through `clearComposeSearch()` first, then navigates
+    /// back once the field is already empty — never while chat creation is in flight.
+    static func handleEscape(in workspace: WorkspaceState) {
+        guard !workspace.isCreatingChat else { return }
+        if !workspace.newChatQuery.isEmpty {
+            workspace.clearComposeSearch()
+        } else {
+            workspace.composeGoBack()
         }
     }
 
@@ -238,12 +244,7 @@ struct ChooseMembersPanelView: View {
             .padding(12)
         }
         .onExitCommand {
-            // Escape first cancels the active search context before navigating back (C13).
-            if !workspace.newChatQuery.isEmpty {
-                workspace.newChatQuery = ""
-            } else {
-                workspace.composeGoBack()
-            }
+            NewChatPanelView.handleEscape(in: workspace)
         }
         .task {
             await workspace.refreshComposeContacts()
@@ -272,7 +273,7 @@ struct MemberSearchField: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        ComposeSearchField(
+        MessagesSearchField(
             text: $workspace.newChatQuery,
             accessibilityIdentifier: accessibilityIdentifier,
             placeholder: L10n.string("Name or npub"),
@@ -460,10 +461,6 @@ struct NameGroupPanelView: View {
                         .font(.body)
                         .focused($isNameFocused)
                         .onSubmit {
-                            guard !trimmedName.isEmpty,
-                                !workspace.isCreatingChat,
-                                !workspace.reachableDraftMembers.isEmpty
-                            else { return }
                             Task { await workspace.createGroupFromDraft(image: draftImage) }
                         }
                         .accessibilityLabel(L10n.string("Group name"))
@@ -506,6 +503,7 @@ struct NameGroupPanelView: View {
                     workspace.closeNewChatComposer()
                 }
                 .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
                 .disabled(workspace.isCreatingChat)
                 .accessibilityIdentifier("compose.cancel")
 
@@ -530,10 +528,6 @@ struct NameGroupPanelView: View {
                 .accessibilityIdentifier("compose.create")
             }
             .padding(12)
-        }
-        .onExitCommand {
-            guard !workspace.isCreatingChat else { return }
-            workspace.composeGoBack()
         }
         .task {
             isNameFocused = true
@@ -831,80 +825,6 @@ private struct ComposeIdentifierResults: View {
             .disabled(isDisabled)
         } else {
             ComposeNoMatchesView(onPaste: onPaste)
-        }
-    }
-}
-
-/// Native semantic inline search field for compose and member-add flows (C13).
-///
-/// Preserves focus restoration across `.disabled` transitions (such as `GroupAddMembersSheet`
-/// folding a pasted identifier) and native Escape-clears-query-first semantics.
-private struct ComposeSearchField: View {
-    @Binding var text: String
-    var accessibilityIdentifier: String
-    var placeholder: String
-    var autofocus = false
-
-    @FocusState private var isFocused: Bool
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var regainsFocusWhenEnabled = false
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.subheadline)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .accessibilityHidden(true)
-
-            TextField(placeholder, text: $text)
-                .textFieldStyle(.plain)
-                .font(.body)
-                .foregroundStyle(Color(nsColor: .labelColor))
-                .focused($isFocused)
-                .autocorrectionDisabled()
-                .accessibilityIdentifier(accessibilityIdentifier)
-
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                    isFocused = true
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Clear search"))
-                .accessibilityLabel(L10n.string("Clear search"))
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor), in: shape)
-        .overlay {
-            shape.strokeBorder(
-                isFocused ? Color(nsColor: .keyboardFocusIndicatorColor) : Color(nsColor: .separatorColor),
-                lineWidth: isFocused ? 1.5 : 1
-            )
-            .allowsHitTesting(false)
-        }
-        .task {
-            if autofocus {
-                isFocused = true
-            }
-        }
-        .onChange(of: isFocused) { _, focused in
-            if focused {
-                regainsFocusWhenEnabled = true
-            } else if isEnabled {
-                regainsFocusWhenEnabled = false
-            }
-        }
-        .onChange(of: isEnabled) { _, enabled in
-            if enabled, regainsFocusWhenEnabled {
-                isFocused = true
-            }
         }
     }
 }

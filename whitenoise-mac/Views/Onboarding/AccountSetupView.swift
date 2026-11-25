@@ -233,12 +233,11 @@ struct AccountSetupCardChrome: ViewModifier {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(nsColor: .controlBackgroundColor), in: shape)
-            .clipShape(shape)
             .overlay(shape.strokeBorder(Color(nsColor: .separatorColor)))
     }
 }
 
-private struct AccountSetupRecoveryCard: View {
+struct AccountSetupRecoveryCard: View {
     @Environment(\.locale) private var locale
     @Binding var acknowledgesRisk: Bool
     /// Off while the recovery runs, so the acknowledgment cannot be withdrawn under it.
