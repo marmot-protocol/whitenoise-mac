@@ -44,6 +44,40 @@ nonisolated enum WNNSColor {
         dark: WNColorRamp.neutral500
     )
 
+    // MARK: - Message bubbles (F02, T02, T07)
+    //
+    // A text bubble is a surface with its own foreground set: body, metadata, quote inset and
+    // links are chosen for the bubble they sit on, never inherited from the window. The received
+    // bubble uses native fills and labels over the transcript. The sent bubble inverts against the
+    // surface (`fillPrimary` with `fillContentPrimary`), so its secondary roles cross over the same
+    // way: the lighter step on the dark bubble in Light, the darker step on the light bubble in
+    // Dark. All of these are system colors or name-keyed dynamic colors, which are safe to resolve
+    // from any thread.
+
+    /// The received bubble: a native translucent fill over the transcript surface.
+    static let messageReceivedFill = NSColor.secondarySystemFill
+    /// Footer metadata and the quoted body on the received bubble.
+    static let messageReceivedSecondaryContent = NSColor.secondaryLabelColor
+    /// The quoted-reply inset inside the received bubble, one native fill step deeper.
+    static let messageReceivedQuoteFill = NSColor.systemFill
+    /// Links on the received bubble.
+    static let messageReceivedLink = NSColor.linkColor
+
+    /// Footer metadata and the quoted body on the sent bubble. `neutral400` on the near-black
+    /// bubble in Light (7.8:1), `neutral650` on the white bubble in Dark (9.0:1). Both stay above
+    /// 4.5:1 on `messageSentQuoteFill`, where the quoted body is drawn.
+    static let messageSentSecondaryContent = NSColor.wnDynamic(
+        "wn.messageSentSecondaryContent", light: WNColorRamp.neutral400, dark: WNColorRamp.neutral650)
+    /// The quoted-reply inset inside the sent bubble, one neutral step in from the bubble's own
+    /// fill, in the bubble's direction rather than the window's.
+    static let messageSentQuoteFill = NSColor.wnDynamic(
+        "wn.messageSentQuoteFill", light: WNColorRamp.neutral800, dark: WNColorRamp.neutral150)
+    /// Links on the sent bubble. The app's blue is 3.8:1 on the near-black bubble and
+    /// 3.7:1 on the white one, so the sent bubble takes a pale blue in Light (13.9:1) and a deeper
+    /// blue in Dark (5.2:1).
+    static let messageSentLink = NSColor.wnDynamic(
+        "wn.messageSentLink", light: WNColorRamp.blue200, dark: WNColorRamp.blue600)
+
     // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 
     /// The app's base surface: the transcript, the chat list, a settings pane.

@@ -170,4 +170,34 @@ import Testing
         #expect(Self.text([("hello ", nil), ("there", Self.link)]).containsLink)
         #expect(!Self.text([("hello there", nil)]).containsLink)
     }
+
+    /// Inside a bubble a real link takes the bubble's link role (#1039). A mention (a link with no
+    /// color of its own) keeps the bubble's tint, a search mark keeps its highlighter pair, and
+    /// plain text and the characters themselves are untouched, so line breaks cannot move.
+    @Test func aBubbleRecolorsRealLinksOnly() throws {
+        var real = AttributedString("spec")
+        real.link = Self.link
+        real.foregroundColor = WNColor.intentionInfoContent
+        var mention = AttributedString("@Avery")
+        mention.link = URL(string: "nostr:npub1example")
+        var marked = AttributedString("match")
+        marked.link = Self.link
+        marked.foregroundColor = SearchMatchHighlightStyle.content
+        marked.backgroundColor = SearchMatchHighlightStyle.background
+        var text = AttributedString("See ")
+        for part in [real, AttributedString(" and "), mention, AttributedString(" "), marked] {
+            text.append(part)
+        }
+
+        let recolored = MessageLinkStyle.recoloring(text, to: MessageBubblePolarity.sent.link)
+
+        #expect(String(recolored.characters) == String(text.characters))
+        let colors = recolored.runs.map { (String(recolored[$0.range].characters), $0.foregroundColor) }
+        #expect(colors.first { $0.0 == "spec" }?.1 == MessageBubblePolarity.sent.link)
+        #expect(colors.first { $0.0 == "@Avery" }?.1 == nil)
+        #expect(colors.first { $0.0 == "match" }?.1 == SearchMatchHighlightStyle.content)
+        #expect(colors.first { $0.0 == "See " }?.1 == nil)
+        // Outside a bubble the display model's color stands.
+        #expect(MessageLinkStyle.recoloring(text, to: nil) == text)
+    }
 }

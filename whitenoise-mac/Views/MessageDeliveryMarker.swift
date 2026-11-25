@@ -51,7 +51,7 @@ struct MessageDeliveryMarker: View {
         MessageDeliveryMarker(indicator: .warning)
         MessageDeliveryMarker(indicator: .failed)
     }
-    .wnFont(.medium10)
-    .foregroundStyle(WNColor.backgroundContentTertiary)
+    .font(MessageTypography.footer)
+    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
     .padding()
 }

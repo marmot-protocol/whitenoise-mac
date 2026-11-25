@@ -183,6 +183,87 @@ enum MessageReactionChipPlacement: Equatable {
     }
 }
 
+/// Whether a bubble's hover strip is drawn, and which of its popovers is open for which message.
+///
+/// One value owned by `MessageBubble`, read and written directly by the strip's popover bindings
+/// (K06, P02, T06). The picker's open state used to live in the strip and reach the bubble through
+/// an `onChange` copy, and the strip cleared that copy from `onDisappear`. A hover flicker could
+/// replace the strip just before the click; the old instance's late `onDisappear` then cleared the
+/// flag under a picker that was already open, and the first step off the row toward the picker
+/// took the strip, the picker's anchor, and the picker with it. Now there is no copy to fall out of
+/// step: the popover's binding is this value.
+///
+/// The open popover is bound to the message ID that opened it. A pick is accepted only for that
+/// message, and `reconcile(with:)` closes the popover when the row stops offering it. The table
+/// cell's `.id(rowId)` and the transcript's `.id(chat.id)` tear the whole bubble down on a recycle,
+/// chat switch or account switch, so the popover cannot follow the row to another message.
+nonisolated struct MessageInlineActionPresentation: Equatable, Sendable {
+    enum Popover: Equatable, Sendable {
+        case reactionPicker
+        case overflow
+    }
+
+    /// What the row currently allows. The strip's popovers close when it stops allowing them.
+    struct Eligibility: Equatable, Sendable {
+        let messageID: String
+        let supportsChatActions: Bool
+        let canReact: Bool
+        let isSelectionMode: Bool
+    }
+
+    private(set) var popover: Popover?
+    private(set) var messageID: String?
+    /// The pointer is over the bubble's row.
+    var isHoveringRow = false
+    /// The pointer is over the strip itself, which can overhang the row's edge on a short bubble.
+    var isHoveringStrip = false
+
+    func isPresented(_ popover: Popover, for messageID: String) -> Bool {
+        self.popover == popover && self.messageID == messageID
+    }
+
+    /// The setter behind a popover's `isPresented` binding. A `false` only closes that popover for
+    /// that message, so SwiftUI resetting one binding cannot close the other popover.
+    mutating func setPresented(_ isPresented: Bool, _ popover: Popover, for messageID: String) {
+        if isPresented {
+            self.popover = popover
+            self.messageID = messageID
+        } else if self.isPresented(popover, for: messageID) {
+            dismiss()
+        }
+    }
+
+    /// The strip shows while the pointer is over the row or the strip, and for as long as one of
+    /// its popovers is open. Leaving the row on the way into the picker does not remove the
+    /// picker's anchor.
+    func showsStrip(supportsChatActions: Bool) -> Bool {
+        supportsChatActions && (isHoveringRow || isHoveringStrip || popover != nil)
+    }
+
+    /// Whether a pick from the open picker may be sent to `messageID`.
+    func acceptsReactionPick(for messageID: String) -> Bool {
+        isPresented(.reactionPicker, for: messageID)
+    }
+
+    /// Closes an open popover that the row no longer offers: another message, a row that has lost
+    /// its chat actions, selection mode, or a picker on a message that can no longer take
+    /// reactions. The overflow menu stays open when only reacting stops.
+    mutating func reconcile(with eligibility: Eligibility) {
+        guard let popover else { return }
+        let isStillOffered =
+            messageID == eligibility.messageID
+            && eligibility.supportsChatActions
+            && !eligibility.isSelectionMode
+            && (popover != .reactionPicker || eligibility.canReact)
+        if !isStillOffered { dismiss() }
+    }
+
+    private mutating func dismiss() {
+        popover = nil
+        messageID = nil
+    }
+}
+
 /// What the reaction viewer needs from outside its own model: how to name a reactor, draw and load
 /// a custom emoji, and add or remove the viewer's reaction. Closures rather than the workspace, so
 /// the popover can be previewed and tested with plain values.

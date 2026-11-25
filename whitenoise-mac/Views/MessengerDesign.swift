@@ -212,6 +212,120 @@ nonisolated enum MessagesPalette {
     }
 }
 
+/// Which text bubble a view is drawn on, and the foreground set that goes with it (F02, T02, T07).
+///
+/// Everything drawn inside a text bubble takes its color from here: body, footer metadata, the
+/// quoted-reply inset and its text, links, and Markdown's secondary runs. A role from the window's
+/// own family looks right on one bubble and fails on the other, because the sent bubble inverts
+/// against the window and the received one does not.
+///
+/// The received bubble uses native roles (`secondarySystemFill`, `labelColor`,
+/// `secondaryLabelColor`, `systemFill`, `linkColor`). The sent bubble keeps the inverted primary
+/// fill and its paired content, with its secondary roles crossing over the same way.
+/// Poll, unsupported-event and attachment cards keep `MessagesPalette` until #1113 moves them.
+nonisolated enum MessageBubblePolarity: Hashable, Sendable {
+    case sent
+    case received
+
+    init(isOutgoing: Bool) {
+        self = isOutgoing ? .sent : .received
+    }
+
+    var fill: Color {
+        switch self {
+        case .sent: MessagesPalette.sentBubble
+        case .received: WNColor.messageReceivedFill
+        }
+    }
+
+    /// The body text and any glyph that has to read at full strength.
+    var content: Color {
+        switch self {
+        case .sent: MessagesPalette.sentBubbleContent
+        case .received: WNColor.textPrimary
+        }
+    }
+
+    /// Footer metadata, the quoted body, a deleted message's label, and Markdown's quieter runs.
+    var secondaryContent: Color {
+        switch self {
+        case .sent: WNColor.messageSentSecondaryContent
+        case .received: WNColor.messageReceivedSecondaryContent
+        }
+    }
+
+    var quoteFill: Color {
+        switch self {
+        case .sent: WNColor.messageSentQuoteFill
+        case .received: WNColor.messageReceivedQuoteFill
+        }
+    }
+
+    var link: Color {
+        switch self {
+        case .sent: WNColor.messageSentLink
+        case .received: WNColor.messageReceivedLink
+        }
+    }
+
+    /// The AppKit twins of the roles above, so the contrast between them can be measured on the
+    /// dynamic colors the views draw with.
+    var nsFill: NSColor {
+        switch self {
+        case .sent: WNNSColor.fillPrimary
+        case .received: WNNSColor.messageReceivedFill
+        }
+    }
+
+    var nsContent: NSColor {
+        switch self {
+        case .sent: WNNSColor.fillContentPrimary
+        case .received: WNNSColor.textPrimary
+        }
+    }
+
+    var nsSecondaryContent: NSColor {
+        switch self {
+        case .sent: WNNSColor.messageSentSecondaryContent
+        case .received: WNNSColor.messageReceivedSecondaryContent
+        }
+    }
+
+    var nsQuoteFill: NSColor {
+        switch self {
+        case .sent: WNNSColor.messageSentQuoteFill
+        case .received: WNNSColor.messageReceivedQuoteFill
+        }
+    }
+
+    var nsLink: NSColor {
+        switch self {
+        case .sent: WNNSColor.messageSentLink
+        case .received: WNNSColor.messageReceivedLink
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// The bubble the text below is drawn on, set by `MessageBubble` around its text content. Nil
+    /// outside a bubble, where text keeps the window's roles.
+    @Entry var messageBubblePolarity: MessageBubblePolarity? = nil
+}
+
+/// The native text styles of a chat message (F04, T02). Every caller that draws a message's text
+/// or reserves room for it reads its style from here, so the visible footer and the transparent
+/// copy that reserves its width on the last line use the same font. The transcript measures each
+/// row through SwiftUI at the column width, so these sizes and the cached row heights always agree.
+nonisolated enum MessageTypography {
+    static let body: Font = .body
+    static let bodySemibold: Font = .body.weight(.semibold)
+    static let senderName: Font = .subheadline
+    static let footer: Font = .caption
+    static let quoteSender: Font = .subheadline.weight(.semibold)
+    static let quoteBody: Font = .subheadline
+    static let dayDivider: Font = .subheadline.weight(.semibold)
+}
+
 /// Surface for the non-visual attachment rows: the audio player, the download/failed status rows,
 /// and the document row.
 ///

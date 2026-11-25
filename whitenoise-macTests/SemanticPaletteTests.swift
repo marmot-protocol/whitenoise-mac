@@ -268,16 +268,16 @@ struct SemanticPaletteTests {
     /// bar (the sent bubble is the pill's inverse, around 20:1). So the bar is set where it catches
     /// a genuine collapse without claiming a contrast the design does not want.
     @Test func reactionChipStaysLegibleOnBothBubbles() throws {
-        let bubbles = [
-            ("sent", WNNSColor.fillPrimary),
-            ("received", WNNSColor.backgroundMessageIncoming),
-        ]
         let states = [
             ("resting", WNNSColor.backgroundPrimary, WNNSColor.borderTertiary),
             ("own", WNNSColor.fillSecondaryActive, WNNSColor.borderPrimary),
         ]
 
         for appearance in try Self.appearances() {
+            // The received bubble is translucent, so it is measured as drawn on the transcript.
+            let bubbles = try [MessageBubblePolarity.sent, .received].map { polarity in
+                ("\(polarity)", try Self.bubbleSurface(polarity, in: appearance))
+            }
             for (bubbleName, bubble) in bubbles {
                 for (stateName, pill, border) in states {
                     let fillRatio = try Self.contrast(bubble, pill, in: appearance)
@@ -427,7 +427,69 @@ struct SemanticPaletteTests {
         }
     }
 
+    /// Every foreground a text bubble draws, on the surface it is drawn on, in both appearances
+    /// (#1039, F02, T02, T07). The received bubble is the native translucent fill over the
+    /// transcript's surface, and the quote inset composites over that in turn. Each role is
+    /// measured as it lands on screen.
+    ///
+    /// Thresholds follow the rest of this file: body and the quoted author at 4.5:1. Metadata,
+    /// the quoted body, links and the quote bar at 3:1. Links are underlined, and on the received
+    /// bubble the native `linkColor` measures 4.4:1 in Light. The quote inset only has to be
+    /// visible as an inset; its text carries the contrast.
+    @Test func bothBubblesPairEveryForegroundWithTheirOwnSurface() throws {
+        for appearance in try Self.appearances() {
+            for polarity in [MessageBubblePolarity.sent, .received] {
+                let bubble = try Self.bubbleSurface(polarity, in: appearance)
+                let quote = try Self.composited(polarity.nsQuoteFill, over: bubble, in: appearance)
+                let measured: [(name: String, surface: NSColor, content: NSColor, minimum: Double)] = [
+                    ("body", bubble, polarity.nsContent, 4.5),
+                    ("metadata", bubble, polarity.nsSecondaryContent, 3.0),
+                    ("link", bubble, polarity.nsLink, 3.0),
+                    ("quoted author", quote, polarity.nsContent, 4.5),
+                    ("quoted body", quote, polarity.nsSecondaryContent, 3.0),
+                    ("quote bar", quote, polarity.nsSecondaryContent, 3.0),
+                    ("quote inset", bubble, polarity.nsQuoteFill, 1.1),
+                ]
+                for pair in measured {
+                    let drawn = try Self.composited(pair.content, over: pair.surface, in: appearance)
+                    let ratio = Self.contrastRatio(drawn, pair.surface)
+                    #expect(
+                        ratio >= pair.minimum,
+                        """
+                        \(polarity) bubble \(pair.name) contrast \(ratio) < \(pair.minimum) \
+                        in \(appearance.name.rawValue)
+                        """
+                    )
+                }
+            }
+        }
+    }
+
+    /// The sent bubble's secondary roles are its own rather than the window's. The window roles
+    /// they replaced fail on the inverted bubble in Dark, which is the case #1039 retires: outgoing
+    /// quotes and metadata must not inherit unreadable generic label colours.
+    @Test func theSentBubbleDoesNotInheritTheWindowsSecondaryRoles() throws {
+        let dark = try #require(NSAppearance(named: .darkAqua))
+        let sent = try Self.bubbleSurface(.sent, in: dark)
+        let windowSecondary = try Self.composited(WNNSColor.backgroundContentSecondary, over: sent, in: dark)
+        let windowLink = try Self.composited(WNNSColor.intentionInfoContent, over: sent, in: dark)
+        let ownSecondary = try Self.composited(MessageBubblePolarity.sent.nsSecondaryContent, over: sent, in: dark)
+        let ownLink = try Self.composited(MessageBubblePolarity.sent.nsLink, over: sent, in: dark)
+
+        #expect(Self.contrastRatio(windowSecondary, sent) < 3.0)
+        #expect(Self.contrastRatio(windowLink, sent) < 4.5)
+        #expect(Self.contrastRatio(ownSecondary, sent) >= 4.5)
+        #expect(Self.contrastRatio(ownLink, sent) >= 4.5)
+    }
+
     // MARK: - Helpers
+
+    /// A bubble's fill as it lands on the transcript's surface (`MessagesTranscriptBackground`).
+    private static func bubbleSurface(_ polarity: MessageBubblePolarity, in appearance: NSAppearance) throws -> NSColor
+    {
+        let transcript = try composited(WNNSColor.backgroundPrimary, over: WNNSColor.backgroundPrimary, in: appearance)
+        return try composited(polarity.nsFill, over: transcript, in: appearance)
+    }
 
     /// Every accent, read through `AvatarPalette`'s list so these tests cover the same twelve sets
     /// the app actually assigns rather than a second copy that could drift from it.

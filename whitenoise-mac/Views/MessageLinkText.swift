@@ -75,6 +75,21 @@ extension AttributedString {
     }
 }
 
+/// How a link reads on the bubble it is drawn on (F07, T07). The display model colors a real link
+/// in the app's blue, which clears the received bubble but not the inverted sent one. A text inside
+/// a bubble swaps that color for the bubble's own link role. A mention is a link with no color of
+/// its own and keeps the bubble's tint. A search mark keeps its highlighter pair.
+nonisolated enum MessageLinkStyle {
+    static func recoloring(_ text: AttributedString, to color: Color?) -> AttributedString {
+        guard let color else { return text }
+        var result = text
+        for run in text.runs where run.link != nil && run.foregroundColor != nil && run.backgroundColor == nil {
+            result[run.range].foregroundColor = color
+        }
+        return result
+    }
+}
+
 extension Text {
     /// `CustomEmojiTextBuilder.text(text, glyphs:)`, with every link run tagged
     /// `MessageLinkRunAttribute`. The runs keep their own attributes, `.link` included, so they
@@ -105,13 +120,16 @@ struct MessageLinkText: View {
     var glyphs: CustomEmojiGlyphs = .none
 
     @Environment(\.messageLinkRegions) private var sharedRegions
+    @Environment(\.messageBubblePolarity) private var bubblePolarity
     @State private var localRegions = MessageLinkRegions()
     @State private var cursor = MessageLinkCursor()
 
     var body: some View {
         if text.containsLink {
             let regions = sharedRegions ?? localRegions
-            appendingTrailing(to: .markingLinks(text, glyphs: glyphs))
+            // Color only: the runs, and so the line breaks the row was measured with, are unchanged.
+            let styled = MessageLinkStyle.recoloring(text, to: bubblePolarity?.link)
+            appendingTrailing(to: .markingLinks(styled, glyphs: glyphs))
                 .textRenderer(MessageLinkRegionRecorder(layoutID: layoutID, regions: regions))
                 .onContinuousHover(coordinateSpace: .local) { phase in
                     cursor.sync(isOverLink: Self.isOverLink(phase, in: regions, layoutID: layoutID))
@@ -170,7 +188,16 @@ struct MessageLinkCursor {
 }
 
 #Preview {
-    MessageLinkText(text: MessageLinkText.sample, layoutID: "preview")
-        .wnFont(.medium16)
-        .padding()
+    VStack(alignment: .leading, spacing: 12) {
+        MessageLinkText(text: MessageLinkText.sample, layoutID: "preview")
+        ForEach([MessageBubblePolarity.received, .sent], id: \.self) { polarity in
+            MessageLinkText(text: MessageLinkText.sample, layoutID: "preview")
+                .foregroundStyle(polarity.content)
+                .padding(10)
+                .background(polarity.fill, in: .rect(cornerRadius: 14))
+                .environment(\.messageBubblePolarity, polarity)
+        }
+    }
+    .font(MessageTypography.body)
+    .padding()
 }

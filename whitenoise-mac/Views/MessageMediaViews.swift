@@ -280,8 +280,8 @@ private struct PendingReactionRemoval {
 struct MessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.conversationHoverSelectionCoordinator) private var hoverSelectionCoordinator
-    @State private var isHovering = false
-    @State private var isInlineActionPresentationActive = false
+    /// Hover and the hover strip's open popover. See `MessageInlineActionPresentation`.
+    @State private var inlineActionPresentation = MessageInlineActionPresentation()
     /// The hover strip's own width, measured. See `inlineActions`.
     @State private var inlineActionWidth: CGFloat = 0
     @State private var isSelectable = false
@@ -335,8 +335,8 @@ struct MessageBubble: View {
                         Task { await workspace.showContactDetails(for: message) }
                     } label: {
                         Text(message.senderName)
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .font(MessageTypography.senderName)
+                            .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                             .padding(.horizontal, 4)
                     }
                     .buttonStyle(.plain)
@@ -345,8 +345,8 @@ struct MessageBubble: View {
                     )
                 } else {
                     Text(message.senderName)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(MessageTypography.senderName)
+                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                         .padding(.horizontal, 4)
                 }
             }
@@ -428,7 +428,7 @@ struct MessageBubble: View {
             // caption-less row's metadata is a bare line of text rather than a surface with an edge
             // to spare. Emitted first, it was what the pill overlapped.
             if !message.hasBubbleContent, showsBubbleMetadata {
-                compactMetadata
+                compactMetadata(onBubble: false)
                     .padding(.horizontal, 5)
             }
 
@@ -510,8 +510,13 @@ struct MessageBubble: View {
         .onDisappear {
             hoverSelectionCoordinator.unregister(messageID: message.id)
         }
+        // A recycled row, a deleted message, or selection mode closes a popover the row no
+        // longer offers instead of leaving it aimed at whatever the row now shows.
+        .onChange(of: inlineActionEligibility) { _, eligibility in
+            inlineActionPresentation.reconcile(with: eligibility)
+        }
         .onHover { hovering in
-            isHovering = hovering
+            inlineActionPresentation.isHoveringRow = hovering
             // Make this the active (selectable) bubble on hover-enter; do NOT clear on
             // exit, so the selection survives moving the cursor toward ⌘C / the menu bar.
             if hovering {
@@ -530,7 +535,16 @@ struct MessageBubble: View {
     }
 
     private var showsInlineActions: Bool {
-        message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+        inlineActionPresentation.showsStrip(supportsChatActions: message.supportsChatActions)
+    }
+
+    private var inlineActionEligibility: MessageInlineActionPresentation.Eligibility {
+        MessageInlineActionPresentation.Eligibility(
+            messageID: message.id,
+            supportsChatActions: message.supportsChatActions,
+            canReact: message.canReact,
+            isSelectionMode: workspace.isTimelineSelectionMode
+        )
     }
 
     /// Remove for a failed own send: discarded on this device and never published, because a
@@ -756,7 +770,7 @@ struct MessageBubble: View {
     private var inlineActions: some View {
         if showsInlineActions {
             MessageInlineActions(
-                isPresentationActive: $isInlineActionPresentationActive,
+                presentation: $inlineActionPresentation,
                 message: message,
                 onReactionPick: pickReaction,
                 moderation: moderationActions,
@@ -856,7 +870,7 @@ struct MessageBubble: View {
                 .padding(.horizontal, 4)
 
             if showsBubbleMetadata {
-                compactMetadata
+                compactMetadata(onBubble: false)
                     .padding(.horizontal, 4)
             }
         }
@@ -919,16 +933,17 @@ struct MessageBubble: View {
                         message: message,
                         trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
                     )
-                    .wnFont(.medium16)
+                    .font(MessageTypography.body)
                     .foregroundStyle(bodyColor)
                     // A mention is a link run without a color, so the tint is what it draws in: the
-                    // bubble's own content, as on iOS. Real links color themselves blue per run.
+                    // bubble's own content, as on iOS. Real links take the bubble's link role per run
+                    // (`MessageLinkStyle`).
                     .tint(bodyColor)
                     .multilineTextAlignment(.leading)
                 }
 
                 if showsReservedMetadataRow {
-                    compactMetadata.hidden()
+                    compactMetadata(onBubble: true).hidden()
                 }
             }
             .padding(.horizontal, textHorizontalInset)
@@ -941,19 +956,21 @@ struct MessageBubble: View {
         // (`isSelectable`) is backed by a selection NSView. See whitenoise-mac#205.
         .textSelectable(isSelectable)
         .environment(\.messageLinkRegions, linkRegions)
+        // Quotes, links and Markdown's quieter runs take the bubble's own foreground set.
+        .environment(\.messageBubblePolarity, bubblePolarity)
         // Metadata is pinned to the bubble's bottom-trailing corner no matter how the text
         // wraps. The inline spacer (flowing text) or hidden row (structured Markdown, empty
         // body) above reserves the space this overlay occupies, so it never covers content.
         .overlay(alignment: .bottomTrailing) {
             if showsBubbleMetadata {
-                compactMetadata
+                compactMetadata(onBubble: true)
                     .padding(.trailing, textHorizontalInset)
                     .padding(.bottom, textBottomInset)
             }
         }
         .padding(.horizontal, bubbleHorizontalInset)
         .padding(.vertical, bubbleVerticalInset)
-        .background { BubbleBackground(isOutgoing: message.isOutgoing) }
+        .background { BubbleBackground(polarity: bubblePolarity) }
         .modifier(HiddenMessageMetadata(isHidden: !showsBubbleMetadata, label: hiddenMetadataLabel))
         // Attach controls before the positioning frame so short messages use the visible
         // bubble edge instead of the frame's maximum width.
@@ -994,10 +1011,18 @@ struct MessageBubble: View {
         message.isEdited && !message.isDeleted
     }
 
-    /// The deleted label is quieter than a message, as on iOS.
+    private var bubblePolarity: MessageBubblePolarity {
+        MessageBubblePolarity(isOutgoing: message.isOutgoing)
+    }
+
+    /// The deleted label is quieter than a message, as on iOS, in the bubble's own secondary role.
     private var bodyColor: Color {
-        guard message.isDeleted else { return MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing) }
-        return message.isOutgoing ? WNColor.fillContentSecondary : WNColor.backgroundContentSecondary
+        message.isDeleted ? bubblePolarity.secondaryContent : bubblePolarity.content
+    }
+
+    /// This message's own disappearing countdown, when the core gives it a finite expiry.
+    private var retentionCountdown: MessageRetentionCountdown? {
+        MessageRetentionCountdown(message: message)
     }
 
     /// What a hidden footer would have said, kept for VoiceOver and the bubble's hover tooltip.
@@ -1032,20 +1057,26 @@ struct MessageBubble: View {
     /// visible copy so their widths track; interaction (the edit-history control) lives on
     /// the overlay, so this carries no link.
     private var inlineMetadataSpacer: Text {
+        let font = MessageTypography.footer
         var parts: [Text] = []
         if let systemImage = MessageDeliveryMarker.systemImage(for: footerIndicator) {
-            parts.append(Text(Image(systemName: systemImage)).wnFont(.medium10))
+            parts.append(Text(Image(systemName: systemImage)).font(font))
         }
         if showsFailureNotice {
-            parts.append(Text(L10n.string("Not delivered")).wnFont(.medium10))
+            parts.append(Text(L10n.string("Not delivered")).font(font))
+        }
+        if retentionCountdown != nil {
+            // The countdown's frame is this same symbol; see `MessageRetentionPie`.
+            parts.append(Text(Image(systemName: "circle")).font(font))
         }
         if showsFooterTime {
             parts.append(
                 Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
-                    .wnFont(.medium10.monospacedDigit()))
+                    .font(font)
+                    .monospacedDigit())
         }
         if showsEditedLabel {
-            parts.append(Text(L10n.string("Edited")).wnFont(.medium10))
+            parts.append(Text(L10n.string("Edited")).font(font))
         }
         var result = Text(verbatim: "  ")
         for (index, part) in parts.enumerated() {
@@ -1085,18 +1116,20 @@ struct MessageBubble: View {
         return message.statusLabel(for: deliveryIndicator) ?? ""
     }
 
-    /// The timestamp/delivery footer. One token in both directions, as on the other clients:
-    /// `backgroundContentTertiary` is the neutral `400`/`500` step, which is the only rung that
-    /// clears the sent bubble and the received bubble in both appearances.
-    private var metadataColor: Color {
-        WNColor.backgroundContentTertiary
+    /// The timestamp/delivery footer's tint: the sent or received bubble's own secondary role
+    /// inside a bubble, and the native secondary label on the transcript surface beneath a sticker
+    /// or a caption-less media card.
+    private func metadataColor(onBubble: Bool) -> Color {
+        onBubble ? bubblePolarity.secondaryContent : WNColor.messageReceivedSecondaryContent
     }
 
     /// The footer, in iOS's order: delivery marker, then the time (or the failure notice), then
-    /// Edited. The disappearing-message timer lives in the conversation header, not on every
-    /// bubble; the message's own expiry stays in the time's tooltip and the spoken label.
-    private var compactMetadata: some View {
-        HStack(spacing: 4) {
+    /// Edited. A message with its own finite expiry shows its twelve-step countdown just before the
+    /// time. The chat's timer setting stays in the conversation header, and the exact expiry stays
+    /// in the tooltip and the spoken label.
+    private func compactMetadata(onBubble: Bool) -> some View {
+        let tint = metadataColor(onBubble: onBubble)
+        return HStack(spacing: 4) {
             if MessageDeliveryMarker.systemImage(for: footerIndicator) != nil {
                 MessageDeliveryMarker(indicator: footerIndicator)
                     // Only a real failure earns the alarm color, and a message some members may lack
@@ -1105,7 +1138,7 @@ struct MessageBubble: View {
                         Self.deliveryMarkerColor(
                             for: footerIndicator,
                             isOutgoing: message.isOutgoing,
-                            otherwise: metadataColor
+                            otherwise: tint
                         )
                     )
                     .help(deliveryMarkerHelp)
@@ -1113,8 +1146,12 @@ struct MessageBubble: View {
             if showsFailureNotice {
                 Text(L10n.string("Not delivered"))
                     .foregroundStyle(
-                        Self.deliveryMarkerColor(for: .failed, isOutgoing: message.isOutgoing, otherwise: metadataColor)
+                        Self.deliveryMarkerColor(for: .failed, isOutgoing: message.isOutgoing, otherwise: tint)
                     )
+            }
+            if let retentionCountdown {
+                MessageRetentionIndicator(countdown: retentionCountdown)
+                    .help(message.retentionExpirationLabel(locale: timestampLocale) ?? "")
             }
             if showsFooterTime {
                 Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
@@ -1127,8 +1164,8 @@ struct MessageBubble: View {
                     .help(L10n.string("View edit history"))
             }
         }
-        .wnFont(.medium10)
-        .foregroundStyle(metadataColor)
+        .font(MessageTypography.footer)
+        .foregroundStyle(tint)
         .accessibilityLabel(
             message.metadataLabel(
                 at: timestampReferenceDate,
@@ -1297,16 +1334,15 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
 /// The chat bubble's fill, in `MessageBubbleShape` — symmetric, and a capsule once the message is
 /// short enough that half its height is the smaller radius.
 ///
-/// Both fills are opaque palette tokens — `fillPrimary` for sent, `backgroundMessageIncoming` for
-/// received — and neither carries a stroke, matching the other clients. The received bubble used to
-/// be a translucent wash, which meant its apparent color depended on whatever it happened to be
-/// scrolled over.
+/// The sent fill is the opaque inverted `fillPrimary`. The received fill is the native
+/// `secondarySystemFill`, which always composites over the transcript's own opaque surface, so it
+/// reads the same on every row. Neither carries a stroke. See `MessageBubblePolarity`.
 private struct BubbleBackground: View {
-    let isOutgoing: Bool
+    let polarity: MessageBubblePolarity
 
     var body: some View {
         MessageBubbleShape()
-            .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
+            .fill(polarity.fill)
     }
 }
 
@@ -2756,9 +2792,9 @@ struct MessageDebugMetadataView: View {
 struct MessageInlineActions: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.composerFocusRequester) private var composerFocusRequester
-    @State private var isEmojiPickerPresented = false
-    @State private var isOverflowPresented = false
-    @Binding var isPresentationActive: Bool
+    /// Owned by the bubble, so an open popover outlives this strip being rebuilt. See
+    /// `MessageInlineActionPresentation`.
+    @Binding var presentation: MessageInlineActionPresentation
     let message: MessageItem
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
@@ -2770,17 +2806,19 @@ struct MessageInlineActions: View {
         HStack(spacing: 4) {
             if message.canReact {
                 Button {
-                    isEmojiPickerPresented = true
+                    presentation.setPresented(true, .reactionPicker, for: message.id)
                 } label: {
                     MessageInlineActionIcon(systemName: "face.smiling", label: L10n.string("React"))
                 }
                 .buttonStyle(.plain)
-                .popover(isPresented: $isEmojiPickerPresented, arrowEdge: .bottom) {
+                .popover(isPresented: isPresented(.reactionPicker), arrowEdge: .bottom) {
                     MessageEmojiPickerPopover(
                         selectedEmojis: MessageReactionPick.selectedEmojis(in: message.reactions),
                         customEmoji: customEmoji
-                    ) { emoji in
-                        isEmojiPickerPresented = false
+                    ) { [message] emoji in
+                        // Only the message that opened the picker takes its pick.
+                        guard presentation.acceptsReactionPick(for: message.id) else { return }
+                        presentation.setPresented(false, .reactionPicker, for: message.id)
                         onReactionPick(emoji)
                     }
                 }
@@ -2812,36 +2850,38 @@ struct MessageInlineActions: View {
 
             if message.supportsChatActions {
                 Button {
-                    isOverflowPresented = true
+                    presentation.setPresented(true, .overflow, for: message.id)
                 } label: {
                     MessageInlineActionIcon(systemName: "ellipsis", label: L10n.string("More"))
                 }
                 .buttonStyle(.plain)
-                .popover(isPresented: $isOverflowPresented, arrowEdge: .bottom) {
+                .popover(isPresented: isPresented(.overflow), arrowEdge: .bottom) {
                     MessageOverflowPopover(
                         message: message,
                         moderation: moderation,
                         discardFailedSend: discardFailedSend,
-                        dismiss: { isOverflowPresented = false }
+                        dismiss: { [message] in presentation.setPresented(false, .overflow, for: message.id) }
                     )
                 }
                 .help(L10n.string("More"))
             }
         }
         .fixedSize(horizontal: true, vertical: true)
-        .onChange(of: isEmojiPickerPresented) { _, _ in
-            syncPresentationState()
-        }
-        .onChange(of: isOverflowPresented) { _, _ in
-            syncPresentationState()
-        }
-        .onDisappear {
-            isPresentationActive = false
-        }
+        // The strip can overhang a short bubble's row; pointing at that part keeps it up too.
+        .onHover { presentation.isHoveringStrip = $0 }
+        // Only the hover flag: an open popover belongs to the bubble and survives the strip.
+        .onDisappear { presentation.isHoveringStrip = false }
     }
 
-    private func syncPresentationState() {
-        isPresentationActive = isEmojiPickerPresented || isOverflowPresented
+    /// A popover's `isPresented`, read from and written to the bubble's presentation for this
+    /// message only.
+    private func isPresented(_ popover: MessageInlineActionPresentation.Popover) -> Binding<Bool> {
+        let presentation = $presentation
+        let messageID = message.id
+        return Binding(
+            get: { presentation.wrappedValue.isPresented(popover, for: messageID) },
+            set: { presentation.wrappedValue.setPresented($0, popover, for: messageID) }
+        )
     }
 }
 
@@ -3360,22 +3400,28 @@ struct MessageReplyContextView: View {
     var fillsWidth = false
     let onOpen: () -> Void
 
+    private var polarity: MessageBubblePolarity {
+        MessageBubblePolarity(isOutgoing: isOutgoing)
+    }
+
     var body: some View {
         Button(action: onOpen) {
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(WNColor.borderTertiary)
+                    .fill(polarity.secondaryContent)
                     .frame(width: 3)
 
                 VStack(alignment: .leading, spacing: 2) {
+                    // The quoted author at full strength and the quoted words one step down, so
+                    // the quote reads as someone else's message and not as part of this one.
                     Text(context.senderName)
-                        .wnFont(.semiBold10)
-                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .font(MessageTypography.quoteSender)
+                        .foregroundStyle(polarity.content)
                         .lineLimit(1)
 
                     Text(context.body)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(MessageTypography.quoteBody)
+                        .foregroundStyle(polarity.secondaryContent)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
@@ -3391,18 +3437,12 @@ struct MessageReplyContextView: View {
         .help(L10n.string("Show replied-to message"))
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        // The quote is its own card on `backgroundPrimary`, identically in both directions, as on
-        // the other clients — which is what lets its content take `background*` tokens instead of
-        // having to be picked per bubble fill. It cannot inherit a translucent material here: it
-        // sits *inside* the bubble, so a material would composite against `fillPrimary` and leave
-        // the quote's text colors undefined.
+        // An inset one step into the bubble it sits in, not a window-colored card: on the sent
+        // bubble that is the opposite polarity from the window, so the quote's text takes the
+        // bubble's own pair rather than a generic label color (T02, T07).
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(WNColor.backgroundPrimary)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(WNColor.borderTertiary, lineWidth: 1)
-                }
+                .fill(polarity.quoteFill)
         }
     }
 }
@@ -3414,7 +3454,7 @@ struct TimelineDayHeaderView: View {
         HStack {
             Spacer(minLength: 24)
             Text(title)
-                .wnFont(.semiBold10)
+                .font(MessageTypography.dayDivider)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
