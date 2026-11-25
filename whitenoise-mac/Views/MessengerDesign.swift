@@ -302,11 +302,6 @@ nonisolated enum MessageTypography {
     static let dayDivider: Font = .subheadline.weight(.semibold)
 }
 
-/// Surface for the non-visual attachment rows: the audio player, the download/failed status rows,
-/// and the document row.
-///
-/// Unlike the reply quote, these rows sit *beside* the bubble in `MessageBubble`'s stack rather than
-/// inside it, so they never inherit `BubbleBackground`'s fill and have to bring their own.
 /// Shared color roles for cards embedded inside a message bubble (link previews, Nostr event
 /// previews), falling back to standard surface tokens when rendered outside a bubble (#1113).
 nonisolated struct MessageEmbeddedCardPalette {
@@ -319,6 +314,11 @@ nonisolated struct MessageEmbeddedCardPalette {
     var hairlineStroke: Color { polarity.map { $0.content.opacity(0.12) } ?? WNColor.borderTertiary }
 }
 
+/// Surface for the non-visual attachment rows: the audio player, the download/failed status rows,
+/// and the document row.
+///
+/// Unlike the reply quote, these rows sit *beside* the bubble in `MessageBubble`'s stack rather than
+/// inside it, so they never inherit `BubbleBackground`'s fill and have to bring their own.
 nonisolated enum AttachmentRowPalette {
     /// The same fill the sent bubble uses, which is what `outgoingContent` is drawn for.
     ///
@@ -378,10 +378,27 @@ nonisolated enum AttachmentRowPalette {
         content(isOutgoing: isOutgoing).opacity(waveformPlayedBarOpacity)
     }
 
-    /// Detail text inside an attachment row — file size, duration — paired with the bubble
-    /// polarity so sent and received rows match text bubbles' secondary metadata contrast.
+    /// Detail text inside an attachment row — file size, duration — stepped back from the row's
+    /// primary content at 0.72 opacity so both outgoing and incoming rows clear WCAG AA 4.5:1
+    /// contrast in both appearances.
+    static let detailContentOpacity = 0.72
+
+    static func nsFill(isOutgoing: Bool) -> NSColor {
+        MessageBubblePolarity(isOutgoing: isOutgoing).nsFill
+    }
+
+    static func nsContent(isOutgoing: Bool) -> NSColor {
+        MessageBubblePolarity(isOutgoing: isOutgoing).nsContent
+    }
+
+    static func nsDetailContent(isOutgoing: Bool) -> NSColor {
+        NSColor(name: nil) { _ in
+            nsContent(isOutgoing: isOutgoing).withAlphaComponent(detailContentOpacity)
+        }
+    }
+
     static func detailContent(isOutgoing: Bool) -> Color {
-        MessageBubblePolarity(isOutgoing: isOutgoing).secondaryContent
+        content(isOutgoing: isOutgoing).opacity(detailContentOpacity)
     }
 }
 

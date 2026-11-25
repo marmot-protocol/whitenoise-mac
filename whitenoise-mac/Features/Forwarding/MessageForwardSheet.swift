@@ -12,7 +12,6 @@ struct MessageForwardSheet: View {
     let chats: [ChatItem]
     let onClose: () -> Void
     @State private var query = ""
-    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         let targets = chats.filter { chat in
@@ -26,37 +25,11 @@ struct MessageForwardSheet: View {
                     .font(.headline)
                     .foregroundStyle(WNColor.textPrimary)
 
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.subheadline)
-                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
-                        .accessibilityHidden(true)
-                    TextField(L10n.string("Search chats"), text: $query)
-                        .textFieldStyle(.plain)
-                        .font(.body)
-                        .focused($isSearchFocused)
-                        .autocorrectionDisabled()
-                    if !query.isEmpty {
-                        Button {
-                            query = ""
-                            isSearchFocused = true
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.subheadline)
-                                .foregroundStyle(WNColor.messageReceivedSecondaryContent)
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.string("Clear search"))
-                        .accessibilityLabel(L10n.string("Clear search"))
-                    }
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(isSearchFocused ? WNColor.borderPrimary : WNColor.borderTertiary, lineWidth: 1)
-                }
+                MessagesSearchField(
+                    text: $query,
+                    placeholder: L10n.string("Search chats"),
+                    autofocus: true
+                )
             }
             .padding(.horizontal, 20)
             .padding(.top, 18)
@@ -91,15 +64,19 @@ struct MessageForwardSheet: View {
 
             HStack {
                 Spacer()
-                Button(L10n.string("Cancel"), action: onClose)
-                    .wnSecondaryButtonStyle()
-                    .keyboardShortcut(.cancelAction)
+                Button(L10n.string("Cancel")) {
+                    model.cancel()
+                    onClose()
+                }
+                .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
+                .disabled(model.isSending)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
         .frame(width: 420, height: 520)
-        .onAppear { isSearchFocused = true }
+        .interactiveDismissDisabled(model.isSending)
         .alert(
             L10n.string("Files unavailable"),
             isPresented: Binding(

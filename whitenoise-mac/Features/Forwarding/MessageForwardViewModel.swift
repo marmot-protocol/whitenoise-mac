@@ -83,6 +83,11 @@ final class MessageForwardViewModel: Identifiable {
         }
     }
 
+    var isSending: Bool {
+        if case .sending = phase { return true }
+        return false
+    }
+
     /// The chat whose row should show progress.
     var busyChatId: String? {
         switch phase {

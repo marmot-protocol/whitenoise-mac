@@ -192,7 +192,12 @@ struct ConversationActionsAndRichMediaTests {
             dependencies: MessageForwardDependencies(
                 fetchAttachment: { _, _ in
                     await gate.passIfArmed()
-                    return nil
+                    return MessageMediaDownload(
+                        data: Data("pdf-bytes".utf8),
+                        fileName: "file.pdf",
+                        mediaType: "application/pdf",
+                        sizeBytes: 9
+                    )
                 },
                 sendText: { _, _ in sendCount += 1 },
                 sendMedia: { _, _ in sendCount += 1 },
@@ -202,14 +207,13 @@ struct ConversationActionsAndRichMediaTests {
         )
         var closed = false
         let size = CGSize(width: 420, height: 520)
+        // Mirror production (`MessengerShellView`): `onClose` only clears presentation state;
+        // `MessageForwardSheet` itself must cancel `model` synchronously before closing.
         let host = HostedViewWindow(
             MessageForwardSheet(
                 model: model,
                 chats: [targetChat],
-                onClose: {
-                    model.cancel()
-                    closed = true
-                }
+                onClose: { closed = true }
             ),
             size: size
         )
@@ -223,6 +227,7 @@ struct ConversationActionsAndRichMediaTests {
         model.forward(to: targetChat)
         await gate.waitUntilReached()
         #expect(model.phase == MessageForwardViewModel.Phase.preparing(chatId: targetChat.id))
+        #expect(!model.isSending)
 
         let escapeEvent = try #require(
             NSEvent.keyEvent(
@@ -241,12 +246,69 @@ struct ConversationActionsAndRichMediaTests {
         #expect(host.window.performKeyEquivalent(with: escapeEvent))
         #expect(await host.settle { closed })
 
+        // Even after the paused fetch resumes with real attachment bytes, the cancelled task must
+        // never transition into sending or deliver any message.
         gate.release()
-        try? await Task.sleep(for: .milliseconds(50))
+        try? await Task.sleep(for: .milliseconds(60))
         #expect(sendCount == 0)
     }
 
-    @Test func reportSheetReturnDoesNotAccidentlySubmitReport() async throws {
+    @Test func forwardSheetDisablesCancelWhileSending() async throws {
+        let sendGate = AsyncFfiGate()
+        sendGate.isEnabled = true
+        let message = MessageItem(
+            id: "m-text",
+            senderName: "Alice",
+            body: "Hello",
+            sentAt: Date(timeIntervalSince1970: 1_760_000_000),
+            isOutgoing: false
+        )
+        let targetChat = try #require(ChatItem.samples.first)
+        let model = MessageForwardViewModel(
+            messages: [message],
+            dependencies: MessageForwardDependencies(
+                fetchAttachment: { _, _ in nil },
+                sendText: { _, _ in await sendGate.passIfArmed() },
+                sendMedia: { _, _ in },
+                reportError: { _ in },
+                finish: {}
+            )
+        )
+        var closed = false
+        let host = HostedViewWindow(
+            MessageForwardSheet(model: model, chats: [targetChat], onClose: { closed = true }),
+            size: CGSize(width: 420, height: 520)
+        )
+        defer {
+            sendGate.release()
+            host.close()
+        }
+
+        model.forward(to: targetChat)
+        await sendGate.waitUntilReached()
+        #expect(model.isSending)
+
+        let escapeEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        _ = host.window.performKeyEquivalent(with: escapeEvent)
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(!closed)
+        sendGate.release()
+    }
+
+    @Test func reportSheetReturnDoesNotAccidentallySubmitReport() async throws {
         var submitted = false
         let model = ReportMessageViewModel(
             eligibility: MessageModerationEligibility(
@@ -267,7 +329,8 @@ struct ConversationActionsAndRichMediaTests {
                 present: { _ in }
             )
         )
-        let size = CGSize(width: 480, height: 380)
+        model.explanation = "Line 1"
+        let size = CGSize(width: 480, height: 420)
         let host = HostedViewWindow(
             ReportMessageSheet(model: model, dismiss: {}),
             size: size
@@ -275,6 +338,13 @@ struct ConversationActionsAndRichMediaTests {
         defer { host.close() }
 
         _ = try #require(await host.steadyDrawing())
+
+        // Focus the multiline explanation field and dispatch Return through normal key handling:
+        // it must never submit the report and must keep/extend the typed explanation.
+        let textField = try #require(host.window.contentView.flatMap { Self.firstEditableTextField(in: $0) })
+        #expect(host.window.makeFirstResponder(textField))
+        let editor = try #require(textField.currentEditor() as? NSTextView)
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
 
         let returnEvent = try #require(
             NSEvent.keyEvent(
@@ -290,8 +360,11 @@ struct ConversationActionsAndRichMediaTests {
                 keyCode: 36
             )
         )
-        _ = host.window.performKeyEquivalent(with: returnEvent)
+        if !host.window.performKeyEquivalent(with: returnEvent) {
+            host.window.sendEvent(returnEvent)
+        }
         try? await Task.sleep(for: .milliseconds(60))
+        #expect(model.explanation.hasPrefix("Line 1"))
         #expect(!submitted)
     }
 
@@ -356,6 +429,18 @@ struct ConversationActionsAndRichMediaTests {
             else { continue }
             let box = observation.boundingBox
             return CGPoint(x: box.midX * viewSize.width, y: (1 - box.midY) * viewSize.height)
+        }
+        return nil
+    }
+
+    private static func firstEditableTextField(in view: NSView) -> NSTextField? {
+        if let textField = view as? NSTextField, textField.isEditable {
+            return textField
+        }
+        for subview in view.subviews {
+            if let found = firstEditableTextField(in: subview) {
+                return found
+            }
         }
         return nil
     }

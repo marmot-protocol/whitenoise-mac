@@ -160,15 +160,22 @@ struct SemanticPaletteTests {
     /// the incoming one, and the duration label — drawn in the flat *background* token
     /// `backgroundContentTertiary` rather than in the row's content — ran from 7.85 down to 2.31.
     @Test func attachmentRowTonesClearTheRowFillTheyAreDrawnOn() throws {
-        // Attachment rows share `MessageBubblePolarity`'s fill, primary content, and secondary
-        // detail tokens (`AttachmentRowPalette`). Measure each tone as it actually lands on screen:
-        // unplayed waveform bars at WCAG's 3.0 non-text bar, played bars at 4.5, and duration/detail
-        // metadata at 3.0 (matching `bothBubblesPairEveryForegroundWithTheirOwnSurface`).
+        // Measure the exact colors `AttachmentRowPalette` vends as they land on screen: unplayed
+        // waveform bars at WCAG's 3.0 non-text bar, played bars and duration/file detail text at
+        // WCAG AA 4.5.
         for appearance in try Self.appearances() {
-            for polarity in [MessageBubblePolarity.sent, .received] {
-                let surface = try Self.bubbleSurface(polarity, in: appearance)
-                let content = try Self.composited(polarity.nsContent, over: surface, in: appearance)
-                let detail = try Self.composited(polarity.nsSecondaryContent, over: surface, in: appearance)
+            for isOutgoing in [true, false] {
+                let surface = try Self.composited(
+                    AttachmentRowPalette.nsFill(isOutgoing: isOutgoing),
+                    over: WNNSColor.backgroundPrimary,
+                    in: appearance
+                )
+                let content = try Self.composited(
+                    AttachmentRowPalette.nsContent(isOutgoing: isOutgoing), over: surface, in: appearance
+                )
+                let detail = try Self.composited(
+                    AttachmentRowPalette.nsDetailContent(isOutgoing: isOutgoing), over: surface, in: appearance
+                )
 
                 let unplayed = try Self.blended(
                     content, opacity: AttachmentRowPalette.waveformBarOpacity, over: surface, in: appearance
@@ -179,14 +186,14 @@ struct SemanticPaletteTests {
                 let checks: [(name: String, drawn: NSColor, minimum: Double)] = [
                     ("waveform bar", unplayed, 3.0),
                     ("played waveform bar", played, 4.5),
-                    ("duration label", detail, 3.0),
+                    ("duration label", detail, 4.5),
                 ]
                 for check in checks {
                     let ratio = Self.contrastRatio(check.drawn, surface)
                     #expect(
                         ratio >= check.minimum,
                         """
-                        \(polarity) \(check.name) contrast \(ratio) < \(check.minimum) \
+                        \(isOutgoing ? "outgoing" : "incoming") \(check.name) contrast \(ratio) < \(check.minimum) \
                         in \(appearance.name.rawValue)
                         """
                     )
