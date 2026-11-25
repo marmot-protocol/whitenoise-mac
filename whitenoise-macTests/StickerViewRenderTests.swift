@@ -2,6 +2,7 @@ import AppKit
 import MarmotKit
 import SwiftUI
 import Testing
+import os
 
 @testable import whitenoise_mac
 
@@ -152,6 +153,91 @@ import Testing
             abs(DrawnPixels.inkedRows($0) - DrawnPixels.inkedRows(empty)) < 4
         }
         #expect(back != nil)
+    }
+
+    @Test func escapeDuringPendingPackLookupCancelsNavigationAndStartsNoImageLoads() async throws {
+        let pack = Self.pack(installed: false)
+        let runtime = try Self.runtime(packs: [])
+        runtime.fetchableStickerPacks[pack.coordinate] = pack
+        let gate = AsyncFfiGate()
+        gate.isEnabled = true
+        let lookupEntered = OSAllocatedUnfairLock(initialState: false)
+        let lookupReturned = OSAllocatedUnfairLock(initialState: false)
+        runtime.onFetchStickerPack = { _ in
+            lookupEntered.withLock { $0 = true }
+            await gate.passIfArmed()
+            lookupReturned.withLock { $0 = true }
+        }
+
+        let library = StickerLibrary(accountRef: "account", runtime: runtime)
+        await library.loadInstalledIfNeeded()
+        let host = HostedViewWindow(
+            StickerPickerPopover(library: library, send: { _ in }, onDismiss: {}),
+            size: Self.popoverSize
+        )
+        defer {
+            gate.release()
+            host.close()
+        }
+
+        let empty = try #require(await host.steadyDrawing())
+        host.clickHeaderTrailingControl()
+        let browser = try #require(
+            await host.settleDrawing { DrawnPixels.inkedRows($0) > DrawnPixels.inkedRows(empty) + 20 }
+        )
+        #expect(DrawnText.contains("Add by Link", in: browser))
+
+        // Paste a pack coordinate into the Add by Link field and submit it.
+        let linkField = try #require(
+            host.window.contentView.flatMap(Self.firstEditableTextField(in:))
+        )
+        host.window.makeFirstResponder(linkField)
+        linkField.stringValue = pack.coordinate
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: linkField)
+        #expect(await host.settle { linkField.stringValue == pack.coordinate })
+        linkField.sendAction(linkField.action, to: linkField.target)
+
+        #expect(await host.settle { lookupEntered.withLock { $0 } })
+
+        // Press Escape while the lookup is pending and the Discover field is empty.
+        let escapeEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: host.window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        #expect(host.window.performKeyEquivalent(with: escapeEvent))
+
+        // Release the delayed lookup immediately so the fake returns success (no cancellation
+        // throw) even if Back's route change raced teardown, and verify the picker returns to and
+        // stays on its root page with zero external sticker artwork fetches.
+        gate.release()
+        #expect(await host.settle { lookupReturned.withLock { $0 } })
+        let afterLookup = await host.settleDrawing {
+            abs(DrawnPixels.inkedRows($0) - DrawnPixels.inkedRows(empty)) < 6
+        }
+        #expect(afterLookup != nil)
+        #expect(runtime.fetchStickerAssetRequests.isEmpty)
+    }
+
+    private static func firstEditableTextField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable {
+            return field
+        }
+        for subview in view.subviews {
+            if let found = firstEditableTextField(in: subview) {
+                return found
+            }
+        }
+        return nil
     }
 
     // MARK: - Pack browser

@@ -1177,16 +1177,16 @@ private struct ConversationView: View {
                     Button {
                         isComposerEmojiPickerPresented.toggle()
                     } label: {
-                        Image(systemName: "face.smiling")
-                            .wnFont(.medium18)
-                            .frame(width: 30, height: 30)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
+                        Label(L10n.string("Emoji"), systemImage: "face.smiling")
+                            .labelStyle(.iconOnly)
+                            .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.plain)
+                    .wnSecondaryButtonStyle()
+                    .wnButtonShape(.circle)
+                    .controlSize(.regular)
                     .disabled(workspace.isSending)
                     .help(L10n.string("Emoji"))
+                    .accessibilityLabel(L10n.string("Emoji"))
                     .popover(isPresented: $isComposerEmojiPickerPresented, arrowEdge: .bottom) {
                         ChatEmojiPicker(custom: .conversation(model)) { emoji in
                             composerEmojiInsertion = ComposerEmojiInsertion(emoji: emoji)
@@ -1311,42 +1311,57 @@ private struct ConversationView: View {
                     Button {
                         workspace.cancelEditingMessage()
                     } label: {
-                        Image(systemName: "xmark")
-                            .wnFont(.bold14)
-                            .frame(width: 32, height: 32)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
+                        Label(L10n.string("Cancel edit"), systemImage: "xmark")
+                            .labelStyle(.iconOnly)
+                            .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.plain)
+                    .wnSecondaryButtonStyle()
+                    .wnButtonShape(.circle)
+                    .controlSize(.regular)
                     .disabled(workspace.isSending)
                     .help(L10n.string("Cancel edit"))
+                    .accessibilityLabel(L10n.string("Cancel edit"))
                 } else {
                     Button {
                         Task { model.showVoiceRecordingNotice(await workspace.toggleVoiceRecording()) }
                     } label: {
-                        Image(systemName: "mic.fill")
-                            .wnFont(.semiBold14)
-                            .frame(width: 32, height: 32)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
+                        Label(voiceRecordingButtonHelp, systemImage: "mic.fill")
+                            .labelStyle(.iconOnly)
+                            .frame(width: 20, height: 20)
                     }
-                    .buttonStyle(.plain)
+                    .wnSecondaryButtonStyle()
+                    .wnButtonShape(.circle)
+                    .controlSize(.regular)
                     .disabled(workspace.isSending || !workspace.canRecordVoiceMessage)
                     .help(voiceRecordingButtonHelp)
+                    .accessibilityLabel(voiceRecordingButtonHelp)
                 }
 
+                let sendTitle =
+                    workspace.editingMessageContext == nil
+                    ? L10n.string("Send") : L10n.string("Save edit")
                 Button(action: sendComposer) {
-                    MessagesSendButtonLabel(
-                        systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark",
-                        isEnabled: workspace.canSend,
-                        isSending: workspace.isSending
-                    )
+                    Group {
+                        if workspace.isSending {
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.72)
+                        } else {
+                            Label(
+                                sendTitle,
+                                systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark"
+                            )
+                            .labelStyle(.iconOnly)
+                        }
+                    }
+                    .frame(width: 20, height: 20)
                 }
-                .buttonStyle(.plain)
+                .wnPrimaryButtonStyle()
+                .wnButtonShape(.circle)
+                .controlSize(.regular)
                 .disabled(!workspace.canSend)
-                .help(workspace.editingMessageContext == nil ? L10n.string("Send") : L10n.string("Save edit"))
+                .help(sendTitle)
+                .accessibilityLabel(sendTitle)
             }
         }
     }

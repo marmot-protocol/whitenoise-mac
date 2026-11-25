@@ -204,6 +204,7 @@
         private(set) var syncStickerPacksCallCount = 0
         /// Packs `fetchStickerPack` resolves, keyed by the pasted input.
         var fetchableStickerPacks: [String: StickerPackFfi] = [:]
+        var onFetchStickerPack: (@Sendable (String) async -> Void)?
         var stickerPackActionError: Error?
         /// Coordinates whose install throws `StickerNotFound`, as an unreachable relay would.
         var failingStickerInstalls: Set<String> = []
@@ -2125,6 +2126,9 @@
         }
 
         func fetchStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+            if let onFetchStickerPack {
+                await onFetchStickerPack(input)
+            }
             if let stickerPackActionError { throw stickerPackActionError }
             guard let pack = fetchableStickerPacks[input] ?? stickerPackStore.first(where: { $0.coordinate == input })
             else { throw MarmotKitError.StickerNotFound }

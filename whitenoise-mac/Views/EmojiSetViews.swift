@@ -68,8 +68,8 @@ struct CustomEmojiPickerSection: View {
             }
         } header: {
             Text(title)
-                .wnFont(.semiBold10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
                 .background(.bar)
@@ -83,16 +83,22 @@ private struct CustomEmojiPickerCell: View {
     let isDisabled: Bool
     let onPick: () -> Void
     @Environment(\.locale) private var locale
+    @State private var isHovering = false
 
     var body: some View {
         Button(action: onPick) {
             CustomEmojiPickerImage(sendable: sendable, content: content, pointSize: 26)
                 .frame(maxWidth: .infinity, minHeight: 36)
+                .background(
+                    isHovering && !isDisabled ? WNColor.fillSecondaryHover : .clear,
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.28 : 1)
+        .onHover { isHovering = $0 }
         .help(sendable.token)
         .accessibilityLabel(Text(verbatim: sendable.spokenName(locale: locale)))
     }
@@ -138,8 +144,8 @@ private struct CustomEmojiImageOrLiteral: View {
                 .frame(width: pointSize, height: pointSize)
         } else {
             Text(verbatim: token)
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
                 .frame(minHeight: pointSize)
@@ -154,7 +160,6 @@ struct CustomEmojiManageSetsButton: View {
     var body: some View {
         Button(action: action) {
             Label(L10n.string("Emoji Sets"), systemImage: "square.grid.2x2")
-                .wnFont(.medium12)
         }
         .wnSecondaryButtonStyle()
         .controlSize(.small)
@@ -188,8 +193,8 @@ private struct EmojiSetEgressDisclosure: View {
                 "Emoji sets are public and aren’t reviewed by White Noise. Opening or installing a set downloads its images from servers its author chose, which can see your IP address. Installing doesn’t change your public emoji list."
             )
         )
-        .wnFont(.medium10)
-        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .font(.caption)
+        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -211,13 +216,13 @@ private struct EmojiSetBrowserPage: View {
     @State private var suggestions: [EmojiSetFfi] = []
     @State private var isLoading = false
     @State private var syncError: String?
-    @State private var isLookingUp = false
+    @State private var lookupRequest: EmojiSetLookupRequest?
     @State private var errorMessage: String?
     @State private var reloadRequest = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            StickerPageHeader(title: L10n.string("Emoji Sets"), onBack: onBack) {
+            StickerPageHeader(title: L10n.string("Emoji Sets"), onBack: leaveBrowser) {
                 if library.isSyncing { ProgressView().controlSize(.small) }
             }
 
@@ -235,13 +240,13 @@ private struct EmojiSetBrowserPage: View {
                             Button(L10n.string("Open Link"), action: lookUp)
                                 .wnSecondaryButtonStyle()
                                 .controlSize(.small)
-                                .disabled(EmojiSetPresentation.lookupInput(link) == nil || isLookingUp)
+                                .disabled(EmojiSetPresentation.lookupInput(link) == nil || lookupRequest != nil)
                         }
                     }
 
                     if let errorMessage {
                         Text(errorMessage)
-                            .wnFont(.medium12)
+                            .font(.subheadline)
                             .foregroundStyle(WNColor.intentionErrorContent)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -250,7 +255,7 @@ private struct EmojiSetBrowserPage: View {
                         StickerBrowserSection(title: L10n.string("Installed")) {
                             ForEach(library.installedSets, id: \.coordinate) { set in
                                 EmojiSetRow(set: set, progress: library.installProgress[set.coordinate]) {
-                                    onOpen(set)
+                                    openSet(set)
                                 }
                             }
                         }
@@ -264,22 +269,25 @@ private struct EmojiSetBrowserPage: View {
                         ) {
                             ForEach(pendingSuggestions, id: \.coordinate) { set in
                                 EmojiSetRow(set: set, progress: library.installProgress[set.coordinate]) {
-                                    onOpen(set)
+                                    openSet(set)
                                 }
                             }
                         }
                     }
 
                     StickerBrowserSection(title: L10n.string("Discover")) {
-                        TextField(L10n.string("Search emoji sets or paste an npub"), text: $search)
-                            .textFieldStyle(.roundedBorder)
+                        PickerSearchField(
+                            prompt: L10n.string("Search emoji sets or paste an npub"),
+                            text: $search,
+                            showsSearchIcon: false
+                        )
                         EmojiSetDiscoverList(
                             state: StickerPackPresentation.discoveryState(
                                 isLoading: isLoading, packCount: shownDiscovered.count, search: search,
                                 syncError: syncError),
                             sets: shownDiscovered,
                             library: library,
-                            onOpen: onOpen,
+                            onOpen: openSet,
                             onRetry: { reloadRequest += 1 }
                         )
                         EmojiSetEgressDisclosure()
@@ -288,10 +296,21 @@ private struct EmojiSetBrowserPage: View {
                 .padding(14)
             }
         }
+        .pickerEscapeHandler {
+            if !search.isEmpty {
+                search = ""
+            } else {
+                leaveBrowser()
+            }
+        }
         .task { await library.loadInstalledIfNeeded() }
         .task { await loadSuggestions() }
         .task(id: EmojiSetDiscoverRequest(search: search, reload: reloadRequest)) {
             await reloadDiscovered(debounce: !search.isEmpty, forceSync: reloadRequest > 0)
+        }
+        .task(id: lookupRequest) {
+            guard let request = lookupRequest else { return }
+            await performLookup(request)
         }
     }
 
@@ -332,23 +351,45 @@ private struct EmojiSetBrowserPage: View {
         }
     }
 
+    private func leaveBrowser() {
+        lookupRequest = nil
+        onBack()
+    }
+
+    private func openSet(_ set: EmojiSetFfi) {
+        lookupRequest = nil
+        onOpen(set)
+    }
+
     private func lookUp() {
-        guard let input = EmojiSetPresentation.lookupInput(link), !isLookingUp else { return }
-        isLookingUp = true
+        guard let input = EmojiSetPresentation.lookupInput(link), lookupRequest == nil else { return }
         errorMessage = nil
-        Task {
-            defer { isLookingUp = false }
-            do {
-                let set = try await library.lookUp(input)
-                link = ""
-                onOpen(set)
-            } catch is CancellationError {
-                return
-            } catch {
-                errorMessage = UserFacingError.message(for: error)
+        lookupRequest = EmojiSetLookupRequest(input: input)
+    }
+
+    private func performLookup(_ request: EmojiSetLookupRequest) async {
+        defer {
+            if lookupRequest == request {
+                lookupRequest = nil
             }
         }
+        do {
+            let set = try await library.lookUp(request.input)
+            guard !Task.isCancelled, lookupRequest == request else { return }
+            link = ""
+            onOpen(set)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, lookupRequest == request else { return }
+            errorMessage = UserFacingError.message(for: error)
+        }
     }
+}
+
+private struct EmojiSetLookupRequest: Equatable {
+    let id = UUID()
+    let input: String
 }
 
 private struct EmojiSetDiscoverList: View {
@@ -377,7 +418,7 @@ private struct EmojiSetDiscoverList: View {
         case .unreachable(let message):
             VStack(alignment: .leading, spacing: 6) {
                 Text(L10n.string("Couldn’t check your relays for emoji sets."))
-                    .wnFont(.medium12)
+                    .font(.subheadline.weight(.medium))
                 StickerBrowserNote(text: message)
                 Button(L10n.string("Try Again"), action: onRetry)
                     .wnSecondaryButtonStyle()
@@ -400,12 +441,12 @@ private struct EmojiSetRow: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: EmojiSetPresentation.title(set))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(WNColor.textPrimary)
                         .lineLimit(1)
                     Text(EmojiSetPresentation.summary(set))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     if let progress {
                         ProgressView(value: EmojiSetPresentation.fraction(progress) ?? 0)
                             .controlSize(.small)
@@ -413,14 +454,14 @@ private struct EmojiSetRow: View {
                             .accessibilityLabel(L10n.string("Installing"))
                     } else if set.installed?.updateAvailable == true {
                         Text(L10n.string("Update available"))
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.fillPrimary)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(WNColor.textPrimary)
                     }
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -464,21 +505,21 @@ struct EmojiSetDetailPage: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(EmojiSetPresentation.summary(set))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                     Text(String(format: L10n.string("By %@"), library.authorLabel(set)))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                     if let description = EmojiSetPresentation.description(set) {
                         Text(verbatim: description)
-                            .wnFont(.medium12)
+                            .font(.subheadline)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     EmojiSetNotes(set: set)
                     if let errorMessage {
                         Text(errorMessage)
-                            .wnFont(.medium12)
+                            .font(.subheadline)
                             .foregroundStyle(WNColor.intentionErrorContent)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -566,12 +607,12 @@ private struct EmojiSetActionControl: View {
             switch action {
             case .install:
                 Button(L10n.string("Install")) { perform(.install) }
-                    .wnSecondaryButtonStyle()
+                    .wnPrimaryButtonStyle()
                     .controlSize(.small)
                     .accessibilityIdentifier("emojiSets.install")
             case .update:
                 Button(L10n.string("Update")) { perform(.update) }
-                    .wnSecondaryButtonStyle()
+                    .wnPrimaryButtonStyle()
                     .controlSize(.small)
             case .remove:
                 Button(L10n.string("Remove"), role: .destructive, action: confirmRemove)
@@ -588,8 +629,8 @@ private struct EmojiSetNotes: View {
     var body: some View {
         if let skipped = EmojiSetPresentation.skippedNote(set) {
             Label(skipped, systemImage: "exclamationmark.triangle")
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         let unsendable = EmojiSetPresentation.unsendableCount(set)
         if unsendable > 0 {
@@ -598,8 +639,8 @@ private struct EmojiSetNotes: View {
                     "%lld emoji have names chats can’t send, so they won’t appear in your picker.", Int64(unsendable)),
                 systemImage: "info.circle"
             )
-            .wnFont(.medium10)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 }
@@ -622,9 +663,8 @@ private struct EmojiSetInstallProgressView: View {
                         format: L10n.string("Installing %lld of %lld"), Int64(progress.completedEmoji),
                         Int64(progress.totalEmoji))
                 )
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                .monospacedDigit()
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
                 Spacer()
                 Button(L10n.string("Cancel"), action: onCancel)
                     .wnSecondaryButtonStyle()
@@ -673,9 +713,9 @@ private struct EmojiSetGridCell: View {
                         store.retry(source)
                     } label: {
                         Image(systemName: "arrow.clockwise")
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .help(L10n.string("Try Again"))
                     .accessibilityLabel(L10n.string("Try Again"))
                 } else {
@@ -684,8 +724,8 @@ private struct EmojiSetGridCell: View {
             }
             .frame(width: 36, height: 36)
             Text(verbatim: shortcode)
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
