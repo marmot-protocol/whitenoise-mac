@@ -1729,8 +1729,8 @@ struct TimelineInitialLoadingView: View {
             ProgressView()
                 .controlSize(.regular)
             Text(L10n.string("Loading messages..."))
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
@@ -1872,32 +1872,41 @@ struct MembershipEndedComposerNotice: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: membership.endedSymbolName ?? "")
-                .wnFont(.semiBold14)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(membership.endedDescription ?? "")
-                    .wnFont(.semiBold12)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
 
                 Text(ChatSelfMembership.endedHistoryExplanation)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .glassCard()
+        .padding(.vertical, 10)
+        .background(WNColor.backgroundPrimary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
         .accessibilityIdentifier("composer.membershipEnded")
     }
 }
 
-/// Replaces the composer until the user accepts or declines a pending group invite.
+/// Replaces the composer until the user accepts, declines, or blocks the inviter on a pending invite.
 struct PendingGroupInviteComposerNotice: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    @Environment(\.locale) private var locale
     let chat: ChatItem
+    var blockedUsersModel: BlockedUsersViewModel?
+    var moderationReporter: ModerationReporter?
 
     var body: some View {
         let inviter = workspace.pendingInviteInviterIdentity(for: chat)
@@ -1911,22 +1920,32 @@ struct PendingGroupInviteComposerNotice: View {
                     PendingInviteInviterAvatar(chat: chat, inviter: inviter, name: inviterName)
                 } else {
                     Image(systemName: "lock.shield.fill")
-                        .wnFont(.semiBold14)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(WNColor.intentionInfoContent)
+                        .accessibilityHidden(true)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(inviteMessage)
-                        .wnFont(.semiBold12)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text(L10n.string("If you decline, this chat will be removed from your chat list."))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                    Text(L10n.string("If you decline, this chat will be removed from your chat list.", locale: locale))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer(minLength: 0)
+
+                if let inviter, let blockedUsersModel, !blockedUsersModel.isBlocked(accountID: inviter.accountIdHex) {
+                    PendingInviteBlockControl(
+                        accountID: inviter.accountIdHex,
+                        blockedUsersModel: blockedUsersModel,
+                        reporter: moderationReporter
+                    )
+                }
             }
 
             PendingInviteActionButtons(
@@ -1939,7 +1958,11 @@ struct PendingGroupInviteComposerNotice: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassCard()
+        .background(WNColor.backgroundPrimary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
         // `.contain` keeps the identifier on the card: applied to the bare stack it overrode every
         // child's, so Accept and Decline both answered to "composer.pendingGroupInvite".
         .accessibilityElement(children: .contain)
@@ -1953,7 +1976,7 @@ struct PendingGroupInviteComposerNotice: View {
 
     private var inviteMessage: String {
         String(
-            format: L10n.string("%@ invited you to a secure chat."),
+            format: L10n.string("%@ invited you to a secure chat.", locale: locale),
             PeerDisplayText.templateFragment(inviterName)
         )
     }
@@ -1970,7 +1993,7 @@ struct PendingGroupInviteComposerNotice: View {
             ?? directPeerName
             ?? previewSenderName
             ?? workspace.inviterIdentifierLabel(forGroupIdHex: chat.id)
-            ?? L10n.string("Someone")
+            ?? L10n.string("Someone", locale: locale)
     }
 
     /// The other party in a direct chat, and only once a peer has actually resolved — a title
@@ -1985,10 +2008,58 @@ struct PendingGroupInviteComposerNotice: View {
         guard let separator = preview.firstIndex(of: ":") else { return nil }
         let candidate = String(preview[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty,
-            candidate != L10n.string("You"),
+            candidate != L10n.string("You", locale: locale),
             candidate != chat.title
         else { return nil }
         return candidate
+    }
+}
+
+/// Optional Block / Block and Report control on a pending invite notice, reusing the same
+/// confirmation dialog and `BlockedUsersViewModel` / `ModerationReporter` owners as contact details.
+private struct PendingInviteBlockControl: View {
+    @Environment(\.locale) private var locale
+    let accountID: String
+    let blockedUsersModel: BlockedUsersViewModel
+    let reporter: ModerationReporter?
+    @State private var isConfirmingBlock = false
+
+    private var reportedAccountId: String? {
+        MessageModerationEligibility.normalizedAccountId(accountID)
+    }
+
+    private var availableReporter: ModerationReporter? {
+        guard let reporter, reporter.isAvailable, reportedAccountId != nil else { return nil }
+        return reporter
+    }
+
+    var body: some View {
+        Button(role: .destructive) {
+            isConfirmingBlock = true
+        } label: {
+            Label(L10n.string("Block User", locale: locale), systemImage: "hand.raised")
+        }
+        .wnSecondaryButtonStyle()
+        .controlSize(.small)
+        .disabled(!blockedUsersModel.canMutate(accountID: accountID))
+        .accessibilityIdentifier("invite.block")
+        .confirmationDialog(
+            L10n.string("Block this user?", locale: locale),
+            isPresented: $isConfirmingBlock,
+            titleVisibility: .visible
+        ) {
+            if let reporter = availableReporter, let reportedAccountId {
+                Button(L10n.string("Block and Report", locale: locale), role: .destructive) {
+                    reporter.startBlocking(accountIdHex: reportedAccountId, reporting: true)
+                }
+            }
+            Button(L10n.string("Block User", locale: locale), role: .destructive) {
+                Task { await blockedUsersModel.setBlocked(true, accountID: accountID) }
+            }
+            Button(L10n.string("Cancel", locale: locale), role: .cancel) {}
+        } message: {
+            BlockUserConfirmationMessage(reportsToTeam: availableReporter != nil)
+        }
     }
 }
 
@@ -2090,149 +2161,9 @@ struct ProfileImageAvatarView: View {
     }
 }
 
-struct ConversationHeader: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.endingGroupIds) private var endingGroupIds
-    @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
-    let chat: ChatItem
-    var recoveryStatus: AccountRecoveryStatusViewModel?
-    /// Opens search within this conversation; nil hides the control. ⌘F belongs to the Navigate
-    /// menu's Find in Conversation, which runs the same action.
-    var onSearch: (() -> Void)?
-    /// Whether Escape ends message selection, as it does the chat list's. Off while the chat list
-    /// is itself selecting, so only one Escape target is ever installed: that one ends first.
-    /// The shortcut is a key equivalent, so it also outranks an open in-chat search field's
-    /// `onExitCommand` and consumes the key: one Escape ends the selection, the next closes search.
-    var escapeEndsMessageSelection = true
-
-    /// Under the chat title: "Catching up" while MDK is still fetching this chat's history,
-    /// otherwise the member/DM subtitle, with a compact disappearing-message timer beside it when
-    /// one is on.
-    private var headerSubtitle: some View {
-        let metadata = workspace.conversationMetadataByChat[chat.id]
-        return Group {
-            if recoveryStatus?.isCatchingUp(groupIdHex: chat.id) == true {
-                CatchingUpLabel(text: L10n.string("Catching up…"))
-            } else {
-                DisappearingMessageHeaderSubtitle(
-                    durationSeconds: metadata?.disappearingMessageSecs,
-                    subtitle: metadata?.subtitle ?? chat.subtitle
-                )
-            }
-        }
-        .wnFont(.medium10)
-        .lineLimit(1)
-    }
-
-    var body: some View {
-        @Bindable var workspace = workspace
-
-        HStack(spacing: 10) {
-            if workspace.isTimelineSelectionMode {
-                Button {
-                    workspace.cancelMessageSelection()
-                } label: {
-                    Image(systemName: "xmark")
-                        .wnFont(.bold14)
-                        .frame(width: 40, height: 40)
-                        .background { MessagesCircleControlBackground() }
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(escapeEndsMessageSelection ? .cancelAction : nil)
-                .help(L10n.string("Cancel selection"))
-                .accessibilityIdentifier("conversation.selection.cancel")
-
-                Text(
-                    String(
-                        format: L10n.string("%d selected"),
-                        workspace.selectedTimelineMessageIds.count
-                    )
-                )
-                .wnFont(.semiBold16)
-
-                Spacer()
-            } else {
-                // Tapping the avatar or title opens the chat info / settings panel,
-                // which slides in over the transcript (see ConversationView).
-                Button {
-                    Task { await workspace.showGroupDetails(for: chat) }
-                } label: {
-                    HStack(spacing: 10) {
-                        ProfileImageAvatarView(
-                            seed: chat.avatarSeed,
-                            initials: chat.title,
-                            sanitizedPictureURL: chat.sanitizedPictureURL,
-                            localImagePayload: chat.groupImagePayload,
-                            size: 38,
-                            isSelected: false
-                        )
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(chat.title)
-                                .wnFont(.semiBold16)
-                                .lineLimit(1)
-                                .foregroundStyle(WNColor.backgroundContentPrimary)
-
-                            headerSubtitle
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Chat info"))
-
-                Spacer()
-
-                if let onSearch {
-                    Button(action: onSearch) {
-                        Image(systemName: "magnifyingglass")
-                            .wnFont(.semiBold16)
-                            .frame(width: 34, height: 34)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n.string("Search messages"))
-                    .accessibilityIdentifier("conversation.search.open")
-                }
-
-                // Changing the group image is a send (commit) under the hood, which the
-                // core rejects until the invite is accepted, or once the local account is
-                // no longer a member.
-                if !chat.isDirect && chat.canUseComposer {
-                    Button {
-                        workspace.showGroupImagePicker(for: chat)
-                    } label: {
-                        Image(systemName: "photo.badge.plus")
-                            .wnFont(.semiBold16)
-                            .frame(width: 34, height: 34)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n.string("Set group image"))
-                }
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
-        .padding(.bottom, 7)
-        .frame(height: 76)
-        .background {
-            MessagesHeaderBackground()
-        }
-        .sheet(isPresented: $workspace.isGroupImagePickerPresented) {
-            GroupImagePickerSheet()
-                .environment(\.endingGroupIds, endingGroupIds)
-                .environment(\.isBulkLeavingChats, isBulkLeavingChats)
-        }
-    }
-}
-
 struct MessageSelectionToolbar: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.locale) private var locale
     let conversationModel: ConversationViewModel
 
     var body: some View {
@@ -2240,24 +2171,20 @@ struct MessageSelectionToolbar: View {
         let canForward = messages.contains(where: \.canForward)
         let canDelete = messages.contains(where: workspace.canDeleteMessage)
 
-        HStack(spacing: 12) {
-            Text(
-                String(
-                    format: L10n.string("%d selected"),
-                    workspace.selectedTimelineMessageIds.count
-                )
-            )
-            .wnFont(.semiBold12)
+        HStack(spacing: 10) {
+            Text(L10n.plural("%lld selected", Int64(workspace.selectedTimelineMessageIds.count), locale: locale))
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .contentTransition(.numericText())
 
             Spacer()
 
             Button {
                 workspace.startForwarding(messages)
             } label: {
-                Label(L10n.string("Forward"), systemImage: "arrowshape.turn.up.right")
-                    .frame(minWidth: 40, minHeight: 40)
+                Label(L10n.string("Forward", locale: locale), systemImage: "arrowshape.turn.up.right")
             }
-            .buttonStyle(.plain)
+            .wnSecondaryButtonStyle()
             .disabled(!canForward)
 
             Button(role: .destructive) {
@@ -2267,14 +2194,31 @@ struct MessageSelectionToolbar: View {
                     }
                 }
             } label: {
-                Label(L10n.string("Delete"), systemImage: "trash")
-                    .frame(minWidth: 40, minHeight: 40)
+                Label(L10n.string("Delete", locale: locale), systemImage: "trash")
             }
-            .buttonStyle(.plain)
+            .wnSecondaryButtonStyle()
             .disabled(!canDelete)
         }
-        .frame(minHeight: 42)
+        .controlSize(.regular)
+        .frame(minHeight: 36)
     }
+}
+
+#Preview("Membership ended notice") {
+    VStack(spacing: 12) {
+        MembershipEndedComposerNotice(membership: .left)
+        MembershipEndedComposerNotice(membership: .removed)
+    }
+    .padding()
+    .frame(width: 480)
+}
+
+#Preview("Pending invite notice") {
+    PendingGroupInviteComposerNotice(chat: ChatItem.samples[0])
+        .environment(WorkspaceState.preview())
+        .environment(SessionState())
+        .padding()
+        .frame(width: 520)
 }
 
 struct MessageInfoSheet: View {

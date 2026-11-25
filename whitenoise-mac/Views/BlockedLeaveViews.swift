@@ -12,15 +12,17 @@ struct BlockedLeaveNotice: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .wnFont(.semiBold14)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(WNColor.intentionWarningContent)
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(BlockedLeavePresentation.title)
-                        .wnFont(.semiBold12)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
                     Text(BlockedLeavePresentation.detail)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -41,14 +43,18 @@ struct BlockedLeaveNotice: View {
 
             if let failure {
                 Text(failure)
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.intentionErrorContent)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .glassCard()
+        .background(WNColor.backgroundPrimary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
         .accessibilityIdentifier("composer.blockedLeave")
     }
 }

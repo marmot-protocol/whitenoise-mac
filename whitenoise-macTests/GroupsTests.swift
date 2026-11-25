@@ -391,28 +391,24 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(!state.isGroupImagePickerPresented)
     }
 
-    @Test func conversationHeaderChatInfoOpensSlideInGroupDetails() throws {
-        // These are private SwiftUI views, so this source-shape regression guards
-        // the user-facing wiring directly. The chat-info affordance is now the
-        // header's avatar/title button (works for direct chats too), and the
-        // details screen slides in over the transcript from ConversationView
-        // rather than presenting as a header sheet.
-        // ConversationHeader moved to the composer views in the shell-view split, so it is looked
-        // up by name across the view tree rather than in a file this test names.
-        let headerSource = try SourceContract.declaration("ConversationHeader")
+    @MainActor
+    @Test func conversationToolbarChatInfoOpensSlideInGroupDetails() async throws {
+        // Chat Info moved from the custom `ConversationHeader` into `ConversationToolbarModifier`
+        // (#1038) while preserving the slide-in details presentation until #1042 adopts `.inspector`.
+        let account = desktopAccount()
+        let group = messageGroup()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(group)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
 
-        // Tapping the header avatar/title opens the chat info screen.
-        #expect(headerSource.contains("Task { await workspace.showGroupDetails(for: chat) }"))
-        // The details screen is no longer a modal sheet hung off the header.
-        #expect(!headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
+        await state.showGroupDetails(for: chat)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.groupDetailsSnapshot?.groupIdHex == chat.id)
 
-        // ConversationView presents the details panel inline as a slide-in,
-        // gated on the same flag, so it replaces the transcript in place.
-        let shellSource = try SourceContract.source(of: .messengerShell)
-        #expect(shellSource.contains("if workspace.isGroupDetailsPresented"))
-        #expect(shellSource.contains("attachmentModel: attachmentModel"))
-        #expect(shellSource.contains("safetyModel: safetyModel"))
-        #expect(shellSource.contains(".move(edge: .trailing)"))
+        state.closeGroupDetails()
+        #expect(!state.isGroupDetailsPresented)
     }
 
     @Test func detailsPaneHeadersPlaceBackButtonAtLeadingEdge() throws {

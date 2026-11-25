@@ -39,9 +39,9 @@ struct OfflineNoticeBand: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .wnFont(.medium16)
+                    .font(.subheadline.weight(.semibold))
                 Text(L10n.string("Waiting for internet connection", locale: locale))
-                    .wnFont(.bold14)
+                    .font(.subheadline.weight(.semibold))
             }
             // One colour for glyph and title, paired with the background by the intent rather
             // than picked per element — the warning content colour is what
@@ -74,36 +74,67 @@ struct OfflineNoticeBand: View {
 /// that was pressed.
 struct BackgroundStatusBanner: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let status = workspace.backgroundStatus {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(WNColor.intentionWarningContent)
-                Text(status)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button {
-                    workspace.clearBackgroundStatus()
-                } label: {
-                    Image(systemName: "xmark")
-                        .wnFont(.semiBold12)
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Dismiss"))
+            BackgroundStatusBannerContent(status: status) {
+                workspace.clearBackgroundStatus()
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(maxWidth: 520)
-            .glassCard(cornerRadius: 10)
             // Hung off the top of the shell's *content*, which the offline band has already
             // pushed down, so the two never draw over one another.
             .padding(.top, 12)
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .animation(.smooth(duration: 0.2), value: workspace.backgroundStatus)
+            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            .animation(reduceMotion ? .none : .smooth(duration: 0.2), value: workspace.backgroundStatus)
         }
     }
+}
+
+struct BackgroundStatusBannerContent: View {
+    let status: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(WNColor.intentionWarningContent)
+                .accessibilityHidden(true)
+            Text(status)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(L10n.string("Dismiss"))
+            .accessibilityLabel(L10n.string("Dismiss"))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 520)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
+        .shadow(color: WNColor.shadow.opacity(0.08), radius: 8, y: 2)
+    }
+}
+
+#Preview("Offline notice band") {
+    OfflineNoticeBand()
+        .frame(width: 600)
+}
+
+#Preview("Background status banner") {
+    BackgroundStatusBannerContent(
+        status: "Couldn’t reach your relays. Check your connection and try again.",
+        onDismiss: {}
+    )
+    .padding()
 }

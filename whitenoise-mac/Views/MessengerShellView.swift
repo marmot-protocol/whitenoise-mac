@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let settings: SettingsWindowCoordinator
 
@@ -40,41 +41,42 @@ struct MessengerShellView: View {
             // user with no network is most likely to be stuck.
             if workspace.isOffline {
                 OfflineNoticeBand()
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
 
             Group {
                 if workspace.showsMessengerChrome {
-                    HStack(spacing: 0) {
-                        AccountRailView(onOpenSettings: { settings.open() })
-                        NavigationSplitView(columnVisibility: sidebarVisibility) {
-                            ChatListDrawerView(
-                                model: session.accountScope?.chatListModel,
-                                historyNotices: session.accountScope?.historyNotices,
-                                recoveryStatus: session.accountScope?.recoveryStatus,
-                                selection: session.accountScope?.chatListSelection,
-                                search: session.accountScope?.chatListSearch
-                            )
-                            .navigationSplitViewColumnWidth(
-                                min: ChatListWidthPolicy.minimumExpandedWidth,
-                                ideal: max(workspace.chatListWidth, ChatListWidthPolicy.minimumExpandedWidth),
-                                max: ChatListWidthPolicy.maximumWidth
-                            )
-                            .onGeometryChange(for: CGFloat.self) { proxy in
-                                proxy.size.width.rounded()
-                            } action: { newWidth in
-                                guard workspace.isChatListVisible,
-                                    let resolved = ChatListWidthPolicy.adoptedNativeSidebarWidth(
-                                        proposedWidth: newWidth,
-                                        storedWidth: workspace.chatListWidth
-                                    )
-                                else { return }
-                                workspace.resizeChatListDrawer(toProposedWidth: resolved)
-                            }
-                        } detail: {
-                            DetailPaneView(settings: settings)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    NavigationSplitView(columnVisibility: sidebarVisibility) {
+                        ChatListDrawerView(
+                            model: session.accountScope?.chatListModel,
+                            historyNotices: session.accountScope?.historyNotices,
+                            recoveryStatus: session.accountScope?.recoveryStatus,
+                            selection: session.accountScope?.chatListSelection,
+                            search: session.accountScope?.chatListSearch,
+                            attentionModel: session.accountScope?.attentionModel,
+                            deviceLinking: session.accountScope?.deviceLinking,
+                            onOpenSettings: { settings.open() },
+                            onOpenDevicesSettings: { settings.open(at: .devices) }
+                        )
+                        .navigationSplitViewColumnWidth(
+                            min: ChatListWidthPolicy.minimumExpandedWidth,
+                            ideal: max(workspace.chatListWidth, ChatListWidthPolicy.minimumExpandedWidth),
+                            max: ChatListWidthPolicy.maximumWidth
+                        )
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.width.rounded()
+                        } action: { newWidth in
+                            guard workspace.isChatListVisible,
+                                let resolved = ChatListWidthPolicy.adoptedNativeSidebarWidth(
+                                    proposedWidth: newWidth,
+                                    storedWidth: workspace.chatListWidth
+                                )
+                            else { return }
+                            workspace.resizeChatListDrawer(toProposedWidth: resolved)
                         }
+                    } detail: {
+                        DetailPaneView(settings: settings)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
                     DetailPaneView(settings: settings)
@@ -93,7 +95,7 @@ struct MessengerShellView: View {
             MessagesWindowBackground()
         }
         .environment(\.hasWindowTopNoticeBand, true)
-        .animation(.smooth(duration: 0.2), value: workspace.isOffline)
+        .animation(reduceMotion ? .none : .smooth(duration: 0.2), value: workspace.isOffline)
         // Above the conversation pane rather than inside it: the image gallery is an overlay on
         // the transcript, and a download started from the gallery has to confirm itself over the
         // gallery, not underneath it.
@@ -672,25 +674,10 @@ private struct ConversationView: View {
 
         ZStack {
             VStack(spacing: 0) {
-                ConversationHeader(
-                    chat: chat,
-                    recoveryStatus: session.accountScope?.recoveryStatus,
-                    onSearch: searchCommand.open,
-                    escapeEndsMessageSelection: session.accountScope?.chatListSelection.isActive != true
-                )
-                .messageDeletionConfirmation()
-                .messageEditHistory(model: model)
-                .pollVotesSheet(
-                    model: model,
-                    blockedUsersModel: blockedUsersModel,
-                    voterDisplay: { workspace.reactionReactorDisplay(accountIdHex: $0) }
-                )
-                GlassSeparator(axis: .horizontal)
-
                 if model.search.isActive {
                     ConversationSearchBar(model: model.search, onClose: closeSearch)
-                        .background { MessagesHeaderBackground() }
-                    GlassSeparator(axis: .horizontal)
+                        .background(.bar)
+                    Divider()
                 }
 
                 Group {
@@ -867,7 +854,11 @@ private struct ConversationView: View {
                     } else if isBlockedDirectPeer {
                         BlockedConversationComposerNotice()
                     } else if chat.pendingConfirmation {
-                        PendingGroupInviteComposerNotice(chat: chat)
+                        PendingGroupInviteComposerNotice(
+                            chat: chat,
+                            blockedUsersModel: blockedUsersModel,
+                            moderationReporter: session.accountScope?.moderationReporter
+                        )
                     } else if BlockedLeavePresentation.isBlocked(
                         leaveRequestPending: chat.leaveRequestPending, leaveBlocked: chat.leaveBlocked)
                     {
@@ -956,6 +947,14 @@ private struct ConversationView: View {
                     .zIndex(4)
             }
         }
+        .conversationToolbar(
+            chat: chat,
+            model: model,
+            recoveryStatus: session.accountScope?.recoveryStatus,
+            blockedUsersModel: blockedUsersModel,
+            onSearch: searchCommand.open,
+            escapeEndsMessageSelection: session.accountScope?.chatListSelection.isActive != true
+        )
         .animation(.smooth(duration: 0.24), value: workspace.isGroupDetailsPresented)
         .animation(.smooth(duration: 0.24), value: workspace.contactDetailsTarget?.accountIdHex)
         .task(id: chat.id) {
@@ -1630,6 +1629,8 @@ private struct ConversationView: View {
 }
 
 private struct StartupView: View {
+    @Environment(\.locale) private var locale
+
     var body: some View {
         VStack(spacing: 28) {
             // The window's splash. It showed a spinner over an empty pane before — the app's own
@@ -1640,9 +1641,9 @@ private struct StartupView: View {
 
             VStack(spacing: 12) {
                 ProgressView()
-                Text(L10n.string("Starting Marmot"))
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                Text(L10n.string("Starting Marmot", locale: locale))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1695,15 +1696,19 @@ private struct ContactDetailsPane: View {
 }
 
 private struct FailureView: View {
+    @Environment(\.locale) private var locale
     let message: String
 
     var body: some View {
         ContentUnavailableView {
-            Label(L10n.string("Startup failed"), systemImage: "exclamationmark.triangle")
+            Label(L10n.string("Startup failed", locale: locale), systemImage: "exclamationmark.triangle")
         } description: {
             Text(message)
+                .foregroundStyle(WNColor.intentionErrorContent)
+                .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("startup.failure")
     }
 }
 
@@ -1723,8 +1728,11 @@ private struct EmptyConversationView: View {
     @Environment(\.locale) private var locale
 
     var body: some View {
-        WNEmptyStateView(title: L10n.string("No messages", locale: locale), systemImage: "text.bubble")
-            .frame(maxWidth: .infinity, minHeight: 360)
+        ContentUnavailableView(
+            L10n.string("No messages", locale: locale),
+            systemImage: "text.bubble"
+        )
+        .frame(maxWidth: .infinity, minHeight: 360)
     }
 }
 
@@ -1743,23 +1751,50 @@ private struct EmptyDetailView: View {
     var body: some View {
         Group {
             if workspace.accounts.isEmpty {
-                WNEmptyStateView(
-                    title: L10n.string("No accounts", locale: locale),
+                ContentUnavailableView(
+                    L10n.string("No accounts", locale: locale),
                     systemImage: "person.crop.circle.badge.questionmark"
                 )
             } else if workspace.hasNoChats {
-                WNEmptyStateView(
-                    title: L10n.string("No chats yet", locale: locale),
-                    description: L10n.string("Start a conversation", locale: locale),
-                    systemImage: "bubble.left.and.bubble.right"
-                )
+                ContentUnavailableView {
+                    Label(
+                        L10n.string("No chats yet", locale: locale),
+                        systemImage: "bubble.left.and.bubble.right"
+                    )
+                } description: {
+                    Text(L10n.string("Start a conversation", locale: locale))
+                } actions: {
+                    Button {
+                        workspace.showNewChat()
+                    } label: {
+                        Label(L10n.string("New chat", locale: locale), systemImage: "square.and.pencil")
+                    }
+                    .wnPrimaryButtonStyle()
+                    .disabled(workspace.isNewChatComposerVisible)
+                }
             } else {
-                WNEmptyStateView(
-                    title: L10n.string("Select a chat", locale: locale),
+                ContentUnavailableView(
+                    L10n.string("Select a chat", locale: locale),
                     systemImage: "bubble.left.and.bubble.right"
                 )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+#Preview("Startup") {
+    StartupView()
+        .frame(width: 480, height: 360)
+}
+
+#Preview("Startup failure") {
+    FailureView(message: "Couldn’t open local storage on this Mac.")
+        .frame(width: 480, height: 360)
+}
+
+#Preview("Empty detail") {
+    EmptyDetailView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 480, height: 360)
 }

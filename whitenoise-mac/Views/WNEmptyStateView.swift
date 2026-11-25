@@ -21,31 +21,24 @@ struct WNEmptyStateView: View {
     let systemImage: String
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .wnFont(.medium28)
-                .foregroundStyle(WNColor.backgroundContentTertiary)
-
-            VStack(spacing: 3) {
-                Text(title)
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
-
-                if let description {
-                    Text(description)
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
-                }
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
+            if let description {
+                Text(description)
             }
-            .multilineTextAlignment(.center)
         }
-        // Every title and detail line in the catalog fits on one line at this width in
-        // all ten languages — the longest measures 199pt ("Nenhuma conversa arquivada")
-        // — while the detail pane, several times wider, is kept from stretching two
-        // short lines into one long rule. A rail narrower than this proposes its own
-        // width instead, and the text wraps as it did before.
-        .frame(maxWidth: 240)
-        .padding(.horizontal, 16)
+        .controlSize(.small)
+        .frame(maxWidth: 280)
         .accessibilityElement(children: .combine)
     }
+}
+
+#Preview("Empty state") {
+    WNEmptyStateView(
+        title: L10n.string("No chats yet"),
+        description: L10n.string("Start a conversation"),
+        systemImage: "bubble.left.and.bubble.right"
+    )
+    .frame(width: 320, height: 220)
 }

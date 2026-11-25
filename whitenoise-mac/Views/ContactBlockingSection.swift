@@ -117,16 +117,17 @@ struct BlockedContactNotice: View {
         HStack(spacing: 10) {
             Image(systemName: "hand.raised.fill")
                 .foregroundStyle(WNColor.backgroundContentDestructive)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.string("You blocked this user"))
-                    .wnFont(.semiBold12)
+                    .font(.subheadline.weight(.semibold))
                 Text(
                     L10n.string(
                         "Blocking hides this person’s messages and prevents sending to them in direct chats. Existing history is retained."
                     )
                 )
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
@@ -137,23 +138,35 @@ struct BlockedContactNotice: View {
 
 struct BlockedConversationComposerNotice: View {
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "hand.raised.fill")
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(WNColor.backgroundContentDestructive)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.string("You blocked this user"))
-                    .wnFont(.semiBold12)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Text(
                     L10n.string(
                         "Blocking hides this person’s messages and prevents sending to them in direct chats. Existing history is retained."
                     )
                 )
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(WNColor.backgroundPrimary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
+        .accessibilityIdentifier("composer.blockedPeer")
     }
 }
 

@@ -8,6 +8,7 @@ import SwiftUI
 struct ModerationReportToast: View {
     static let displayDuration: Duration = .seconds(5)
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let reporter: ModerationReporter?
 
     var body: some View {
@@ -16,7 +17,7 @@ struct ModerationReportToast: View {
                 ModerationReportToastContent(notice: notice)
                     .padding(.leading, 16)
                     .padding(.bottom, 16)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
                     .task(id: notice.id) {
                         try? await Task.sleep(for: Self.displayDuration)
                         guard !Task.isCancelled else { return }
@@ -25,7 +26,7 @@ struct ModerationReportToast: View {
             }
         }
         .allowsHitTesting(false)
-        .animation(.smooth(duration: 0.2), value: reporter?.notice)
+        .animation(reduceMotion ? .none : .smooth(duration: 0.2), value: reporter?.notice)
     }
 }
 
@@ -41,12 +42,12 @@ struct ModerationReportToastContent: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(notice.title)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
                 if let message = notice.message {
                     Text(message)
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .multilineTextAlignment(.leading)
@@ -54,9 +55,13 @@ struct ModerationReportToastContent: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        // Glass first, cap second, as in `MediaDownloadFeedbackToastContent`: capping before the
+        // Material first, cap second, as in `MediaDownloadFeedbackToastContent`: capping before the
         // background would paint a full-width card behind a short title.
-        .glassCard(cornerRadius: 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
         .frame(maxWidth: 320, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
@@ -87,6 +92,7 @@ struct ModerationReportToastContent: View {
 /// A queued send MDK dropped once its group settled (`QueuedIntentRefused`). Same chrome and
 /// placement as the report toast; non-interactive for the same reason.
 struct RefusedIntentToast: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: RefusedIntentNoticesViewModel?
 
     var body: some View {
@@ -95,7 +101,7 @@ struct RefusedIntentToast: View {
                 ModerationReportToastContent(notice: notice)
                     .padding(.leading, 16)
                     .padding(.bottom, 16)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
                     .task(id: notice.id) {
                         try? await Task.sleep(for: RefusedIntentNoticesViewModel.displayDuration)
                         guard !Task.isCancelled else { return }
@@ -104,7 +110,7 @@ struct RefusedIntentToast: View {
             }
         }
         .allowsHitTesting(false)
-        .animation(.smooth(duration: 0.2), value: model?.notice)
+        .animation(reduceMotion ? .none : .smooth(duration: 0.2), value: model?.notice)
     }
 }
 

@@ -13,8 +13,8 @@ struct ImportedHistoryDivider: View {
         HStack(spacing: 10) {
             ImportedHistoryDividerRule()
             Text(Self.text(source: source, deviceName: deviceName))
-                .wnFont(.semiBold10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             ImportedHistoryDividerRule()
@@ -58,8 +58,8 @@ struct ChatHistoryReceivingNotice: View {
                         ? L10n.string("Still trying to bring earlier messages from your other device…")
                         : L10n.string("Bringing earlier messages from your other device…")
                 )
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
             .accessibilityElement(children: .combine)
