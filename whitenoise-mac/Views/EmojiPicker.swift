@@ -188,6 +188,12 @@ enum ChatEmojiRecents {
     }
 }
 
+private enum ChatEmojiRailSelection: Hashable {
+    case custom
+    case recent
+    case category(Int)
+}
+
 struct ChatEmojiPicker: View {
     let disabledEmoji: Set<String>
     /// Custom emoji and emoji sets, offered where a pick can send one: a conversation's composer and
@@ -197,11 +203,9 @@ struct ChatEmojiPicker: View {
 
     @StateObject private var model = ChatEmojiPickerModel()
     @State private var query = ""
-    @State private var selectedCategory = 0
+    @State private var selectedRail: ChatEmojiRailSelection = .category(0)
     @State private var recentEmoji = ChatReactionDefaults.quick
     @State private var isBrowsingEmojiSets = false
-
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 8)
 
     init(
         disabledEmoji: Set<String> = [],
@@ -220,17 +224,32 @@ struct ChatEmojiPicker: View {
             } else {
                 ScrollViewReader { proxy in
                     VStack(spacing: 0) {
-                        searchField
+                        ChatEmojiSearchField(query: $query)
                         Divider()
-                        emojiGrid
+                        ChatEmojiGridContent(
+                            model: model,
+                            query: query,
+                            recentEmoji: recentEmoji,
+                            disabledEmoji: disabledEmoji,
+                            custom: custom,
+                            onPickStandard: { emoji in
+                                recentEmoji = ChatEmojiRecents.record(emoji)
+                                onPick(emoji)
+                            },
+                            onPickCustom: { onPick($0.token) },
+                            onManageSets: { isBrowsingEmojiSets = true }
+                        )
                         Divider()
-                        categoryRail(proxy: proxy)
+                        ChatEmojiCategoryRail(
+                            hasCustom: custom != nil,
+                            selection: $selectedRail,
+                            proxy: proxy
+                        )
                     }
                 }
             }
         }
         .frame(width: 420, height: 430)
-        .background(.regularMaterial)
         .task {
             recentEmoji = ChatEmojiRecents.values()
         }
@@ -242,175 +261,254 @@ struct ChatEmojiPicker: View {
             await model.search(query: query)
         }
     }
+}
 
-    private var searchField: some View {
+private struct ChatEmojiSearchField: View {
+    @Binding var query: String
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             TextField(L10n.string("Search emoji"), text: $query)
-                .textFieldStyle(.plain)
+                .textFieldStyle(.roundedBorder)
+                .focused($isFocused)
+                .onExitCommand {
+                    if !query.isEmpty { query = "" }
+                }
             if !query.isEmpty {
                 Button {
                     query = ""
+                    isFocused = true
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
+                .help(L10n.string("Clear search"))
                 .accessibilityLabel(L10n.string("Clear search"))
             }
         }
-        .padding(.horizontal, 11)
-        .frame(height: 34)
-        .background(WNColor.fillSecondary, in: Capsule())
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .onAppear { isFocused = true }
     }
+}
 
-    @ViewBuilder
-    private var emojiGrid: some View {
+private struct ChatEmojiGridContent: View {
+    @ObservedObject var model: ChatEmojiPickerModel
+    let query: String
+    let recentEmoji: [String]
+    let disabledEmoji: Set<String>
+    let custom: CustomEmojiPickerContent?
+    let onPickStandard: (String) -> Void
+    let onPickCustom: (CustomEmojiSendable) -> Void
+    let onManageSets: () -> Void
+
+    var body: some View {
         if model.catalog.entries.isEmpty, !model.didFail {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.didFail {
             ContentUnavailableView("Emoji unavailable", systemImage: "face.dashed")
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
-                    if let custom {
-                        if query.isEmpty {
-                            let groups = CustomEmojiSendCatalog.pickerGroups(custom.sendables)
-                            ForEach(groups) { group in
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let customMatches = trimmed.isEmpty ? [] : (custom?.matching(query) ?? [])
+            if !trimmed.isEmpty, customMatches.isEmpty, model.searchResults.isEmpty {
+                WNEmptyStateView(
+                    title: L10n.string("No Results"),
+                    systemImage: "magnifyingglass"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
+                        if let custom {
+                            if trimmed.isEmpty {
+                                let groups = CustomEmojiSendCatalog.pickerGroups(custom.sendables)
+                                ForEach(groups) { group in
+                                    CustomEmojiPickerSection(
+                                        title: group.title, emoji: group.emoji, content: custom,
+                                        disabledEmoji: disabledEmoji, onPick: onPickCustom
+                                    )
+                                    // The rail's Custom Emoji control scrolls to the first group.
+                                    .id(group.id == groups.first?.id ? "custom" : "custom-\(group.id)")
+                                }
+                                if custom.emojiSets != nil {
+                                    CustomEmojiManageSetsButton(action: onManageSets)
+                                }
+                            } else if !customMatches.isEmpty {
                                 CustomEmojiPickerSection(
-                                    title: group.title, emoji: group.emoji, content: custom,
-                                    disabledEmoji: disabledEmoji, onPick: pickCustom
+                                    title: L10n.string("Custom Emoji"), emoji: customMatches, content: custom,
+                                    disabledEmoji: disabledEmoji, onPick: onPickCustom)
+                            }
+                        }
+                        if trimmed.isEmpty {
+                            let recents = model.catalog.recents(from: recentEmoji)
+                            if !recents.isEmpty {
+                                ChatEmojiSection(
+                                    title: L10n.string("Recently used"),
+                                    entries: recents,
+                                    disabledEmoji: disabledEmoji,
+                                    onPick: onPickStandard
                                 )
-                                // The rail's Custom Emoji control scrolls to the first group.
-                                .id(group.id == groups.first?.id ? "custom" : "custom-\(group.id)")
-                            }
-                            if custom.emojiSets != nil {
-                                CustomEmojiManageSetsButton { isBrowsingEmojiSets = true }
-                            }
-                        } else {
-                            let matches = custom.matching(query)
-                            if !matches.isEmpty {
-                                CustomEmojiPickerSection(
-                                    title: L10n.string("Custom Emoji"), emoji: matches, content: custom,
-                                    disabledEmoji: disabledEmoji, onPick: pickCustom)
-                            }
-                        }
-                    }
-                    if query.isEmpty {
-                        let recents = model.catalog.recents(from: recentEmoji)
-                        if !recents.isEmpty {
-                            emojiSection(title: L10n.string("Recently used"), entries: recents)
                                 .id("recent")
-                        }
-                        ForEach(ChatEmojiCategory.all) { category in
-                            emojiSection(
-                                title: category.title,
-                                entries: model.catalog.entries(forGroup: category.id)
+                            }
+                            ForEach(ChatEmojiCategory.all) { category in
+                                ChatEmojiSection(
+                                    title: category.title,
+                                    entries: model.catalog.entries(forGroup: category.id),
+                                    disabledEmoji: disabledEmoji,
+                                    onPick: onPickStandard
+                                )
+                                .id("category-\(category.id)")
+                            }
+                        } else if !model.searchResults.isEmpty {
+                            ChatEmojiSection(
+                                title: L10n.string("Search results"),
+                                entries: model.searchResults,
+                                disabledEmoji: disabledEmoji,
+                                onPick: onPickStandard
                             )
-                            .id("category-\(category.id)")
                         }
-                    } else {
-                        emojiSection(
-                            title: L10n.string("Search results"),
-                            entries: model.searchResults
-                        )
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
             }
         }
     }
+}
 
-    private func emojiSection(title: String, entries: [ChatEmojiCatalogEntry]) -> some View {
+private struct ChatEmojiSection: View {
+    let title: String
+    let entries: [ChatEmojiCatalogEntry]
+    let disabledEmoji: Set<String>
+    let onPick: (String) -> Void
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 8)
+
+    var body: some View {
         Section {
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(entries) { entry in
-                    Button {
-                        recentEmoji = ChatEmojiRecents.record(entry.emoji)
-                        onPick(entry.emoji)
-                    } label: {
-                        Text(entry.emoji)
-                            .wnFont(.medium24)
-                            .frame(maxWidth: .infinity, minHeight: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(disabledEmoji.contains(entry.emoji))
-                    .opacity(disabledEmoji.contains(entry.emoji) ? 0.28 : 1)
-                    .accessibilityLabel(entry.name)
+                    ChatEmojiGridCell(
+                        entry: entry,
+                        isDisabled: disabledEmoji.contains(entry.emoji),
+                        onPick: { onPick(entry.emoji) }
+                    )
                 }
             }
         } header: {
             Text(title)
-                .wnFont(.semiBold10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
                 .background(.bar)
         }
     }
+}
 
-    private func pickCustom(_ sendable: CustomEmojiSendable) {
-        onPick(sendable.token)
+private struct ChatEmojiGridCell: View {
+    let entry: ChatEmojiCatalogEntry
+    let isDisabled: Bool
+    let onPick: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onPick) {
+            Text(entry.emoji)
+                .font(.system(size: 24))
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .background(
+                    isHovering && !isDisabled ? WNColor.fillSecondaryHover : .clear,
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.28 : 1)
+        .onHover { isHovering = $0 }
+        .help(entry.name)
+        .accessibilityLabel(entry.name)
     }
+}
 
-    private func categoryRail(proxy: ScrollViewProxy) -> some View {
+private struct ChatEmojiCategoryRail: View {
+    let hasCustom: Bool
+    @Binding var selection: ChatEmojiRailSelection
+    let proxy: ScrollViewProxy
+
+    var body: some View {
         HStack(spacing: 2) {
-            if custom != nil {
-                railButton(
+            if hasCustom {
+                ChatEmojiRailButton(
                     systemImage: "sparkles",
                     label: L10n.string("Custom Emoji"),
-                    selected: false
+                    selected: selection == .custom
                 ) {
+                    selection = .custom
                     proxy.scrollTo("custom", anchor: .top)
                 }
-                .help(L10n.string("Custom Emoji"))
             }
-            railButton(
+            ChatEmojiRailButton(
                 systemImage: "clock.fill",
                 label: L10n.string("Recently used"),
-                selected: false
+                selected: selection == .recent
             ) {
+                selection = .recent
                 proxy.scrollTo("recent", anchor: .top)
             }
             ForEach(ChatEmojiCategory.all) { category in
-                railButton(
+                ChatEmojiRailButton(
                     systemImage: category.systemImage,
                     label: category.title,
-                    selected: selectedCategory == category.id
+                    selected: selection == .category(category.id)
                 ) {
-                    selectedCategory = category.id
+                    selection = .category(category.id)
                     proxy.scrollTo("category-\(category.id)", anchor: .top)
                 }
-                .help(category.title)
             }
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 6)
-        .background(WNColor.backgroundSecondary.opacity(0.92))
     }
+}
 
-    private func railButton(
-        systemImage: String,
-        label: String,
-        selected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
+private struct ChatEmojiRailButton: View {
+    let systemImage: String
+    let label: String
+    let selected: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .wnFont(.semiBold14)
+                .font(.callout.weight(.medium))
                 .foregroundStyle(
-                    selected ? WNColor.fillContentSecondary : WNColor.fillContentTertiary
+                    selected ? WNColor.textPrimary : Color(nsColor: .secondaryLabelColor)
                 )
                 .frame(width: 34, height: 28)
                 .background(
-                    selected ? WNColor.fillTertiaryHover : WNColor.fillTertiary,
-                    in: RoundedRectangle(cornerRadius: 7))
+                    selected || isHovering ? WNColor.fillSecondary : .clear,
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help(label)
         .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
+}
+
+#Preview("Emoji picker") {
+    ChatEmojiPicker(onPick: { _ in })
 }

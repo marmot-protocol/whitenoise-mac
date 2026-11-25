@@ -241,63 +241,90 @@ struct PollComposerSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 0) {
             Text(L10n.string("New Poll"))
-                .wnFont(.semiBold18)
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 8)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.string("Question"))
-                    .wnFont(.semiBold12)
-                TextField(L10n.string("Ask a question"), text: $draft.question, axis: .vertical)
-                    .lineLimit(1...4)
-                    .focused($focusedField, equals: .question)
-                PollComposerIssueText(message: questionIssueMessage)
-            }
+            Form {
+                Section {
+                    TextField(L10n.string("Ask a question"), text: $draft.question, axis: .vertical)
+                        .labelsHidden()
+                        .lineLimit(1...4)
+                        .focused($focusedField, equals: .question)
+                } header: {
+                    Text(L10n.string("Question"))
+                } footer: {
+                    PollComposerIssueText(message: questionIssueMessage)
+                }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.string("Options"))
-                    .wnFont(.semiBold12)
-                ForEach(draft.options.indices, id: \.self) { index in
-                    HStack(spacing: 8) {
-                        TextField(
-                            String(format: L10n.string("Option %lld"), Int64(index + 1)),
-                            text: $draft.options[index]
-                        )
-                        .focused($focusedField, equals: .option(index))
+                Section {
+                    ForEach(draft.options.indices, id: \.self) { index in
+                        HStack(spacing: 8) {
+                            TextField(
+                                String(format: L10n.string("Option %lld"), Int64(index + 1)),
+                                text: $draft.options[index]
+                            )
+                            .labelsHidden()
+                            .focused($focusedField, equals: .option(index))
+                            Button {
+                                draft.removeOption(at: index)
+                            } label: {
+                                Label(L10n.string("Remove"), systemImage: "minus.circle")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!draft.canRemoveOption)
+                            .help(L10n.string("Remove"))
+                            .accessibilityLabel(L10n.string("Remove"))
+                        }
+                    }
+                    if draft.canAddOption {
                         Button {
-                            draft.removeOption(at: index)
+                            draft.addOption()
+                            focusedField = .option(draft.options.count - 1)
                         } label: {
-                            Image(systemName: "minus.circle")
+                            Label(L10n.string("Add Option"), systemImage: "plus.circle")
                         }
                         .buttonStyle(.borderless)
-                        .disabled(!draft.canRemoveOption)
-                        .help(L10n.string("Remove"))
+                    }
+                } header: {
+                    Text(L10n.string("Options"))
+                } footer: {
+                    PollComposerIssueText(message: optionsIssueMessage)
+                }
+
+                Section {
+                    WNToggle(L10n.string("Allow Multiple Answers"), isOn: $draft.allowsMultipleAnswers)
+
+                    Picker(L10n.string("Ends"), selection: $draft.duration) {
+                        ForEach(PollDraft.Duration.allCases) { duration in
+                            Text(PollComposerCopy.title(for: duration)).tag(duration)
+                        }
                     }
                 }
-                if draft.canAddOption {
-                    Button {
-                        draft.addOption()
-                        focusedField = .option(draft.options.count - 1)
-                    } label: {
-                        Label(L10n.string("Add Option"), systemImage: "plus.circle")
-                    }
-                    .buttonStyle(.borderless)
-                }
-                PollComposerIssueText(message: optionsIssueMessage)
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 320, idealHeight: 360, maxHeight: 520)
+
+            if let sendError {
+                Text(sendError)
+                    .font(.subheadline)
+                    .foregroundStyle(WNColor.intentionErrorContent)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
             }
 
-            WNToggle(L10n.string("Allow Multiple Answers"), isOn: $draft.allowsMultipleAnswers)
-
-            Picker(L10n.string("Ends"), selection: $draft.duration) {
-                ForEach(PollDraft.Duration.allCases) { duration in
-                    Text(PollComposerCopy.title(for: duration)).tag(duration)
-                }
-            }
-
-            SettingsErrorView(error: sendError)
+            Divider()
 
             HStack {
                 Button(L10n.string("Cancel"), action: onCancel)
+                    .wnSecondaryButtonStyle()
                     .disabled(isSending)
                     .keyboardShortcut(.cancelAction)
                 Spacer()
@@ -310,12 +337,13 @@ struct PollComposerSheet: View {
                     .disabled(isSending)
                     .keyboardShortcut(.defaultAction)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
         }
         .disabled(isSending)
         // A focused field swallows Return before the Send button's default-action shortcut sees
         // it, so every field submits the poll itself; Tab moves between fields.
         .onSubmit(send)
-        .padding(24)
         .frame(width: 440)
         .interactiveDismissDisabled(isSending)
         .onChange(of: draft) {
@@ -377,8 +405,8 @@ private struct PollComposerIssueText: View {
     var body: some View {
         if let message {
             Text(message)
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentDestructive)
+                .font(.caption)
+                .foregroundStyle(WNColor.intentionErrorContent)
         }
     }
 }

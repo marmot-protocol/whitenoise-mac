@@ -69,12 +69,12 @@ private struct StickerPlaceholder: View {
             Button(action: onLoad) {
                 VStack(spacing: 6) {
                     Image(systemName: phase == .failed ? "exclamationmark.triangle" : "face.dashed")
-                        .wnFont(.medium18)
+                        .font(.title3)
                     Text(phase == .failed ? L10n.string("Click to retry") : (label ?? L10n.string("Click to load")))
-                        .wnFont(.medium10)
+                        .font(.caption)
                         .multilineTextAlignment(.center)
                 }
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .foregroundStyle(.secondary)
                 .padding(8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(shape.fill(WNColor.fillSecondary))
@@ -161,15 +161,15 @@ struct StickerPageHeader<Trailing: View>: View {
             if let onBack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
-                        .wnFont(.semiBold14)
+                        .font(.subheadline.weight(.semibold))
                         .frame(width: 22, height: 22)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .help(L10n.string("Back"))
                 .accessibilityLabel(L10n.string("Back"))
             }
             Text(title)
-                .wnFont(.semiBold14)
+                .font(.headline)
                 .lineLimit(1)
             Spacer(minLength: 0)
             trailing
@@ -195,7 +195,6 @@ private struct StickerPickerPage: View {
             StickerPageHeader(title: L10n.string("Stickers")) {
                 Button(action: onBrowse) {
                     Label(L10n.string("Sticker Packs"), systemImage: "plus")
-                        .wnFont(.medium12)
                 }
                 .wnSecondaryButtonStyle()
                 .controlSize(.small)
@@ -216,10 +215,10 @@ private struct StickerPickerPage: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(StickerPackPresentation.title(pack))
-                            .wnFont(.semiBold12)
+                            .font(.subheadline.weight(.semibold))
                         if let sendError {
                             Text(sendError)
-                                .wnFont(.medium12)
+                                .font(.subheadline)
                                 .foregroundStyle(WNColor.intentionErrorContent)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -378,8 +377,8 @@ private struct StickerGridCell: View {
 private struct StickerEgressDisclosure: View {
     var body: some View {
         Text(L10n.string("Stickers load from servers each pack’s author chose. Those servers can see your IP address."))
-            .wnFont(.medium10)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -427,7 +426,7 @@ private struct StickerPackBrowserPage: View {
 
                     if let errorMessage {
                         Text(errorMessage)
-                            .wnFont(.medium12)
+                            .font(.subheadline)
                             .foregroundStyle(WNColor.intentionErrorContent)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -446,8 +445,24 @@ private struct StickerPackBrowserPage: View {
                             "Sticker packs are public and aren’t reviewed by White Noise. Your installed packs are listed publicly on your relays."
                         )
                     ) {
-                        TextField(L10n.string("Search sticker packs"), text: $search)
-                            .textFieldStyle(.roundedBorder)
+                        HStack(spacing: 6) {
+                            TextField(L10n.string("Search sticker packs"), text: $search)
+                                .textFieldStyle(.roundedBorder)
+                                .onExitCommand {
+                                    if !search.isEmpty { search = "" }
+                                }
+                            if !search.isEmpty {
+                                Button {
+                                    search = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .help(L10n.string("Clear search"))
+                                .accessibilityLabel(L10n.string("Clear search"))
+                            }
+                        }
                         StickerDiscoverList(
                             state: StickerPackPresentation.discoveryState(
                                 isLoading: isLoading, packCount: discovered.count, search: search,
@@ -525,13 +540,13 @@ struct StickerBrowserSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .wnFont(.semiBold12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
             content
             if let footer {
                 Text(footer)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -562,7 +577,7 @@ private struct StickerDiscoverList: View {
         case .unreachable(let message):
             VStack(alignment: .leading, spacing: 6) {
                 Text(L10n.string("Couldn’t check your relays for sticker packs."))
-                    .wnFont(.medium12)
+                    .font(.subheadline.weight(.medium))
                 StickerBrowserNote(text: message)
                 Button(L10n.string("Try Again"), action: onRetry)
                     .wnSecondaryButtonStyle()
@@ -577,8 +592,8 @@ struct StickerBrowserNote: View {
 
     var body: some View {
         Text(text)
-            .wnFont(.medium12)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -595,17 +610,17 @@ private struct StickerPackRow: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(StickerPackPresentation.title(pack))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(WNColor.textPrimary)
                         .lineLimit(1)
                     Text(StickerPackPresentation.summary(pack))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -629,6 +644,7 @@ struct StickerPackDetailPage: View {
     @State private var isWorking = false
     @State private var errorMessage: String?
     @State private var didCopyLink = false
+    @State private var copyResetTask: Task<Void, Never>?
 
     var body: some View {
         let isInstalled = library.isInstalled(pack.coordinate)
@@ -641,11 +657,18 @@ struct StickerPackDetailPage: View {
                     .accessibilityIdentifier("stickers.pack.copyLink")
                 if isWorking {
                     ProgressView().controlSize(.small)
-                } else {
-                    Button(isInstalled ? L10n.string("Remove") : L10n.string("Add")) {
-                        toggleInstall(installing: !isInstalled)
+                } else if isInstalled {
+                    Button(L10n.string("Remove"), role: .destructive) {
+                        toggleInstall(installing: false)
                     }
                     .wnSecondaryButtonStyle()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("stickers.pack.toggleInstall")
+                } else {
+                    Button(L10n.string("Add")) {
+                        toggleInstall(installing: true)
+                    }
+                    .wnPrimaryButtonStyle()
                     .controlSize(.small)
                     .accessibilityIdentifier("stickers.pack.toggleInstall")
                 }
@@ -653,20 +676,20 @@ struct StickerPackDetailPage: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(StickerPackPresentation.summary(pack))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                     Text(String(format: L10n.string("By %@"), library.authorLabel(pack)))
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                     if let description = StickerPackPresentation.description(pack) {
                         Text(description)
-                            .wnFont(.medium12)
+                            .font(.subheadline)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let errorMessage {
                         Text(errorMessage)
-                            .wnFont(.medium12)
+                            .font(.subheadline)
                             .foregroundStyle(WNColor.intentionErrorContent)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -675,6 +698,10 @@ struct StickerPackDetailPage: View {
                 }
                 .padding(14)
             }
+        }
+        .onDisappear {
+            copyResetTask?.cancel()
+            copyResetTask = nil
         }
     }
 
@@ -685,8 +712,10 @@ struct StickerPackDetailPage: View {
         do {
             WorkspaceState.copyToGeneralPasteboard(try library.shareLink(for: pack), concealed: false)
             didCopyLink = true
-            Task {
+            copyResetTask?.cancel()
+            copyResetTask = Task {
                 try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
                 didCopyLink = false
             }
         } catch {

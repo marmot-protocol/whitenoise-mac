@@ -90,3 +90,27 @@ struct VoiceRecordingWaveformView: View {
         return position <= playback.progress ? playback.playedColor : barColor
     }
 }
+
+#Preview("Voice recording waveform") {
+    let levels: [CGFloat] = [0.2, 0.5, 0.8, 0.4, 0.9, 0.6, 0.3, 0.7, 0.5, 0.4, 0.85, 0.35]
+    VStack(spacing: 12) {
+        VoiceRecordingWaveformView(
+            levels: levels,
+            window: .liveTail,
+            barColor: WNColor.textPrimary
+        )
+        .frame(height: 30)
+        VoiceRecordingWaveformView(
+            levels: levels,
+            window: .stopped(recordedSeconds: 4.5),
+            barColor: Color(nsColor: .tertiaryLabelColor),
+            playback: VoiceRecordingWaveformView.PlaybackTint(
+                progress: 0.45,
+                playedColor: WNColor.textPrimary
+            )
+        )
+        .frame(height: 30)
+    }
+    .padding()
+    .frame(width: 320)
+}

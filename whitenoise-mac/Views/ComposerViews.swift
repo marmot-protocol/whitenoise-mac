@@ -14,6 +14,7 @@ import AppKit
 import ImageIO
 import MarmotKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ComposerEmojiInsertion: Equatable {
     let id = UUID()
@@ -151,14 +152,38 @@ struct ComposerMessageInputView: View {
 
             if text.isEmpty {
                 Text(placeholder)
-                    .wnFont(.medium14)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .font(.body)
+                    .foregroundStyle(Color(nsColor: .placeholderTextColor))
                     .padding(.top, 1)
                     .allowsHitTesting(false)
             }
         }
         .frame(minHeight: ComposerMessageInputMetrics.minHeight)
     }
+}
+
+#Preview("Message input") {
+    @Previewable @State var text = ""
+    @Previewable @State var mentions: [ComposerMentionSelection] = []
+    ComposerMessageInputView(
+        text: $text,
+        placeholder: L10n.string("Message"),
+        emojiInsertion: nil,
+        onEmojiInsertionConsumed: { _ in },
+        mentionInsertion: nil,
+        onMentionInsertionConsumed: { _ in },
+        mentionSelections: $mentions,
+        mentionContextScope: nil,
+        onMentionContextChange: { _ in },
+        onMentionCommand: { _ in false },
+        onPasteMedia: { _ in },
+        onSend: {}
+    )
+    .padding(.horizontal, 14)
+    .padding(.vertical, 8)
+    .background { MessagesComposerFieldBackground() }
+    .frame(width: 420)
+    .padding()
 }
 
 private enum ComposerMessageInputMetrics {
@@ -228,18 +253,18 @@ private struct ComposerMentionRow: View {
                 )
                 VStack(alignment: .leading, spacing: 1) {
                     Text(candidate.displayName)
-                        .wnFont(.medium12)
-                        .foregroundStyle(isHighlighted ? WNColor.fillContentPrimary : WNColor.backgroundContentPrimary)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(isHighlighted ? WNColor.fillContentPrimary : WNColor.textPrimary)
                         .lineLimit(1)
                     // Under a private nickname, who the person actually publishes as says more
                     // about which of two similarly-nicknamed contacts this is than their npub.
                     if let subtitle = candidate.publishedDisplayName ?? shortNpub {
                         Text(subtitle)
-                            .wnFont(.medium10)
+                            .font(.caption)
                             .foregroundStyle(
                                 isHighlighted
-                                    ? WNColor.fillContentPrimary.opacity(0.72)
-                                    : WNColor.backgroundContentSecondary
+                                    ? WNColor.fillContentPrimary.opacity(0.75)
+                                    : Color(nsColor: .secondaryLabelColor)
                             )
                             .lineLimit(1)
                     }
@@ -335,19 +360,24 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     var focusRequestID: UUID?
     var onFocusRequestConsumed: (UUID) -> Void = { _ in }
 
-    /// The rung the composer is set at.
-    static let typingStyle = WNTextStyle.medium14
+    /// Native macOS semantic body font shared by displayed text, placeholder, and height
+    /// measurement (F04, T08).
+    static var typingFont: NSFont {
+        NSFont.preferredFont(forTextStyle: .body)
+    }
 
-    /// What a mention token is set in — the Bold face at the typing rung's own size, so a token
-    /// and the words around it stay on one baseline and one measure however that rung moves.
-    static let mentionStyle = WNTextStyle.custom(size: typingStyle.size, weight: .bold)
+    /// Bold face at the typing font's own size, so a mention token and the words around it stay
+    /// on one baseline and one measure.
+    static var mentionFont: NSFont {
+        NSFont.systemFont(ofSize: typingFont.pointSize, weight: .bold)
+    }
 
     /// Attributes typed text should carry when it is not part of a mention token. Reapplied after a
     /// mention is inserted so the token's chip and identity markers cannot bleed into what follows.
     static var plainTypingAttributes: [NSAttributedString.Key: Any] {
         [
-            .font: WNNSFont.font(for: Self.typingStyle),
-            .foregroundColor: WNNSColor.backgroundContentPrimary,
+            .font: Self.typingFont,
+            .foregroundColor: WNNSColor.textPrimary,
         ]
     }
 
@@ -380,9 +410,9 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = true
-        textView.font = WNNSFont.font(for: Self.typingStyle)
-        textView.textColor = WNNSColor.backgroundContentPrimary
-        textView.insertionPointColor = WNNSColor.backgroundContentPrimary
+        textView.font = Self.typingFont
+        textView.textColor = WNNSColor.textPrimary
+        textView.insertionPointColor = WNNSColor.textPrimary
         // Plain text is the baseline; only a mention marker adds attributes on top of it.
         textView.typingAttributes = Self.plainTypingAttributes
         textView.textContainerInset = NSSize(width: 0, height: 1)
@@ -738,12 +768,12 @@ enum ComposerMentionMarkerStore {
         // so a token looks the same while you are typing it as it will once it is sent.
         storage.addAttribute(
             .foregroundColor,
-            value: WNNSColor.backgroundContentPrimary,
+            value: WNNSColor.textPrimary,
             range: selection.range
         )
         storage.addAttribute(
             .font,
-            value: WNNSFont.font(for: ComposerMessageTextViewRepresentable.mentionStyle),
+            value: ComposerMessageTextViewRepresentable.mentionFont,
             range: selection.range
         )
     }
@@ -981,7 +1011,7 @@ private struct PendingMediaDraftRemoveButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "xmark.circle.fill")
-                .wnFont(.semiBold18)
+                .font(.title3)
                 .symbolRenderingMode(.palette)
                 // Two-layer glyph: the inner disc is the surface it is
                 // punched out of, the ring is content on that surface.
@@ -1003,21 +1033,15 @@ struct PendingMediaDraftTile: View {
     let uploadState: PendingMediaUploadState?
     let onRetry: () -> Void
 
-    @State private var decodedImagePreview: NSImage?
-    @State private var decodedImageTaskID: String?
-
     var body: some View {
         Group {
             switch attachment.kind {
             case .image:
-                imagePreview
-                    .task(id: imagePreviewTaskID) {
-                        await loadImagePreview()
-                    }
+                PendingMediaImagePreview(attachment: attachment, tileSize: tileSize)
             case .audio:
-                audioPreview
+                PendingMediaAudioPreview(attachment: attachment)
             case .video, .file:
-                filePreview
+                PendingMediaFilePreview(attachment: attachment)
             }
         }
         .frame(width: tileSize.width, height: tileSize.height)
@@ -1027,7 +1051,7 @@ struct PendingMediaDraftTile: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
         }
         .overlay(alignment: .bottomTrailing) {
             if let uploadState {
@@ -1037,27 +1061,41 @@ struct PendingMediaDraftTile: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
+}
 
-    @ViewBuilder
-    private var imagePreview: some View {
-        if let image = decodedImagePreview {
-            AttachmentGIFPlayback(
-                contentID: attachment.id.uuidString,
-                data: AttachmentGIF.isGIF(mediaType: attachment.mediaType) ? attachment.data : nil,
-                isActive: true
-            ) { frame in
-                (frame ?? Image(nsImage: image))
-                    .resizable()
-                    .scaledToFill()
-                    .accessibilityLabel(attachment.fileName)
+private struct PendingMediaImagePreview: View {
+    let attachment: PendingMediaAttachment
+    let tileSize: CGSize
+
+    @State private var decodedImagePreview: NSImage?
+    @State private var decodedImageTaskID: String?
+
+    var body: some View {
+        Group {
+            if let image = decodedImagePreview {
+                AttachmentGIFPlayback(
+                    contentID: attachment.id.uuidString,
+                    data: AttachmentGIF.isGIF(mediaType: attachment.mediaType) ? attachment.data : nil,
+                    isActive: true
+                ) { frame in
+                    (frame ?? Image(nsImage: image))
+                        .resizable()
+                        .scaledToFill()
+                        .accessibilityLabel(attachment.fileName)
+                }
+            } else {
+                Image(systemName: attachment.kind.systemImageName)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
             }
-        } else {
-            iconPreview(systemName: attachment.kind.systemImageName)
+        }
+        .task(id: imagePreviewTaskID) {
+            await loadImagePreview()
         }
     }
 
     private var imagePreviewTaskID: String {
-        Self.previewTaskID(for: attachment, maxPixelSize: imagePreviewMaxPixelSize)
+        "\(attachment.id.uuidString)|\(attachment.data.count)|\(Int(imagePreviewMaxPixelSize))"
     }
 
     private var imagePreviewMaxPixelSize: CGFloat {
@@ -1083,53 +1121,72 @@ struct PendingMediaDraftTile: View {
         guard decodedImageTaskID == taskID else { return }
         decodedImagePreview = decoded
     }
+}
 
-    private static func previewTaskID(for attachment: PendingMediaAttachment, maxPixelSize: CGFloat) -> String {
-        "\(attachment.id.uuidString)|\(attachment.data.count)|\(Int(maxPixelSize))"
-    }
+private struct PendingMediaAudioPreview: View {
+    let attachment: PendingMediaAttachment
 
-    private var audioPreview: some View {
+    var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "mic.fill")
-                .wnFont(.semiBold16)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .font(.headline)
+                .foregroundStyle(WNColor.textPrimary)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 5) {
                 ComposerAudioWaveformView(
                     samples: attachment.waveformSamples,
                     progress: 0,
-                    barColor: WNColor.backgroundContentTertiary,
-                    playedColor: WNColor.backgroundContentPrimary
+                    barColor: Color(nsColor: .tertiaryLabelColor),
+                    playedColor: WNColor.textPrimary
                 )
                 .frame(height: 24)
 
                 Text(attachment.durationLabel ?? attachment.sizeLabel)
-                    .wnFont(.medium10.monospacedDigit())
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
         .padding(.horizontal, 10)
     }
+}
 
-    private var filePreview: some View {
-        VStack(spacing: 5) {
-            Image(systemName: attachment.kind.systemImageName)
-                .wnFont(.semiBold18)
-            Text(attachment.fileName)
-                .wnFont(.medium10)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-        }
-        .foregroundStyle(WNColor.backgroundContentSecondary)
-        .padding(.horizontal, 8)
+private struct PendingMediaFilePreview: View {
+    let attachment: PendingMediaAttachment
+
+    private var systemFileIcon: NSImage? {
+        guard attachment.kind == .file else { return nil }
+        let ext = (attachment.fileName as NSString).pathExtension
+        guard
+            let type = UTType(mimeType: attachment.mediaType)
+                ?? (ext.isEmpty ? nil : UTType(filenameExtension: ext))
+        else { return nil }
+        return NSWorkspace.shared.icon(for: type)
     }
 
-    private func iconPreview(systemName: String) -> some View {
-        Image(systemName: systemName)
-            .wnFont(.semiBold20)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+    var body: some View {
+        VStack(spacing: 4) {
+            if let systemFileIcon {
+                Image(nsImage: systemFileIcon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: attachment.kind.systemImageName)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            Text(attachment.fileName)
+                .font(.caption2)
+                .foregroundStyle(WNColor.textPrimary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 6)
     }
 }
 
@@ -1146,7 +1203,6 @@ private struct PendingMediaUploadStatusBadge: View {
         case .uploading:
             ProgressView()
                 .controlSize(.small)
-                .tint(WNColor.backgroundContentPrimary)
                 .scaleEffect(0.62)
                 .frame(width: 24, height: 24)
                 .background(.regularMaterial, in: .circle)
@@ -1154,17 +1210,52 @@ private struct PendingMediaUploadStatusBadge: View {
         case .uploaded:
             EmptyView()
         case .failed:
-            Button(L10n.string("Retry upload"), systemImage: "arrow.clockwise", action: onRetry)
-                .labelStyle(.iconOnly)
-                .wnFont(.bold12)
-                .foregroundStyle(WNColor.fillContentQuaternary)
-                .buttonStyle(.plain)
-                .frame(width: 24, height: 24)
-                .background(WNColor.fillDestructive, in: .circle)
-                .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
-                .help(L10n.string("Retry upload"))
+            Button(role: .destructive, action: onRetry) {
+                Label(L10n.string("Retry upload"), systemImage: "arrow.clockwise")
+                    .labelStyle(.iconOnly)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(WNColor.fillContentQuaternary)
+                    .frame(width: 24, height: 24)
+                    .background(WNColor.statusError, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .shadow(color: WNColor.shadow.opacity(0.12), radius: 4, y: 1)
+            .help(L10n.string("Retry upload"))
+            .accessibilityLabel(L10n.string("Retry upload"))
         }
     }
+}
+
+#Preview("Pending media draft strip") {
+    let pdf = PendingMediaAttachment(
+        id: UUID(),
+        fileName: "Quarterly-Report.pdf",
+        mediaType: "application/pdf",
+        data: Data(repeating: 0, count: 4096),
+        dim: nil
+    )
+    let video = PendingMediaAttachment(
+        id: UUID(),
+        fileName: "clip.mp4",
+        mediaType: "video/mp4",
+        data: Data(repeating: 0, count: 8192),
+        dim: nil
+    )
+    PendingMediaDraftStrip(
+        attachments: [pdf, video],
+        uploadStates: [pdf.id: .uploading, video.id: .failed],
+        isSending: false,
+        onRemove: { _ in },
+        onRetryUpload: { _ in },
+        rejections: [
+            ComposerAttachmentRejections.Item(
+                id: UUID(),
+                rejection: AttachmentRejection(source: .file(name: "archive.dmg"), reason: .unsupportedType)
+            )
+        ]
+    )
+    .padding()
+    .frame(width: 420)
 }
 
 nonisolated enum PendingMediaDraftThumbnailDecoder {
@@ -1204,47 +1295,55 @@ struct VoiceRecordingComposerView: View {
                 levels: samples,
                 window: .liveTail,
                 // Recording, so every bar is "live" rather than played — one token at full
-                // strength. `backgroundContent*` rather than a fill token because the bars are
-                // drawn straight onto the bar's own surface, and primary rather than the
-                // destructive red this used to be: a recording in progress is the composer doing
-                // what it was asked to, not an error. The voice-draft bar below uses the same two
-                // tokens at two weights, so the two waveforms read as one control.
-                barColor: WNColor.backgroundContentPrimary
+                // strength. Primary content rather than destructive red: a recording in progress is
+                // the composer doing what it was asked to, not an error.
+                barColor: WNColor.textPrimary
             )
             .frame(height: 30)
 
             Text(Self.durationLabel(durationSeconds))
-                .wnFont(.semiBold10.monospacedDigit())
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.secondary)
                 .frame(minWidth: 44, alignment: .trailing)
 
-            // Stop is the only thing this bar asks for, so it wears the primary action's pair
-            // (`fillPrimary` + `fillContentPrimary`) rather than the destructive one. Finishing a
-            // recording keeps it — the trash can that throws it away lives in the voice-draft bar
-            // this hands off to, and that is where the destructive color belongs.
+            // Stop is the only thing this bar asks for, so it wears the primary monochrome button
+            // tier rather than a destructive one. Finishing a recording hands off to the
+            // voice-draft bar, where discarding lives.
             Button(action: onStop) {
-                Image(systemName: "stop.fill")
-                    .wnFont(.bold12)
-                    .foregroundStyle(WNColor.fillContentPrimary)
-                    .frame(width: 30, height: 30)
-                    .background(WNColor.fillPrimary, in: .circle)
+                Label(L10n.string("Finish recording"), systemImage: "stop.fill")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20, height: 20)
             }
-            .buttonStyle(.plain)
+            .buttonBorderShape(.circle)
+            .wnPrimaryButtonStyle()
+            .controlSize(.regular)
             .help(L10n.string("Finish recording"))
+            .accessibilityLabel(L10n.string("Finish recording"))
+            .accessibilityIdentifier("composer.voiceRecording.stop")
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
         }
     }
 
     private static func durationLabel(_ duration: Double) -> String {
         MediaDurationLabel.string(for: duration)
     }
+}
+
+#Preview("Voice recording") {
+    VoiceRecordingComposerView(
+        samples: [0.2, 0.5, 0.85, 0.4, 0.7, 0.3, 0.9, 0.6, 0.45, 0.55],
+        durationSeconds: 12.4,
+        onStop: {}
+    )
+    .padding()
+    .frame(width: 480)
 }
 
 /// The composer once a recording has been stopped: trash it, listen back, or send it. It stands
@@ -1284,14 +1383,13 @@ struct VoiceMessageDraftComposerView: View {
             Button {
                 Task { await togglePlayback() }
             } label: {
-                Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
-                    .wnFont(.bold14)
-                    .frame(width: 30, height: 30)
-                    .background {
-                        MessagesCircleControlBackground()
-                    }
+                Label(playbackActionLabel, systemImage: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20, height: 20)
             }
-            .buttonStyle(.plain)
+            .buttonBorderShape(.circle)
+            .wnSecondaryButtonStyle()
+            .controlSize(.regular)
             .help(playbackActionLabel)
             // `help` becomes the tooltip, not the label: an icon-only button needs the action
             // spelled out or VoiceOver is left announcing the SF Symbol.
@@ -1310,65 +1408,81 @@ struct VoiceMessageDraftComposerView: View {
             VoiceRecordingWaveformView(
                 levels: attachment.waveformSamples,
                 window: .stopped(recordedSeconds: attachment.durationSeconds),
-                barColor: WNColor.backgroundContentTertiary,
+                barColor: Color(nsColor: .tertiaryLabelColor),
                 playback: VoiceRecordingWaveformView.PlaybackTint(
                     progress: playbackProgress,
-                    playedColor: WNColor.backgroundContentPrimary
+                    playedColor: WNColor.textPrimary
                 )
             )
             .frame(height: 30)
 
             Text(MediaDurationLabel.string(for: isPlaying ? elapsedSeconds : (attachment.durationSeconds ?? 0)))
-                .wnFont(.semiBold10.monospacedDigit())
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.secondary)
                 .frame(minWidth: 44, alignment: .trailing)
+
+            if uploadState == .uploading {
+                ProgressView()
+                    .controlSize(.small)
+            }
 
             // Discard sits with Send rather than at the far left: the two decisions the bar asks
             // for — throw it away or send it — belong next to each other, past the recording.
-            Button(action: discard) {
-                Image(systemName: "trash")
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(WNColor.backgroundContentDestructive)
-                    .frame(width: 30, height: 30)
-                    .background {
-                        MessagesCircleControlBackground()
-                    }
+            Button(role: .destructive, action: discard) {
+                Label(L10n.string("Delete recording"), systemImage: "trash")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(WNColor.intentionErrorContent)
+                    .frame(width: 20, height: 20)
             }
-            .buttonStyle(.plain)
+            .buttonBorderShape(.circle)
+            .wnSecondaryButtonStyle()
+            .controlSize(.regular)
             .disabled(isSending)
             .help(L10n.string("Delete recording"))
+            .accessibilityLabel(L10n.string("Delete recording"))
             .accessibilityIdentifier("composer.voiceDraft.delete")
 
             if uploadState == .failed {
-                Button(L10n.string("Retry upload"), systemImage: "arrow.clockwise", action: onRetryUpload)
-                    .labelStyle(.iconOnly)
-                    .wnFont(.bold14)
-                    .foregroundStyle(WNColor.fillContentQuaternary)
-                    .buttonStyle(.plain)
-                    .frame(width: 30, height: 30)
-                    .background(WNColor.fillDestructive, in: .circle)
-                    .help(L10n.string("Retry upload"))
+                Button(role: .destructive, action: onRetryUpload) {
+                    Label(L10n.string("Retry upload"), systemImage: "arrow.clockwise")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 20, height: 20)
+                }
+                .buttonBorderShape(.circle)
+                .wnDestructiveButtonStyle()
+                .controlSize(.regular)
+                .help(L10n.string("Retry upload"))
+                .accessibilityLabel(L10n.string("Retry upload"))
             }
 
             Button(action: send) {
-                MessagesSendButtonLabel(
-                    systemImage: "paperplane.fill",
-                    isEnabled: canSend,
-                    isSending: isSending
-                )
+                Group {
+                    if isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.72)
+                    } else {
+                        Label(sendHelp, systemImage: "paperplane.fill")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+                .frame(width: 20, height: 20)
             }
-            .buttonStyle(.plain)
+            .buttonBorderShape(.circle)
+            .wnPrimaryButtonStyle()
+            .controlSize(.regular)
             .disabled(!canSend)
             .help(sendHelp)
+            .accessibilityLabel(sendHelp)
             .accessibilityIdentifier("composer.voiceDraft.send")
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
         }
         // The player is built from one recording's bytes: if this view's identity outlives a
         // re-recording, drop it so playback cannot replay the discarded take.
@@ -1474,6 +1588,43 @@ struct VoiceMessageDraftComposerView: View {
         elapsedSeconds = player.currentTime
         playbackProgress = CGFloat(min(1, max(0, player.currentTime / player.duration)))
     }
+}
+
+#Preview("Voice message draft") {
+    let recording = PendingMediaAttachment(
+        id: UUID(),
+        fileName: "voice-message.m4a",
+        mediaType: "audio/mp4",
+        data: Data(repeating: 0, count: 2048),
+        dim: nil,
+        durationSeconds: 7.5,
+        waveformSamples: [0.2, 0.5, 0.85, 0.4, 0.7, 0.3, 0.9, 0.6],
+        isVoiceMessage: true
+    )
+    VStack(spacing: 12) {
+        VoiceMessageDraftComposerView(
+            attachment: recording,
+            uploadState: nil,
+            isSending: false,
+            canSend: true,
+            sendHelp: L10n.string("Send"),
+            onDiscard: {},
+            onRetryUpload: {},
+            onSend: {}
+        )
+        VoiceMessageDraftComposerView(
+            attachment: recording,
+            uploadState: .failed,
+            isSending: false,
+            canSend: true,
+            sendHelp: L10n.string("Send"),
+            onDiscard: {},
+            onRetryUpload: {},
+            onSend: {}
+        )
+    }
+    .padding()
+    .frame(width: 480)
 }
 
 nonisolated struct ComposerAudioWaveformBar: Equatable {
@@ -1617,18 +1768,18 @@ struct ReplyComposerContextView: View {
     var body: some View {
         HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(MessagesPalette.sentBubble)
-                .frame(width: 4, height: 38)
+                .fill(WNColor.fillPrimary)
+                .frame(width: 3, height: 34)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: L10n.string("Replying to %@"), context.senderName))
-                    .wnFont(.semiBold10)
-                    .foregroundStyle(MessagesPalette.sentBubble)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WNColor.textPrimary)
                     .lineLimit(1)
 
                 Text(context.body)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
             }
@@ -1636,20 +1787,26 @@ struct ReplyComposerContextView: View {
             Spacer(minLength: 12)
 
             Button(action: cancel) {
-                Image(systemName: "xmark")
-                    .wnFont(.bold12)
-                    .frame(width: 40, height: 40)
-                    .contentShape(Circle())
+                Label(L10n.string("Cancel reply"), systemImage: "xmark")
+                    .labelStyle(.iconOnly)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .background { MessagesCircleControlBackground() }
+            .buttonStyle(.borderless)
             .help(L10n.string("Cancel reply"))
+            .accessibilityLabel(L10n.string("Cancel reply"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 12)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
-        .background { GlassRoundedBackground(cornerRadius: 12) }
+        .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+        }
     }
 }
 
@@ -1659,15 +1816,17 @@ struct EditComposerContextView: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "pencil")
-                .wnFont(.semiBold12)
-                .foregroundStyle(MessagesPalette.sentBubble)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(WNColor.textPrimary)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.string("Editing message"))
-                    .wnFont(.semiBold10)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WNColor.textPrimary)
                 Text(context.originalBody)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
@@ -1675,8 +1834,39 @@ struct EditComposerContextView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background { GlassRoundedBackground(cornerRadius: 12) }
+        .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+        }
     }
+}
+
+#Preview("Reply and edit context") {
+    VStack(spacing: 10) {
+        ReplyComposerContextView(
+            context: MessageReplyContext(
+                targetMessageId: "msg-1",
+                senderName: "Alice",
+                body: "See you at the station around six!"
+            ),
+            cancel: {}
+        )
+        EditComposerContextView(
+            context: MessageEditContext(
+                targetMessageId: "msg-2",
+                senderName: "You",
+                originalBody: "Typo in the earlier note",
+                preservedDraft: "",
+                preservedMentionSelections: [],
+                preservedReplyContext: nil,
+                preservedMediaAttachments: [],
+                preservedMediaUploadStates: [:]
+            )
+        )
+    }
+    .padding()
+    .frame(width: 440)
 }
 
 /// Replaces the composer for a group the local account left or was removed from:

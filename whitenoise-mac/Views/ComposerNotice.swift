@@ -20,8 +20,8 @@ struct ComposerNotice: View {
                 .foregroundStyle(WNColor.intentionErrorContent)
                 .accessibilityHidden(true)
             Text(message)
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .font(.subheadline)
+                .foregroundStyle(WNColor.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let action {
@@ -32,12 +32,12 @@ struct ComposerNotice: View {
             }
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .wnFont(.semiBold10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help(L10n.string("Dismiss"))
             .accessibilityLabel(L10n.string("Dismiss"))
         }
