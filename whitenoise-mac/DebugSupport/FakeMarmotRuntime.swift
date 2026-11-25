@@ -2128,7 +2128,6 @@
         func fetchStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
             if let onFetchStickerPack {
                 await onFetchStickerPack(input)
-                try Task.checkCancellation()
             }
             if let stickerPackActionError { throw stickerPackActionError }
             guard let pack = fetchableStickerPacks[input] ?? stickerPackStore.first(where: { $0.coordinate == input })

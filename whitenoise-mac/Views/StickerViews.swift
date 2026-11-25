@@ -396,14 +396,13 @@ private struct StickerPackBrowserPage: View {
     @State private var discovered: [StickerPackFfi] = []
     @State private var isLoading = false
     @State private var syncError: String?
-    @State private var isLookingUp = false
     @State private var lookupRequest: StickerLookupRequest?
     @State private var errorMessage: String?
     @State private var reloadRequest = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            StickerPageHeader(title: L10n.string("Sticker Packs"), onBack: onBack) {
+            StickerPageHeader(title: L10n.string("Sticker Packs"), onBack: leaveBrowser) {
                 if library.isSyncing { ProgressView().controlSize(.small) }
             }
 
@@ -421,7 +420,7 @@ private struct StickerPackBrowserPage: View {
                             Button(L10n.string("Open Link"), action: lookUp)
                                 .wnSecondaryButtonStyle()
                                 .controlSize(.small)
-                                .disabled(StickerPackPresentation.lookupInput(link) == nil || isLookingUp)
+                                .disabled(StickerPackPresentation.lookupInput(link) == nil || lookupRequest != nil)
                         }
                     }
 
@@ -435,7 +434,7 @@ private struct StickerPackBrowserPage: View {
                     if !library.installed.isEmpty {
                         StickerBrowserSection(title: L10n.string("Installed")) {
                             ForEach(library.installed, id: \.coordinate) { pack in
-                                StickerPackRow(pack: pack) { onOpen(pack) }
+                                StickerPackRow(pack: pack) { openPack(pack) }
                             }
                         }
                     }
@@ -456,7 +455,7 @@ private struct StickerPackBrowserPage: View {
                                 isLoading: isLoading, packCount: discovered.count, search: search,
                                 syncError: syncError),
                             packs: discovered,
-                            onOpen: onOpen,
+                            onOpen: openPack,
                             onRetry: { reloadRequest += 1 }
                         )
                     }
@@ -468,7 +467,7 @@ private struct StickerPackBrowserPage: View {
             if !search.isEmpty {
                 search = ""
             } else {
-                onBack()
+                leaveBrowser()
             }
         }
         .task(id: StickerDiscoverRequest(search: search, reload: reloadRequest)) {
@@ -476,7 +475,7 @@ private struct StickerPackBrowserPage: View {
         }
         .task(id: lookupRequest) {
             guard let request = lookupRequest else { return }
-            await performLookup(request.input)
+            await performLookup(request)
         }
     }
 
@@ -507,27 +506,37 @@ private struct StickerPackBrowserPage: View {
         }
     }
 
+    private func leaveBrowser() {
+        lookupRequest = nil
+        onBack()
+    }
+
+    private func openPack(_ pack: StickerPackFfi) {
+        lookupRequest = nil
+        onOpen(pack)
+    }
+
     private func lookUp() {
-        guard let input = StickerPackPresentation.lookupInput(link), !isLookingUp else { return }
-        isLookingUp = true
+        guard let input = StickerPackPresentation.lookupInput(link), lookupRequest == nil else { return }
         errorMessage = nil
         lookupRequest = StickerLookupRequest(input: input)
     }
 
-    private func performLookup(_ input: String) async {
+    private func performLookup(_ request: StickerLookupRequest) async {
         defer {
-            isLookingUp = false
-            lookupRequest = nil
+            if lookupRequest == request {
+                lookupRequest = nil
+            }
         }
         do {
-            let pack = try await library.lookUp(input)
-            guard !Task.isCancelled else { return }
+            let pack = try await library.lookUp(request.input)
+            guard !Task.isCancelled, lookupRequest == request else { return }
             link = ""
             onOpen(pack)
         } catch is CancellationError {
             return
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, lookupRequest == request else { return }
             errorMessage = UserFacingError.message(for: error)
         }
     }

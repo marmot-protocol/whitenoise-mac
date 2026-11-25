@@ -1297,13 +1297,6 @@ private struct ConversationView: View {
                 .background {
                     MessagesComposerFieldBackground()
                 }
-                .overlay(alignment: .trailing) {
-                    if workspace.isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                            .padding(.trailing, 10)
-                    }
-                }
                 .accessibilityIdentifier("composer.message")
 
                 if DictationSupport.isSupportedOS, DictationPreference.shared.isEnabled {
@@ -1348,11 +1341,19 @@ private struct ConversationView: View {
                     workspace.editingMessageContext == nil
                     ? L10n.string("Send") : L10n.string("Save edit")
                 Button(action: sendComposer) {
-                    Label(
-                        sendTitle,
-                        systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark"
-                    )
-                    .labelStyle(.iconOnly)
+                    Group {
+                        if workspace.isSending {
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.72)
+                        } else {
+                            Label(
+                                sendTitle,
+                                systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark"
+                            )
+                            .labelStyle(.iconOnly)
+                        }
+                    }
                     .frame(width: 20, height: 20)
                 }
                 .wnPrimaryButtonStyle()

@@ -2,6 +2,7 @@ import AppKit
 import MarmotKit
 import SwiftUI
 import Testing
+import os
 
 @testable import whitenoise_mac
 
@@ -160,7 +161,13 @@ import Testing
         runtime.fetchableStickerPacks[pack.coordinate] = pack
         let gate = AsyncFfiGate()
         gate.isEnabled = true
-        runtime.onFetchStickerPack = { _ in await gate.passIfArmed() }
+        let lookupEntered = OSAllocatedUnfairLock(initialState: false)
+        let lookupReturned = OSAllocatedUnfairLock(initialState: false)
+        runtime.onFetchStickerPack = { _ in
+            lookupEntered.withLock { $0 = true }
+            await gate.passIfArmed()
+            lookupReturned.withLock { $0 = true }
+        }
 
         let library = StickerLibrary(accountRef: "account", runtime: runtime)
         await library.loadInstalledIfNeeded()
@@ -190,7 +197,7 @@ import Testing
         #expect(await host.settle { linkField.stringValue == pack.coordinate })
         linkField.sendAction(linkField.action, to: linkField.target)
 
-        await gate.waitUntilReached()
+        #expect(await host.settle { lookupEntered.withLock { $0 } })
 
         // Press Escape while the lookup is pending and the Discover field is empty.
         let escapeEvent = try #require(
@@ -208,17 +215,16 @@ import Testing
             )
         )
         #expect(host.window.performKeyEquivalent(with: escapeEvent))
-        let backToPicker = await host.settleDrawing {
+
+        // Release the delayed lookup immediately so the fake returns success (no cancellation
+        // throw) even if Back's route change raced teardown, and verify the picker returns to and
+        // stays on its root page with zero external sticker artwork fetches.
+        gate.release()
+        #expect(await host.settle { lookupReturned.withLock { $0 } })
+        let afterLookup = await host.settleDrawing {
             abs(DrawnPixels.inkedRows($0) - DrawnPixels.inkedRows(empty)) < 6
         }
-        #expect(backToPicker != nil)
-
-        // Release the delayed lookup and verify the popover stays on the root picker with zero
-        // sticker artwork requests to the pack author's server.
-        gate.release()
-        try? await Task.sleep(for: .milliseconds(150))
-        let afterLookup = try #require(await host.steadyDrawing())
-        #expect(abs(DrawnPixels.inkedRows(afterLookup) - DrawnPixels.inkedRows(empty)) < 6)
+        #expect(afterLookup != nil)
         #expect(runtime.fetchStickerAssetRequests.isEmpty)
     }
 

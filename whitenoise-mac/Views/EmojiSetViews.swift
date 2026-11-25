@@ -216,14 +216,13 @@ private struct EmojiSetBrowserPage: View {
     @State private var suggestions: [EmojiSetFfi] = []
     @State private var isLoading = false
     @State private var syncError: String?
-    @State private var isLookingUp = false
     @State private var lookupRequest: EmojiSetLookupRequest?
     @State private var errorMessage: String?
     @State private var reloadRequest = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            StickerPageHeader(title: L10n.string("Emoji Sets"), onBack: onBack) {
+            StickerPageHeader(title: L10n.string("Emoji Sets"), onBack: leaveBrowser) {
                 if library.isSyncing { ProgressView().controlSize(.small) }
             }
 
@@ -241,7 +240,7 @@ private struct EmojiSetBrowserPage: View {
                             Button(L10n.string("Open Link"), action: lookUp)
                                 .wnSecondaryButtonStyle()
                                 .controlSize(.small)
-                                .disabled(EmojiSetPresentation.lookupInput(link) == nil || isLookingUp)
+                                .disabled(EmojiSetPresentation.lookupInput(link) == nil || lookupRequest != nil)
                         }
                     }
 
@@ -256,7 +255,7 @@ private struct EmojiSetBrowserPage: View {
                         StickerBrowserSection(title: L10n.string("Installed")) {
                             ForEach(library.installedSets, id: \.coordinate) { set in
                                 EmojiSetRow(set: set, progress: library.installProgress[set.coordinate]) {
-                                    onOpen(set)
+                                    openSet(set)
                                 }
                             }
                         }
@@ -270,7 +269,7 @@ private struct EmojiSetBrowserPage: View {
                         ) {
                             ForEach(pendingSuggestions, id: \.coordinate) { set in
                                 EmojiSetRow(set: set, progress: library.installProgress[set.coordinate]) {
-                                    onOpen(set)
+                                    openSet(set)
                                 }
                             }
                         }
@@ -288,7 +287,7 @@ private struct EmojiSetBrowserPage: View {
                                 syncError: syncError),
                             sets: shownDiscovered,
                             library: library,
-                            onOpen: onOpen,
+                            onOpen: openSet,
                             onRetry: { reloadRequest += 1 }
                         )
                         EmojiSetEgressDisclosure()
@@ -301,7 +300,7 @@ private struct EmojiSetBrowserPage: View {
             if !search.isEmpty {
                 search = ""
             } else {
-                onBack()
+                leaveBrowser()
             }
         }
         .task { await library.loadInstalledIfNeeded() }
@@ -311,7 +310,7 @@ private struct EmojiSetBrowserPage: View {
         }
         .task(id: lookupRequest) {
             guard let request = lookupRequest else { return }
-            await performLookup(request.input)
+            await performLookup(request)
         }
     }
 
@@ -352,27 +351,37 @@ private struct EmojiSetBrowserPage: View {
         }
     }
 
+    private func leaveBrowser() {
+        lookupRequest = nil
+        onBack()
+    }
+
+    private func openSet(_ set: EmojiSetFfi) {
+        lookupRequest = nil
+        onOpen(set)
+    }
+
     private func lookUp() {
-        guard let input = EmojiSetPresentation.lookupInput(link), !isLookingUp else { return }
-        isLookingUp = true
+        guard let input = EmojiSetPresentation.lookupInput(link), lookupRequest == nil else { return }
         errorMessage = nil
         lookupRequest = EmojiSetLookupRequest(input: input)
     }
 
-    private func performLookup(_ input: String) async {
+    private func performLookup(_ request: EmojiSetLookupRequest) async {
         defer {
-            isLookingUp = false
-            lookupRequest = nil
+            if lookupRequest == request {
+                lookupRequest = nil
+            }
         }
         do {
-            let set = try await library.lookUp(input)
-            guard !Task.isCancelled else { return }
+            let set = try await library.lookUp(request.input)
+            guard !Task.isCancelled, lookupRequest == request else { return }
             link = ""
             onOpen(set)
         } catch is CancellationError {
             return
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, lookupRequest == request else { return }
             errorMessage = UserFacingError.message(for: error)
         }
     }
