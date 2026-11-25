@@ -251,22 +251,21 @@ private struct PollOptionRowContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: symbol)
+                    .foregroundStyle(
+                        visualState.isConfirmedSelection ? polarity.content : polarity.secondaryContent
+                    )
+                    .accessibilityHidden(true)
+                Text(label)
+                    .foregroundStyle(polarity.content)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
                 if visualState.isPendingChange {
                     ProgressView()
                         .controlSize(.mini)
                         .tint(polarity.content)
                         .accessibilityHidden(true)
-                } else {
-                    Image(systemName: symbol)
-                        .foregroundStyle(
-                            visualState.isConfirmedSelection ? polarity.content : polarity.secondaryContent
-                        )
-                        .accessibilityHidden(true)
                 }
-                Text(label)
-                    .foregroundStyle(polarity.content)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
                 Text(votes, format: .number)
                     .monospacedDigit()
                     .foregroundStyle(polarity.secondaryContent)

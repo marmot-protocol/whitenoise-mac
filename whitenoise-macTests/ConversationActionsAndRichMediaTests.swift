@@ -146,6 +146,56 @@ struct ConversationActionsAndRichMediaTests {
         #expect(votedOptions.isEmpty)
     }
 
+    @Test func pendingPollVoteSwitchKeepsConfirmedOptionVisuallyDistinctFromPendingTarget() async throws {
+        // Confirmed single-choice vote is on option 0 ("Alpha"); a vote switching to option 1
+        // ("Beta") is still in flight. Option 0 must keep its filled confirmed symbol while
+        // option 1 keeps its hollow unconfirmed symbol, so the two leading indicators do not
+        // collapse into identical spinners.
+        let openPoll = MessagePoll(
+            question: "Pick one",
+            options: [
+                .init(id: "0", label: "Alpha", votes: 1),
+                .init(id: "1", label: "Beta", votes: 0),
+            ],
+            kind: .singleChoice,
+            participants: 1,
+            localSelection: ["0"],
+            endsAt: nil,
+            isOpen: true
+        )
+        let size = CGSize(width: 340, height: 220)
+        let host = HostedViewWindow(
+            PollMessageCard(
+                poll: openPoll,
+                isOutgoing: false,
+                timeLabel: "10:00",
+                pendingSelection: ["1"],
+                onVote: { _ in },
+                onViewVotes: nil
+            )
+            .padding(12),
+            size: size
+        )
+        defer { host.close() }
+
+        let drawn = try #require(await host.steadyDrawing())
+        let alphaCenter = try #require(Self.centerOfText("Alpha", in: drawn, viewSize: size))
+        let betaCenter = try #require(Self.centerOfText("Beta", in: drawn, viewSize: size))
+
+        // Sample the leading icon column to the left of each label (same horizontal band,
+        // centered vertically on each row's text baseline). A filled checkmark.circle.fill inks
+        // substantially more dark pixels than an unfilled circle.
+        let alphaLeadingInk = Self.darkPixelCount(
+            in: drawn,
+            rectInPoints: CGRect(x: 16, y: alphaCenter.y - 10, width: 32, height: 20)
+        )
+        let betaLeadingInk = Self.darkPixelCount(
+            in: drawn,
+            rectInPoints: CGRect(x: 16, y: betaCenter.y - 10, width: 32, height: 20)
+        )
+        #expect(alphaLeadingInk > betaLeadingInk)
+    }
+
     // MARK: - Action grouping (K02, K03, #1104)
 
     @Test func messageRowActionGroupingSeparatesStandardAndDestructiveWhilePreservingOrder() {
@@ -412,6 +462,32 @@ struct ConversationActionsAndRichMediaTests {
             )
         )
         let size = CGSize(width: 480, height: 380)
+        // First confirm the same Escape event dismisses the idle report sheet.
+        var idleDismissed = false
+        let idleHost = HostedViewWindow(
+            ReportMessageSheet(model: model, dismiss: { idleDismissed = true }),
+            size: size
+        )
+        defer { idleHost.close() }
+        _ = try #require(await idleHost.steadyDrawing())
+        let idleEscape = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: idleHost.window.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        #expect(idleHost.window.performKeyEquivalent(with: idleEscape))
+        #expect(await idleHost.settle { idleDismissed })
+        idleHost.close()
+
         let host = HostedViewWindow(
             ReportMessageSheet(model: model, dismiss: { dismissed = true }),
             size: size
@@ -522,6 +598,28 @@ struct ConversationActionsAndRichMediaTests {
             return CGPoint(x: box.midX * viewSize.width, y: (1 - box.midY) * viewSize.height)
         }
         return nil
+    }
+
+    private static func darkPixelCount(in rep: NSBitmapImageRep, rectInPoints: CGRect) -> Int {
+        guard let data = rep.bitmapData, rep.samplesPerPixel == 4, !rep.isPlanar else { return 0 }
+        let scale = HostedViewWindow.scale
+        let minX = max(0, Int((rectInPoints.minX * scale).rounded(.down)))
+        let maxX = min(rep.pixelsWide, Int((rectInPoints.maxX * scale).rounded(.up)))
+        let minY = max(0, Int((rectInPoints.minY * scale).rounded(.down)))
+        let maxY = min(rep.pixelsHigh, Int((rectInPoints.maxY * scale).rounded(.up)))
+        var count = 0
+        for y in minY..<maxY {
+            for x in minX..<maxX {
+                let offset = y * rep.bytesPerRow + x * 4
+                let r = Int(data[offset])
+                let g = Int(data[offset + 1])
+                let b = Int(data[offset + 2])
+                if max(r, g, b) < 160 {
+                    count += 1
+                }
+            }
+        }
+        return count
     }
 
     private static func firstEditableTextField(in view: NSView) -> NSTextField? {

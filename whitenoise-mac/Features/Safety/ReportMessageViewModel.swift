@@ -121,7 +121,7 @@ final class ReportMessageViewModel: Identifiable {
             guard let self else { return }
             defer { self.submissionTask = nil }
             await self.runSubmit(plan: plan)
-            if self.isSubmitted { onSubmitted() }
+            if self.isSubmitted, !Task.isCancelled { onSubmitted() }
         }
         submissionTask = task
         return task
