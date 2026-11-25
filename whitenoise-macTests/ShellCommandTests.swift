@@ -248,6 +248,114 @@ struct ShellCommandTests: WorkspaceTestSupport {
         #expect(settingsOpens == 1)
     }
 
+    @Test func remoteDeviceUnlinkWithOneSurvivorWhileReloadSuspendedDoesNotOpenSettings() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "2", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        var settingsOpens = 0
+        coordinator.installPresentationActions(showSettings: { settingsOpens += 1 }, showMain: {})
+
+        coordinator.open(at: .relays)
+        #expect(settingsOpens == 1)
+
+        let unlinked = try #require(workspace.activeAccount)
+        let survivor = try #require(workspace.accounts.first { $0.id != unlinked.id })
+        runtime.unlinkFromAnotherDevice(accountRef: unlinked.accountRef)
+        runtime.listAccountsGateEnabled = true
+        defer { runtime.releaseListAccountsGate() }
+
+        let leaveTask = Task {
+            await AccountExit.leaveSignedOutAccount(
+                accountIdHex: unlinked.accountIdHex.lowercased(),
+                in: workspace
+            )
+        }
+        for _ in 0..<200 where !runtime.didReachListAccountsGate {
+            await Task.yield()
+        }
+        #expect(runtime.didReachListAccountsGate)
+        coordinator.synchronize()
+        #expect(workspace.activeAccountId == nil)
+
+        // User chooses the sole surviving profile while roster reload is still suspended.
+        workspace.selectAccountFromSettings(survivor)
+        #expect(workspace.activeAccountId == survivor.id)
+        #expect(settingsOpens == 1)
+
+        runtime.releaseListAccountsGate()
+        await leaveTask.value
+        coordinator.synchronize()
+        #expect(workspace.activeAccountId == survivor.id)
+        #expect(settingsOpens == 1)
+    }
+
+    @Test func conversationMenuMarkAsReadAdvancesReadMarkerForUnreadChatWithoutManualReminder() async throws {
+        let account = AccountSummaryFfi(
+            label: "Reader",
+            accountIdHex: String(repeating: "c", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let groupId = String(repeating: "e", count: 64)
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let unreadChat = ChatItem(
+            id: groupId,
+            title: "Unread Group",
+            subtitle: "",
+            preview: "New message",
+            updatedAt: Date(timeIntervalSince1970: 1_760_000_100),
+            avatarSeed: groupId,
+            pictureURL: nil,
+            unreadCount: 3,
+            manuallyMarkedUnread: false,
+            isDirect: false
+        )
+        #expect(ConversationUnreadMenuAction.resolve(for: unreadChat) == .markRead)
+        let messageId = String(repeating: "f", count: 64)
+        workspace.ensureMessageTimelineStore(for: groupId).replace(
+            with: [
+                MessageItem(
+                    id: messageId,
+                    senderName: "Peer",
+                    body: "New message",
+                    sentAt: Date(timeIntervalSince1970: 1_760_000_100),
+                    isOutgoing: false
+                )
+            ]
+        )
+
+        await workspace.markChatAsRead(unreadChat)
+
+        #expect(runtime.markedReadMessageIds == [messageId])
+        #expect(runtime.setChatManuallyUnreadCallCount == 0)
+    }
+
     @Test func confirmChatLocalDeleteRejectsTargetFromPreviousAccount() async throws {
         let first = AccountSummaryFfi(
             label: "First",
@@ -455,29 +563,40 @@ struct ShellCommandTests: WorkspaceTestSupport {
             width: nil,
             height: nil
         )
+        workspace.profileImageSearchQuery = "marmot"
+        workspace.profileImageResults = [picked]
         workspace.selectProfileImage(picked)
         #expect(workspace.isProfileImagePickerPresented)
         #expect(workspace.selectedProfileImageResult == picked)
+        #expect(!workspace.profileImageResults.isEmpty)
 
         workspace.switchActiveAccount(secondAccount, finalSelection: nil)
 
         #expect(!workspace.isProfileImagePickerPresented)
         #expect(workspace.selectedProfileImageResult == nil)
         #expect(workspace.profileImageResults.isEmpty)
+        #expect(workspace.profileImageSearchQuery.isEmpty)
     }
 
-    @Test func nativeSidebarResizePersistsWidthAcrossWorkspaceReconstruction() {
+    @Test func adoptNativeSidebarWidthPersistsExpandedDragAndPreservesCollapsedPreference() {
         let previousWidth = UserDefaults.standard.object(forKey: WorkspaceState.chatListWidthKey)
         defer { restoreDefault(previousWidth, forKey: WorkspaceState.chatListWidthKey) }
         UserDefaults.standard.removeObject(forKey: WorkspaceState.chatListWidthKey)
 
         let targetWidth = ChatListWidthPolicy.minimumExpandedWidth + 22
         let first = WorkspaceState()
-        first.resizeChatListDrawer(toProposedWidth: targetWidth)
+        first.adoptNativeSidebarWidth(targetWidth)
         #expect(first.chatListWidth == targetWidth)
 
         let recreated = WorkspaceState()
         #expect(recreated.chatListWidth == targetWidth)
+
+        // A previously saved collapsed preference must not be overwritten when the split view
+        // reports its minimum expanded column width on initial layout.
+        recreated.resizeChatListDrawer(toProposedWidth: ChatListWidthPolicy.collapsedWidth)
+        #expect(recreated.isChatListCollapsed)
+        recreated.adoptNativeSidebarWidth(ChatListWidthPolicy.minimumExpandedWidth)
+        #expect(recreated.chatListWidth == ChatListWidthPolicy.collapsedWidth)
     }
 
     @Test func removingActiveProfileWhileSwitchedToAnotherProfilePreservesNewActiveSession() async throws {

@@ -552,9 +552,9 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(openRequests == 1)
 
         state.selectAccountFromSettings(survivor)
-        #expect(router.accountID == survivor.id)
-        #expect(router.page == .overview)
-        #expect(openRequests == 2)
+        #expect(state.activeAccountId == survivor.id)
+        #expect(router.accountID == nil)
+        #expect(openRequests == 1)
     }
 
     /// Profile leads, not the startup toggles: settings used to open on "General", which put a

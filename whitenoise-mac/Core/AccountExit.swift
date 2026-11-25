@@ -44,11 +44,6 @@ enum AccountExit {
             workspace.stopChatListListener()
             workspace.resetActiveAccountUIState()
             workspace.activeAccountId = nil
-            // Install chooser suppression immediately before any await so picking a survivor while
-            // recovery is suspended still keeps Settings closed.
-            if workspace.signedInAccounts.count >= 2 {
-                WorkspaceAccountPresentation.remoteUnlinkChooser.post(from: workspace)
-            }
         }
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)
@@ -137,8 +132,6 @@ enum AccountExit {
             workspace.selection = nil
             if postSettingsHandoff {
                 WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
-            } else {
-                WorkspaceAccountPresentation.remoteUnlinkChooser.post(from: workspace)
             }
         } else {
             // Signing out the last identity is a way out of the app, so it lands where a
@@ -177,7 +170,7 @@ enum AccountExit {
 /// workspace without making window state part of the account mutation or its recovery policy.
 enum WorkspaceAccountPresentation {
     case settingsHandoff
-    case remoteUnlinkChooser
+    case chooserSelectedAccount
     case cancelledAddProfile
     case focusMainWindow
     case settingsError(String?, accountId: String?)

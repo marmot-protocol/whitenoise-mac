@@ -24,11 +24,9 @@ struct MessengerShellView: View {
     private var productScreen: ProductScreen? {
         guard workspace.phase == .ready, workspace.activeAccount != nil else { return nil }
         switch workspace.selection {
-        case .settings:
-            return .settings
         case .chat:
             return workspace.selectedChat == nil ? .inbox : .conversation
-        case nil:
+        case .settings, nil:
             return .inbox
         }
     }
@@ -65,11 +63,7 @@ struct MessengerShellView: View {
                             .onGeometryChange(for: CGFloat.self) { proxy in
                                 proxy.size.width.rounded()
                             } action: { newWidth in
-                                guard workspace.isChatListVisible,
-                                    newWidth >= ChatListWidthPolicy.minimumExpandedWidth,
-                                    newWidth <= ChatListWidthPolicy.maximumWidth
-                                else { return }
-                                workspace.resizeChatListDrawer(toProposedWidth: newWidth)
+                                workspace.adoptNativeSidebarWidth(newWidth)
                             }
                         } detail: {
                             DetailPaneView(settings: settings)
@@ -110,6 +104,7 @@ struct MessengerShellView: View {
                 MessengerCommandContext(
                     workspace: workspace,
                     accountID: $0,
+                    selectedConversation: { session.accountScope?.selectedConversationModel },
                     isMessengerWindowTarget: MessengerCommandContext.acceptsCommandsInKeyWindow
                 )
             }

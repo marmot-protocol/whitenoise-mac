@@ -680,7 +680,7 @@ extension WorkspaceState {
     func setProfileImage(croppedImageData data: Data, expectedAccountId: String? = nil) async throws {
         if let expectedAccountId, activeAccountId != expectedAccountId { return }
         guard !isUploadingProfileImage else { throw AvatarImageCropper.CommitError.busy }
-        guard let context = beginProfileImageSelection(expectedAccountId: expectedAccountId) else { return }
+        guard let context = beginProfileImageSelection() else { return }
         defer { finishProfileImageSelection(context) }
 
         do {
@@ -691,12 +691,11 @@ extension WorkspaceState {
         }
     }
 
-    private func beginProfileImageSelection(expectedAccountId: String? = nil) -> ProfileImageSelectionContext? {
+    private func beginProfileImageSelection() -> ProfileImageSelectionContext? {
         guard !isUploadingProfileImage else { return nil }
         switch profileImagePickerDestination {
         case .activeAccount:
             guard let client, let activeAccount else { return nil }
-            if let expectedAccountId, activeAccount.id != expectedAccountId { return nil }
             profileImageUploadGeneration &+= 1
             setSettingsError(nil, accountId: activeAccount.id)
             isUploadingProfileImage = true

@@ -20,6 +20,81 @@ extension WorkspaceState {
         mutatingChatPreferenceIds.contains(chat.id)
     }
 
+    /// Persists a user-driven native split-view sidebar drag without clobbering a previously
+    /// saved collapsed drawer width when the split view enforces its expanded minimum on launch.
+    func adoptNativeSidebarWidth(_ proposedWidth: CGFloat) {
+        guard isChatListVisible,
+            !isChatListCollapsed,
+            proposedWidth >= ChatListWidthPolicy.minimumExpandedWidth,
+            proposedWidth <= ChatListWidthPolicy.maximumWidth
+        else { return }
+        resizeChatListDrawer(toProposedWidth: proposedWidth)
+    }
+
+    /// Explicitly marks `chat` as read from a user command (such as the Conversation menu),
+    /// advancing MDK's read position to the newest readable activity message and clearing any
+    /// manual unread reminder.
+    func markChatAsRead(_ chat: ChatItem, conversation: ConversationViewModel? = nil) async {
+        guard let client, let activeAccount, !mutatingChatPreferenceIds.contains(chat.id) else { return }
+        let accountId = activeAccount.id
+        mutatingChatPreferenceIds.insert(chat.id)
+        defer { mutatingChatPreferenceIds.remove(chat.id) }
+        do {
+            if conversation?.snapshot?.hasMoreAfter == true {
+                await conversation?.returnToLatest()
+                guard activeAccountId == accountId else { return }
+            }
+
+            let isAuthoritativeGroup = chat.isAuthoritativeGroup
+            let latest =
+                ensureMessageTimelineStore(for: chat.id).messages.last { message in
+                    message.countsAsReadActivity(inAuthoritativeGroup: isAuthoritativeGroup) && !message.isDeleted
+                }
+
+            var updatedRow: ChatListRowFfi?
+            if let latest {
+                let marker = ReadMarker(sentAt: latest.sentAt, messageId: latest.id)
+                let row = try await FFIExecutor.run {
+                    try client.markTimelineMessageRead(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: chat.id,
+                        messageIdHex: latest.id
+                    )
+                }
+                guard activeAccountId == accountId else { return }
+                let committed = ReadMarker.afterSuccessfulCommit(
+                    current: lastMarkedReadMarkers[chat.id],
+                    confirmed: lastConfirmedReadMarkers[chat.id],
+                    attempted: marker
+                )
+                lastMarkedReadMarkers[chat.id] = committed.current
+                lastConfirmedReadMarkers[chat.id] = committed.confirmed
+                updatedRow = row
+            }
+
+            if chat.manuallyMarkedUnread {
+                let row = try await FFIExecutor.run {
+                    try client.setChatManuallyUnread(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: chat.id,
+                        manuallyUnread: false
+                    )
+                }
+                guard activeAccountId == accountId else { return }
+                updatedRow = row ?? updatedRow
+            }
+
+            if let updatedRow {
+                await applyChatRow(updatedRow, account: activeAccount, shouldEnrich: false)
+            } else if latest != nil || chat.manuallyMarkedUnread {
+                await reloadChats(forceFreshSnapshot: true)
+            }
+        } catch {
+            guard activeAccountId == accountId else { return }
+            lastError = UserFacingError.message(for: error)
+        }
+    }
+
     func setChatManuallyUnread(_ chat: ChatItem, manuallyUnread: Bool) async {
         guard let client, let activeAccount, !mutatingChatPreferenceIds.contains(chat.id) else { return }
         let accountId = activeAccount.id

@@ -151,7 +151,7 @@ extension WorkspaceState {
     func selectAccountFromSettings(_ account: AccountItem) {
         guard !account.signedOut, account.id != activeAccountId else { return }
         switchActiveAccount(account, finalSelection: nil)
-        WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+        WorkspaceAccountPresentation.chooserSelectedAccount.post(from: self)
     }
 
     func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
@@ -198,6 +198,7 @@ extension WorkspaceState {
         // The web image picker is shared across profiles too, so close and clear it before B can
         // inherit A's search or selected tile.
         closeProfileImagePicker()
+        profileImageSearchQuery = ""
         resetProfileEditingState()
         closeNewChatComposer()
         resetComposeContacts()
@@ -831,7 +832,6 @@ extension WorkspaceState {
         // -action dialogs have to be dropped here too — they name a group id belonging to the
         // account being torn down.
         clearPendingChatDestructiveActions()
-        closeProfileImagePicker()
         profileDraft = ProfileDraft()
         resetProfileEditingState()
     }

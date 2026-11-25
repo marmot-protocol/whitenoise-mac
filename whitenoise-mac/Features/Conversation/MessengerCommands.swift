@@ -6,6 +6,7 @@ import SwiftUI
 struct MessengerCommandContext {
     let workspace: WorkspaceState
     let accountID: String
+    var selectedConversation: () -> ConversationViewModel? = { nil }
 
     let isMessengerWindowTarget: () -> Bool
 
@@ -118,7 +119,11 @@ struct MessengerCommands: Commands {
                 let chat = messenger.activeChat(matching: conversation.chatID)
             {
                 ConversationMenuItems(
-                    messenger: messenger, chat: chat, locale: locale, endingGroupIDs: endingGroupIDs
+                    messenger: messenger,
+                    conversation: messenger.selectedConversation(),
+                    chat: chat,
+                    locale: locale,
+                    endingGroupIDs: endingGroupIDs
                 )
             } else {
                 Button(L10n.string("Mute", locale: locale)) {}.disabled(true)
@@ -130,8 +135,31 @@ struct MessengerCommands: Commands {
     }
 }
 
+/// Which read-state action the Conversation menu offers for the active chat.
+enum ConversationUnreadMenuAction: Equatable {
+    case markRead
+    case clearUnreadReminder
+    case markUnread
+
+    var titleKey: String {
+        switch self {
+        case .markRead: "Mark as Read"
+        case .clearUnreadReminder: ChatRowMenuAction.clearUnread.titleKey
+        case .markUnread: ChatRowMenuAction.markUnread.titleKey
+        }
+    }
+
+    static func resolve(for chat: ChatItem) -> Self {
+        if chat.unreadCount > 0 {
+            return .markRead
+        }
+        return chat.manuallyMarkedUnread ? .clearUnreadReminder : .markUnread
+    }
+}
+
 private struct ConversationMenuItems: View {
     let messenger: MessengerCommandContext
+    let conversation: ConversationViewModel?
     let chat: ChatItem
     let locale: Locale
 
@@ -139,7 +167,7 @@ private struct ConversationMenuItems: View {
         let workspace = messenger.workspace
         let actions = ChatMenuActions(workspace: workspace, chat: chat)
         let isArchived = workspace.archivedChatItem(accountId: messenger.accountID, chatId: chat.id) != nil
-        let unreadAction: ChatRowMenuAction = chat.manuallyMarkedUnread ? .clearUnread : .markUnread
+        let unreadAction = ConversationUnreadMenuAction.resolve(for: chat)
 
         ChatMuteMenu(actions: actions, locale: locale, isCurrent: isCurrent)
 
@@ -154,7 +182,14 @@ private struct ConversationMenuItems: View {
         Button(L10n.string(unreadAction.titleKey, locale: locale)) {
             Task {
                 guard isCurrent() else { return }
-                await workspace.setChatManuallyUnread(chat, manuallyUnread: !chat.manuallyMarkedUnread)
+                switch unreadAction {
+                case .markRead:
+                    await workspace.markChatAsRead(chat, conversation: conversation)
+                case .clearUnreadReminder:
+                    await workspace.setChatManuallyUnread(chat, manuallyUnread: false)
+                case .markUnread:
+                    await workspace.setChatManuallyUnread(chat, manuallyUnread: true)
+                }
             }
         }
         .disabled(!actions.canChangePreferences)
@@ -200,7 +235,7 @@ private struct ConversationMenuItems: View {
             ConversationMenuItems(
                 messenger: MessengerCommandContext(
                     workspace: workspace, accountID: accountID, isMessengerWindowTarget: { true }),
-                chat: chat, locale: .current, endingGroupIDs: []
+                conversation: nil, chat: chat, locale: .current, endingGroupIDs: []
             )
         }
         .padding()
