@@ -6,7 +6,6 @@ struct ConversationSearchCommand {
     let chatID: String
     let model: ConversationSearchViewModel
     let open: () -> Void
-    let readableMessageIDs: () -> Set<String>
 }
 
 extension FocusedValues {

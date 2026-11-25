@@ -1101,91 +1101,6 @@ struct ChatRowContent: View {
     }
 }
 
-/// The chat row at the drawer's narrowest width: the avatar, and the one badge that says
-/// something is waiting on the reader.
-///
-/// This exists so the drawer never has to render a *truncated* row. Title, timestamp and
-/// preview are dropped wholesale rather than clipped — a group name cut mid-word tells the
-/// reader less than the avatar already does, and `ChatListWidthPolicy` snaps past the widths
-/// where that would be the only option.
-///
-/// Everything the row stops showing in words it still says on hover: the title, and "Muted"
-/// when the chat is, in the same `title — state` form the account rail uses.
-struct CollapsedChatRowContent: View {
-    let chat: ChatItem
-    let isSelected: Bool
-    var isPinned = false
-
-    private var rowStatus: ChatRowStatus? { ChatRowStatus.status(for: chat) }
-
-    private var hoverDescription: String {
-        chat.muted ? "\(chat.title) — \(L10n.string("Muted"))" : chat.title
-    }
-
-    var body: some View {
-        ProfileImageAvatarView(
-            seed: chat.avatarSeed,
-            initials: chat.title,
-            sanitizedPictureURL: chat.sanitizedPictureURL,
-            localImagePayload: chat.groupImagePayload,
-            size: MessagesLayout.chatRowAvatarSize,
-            isSelected: false
-        )
-        .overlay(alignment: .topTrailing) {
-            // Nudged onto the avatar's corner rather than centred over its face, the way the
-            // account rail places its own badge. The row's padding leaves room for it, so
-            // nothing is clipped.
-            badge
-                .offset(x: 3, y: -3)
-        }
-        // The other corner, so the pin never contends with the badge slot above. Moving the pin
-        // onto the avatar is what lets the collapsed row keep it at all — there is no title line
-        // here to put it beside.
-        .overlay(alignment: .bottomTrailing) {
-            if isPinned {
-                ChatAvatarPinBadge()
-            }
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
-        .background {
-            MessagesSidebarRowBackground(isSelected: isSelected)
-        }
-        .contentShape(.rect)
-        .help(hoverDescription)
-        .accessibilityLabel(hoverDescription)
-    }
-
-    /// One badge, in the rail's single badge slot, so it has to be the most urgent claim on the
-    /// reader rather than all of them: an unanswered invite, then a mention (which the bare count
-    /// beside it would not distinguish from ordinary traffic), then the count, then the
-    /// manually-marked-unread dot. The expanded row, which has the width for it, still shows the
-    /// mention pill and the count together.
-    @ViewBuilder
-    private var badge: some View {
-        if rowStatus == .pendingInvite {
-            PendingInviteBadge()
-        } else if chat.hasUnread {
-            if chat.hasMention {
-                Image(systemName: "at")
-                    .wnFont(.bold10)
-                    .foregroundStyle(WNColor.fillContentPrimary)
-                    .frame(width: 18, height: 18)
-                    .background(Circle().fill(WNColor.fillPrimary))
-                    .accessibilityLabel(L10n.string("You were mentioned"))
-            } else if chat.unreadCount > 0 {
-                UnreadCountBadge(count: chat.unreadCount, textStyle: MessagesType.badge)
-            } else {
-                Circle()
-                    .fill(WNColor.fillPrimary)
-                    .frame(width: 9, height: 9)
-                    .accessibilityLabel(L10n.string("Marked unread"))
-            }
-        }
-    }
-}
-
 private struct ChatDeliveryStateIcon: View {
     let state: ChatMessageDeliveryState
 
@@ -1334,11 +1249,8 @@ private struct ChatListSearchTruncatedNote: View {
 }
 
 #Preview("ChatSidebarRowContent") {
-    VStack(alignment: .leading, spacing: 12) {
-        ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, searchResult: nil)
-        CollapsedChatRowContent(chat: ChatItem.samples[0], isSelected: true, isPinned: false)
-    }
-    .padding()
-    .frame(width: 320)
-    .environment(WorkspaceState.preview())
+    ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, searchResult: nil)
+        .padding()
+        .frame(width: 320)
+        .environment(WorkspaceState.preview())
 }

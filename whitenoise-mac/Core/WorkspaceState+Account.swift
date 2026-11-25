@@ -331,13 +331,15 @@ extension WorkspaceState {
     /// rebuild and `activateReadyState()`'s reloads would be work done for a user who pressed
     /// cancel. What it does scrub is the key field, because Cancel is one of the exits #32 is
     /// about: a typed-but-unsubmitted nsec must not outlive the pane it was typed into.
-    func leaveAccountOnboarding() {
+    func leaveAccountOnboarding(returningToSettings: Bool = true) {
         guard canLeaveAccountOnboarding, !isAuthenticating else { return }
         authenticationMode = .landing
         clearEnteredLoginIdentity()
         lastError = nil
         phase = .ready
-        WorkspaceAccountPresentation.cancelledAddProfile.post(from: self)
+        if returningToSettings {
+            WorkspaceAccountPresentation.cancelledAddProfile.post(from: self)
+        }
     }
 
     func cancelLogin() {
@@ -746,7 +748,7 @@ extension WorkspaceState {
             if wasActive, activeAccountId == removedAccountId {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
             return outcome
         }
     }
@@ -820,7 +822,7 @@ extension WorkspaceState {
     /// remain.
     func signOutAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
-        lastError = nil
+        setSettingsError(nil)
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
 
@@ -850,14 +852,14 @@ extension WorkspaceState {
             if wasActive, activeAccountId == account.id {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
         }
     }
 
     /// Re-activate a previously signed-out account and make it the active one.
     func signInAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
-        lastError = nil
+        setSettingsError(nil)
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
 
@@ -885,7 +887,7 @@ extension WorkspaceState {
                 }
             }
         } catch {
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
         }
     }
 
@@ -893,7 +895,7 @@ extension WorkspaceState {
         guard let client, !isAccountMutationInProgress else { return }
 
         isDeletingAllData = true
-        lastError = nil
+        setSettingsError(nil)
         suppressAllMediaDiskStores()
         defer { resumeAllMediaDiskStores() }
         defer { isDeletingAllData = false }
@@ -933,14 +935,14 @@ extension WorkspaceState {
             } else {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            lastError = errorMessage
+            setSettingsError(errorMessage)
             return
         }
 
         await mediaDiskCache.purgeAll(removeEncryptionKey: true)
         transitionToPostDeletionOnboarding(storageRootPath: client.storageRootPath)
         if let recreationError = await recreateClientForOnboarding() {
-            lastError = recreationError.localizedDescription
+            setSettingsError(recreationError.localizedDescription)
         }
     }
 

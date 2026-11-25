@@ -47,7 +47,8 @@ enum AccountExit {
         }
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)
-            try await finishSigningOut(accountId: account.id, in: workspace, client: client)
+            try await finishSigningOut(
+                accountId: account.id, in: workspace, client: client, postSettingsHandoff: false)
         } catch {
             if wasActive, workspace.activeAccountId == account.id {
                 await workspace.restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
@@ -84,7 +85,10 @@ enum AccountExit {
     /// so a reload that fails carries on with the installed list. That isn't reported: the sign-out
     /// went through, and the next reload reads the list again.
     static func finishSigningOut(
-        accountId: String, in workspace: WorkspaceState, client: any MarmotRuntime
+        accountId: String,
+        in workspace: WorkspaceState,
+        client: any MarmotRuntime,
+        postSettingsHandoff: Bool = true
     ) async throws {
         workspace.clearComposerDrafts(forAccountId: accountId)
         workspace.clearMediaReferenceResolutionCache(forAccountId: accountId)
@@ -111,7 +115,9 @@ enum AccountExit {
             // straight into it, still on the settings page the sign-out left — as deleting
             // the active profile does (`removeAccount`).
             workspace.switchActiveAccount(remaining, finalSelection: nil)
-            WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
+            if postSettingsHandoff {
+                WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
+            }
             await workspace.configureObservabilityRuntimeBestEffort()
             await workspace.loadSettingsData()
         } else if !signedInAccounts.isEmpty {
@@ -124,7 +130,9 @@ enum AccountExit {
             UserDefaults.standard.removeObject(forKey: WorkspaceState.activeAccountKey)
             workspace.notificationSettings = .defaults
             workspace.selection = nil
-            WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
+            if postSettingsHandoff {
+                WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
+            }
         } else {
             // Signing out the last identity is a way out of the app, so it lands where a
             // first launch does. It used to stay in `.ready` with no active account, which
@@ -163,6 +171,8 @@ enum AccountExit {
 enum WorkspaceAccountPresentation {
     case settingsHandoff
     case cancelledAddProfile
+    case focusMainWindow
+    case settingsError(String?)
 
     static let eventKey = "event"
 

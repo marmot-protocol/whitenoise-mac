@@ -115,10 +115,6 @@ struct ContentView: View {
                 )
                 applyAppearance(workspace.appearancePreference)
             }
-            .onChange(of: workspace.showsMessengerChrome, initial: true) { settings.synchronize() }
-            .onChange(of: workspace.activeAccountId) { settings.synchronize() }
-            .onChange(of: workspace.developerMode) { settings.synchronize() }
-            .onChange(of: workspace.signedInAccounts.map(\.id)) { settings.synchronize() }
             .onChange(of: session.accountScope?.deviceLinking.presentedSheet) {
                 settings.updateDeviceLinkHost(
                     sheetIsPresented: session.accountScope?.deviceLinking.presentedSheet != nil)

@@ -83,14 +83,14 @@ struct MessengerCommands: Commands {
 
                 Button(L10n.string("Find Next", locale: locale)) {
                     guard canUseConversation else { return }
-                    conversation?.model.goToOlderMatch()
+                    conversation?.model.goToNewerMatch()
                 }
                 .keyboardShortcut("g", modifiers: .command)
                 .disabled(!canUseConversation || conversation?.model.canStep != true)
 
                 Button(L10n.string("Find Previous", locale: locale)) {
                     guard canUseConversation else { return }
-                    conversation?.model.goToNewerMatch()
+                    conversation?.model.goToOlderMatch()
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(!canUseConversation || conversation?.model.canStep != true)
@@ -118,13 +118,12 @@ struct MessengerCommands: Commands {
                 let chat = messenger.activeChat(matching: conversation.chatID)
             {
                 ConversationMenuItems(
-                    messenger: messenger, chat: chat, locale: locale,
-                    readableMessageIDs: conversation.readableMessageIDs, endingGroupIDs: endingGroupIDs
+                    messenger: messenger, chat: chat, locale: locale, endingGroupIDs: endingGroupIDs
                 )
             } else {
                 Button(L10n.string("Mute", locale: locale)) {}.disabled(true)
                 Button(L10n.string("Archive", locale: locale)) {}.disabled(true)
-                Button(L10n.string("Mark as Read", locale: locale)) {}.disabled(true)
+                Button(L10n.string("Mark as Unread", locale: locale)) {}.disabled(true)
                 Button(L10n.string("Show Chat Info", locale: locale)) {}.disabled(true)
             }
         }
@@ -140,6 +139,7 @@ private struct ConversationMenuItems: View {
         let workspace = messenger.workspace
         let actions = ChatMenuActions(workspace: workspace, chat: chat)
         let isArchived = workspace.archivedChatItem(accountId: messenger.accountID, chatId: chat.id) != nil
+        let unreadAction: ChatRowMenuAction = chat.manuallyMarkedUnread ? .clearUnread : .markUnread
 
         ChatMuteMenu(actions: actions, locale: locale, isCurrent: isCurrent)
 
@@ -151,23 +151,13 @@ private struct ConversationMenuItems: View {
         }
         .disabled(!actions.canArchive)
 
-        Button(L10n.string("Mark as Read", locale: locale)) {
+        Button(L10n.string(unreadAction.titleKey, locale: locale)) {
             Task {
-                guard isCurrent(), let account = workspace.activeAccount,
-                    let runtime = workspace.client
-                else { return }
-                await workspace.markLatestVisibleMessageRead(
-                    groupIdHex: chat.id,
-                    account: account,
-                    client: runtime,
-                    within: readableMessageIDs()
-                )
-                if chat.manuallyMarkedUnread, isCurrent() {
-                    await workspace.setChatManuallyUnread(chat, manuallyUnread: false)
-                }
+                guard isCurrent() else { return }
+                await workspace.setChatManuallyUnread(chat, manuallyUnread: !chat.manuallyMarkedUnread)
             }
         }
-        .disabled(!actions.canChangePreferences || (!chat.hasUnread && !chat.manuallyMarkedUnread))
+        .disabled(!actions.canChangePreferences)
 
         Button(L10n.string("Show Chat Info", locale: locale)) {
             Task {
@@ -190,7 +180,6 @@ private struct ConversationMenuItems: View {
         }
     }
 
-    let readableMessageIDs: () -> Set<String>
     let endingGroupIDs: Set<String>
 
     private func isCurrent() -> Bool {
@@ -205,7 +194,7 @@ private struct ConversationMenuItems: View {
             ConversationMenuItems(
                 messenger: MessengerCommandContext(
                     workspace: workspace, accountID: accountID, isMessengerWindowTarget: { true }),
-                chat: chat, locale: .current, readableMessageIDs: { [] }, endingGroupIDs: []
+                chat: chat, locale: .current, endingGroupIDs: []
             )
         }
         .padding()

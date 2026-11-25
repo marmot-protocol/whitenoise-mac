@@ -2081,11 +2081,13 @@ struct SettingsTests: WorkspaceTestSupport {
         await state.bootstrap()
         let router = SettingsWindowCoordinator(workspace: state)
         router.open(at: .notifications)
-        state.lastError = WorkspaceState.notificationPermissionGuidance
+        state.setSettingsError(WorkspaceState.notificationPermissionGuidance)
+        #expect(router.lastError == WorkspaceState.notificationPermissionGuidance)
 
         router.navigate(to: .storage)
 
         #expect(router.page == .storage)
+        #expect(router.lastError == nil)
         #expect(state.lastError == nil)
     }
 

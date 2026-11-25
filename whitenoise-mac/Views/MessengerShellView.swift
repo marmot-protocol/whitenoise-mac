@@ -1392,8 +1392,7 @@ private struct ConversationView: View {
     /// already finds its messages, so in-chat search must not be the one place they are hidden.
     private var searchCommand: ConversationSearchCommand {
         ConversationSearchCommand(
-            accountID: model.account.id, chatID: chat.id, model: model.search,
-            open: openSearch, readableMessageIDs: { model.readableMessageIds }
+            accountID: model.account.id, chatID: chat.id, model: model.search, open: openSearch
         )
     }
 

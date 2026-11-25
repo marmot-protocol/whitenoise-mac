@@ -163,7 +163,7 @@ struct SettingsScaffold<Content: View>: View {
 
     @ViewBuilder
     private var errorSection: some View {
-        if let error = workspace.lastError {
+        if let error = settings?.lastError {
             SettingsSection(title: errorSectionTitle) {
                 SettingsErrorView(error: error)
             }
@@ -177,7 +177,7 @@ struct SettingsScaffold<Content: View>: View {
 /// this — those controls draw their own box, and a grouped `Section` would put a second one
 /// around each.
 struct SettingsStackScaffold<Content: View>: View {
-    @Environment(WorkspaceState.self) private var workspace
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     let title: String
     var subtitle: String?
     let content: Content
@@ -201,7 +201,7 @@ struct SettingsStackScaffold<Content: View>: View {
                 VStack(alignment: .leading, spacing: 16) {
                     content
 
-                    if let error = workspace.lastError {
+                    if let error = settings?.lastError {
                         SettingsErrorView(error: error)
                     }
                 }

@@ -53,6 +53,13 @@ private enum ProfileImageSelectionContext {
 
 @MainActor
 extension WorkspaceState {
+    /// Records or clears an error owned by Settings so the Settings window banner shows and clears
+    /// its own errors without colliding with main-window Chat Info errors.
+    func setSettingsError(_ message: String?) {
+        lastError = message
+        WorkspaceAccountPresentation.settingsError(message).post(from: self)
+    }
+
     /// Loads the legacy aggregate settings snapshot (profile, relays, and notifications)
     /// for the active account.
     ///
@@ -159,7 +166,7 @@ extension WorkspaceState {
             beginProfileNostrAddressCheck()
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
             profileDraft = ProfileDraft(fallbackName: fallbackName)
             // A profile that could not be read is not a profile with unsaved edits in it. Without
             // this the page would open showing Cancel and Save over a form nobody has touched.
@@ -185,7 +192,7 @@ extension WorkspaceState {
             relaySettings = RelaySettingsSnapshot(lists: lists)
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
             relaySettings = .defaults
         }
 
@@ -210,7 +217,7 @@ extension WorkspaceState {
         guard notificationAuthorizationStatus.canPostNotifications,
             lastError == Self.notificationPermissionGuidance
         else { return }
-        lastError = nil
+        setSettingsError(nil)
     }
 
     func beginNotificationSettingsOperation() -> UInt64 {
@@ -229,11 +236,11 @@ extension WorkspaceState {
     }
 
     func requestLocalNotificationPermission() async {
-        lastError = nil
+        setSettingsError(nil)
         do {
             notificationAuthorizationStatus = try await localNotificationCenter.requestAuthorization()
             if !notificationAuthorizationStatus.canPostNotifications {
-                lastError = Self.notificationPermissionGuidance
+                setSettingsError(Self.notificationPermissionGuidance)
             }
         } catch {
             await handleNotificationPermissionError(error)
@@ -247,7 +254,7 @@ extension WorkspaceState {
         let accountRef = activeAccount.accountRef
         let generation = beginNotificationSettingsOperation()
 
-        lastError = nil
+        setSettingsError(nil)
         isSavingNotifications = true
         defer { isSavingNotifications = false }
 
@@ -271,7 +278,7 @@ extension WorkspaceState {
 
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             guard status.canPostNotifications else {
-                lastError = Self.notificationPermissionGuidance
+                setSettingsError(Self.notificationPermissionGuidance)
                 return
             }
         }
@@ -286,7 +293,7 @@ extension WorkspaceState {
             }
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
             return
         }
 
@@ -314,7 +321,7 @@ extension WorkspaceState {
             // The snapshot keeps saying native push is on, because in the core it is. The pane
             // still draws that switch off — it reads local alerts first — so the reader is not
             // told about a wake-up that can no longer reach them, and the next load reconciles.
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
         }
     }
 
@@ -328,7 +335,7 @@ extension WorkspaceState {
         let accountRef = activeAccount.accountRef
         let generation = beginNotificationSettingsOperation()
 
-        lastError = nil
+        setSettingsError(nil)
         isSavingNotifications = true
         defer { isSavingNotifications = false }
 
@@ -338,7 +345,7 @@ extension WorkspaceState {
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
         }
     }
 
@@ -359,7 +366,7 @@ extension WorkspaceState {
         // the live `activeAccountId`. Capture the account id so an A→B switch during the publish
         // can't misattribute A's profile to B (mirroring `performSettingsLoad`).
         let accountId = activeAccount.id
-        lastError = nil
+        setSettingsError(nil)
         isSavingProfile = true
         defer { isSavingProfile = false }
 
@@ -381,7 +388,7 @@ extension WorkspaceState {
             beginProfileNostrAddressCheck()
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
         }
     }
 
@@ -412,7 +419,7 @@ extension WorkspaceState {
     func discardProfileEdits() {
         guard let publishedProfile else { return }
         profileDraft = publishedProfile
-        lastError = nil
+        setSettingsError(nil)
     }
 
     /// Whether Settings → Profile's fields accept input.
@@ -778,7 +785,7 @@ extension WorkspaceState {
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             notificationSettings = .defaults
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error))
         }
     }
 }

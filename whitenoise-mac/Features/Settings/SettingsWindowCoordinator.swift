@@ -11,6 +11,9 @@ final class SettingsWindowCoordinator {
     private(set) var accountID: String?
     private(set) var pendingPage: SettingsPage?
     private(set) var hostsDeviceLinkSheet = false
+    /// Settings-owned error text so Settings and main-window Chat Info never clobber or display
+    /// each other's failures.
+    private(set) var lastError: String?
 
     var parentPage: SettingsPage { page == .overview ? .profile : page.drawerPage }
 
@@ -41,6 +44,11 @@ final class SettingsWindowCoordinator {
                     self.routeAccountMutation()
                 case .cancelledAddProfile:
                     self.returnFromAddProfile()
+                case .focusMainWindow:
+                    self.addProfileReturn = nil
+                    self.focusMainWindow()
+                case .settingsError(let message):
+                    self.lastError = message
                 }
             }
     }
@@ -88,7 +96,11 @@ final class SettingsWindowCoordinator {
     func navigate(to destination: SettingsPage) {
         guard let workspace, workspace.showsMessengerChrome else { return }
         page = availablePage(destination, developerModeEnabled: workspace.developerMode)
-        workspace.lastError = nil
+        let previousSettingsError = lastError
+        lastError = nil
+        if let previousSettingsError, workspace.lastError == previousSettingsError {
+            workspace.lastError = nil
+        }
     }
 
     func beginAddProfile() {
@@ -153,6 +165,7 @@ final class SettingsWindowCoordinator {
     private func close() {
         accountID = nil
         hostsDeviceLinkSheet = false
+        lastError = nil
         window?.close()
     }
 

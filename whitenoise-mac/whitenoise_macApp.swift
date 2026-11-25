@@ -105,10 +105,14 @@ struct whitenoise_macApp: App {
         .onChange(of: workspace.phase) {
             notificationResponses.phaseDidChange()
         }
+        .onChange(of: workspace.showsMessengerChrome, initial: true) { settings.synchronize() }
+        .onChange(of: workspace.developerMode) { settings.synchronize() }
+        .onChange(of: workspace.signedInAccounts.map(\.id)) { settings.synchronize() }
         .onChange(of: applicationBadgeCount, initial: true) { _, count in
             dockBadge.apply(count: count)
         }
         .onChange(of: workspace.activeAccountId) { previousAccountId, _ in
+            settings.synchronize()
             // Clear the old account's badge before the replacement scope can publish its total.
             dockBadge.activeAccountDidChange(
                 from: previousAccountId,

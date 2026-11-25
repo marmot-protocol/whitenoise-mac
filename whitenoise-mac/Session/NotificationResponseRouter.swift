@@ -95,7 +95,7 @@ final class NotificationResponseRouter {
             return
         }
         pendingResponse = nil
-        workspace.leaveAccountOnboarding()
+        workspace.leaveAccountOnboarding(returningToSettings: false)
         guard workspace.phase == .ready else { return }
         workspace.handleNotificationResponse(userInfo)
     }

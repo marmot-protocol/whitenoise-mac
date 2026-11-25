@@ -1,4 +1,5 @@
 import AppKit
+import MarmotKit
 import Testing
 
 @testable import whitenoise_mac
@@ -105,6 +106,91 @@ struct ShellCommandTests {
         #expect(!coordinator.hostsDeviceLinkSheet)
         #expect(window.didClose)
         #expect(focusedMain)
+    }
+
+    @Test func settingsErrorsAndMainWindowChatInfoErrorsStayIsolated() {
+        let workspace = WorkspaceState.preview()
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        coordinator.open(at: .notifications)
+
+        // A main-window Chat Info error must never appear in Settings or be cleared by Settings navigation.
+        workspace.lastError = "Couldn't update group name"
+        #expect(coordinator.lastError == nil)
+        coordinator.navigate(to: .storage)
+        #expect(workspace.lastError == "Couldn't update group name")
+
+        // A Settings-owned error appears on the coordinator and clears on navigation.
+        workspace.setSettingsError("Notifications are turned off")
+        #expect(coordinator.lastError == "Notifications are turned off")
+        coordinator.navigate(to: .profile)
+        #expect(coordinator.lastError == nil)
+        #expect(workspace.lastError == nil)
+    }
+
+    @Test func notificationClickFocusesMainWindowAndCancelsAddProfileReturn() async throws {
+        let workspace = WorkspaceState.preview()
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        var settingsOpens = 0
+        var mainFocuses = 0
+        coordinator.installPresentationActions(
+            showSettings: { settingsOpens += 1 },
+            showMain: { mainFocuses += 1 }
+        )
+
+        coordinator.open(at: .profile)
+        #expect(settingsOpens == 1)
+
+        // Start Add Profile from Settings, then click a notification targeting a chat.
+        coordinator.beginAddProfile()
+        #expect(workspace.phase == .onboarding)
+        let focusCountBeforeNotification = mainFocuses
+
+        let chat = try #require(workspace.activeChats.first)
+        let account = try #require(workspace.activeAccount)
+        let router = NotificationResponseRouter(workspace: workspace, onboarding: { nil })
+        router.route(["accountIdHex": account.accountIdHex, "groupIdHex": chat.id])
+
+        #expect(workspace.phase == .ready)
+        #expect(mainFocuses > focusCountBeforeNotification)
+        // Must NOT reopen Settings after navigating from a notification click.
+        #expect(settingsOpens == 1)
+    }
+
+    @Test func remoteDeviceUnlinkDoesNotPopSettingsOverAlert() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "2", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true,
+            unlinked: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let workspace = WorkspaceState(clientFactory: { runtime })
+        await workspace.bootstrap()
+
+        let coordinator = SettingsWindowCoordinator(workspace: workspace)
+        var settingsOpens = 0
+        coordinator.installPresentationActions(showSettings: { settingsOpens += 1 }, showMain: {})
+
+        let unlinked = try #require(workspace.activeAccount)
+        runtime.unlinkFromAnotherDevice(accountRef: unlinked.accountRef)
+        await AccountExit.leaveSignedOutAccount(
+            accountIdHex: unlinked.accountIdHex.lowercased(),
+            in: workspace
+        )
+
+        #expect(settingsOpens == 0)
     }
 
     private final class CommandFocus {

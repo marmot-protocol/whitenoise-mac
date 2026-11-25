@@ -53,10 +53,6 @@ struct SettingsWindowView: View {
                 showMain: { openWindow(id: whitenoise_macApp.mainWindowID) }
             )
         }
-        .onChange(of: workspace.showsMessengerChrome, initial: true) { coordinator.synchronize() }
-        .onChange(of: workspace.activeAccountId) { coordinator.synchronize() }
-        .onChange(of: workspace.developerMode) { coordinator.synchronize() }
-        .onChange(of: workspace.signedInAccounts.map(\.id)) { coordinator.synchronize() }
         .onReceive(
             NotificationCenter.default.publisher(for: NSWindow.willCloseNotification), perform: coordinator.didClose
         )
@@ -69,14 +65,14 @@ struct SettingsWindowView: View {
                 sheetIsPresented: session.accountScope?.deviceLinking.presentedSheet != nil)
         }
         // These account-wide notices have a single host in the main window. Bring their host
-        // forward when a Settings action produces a report or an unlink arrives.
-        .onChange(of: session.wipeReportToShow) {
+        // forward when a Settings action produces a report or an unlink/link request is pending.
+        .onChange(of: session.wipeReportToShow, initial: true) {
             if session.wipeReportToShow != nil { coordinator.focusMainWindow() }
         }
-        .onChange(of: session.deviceUnlinks.notice) {
+        .onChange(of: session.deviceUnlinks.notice, initial: true) {
             if session.deviceUnlinks.notice != nil { coordinator.focusMainWindow() }
         }
-        .onChange(of: session.linkRequests.alert) {
+        .onChange(of: session.linkRequests.alert, initial: true) {
             if session.linkRequests.alert != nil { coordinator.focusMainWindow() }
         }
     }
