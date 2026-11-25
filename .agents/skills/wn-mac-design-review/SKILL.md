@@ -18,6 +18,8 @@ review, distinguish what the image shows from what only code or interaction can
 establish. If no running-app evidence was requested or supplied, review the source
 and state that boundary; do not launch or capture the app to fill it in.
 
+Check the [approved Mac design decisions](../../../docs/macos-ui-patterns.md#approved-mac-design-decisions) that apply to the change. Cite the affected decision and visible consequence. A future decision outside this PR is not a defect in the PR.
+
 ## Review lenses
 
 Use the concrete IDs in the

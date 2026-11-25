@@ -25,6 +25,8 @@ This is a native macOS app, not a Catalyst port or an enlarged iPhone screen.
   [wn-mac-design-review](../wn-mac-design-review/SKILL.md) too. Ordinary implementation
   does not start a separate review workflow or authorize delegation.
 
+Use the [approved Mac design decisions](../../../docs/macos-ui-patterns.md#approved-mac-design-decisions) for the affected flow. Treat the sizing reference as a starting point where the guide identifies it as such.
+
 ## Working decisions
 
 1. Identify one screen or bounded flow and its existing actions, state owner, and
