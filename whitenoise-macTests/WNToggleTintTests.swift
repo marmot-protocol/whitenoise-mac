@@ -65,9 +65,10 @@ import Testing
     ///
     /// Hosting both controls inside the same grouped `Form` acts as a positive control: if
     /// `.checkbox` accidentally fell back to the form's default style (or to `.switch`), it would
-    /// produce an `NSSwitch` just like `defaultInForm` does. On macOS 15–26 SwiftUI backs a
-    /// checkbox with an `NSButton`; on macOS 27 SwiftUI draws checkboxes natively so `platformView`
-    /// returns `nil` (while `defaultInForm` still yields `NSSwitch`).
+    /// produce an `NSSwitch` just like `defaultInForm` does. The backing view type for a checkbox
+    /// varies across macOS versions (`NSButton`, a SwiftUI `AppKitPlatformViewHost<...Checkbox>`,
+    /// or `nil` on macOS 27's native drawing), so — as in `theComponentIsASwitchEvenOutsideAForm()`
+    /// — the invariant is that it never produces an `NSSwitch`.
     @Test func checkboxPresentationDoesNotForceASwitch() throws {
         let defaultInForm = try #require(
             Self.platformView(
@@ -89,9 +90,6 @@ import Testing
             .frame(width: 280, height: 80)
         )
         #expect(!(checkboxInForm is NSSwitch))
-        if let checkboxInForm {
-            #expect(checkboxInForm is NSButton)
-        }
     }
 
     /// The negative control, and the reason the test above means anything.
