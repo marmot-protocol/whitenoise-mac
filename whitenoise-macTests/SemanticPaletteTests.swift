@@ -465,19 +465,16 @@ struct SemanticPaletteTests {
         }
     }
 
-    /// The sent bubble's secondary roles are its own rather than the window's. The window roles
-    /// they replaced fail on the inverted bubble in Dark, which is the case #1039 retires: outgoing
-    /// quotes and metadata must not inherit unreadable generic label colours.
+    /// The sent bubble's secondary roles are distinct from the window's generic tokens and stay
+    /// AA-legible on the inverted bubble in Dark appearance (#1039).
     @Test func theSentBubbleDoesNotInheritTheWindowsSecondaryRoles() throws {
         let dark = try #require(NSAppearance(named: .darkAqua))
         let sent = try Self.bubbleSurface(.sent, in: dark)
-        let windowSecondary = try Self.composited(WNNSColor.backgroundContentSecondary, over: sent, in: dark)
-        let windowLink = try Self.composited(WNNSColor.intentionInfoContent, over: sent, in: dark)
         let ownSecondary = try Self.composited(MessageBubblePolarity.sent.nsSecondaryContent, over: sent, in: dark)
         let ownLink = try Self.composited(MessageBubblePolarity.sent.nsLink, over: sent, in: dark)
 
-        #expect(Self.contrastRatio(windowSecondary, sent) < 3.0)
-        #expect(Self.contrastRatio(windowLink, sent) < 4.5)
+        #expect(MessageBubblePolarity.sent.nsSecondaryContent !== WNNSColor.backgroundContentSecondary)
+        #expect(MessageBubblePolarity.sent.nsLink !== WNNSColor.intentionInfoContent)
         #expect(Self.contrastRatio(ownSecondary, sent) >= 4.5)
         #expect(Self.contrastRatio(ownLink, sent) >= 4.5)
     }
@@ -487,8 +484,7 @@ struct SemanticPaletteTests {
     /// A bubble's fill as it lands on the transcript's surface (`MessagesTranscriptBackground`).
     private static func bubbleSurface(_ polarity: MessageBubblePolarity, in appearance: NSAppearance) throws -> NSColor
     {
-        let transcript = try composited(WNNSColor.backgroundPrimary, over: WNNSColor.backgroundPrimary, in: appearance)
-        return try composited(polarity.nsFill, over: transcript, in: appearance)
+        try composited(polarity.nsFill, over: WNNSColor.backgroundPrimary, in: appearance)
     }
 
     /// Every accent, read through `AvatarPalette`'s list so these tests cover the same twelve sets

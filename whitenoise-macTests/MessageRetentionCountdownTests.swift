@@ -160,4 +160,60 @@ import Testing
         #expect(abs(half.minX - 5) < 0.01)
         #expect(abs(half.maxX - 10) < 0.01)
     }
+
+    // MARK: - Grouped run visibility
+
+    /// Earlier messages in a two-message grouped run keep their own disappearing countdown while
+    /// routine timestamps stay grouped on the last row, and non-disappearing rows keep no footer.
+    @MainActor
+    @Test func groupedDisappearingRunShowsCountdownOnBothRowsWhileGroupingTimestampOnLast() throws {
+        let first = MessageItem(
+            id: "msg-1",
+            retentionSeconds: Self.hour,
+            retentionExpiresAt: Self.expiry,
+            senderName: "Alice",
+            body: "First disappearing message",
+            sentAt: Self.date(Self.expiry, plus: -3_600),
+            isOutgoing: false
+        )
+        let second = MessageItem(
+            id: "msg-2",
+            retentionSeconds: Self.hour,
+            retentionExpiresAt: Self.expiry + 30,
+            senderName: "Alice",
+            body: "Second disappearing message",
+            sentAt: Self.date(Self.expiry, plus: -3_570),
+            isOutgoing: false
+        )
+        let plain = MessageItem(
+            id: "msg-3",
+            senderName: "Alice",
+            body: "Ordinary message",
+            sentAt: Self.date(Self.expiry, plus: -3_600),
+            isOutgoing: false
+        )
+
+        let runStart = MessageClusterPosition(startsCluster: true, endsCluster: false)
+        let runEnd = MessageClusterPosition(startsCluster: false, endsCluster: true)
+        let firstVisibility = MessageBubble.footerVisibility(cluster: runStart, message: first, indicator: .none)
+        let secondVisibility = MessageBubble.footerVisibility(cluster: runEnd, message: second, indicator: .none)
+        let plainFirstVisibility = MessageBubble.footerVisibility(cluster: runStart, message: plain, indicator: .none)
+
+        #expect(firstVisibility.showsRetentionCountdown)
+        #expect(!firstVisibility.showsClusterFooter)
+        #expect(firstVisibility.showsAnyMetadata)
+
+        #expect(secondVisibility.showsRetentionCountdown)
+        #expect(secondVisibility.showsClusterFooter)
+        #expect(secondVisibility.showsAnyMetadata)
+
+        #expect(!plainFirstVisibility.showsRetentionCountdown)
+        #expect(!plainFirstVisibility.showsClusterFooter)
+        #expect(!plainFirstVisibility.showsAnyMetadata)
+
+        // And the two messages retain distinct countdown expiries.
+        let firstCountdown = try #require(MessageRetentionCountdown(message: first))
+        let secondCountdown = try #require(MessageRetentionCountdown(message: second))
+        #expect(firstCountdown.expiresAt < secondCountdown.expiresAt)
+    }
 }

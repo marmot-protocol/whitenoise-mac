@@ -231,45 +231,20 @@ nonisolated enum MessageBubblePolarity: Hashable, Sendable {
         self = isOutgoing ? .sent : .received
     }
 
-    var fill: Color {
-        switch self {
-        case .sent: MessagesPalette.sentBubble
-        case .received: WNColor.messageReceivedFill
-        }
-    }
+    var fill: Color { Color(nsColor: nsFill) }
 
     /// The body text and any glyph that has to read at full strength.
-    var content: Color {
-        switch self {
-        case .sent: MessagesPalette.sentBubbleContent
-        case .received: WNColor.textPrimary
-        }
-    }
+    var content: Color { Color(nsColor: nsContent) }
 
     /// Footer metadata, the quoted body, a deleted message's label, and Markdown's quieter runs.
-    var secondaryContent: Color {
-        switch self {
-        case .sent: WNColor.messageSentSecondaryContent
-        case .received: WNColor.messageReceivedSecondaryContent
-        }
-    }
+    var secondaryContent: Color { Color(nsColor: nsSecondaryContent) }
 
-    var quoteFill: Color {
-        switch self {
-        case .sent: WNColor.messageSentQuoteFill
-        case .received: WNColor.messageReceivedQuoteFill
-        }
-    }
+    var quoteFill: Color { Color(nsColor: nsQuoteFill) }
 
-    var link: Color {
-        switch self {
-        case .sent: WNColor.messageSentLink
-        case .received: WNColor.messageReceivedLink
-        }
-    }
+    var link: Color { Color(nsColor: nsLink) }
 
-    /// The AppKit twins of the roles above, so the contrast between them can be measured on the
-    /// dynamic colors the views draw with.
+    /// The single dynamic `NSColor` mapping for each bubble role, shared by both SwiftUI views
+    /// (via `Color(nsColor:)`) and contrast tests.
     var nsFill: NSColor {
         switch self {
         case .sent: WNNSColor.fillPrimary

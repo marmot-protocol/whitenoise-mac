@@ -971,7 +971,7 @@ struct MessageBubble: View {
         .padding(.horizontal, bubbleHorizontalInset)
         .padding(.vertical, bubbleVerticalInset)
         .background { BubbleBackground(polarity: bubblePolarity) }
-        .modifier(HiddenMessageMetadata(isHidden: !showsBubbleMetadata, label: hiddenMetadataLabel))
+        .modifier(HiddenMessageMetadata(isHidden: !showsClusterFooter, label: hiddenMetadataLabel))
         // Attach controls before the positioning frame so short messages use the visible
         // bubble edge instead of the frame's maximum width.
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
@@ -980,14 +980,45 @@ struct MessageBubble: View {
         .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
     }
 
-    /// Whether the row draws its timestamp footer: a run of messages shows the routine time once,
-    /// on its last row (`MessageClusterPosition.showsFooter`).
+    /// Whether the row draws its routine timestamp/delivery footer: a run of messages shows the
+    /// routine time once, on its last row (`MessageClusterPosition.showsFooter`).
+    private var showsClusterFooter: Bool {
+        Self.footerVisibility(cluster: cluster, message: message, indicator: footerIndicator).showsClusterFooter
+    }
+
+    /// Whether the footer slot renders at all: either the grouped timestamp footer or this
+    /// message's own disappearing countdown (T11, #1040). Keeping the countdown independent of
+    /// `showsClusterFooter` ensures earlier messages in a run keep their own expiry indicator
+    /// without re-showing grouped timestamps.
     private var showsBubbleMetadata: Bool {
-        cluster.showsFooter(
-            isDeleted: message.isDeleted,
-            isEdited: message.isEdited,
-            hasReports: message.hasReports,
-            indicator: footerIndicator
+        Self.footerVisibility(cluster: cluster, message: message, indicator: footerIndicator).showsAnyMetadata
+    }
+
+    /// Per-row footer visibility split into grouped timestamp/status vs per-message disappearing
+    /// countdown, so grouped messages keep timestamp grouping while each disappearing message
+    /// shows its own expiry pie.
+    nonisolated struct FooterVisibility: Equatable {
+        let showsClusterFooter: Bool
+        let showsRetentionCountdown: Bool
+
+        var showsAnyMetadata: Bool {
+            showsClusterFooter || showsRetentionCountdown
+        }
+    }
+
+    static func footerVisibility(
+        cluster: MessageClusterPosition,
+        message: MessageItem,
+        indicator: MessageDeliveryIndicator
+    ) -> FooterVisibility {
+        FooterVisibility(
+            showsClusterFooter: cluster.showsFooter(
+                isDeleted: message.isDeleted,
+                isEdited: message.isEdited,
+                hasReports: message.hasReports,
+                indicator: indicator
+            ),
+            showsRetentionCountdown: MessageRetentionCountdown(message: message) != nil
         )
     }
 
@@ -1000,15 +1031,15 @@ struct MessageBubble: View {
     /// A send that did not go out says so where its time would be; the Retry link under the bubble
     /// is the action. An edited or reported failure keeps its time beside the notice.
     private var showsFailureNotice: Bool {
-        footerIndicator == .failed
+        showsClusterFooter && footerIndicator == .failed
     }
 
     private var showsFooterTime: Bool {
-        !showsFailureNotice || message.isEdited || message.hasReports
+        showsClusterFooter && (!showsFailureNotice || message.isEdited || message.hasReports)
     }
 
     private var showsEditedLabel: Bool {
-        message.isEdited && !message.isDeleted
+        showsClusterFooter && message.isEdited && !message.isDeleted
     }
 
     private var bubblePolarity: MessageBubblePolarity {
@@ -1059,7 +1090,7 @@ struct MessageBubble: View {
     private var inlineMetadataSpacer: Text {
         let font = MessageTypography.footer
         var parts: [Text] = []
-        if let systemImage = MessageDeliveryMarker.systemImage(for: footerIndicator) {
+        if showsClusterFooter, let systemImage = MessageDeliveryMarker.systemImage(for: footerIndicator) {
             parts.append(Text(Image(systemName: systemImage)).font(font))
         }
         if showsFailureNotice {
@@ -1130,7 +1161,7 @@ struct MessageBubble: View {
     private func compactMetadata(onBubble: Bool) -> some View {
         let tint = metadataColor(onBubble: onBubble)
         return HStack(spacing: 4) {
-            if MessageDeliveryMarker.systemImage(for: footerIndicator) != nil {
+            if showsClusterFooter, MessageDeliveryMarker.systemImage(for: footerIndicator) != nil {
                 MessageDeliveryMarker(indicator: footerIndicator)
                     // Only a real failure earns the alarm color, and a message some members may lack
                     // the warning color; an in-flight send stays in the metadata's own tint.

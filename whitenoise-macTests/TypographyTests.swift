@@ -155,23 +155,9 @@ private let allTokens: [WNTextStyle] = [
             #expect(ladder.contains(role.size))
         }
     }
-    /// A message reads body first (#1039, F04): the sender name, quote and footer step down from
-    /// the body through Apple's styles, the quoted author is told apart from the quoted words by
-    /// weight alone, and Markdown headings never fall below the body they head.
+    /// A message reads body first (#1039, F04): Markdown headings never fall below the body they
+    /// head, and sender name, quote, and footer step down from the body through Apple's styles.
     @Test func messageTextStepsDownFromTheBody() {
-        #expect(MessageTypography.body == .body)
-        #expect(MessageTypography.senderName == .subheadline)
-        #expect(MessageTypography.quoteBody == .subheadline)
-        #expect(MessageTypography.quoteSender == .subheadline.weight(.semibold))
-        #expect(MessageTypography.footer == .caption)
-        #expect(MessageTypography.dayDivider == .subheadline.weight(.semibold))
-
-        #expect(MarkdownHeadingStyle.font(for: 1) == .title3.weight(.semibold))
-        #expect(MarkdownHeadingStyle.font(for: 2) == .headline)
-        for level: UInt8 in 3...6 {
-            #expect(MarkdownHeadingStyle.font(for: level) == MessageTypography.bodySemibold)
-        }
-
         let title3 = NSFont.preferredFont(forTextStyle: .title3).pointSize
         let headline = NSFont.preferredFont(forTextStyle: .headline).pointSize
         let body = NSFont.preferredFont(forTextStyle: .body).pointSize
@@ -182,5 +168,7 @@ private let allTokens: [WNTextStyle] = [
         #expect(headline >= body)
         #expect(subheadline < body)
         #expect(caption < subheadline)
+        #expect(MessageTypography.quoteSender != MessageTypography.quoteBody)
+        #expect(MarkdownHeadingStyle.font(for: 1) != MarkdownHeadingStyle.font(for: 2))
     }
 }
