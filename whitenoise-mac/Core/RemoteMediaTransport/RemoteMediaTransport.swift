@@ -145,6 +145,184 @@ nonisolated protocol RemoteMediaConnectionFactory: Sendable {
     func makeConnection(to endpoint: RemoteMediaEndpoint) -> any RemoteMediaConnection
 }
 
+// MARK: - Concurrency slots
+
+/// A per-host cap on in-flight fetches so a screen of avatars from one host queues cleanly
+/// instead of opening dozens of simultaneous TLS handshakes, while a slow host cannot block
+/// fetches to other hosts.
+nonisolated final class RemoteMediaFetchSlots: @unchecked Sendable {
+    static let maximumConcurrentFetchesPerHost = 6
+    static let processWide = RemoteMediaFetchSlots(limitPerHost: maximumConcurrentFetchesPerHost)
+
+    private struct HostState {
+        var inUse = 0
+        var queue: [(UUID, @Sendable () -> Void)] = []
+    }
+
+    let limitPerHost: Int
+    private let lock = NSLock()
+    private var hosts: [RemoteMediaRequestTarget.Origin: HostState] = [:]
+    #if DEBUG
+        private let onStateChange: (@Sendable () -> Void)?
+
+        init(limitPerHost: Int, onStateChange: (@Sendable () -> Void)? = nil) {
+            self.limitPerHost = max(1, limitPerHost)
+            self.onStateChange = onStateChange
+        }
+    #else
+        init(limitPerHost: Int) {
+            self.limitPerHost = max(1, limitPerHost)
+        }
+    #endif
+
+    private func notifyStateChange() {
+        #if DEBUG
+            onStateChange?()
+        #endif
+    }
+
+    func inUseCount(for origin: RemoteMediaRequestTarget.Origin) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return hosts[origin]?.inUse ?? 0
+    }
+
+    func queuedCount(for origin: RemoteMediaRequestTarget.Origin) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return hosts[origin]?.queue.count ?? 0
+    }
+
+    /// Grants a slot immediately (returning `nil`) or enqueues `grant` in FIFO order and returns
+    /// a cancellation ticket.
+    func request(
+        for origin: RemoteMediaRequestTarget.Origin,
+        _ grant: @escaping @Sendable () -> Void
+    ) -> UUID? {
+        lock.lock()
+        var state = hosts[origin] ?? HostState()
+        if state.inUse < limitPerHost, state.queue.isEmpty {
+            state.inUse += 1
+            hosts[origin] = state
+            lock.unlock()
+            notifyStateChange()
+            grant()
+            return nil
+        }
+        let ticket = UUID()
+        state.queue.append((ticket, grant))
+        hosts[origin] = state
+        lock.unlock()
+        notifyStateChange()
+        return ticket
+    }
+
+    func cancelWaiter(_ ticket: UUID, for origin: RemoteMediaRequestTarget.Origin) {
+        lock.lock()
+        guard var state = hosts[origin] else {
+            lock.unlock()
+            return
+        }
+        state.queue.removeAll { $0.0 == ticket }
+        if state.inUse == 0, state.queue.isEmpty {
+            hosts.removeValue(forKey: origin)
+        } else {
+            hosts[origin] = state
+        }
+        lock.unlock()
+        notifyStateChange()
+    }
+
+    func release(for origin: RemoteMediaRequestTarget.Origin) {
+        lock.lock()
+        guard var state = hosts[origin] else {
+            lock.unlock()
+            return
+        }
+        state.inUse = max(0, state.inUse - 1)
+        let next: (@Sendable () -> Void)?
+        if !state.queue.isEmpty {
+            next = state.queue.removeFirst().1
+            state.inUse += 1
+        } else {
+            next = nil
+        }
+        if state.inUse == 0, state.queue.isEmpty {
+            hosts.removeValue(forKey: origin)
+        } else {
+            hosts[origin] = state
+        }
+        lock.unlock()
+        notifyStateChange()
+        next?()
+    }
+}
+
+/// Ensures one fetch-slot request releases its queued ticket or acquired slot at most once, even
+/// when cancellation or deadline expiration races the slot grant.
+private nonisolated final class RemoteMediaFetchPermit: @unchecked Sendable {
+    private enum State {
+        case pending(UUID?)
+        case acquired
+        case released
+    }
+
+    private let origin: RemoteMediaRequestTarget.Origin
+    private let slots: RemoteMediaFetchSlots
+    private let lock = NSLock()
+    private var state = State.pending(nil)
+
+    init(origin: RemoteMediaRequestTarget.Origin, slots: RemoteMediaFetchSlots) {
+        self.origin = origin
+        self.slots = slots
+    }
+
+    func install(_ ticket: UUID?) {
+        guard let ticket else { return }
+        lock.lock()
+        switch state {
+        case .pending:
+            state = .pending(ticket)
+            lock.unlock()
+        case .acquired:
+            lock.unlock()
+        case .released:
+            lock.unlock()
+            slots.cancelWaiter(ticket, for: origin)
+        }
+    }
+
+    /// Transitions a pending permit to acquired. Returns `false` if already abandoned, in which
+    /// case the caller must immediately release the slot back to `slots`.
+    func markAcquired() -> Bool {
+        lock.lock()
+        switch state {
+        case .pending:
+            state = .acquired
+            lock.unlock()
+            return true
+        case .acquired, .released:
+            lock.unlock()
+            return false
+        }
+    }
+
+    func release() {
+        lock.lock()
+        let previous = state
+        state = .released
+        lock.unlock()
+        switch previous {
+        case .pending(let ticket?):
+            slots.cancelWaiter(ticket, for: origin)
+        case .acquired:
+            slots.release(for: origin)
+        case .pending(nil), .released:
+            break
+        }
+    }
+}
+
 // MARK: - Transport
 
 nonisolated struct RemoteMediaFetchResult: Sendable {
@@ -167,24 +345,28 @@ nonisolated struct RemoteMediaTransport: Sendable {
         resolver: SystemRemoteMediaResolver(),
         connectionFactory: NetworkRemoteMediaConnectionFactory(),
         clock: SystemRemoteMediaClock(),
-        dnsSlots: .processWide
+        dnsSlots: .processWide,
+        fetchSlots: .processWide
     )
 
     private let resolver: any RemoteMediaResolving
     private let connectionFactory: any RemoteMediaConnectionFactory
     private let clock: any RemoteMediaClock
     private let dnsSlots: RemoteMediaDNSSlots
+    private let fetchSlots: RemoteMediaFetchSlots
 
     private init(
         resolver: any RemoteMediaResolving,
         connectionFactory: any RemoteMediaConnectionFactory,
         clock: any RemoteMediaClock,
-        dnsSlots: RemoteMediaDNSSlots
+        dnsSlots: RemoteMediaDNSSlots,
+        fetchSlots: RemoteMediaFetchSlots
     ) {
         self.resolver = resolver
         self.connectionFactory = connectionFactory
         self.clock = clock
         self.dnsSlots = dnsSlots
+        self.fetchSlots = fetchSlots
     }
 
     #if DEBUG
@@ -194,9 +376,17 @@ nonisolated struct RemoteMediaTransport: Sendable {
             testingResolver resolver: any RemoteMediaResolving,
             connectionFactory: any RemoteMediaConnectionFactory,
             clock: any RemoteMediaClock,
-            dnsSlots: RemoteMediaDNSSlots
+            dnsSlots: RemoteMediaDNSSlots,
+            fetchSlots: RemoteMediaFetchSlots = RemoteMediaFetchSlots(
+                limitPerHost: RemoteMediaFetchSlots.maximumConcurrentFetchesPerHost)
         ) {
-            self.init(resolver: resolver, connectionFactory: connectionFactory, clock: clock, dnsSlots: dnsSlots)
+            self.init(
+                resolver: resolver,
+                connectionFactory: connectionFactory,
+                clock: clock,
+                dnsSlots: dnsSlots,
+                fetchSlots: fetchSlots
+            )
         }
     #endif
 
@@ -214,10 +404,12 @@ nonisolated struct RemoteMediaTransport: Sendable {
             guard clock.now() < deadline else { throw RemoteMediaTransportError.deadlineExceeded }
             guard RemoteImageURLPolicy.isAllowed(current) else { throw RemoteMediaTransportError.disallowedURL }
             let target = try RemoteMediaRequestTarget(url: current)
-            let addresses = try await admittedAddresses(for: target, deadline: deadline)
-            let request = RemoteMediaHTTPRequest.bytes(for: target, accept: accept)
-            let exchange = try await exchange(
-                request: request, addresses: addresses, target: target, deadline: deadline)
+            let exchange = try await withFetchSlot(for: target.origin, deadline: deadline) {
+                let addresses = try await admittedAddresses(for: target, deadline: deadline)
+                let request = RemoteMediaHTTPRequest.bytes(for: target, accept: accept)
+                return try await exchange(
+                    request: request, addresses: addresses, target: target, deadline: deadline)
+            }
             let status = exchange.head.statusCode
             switch status {
             case 301, 302, 303, 307, 308:
@@ -230,6 +422,34 @@ nonisolated struct RemoteMediaTransport: Sendable {
                 throw RemoteMediaTransportError.httpStatus(status)
             }
         }
+    }
+
+    private func withFetchSlot<Value>(
+        for origin: RemoteMediaRequestTarget.Origin,
+        deadline: ContinuousClock.Instant,
+        operation: () async throws -> Value
+    ) async throws -> Value {
+        let slots = fetchSlots
+        let permit = RemoteMediaFetchPermit(origin: origin, slots: slots)
+        try await awaitOperation(
+            until: deadline,
+            timeoutError: .deadlineExceeded,
+            abandon: { permit.release() },
+            start: { (gate: RemoteMediaCompletionGate<Void>) in
+                let ticket = slots.request(for: origin) {
+                    guard permit.markAcquired() else {
+                        slots.release(for: origin)
+                        return
+                    }
+                    if !gate.complete(.success(())) {
+                        permit.release()
+                    }
+                }
+                permit.install(ticket)
+            }
+        )
+        defer { permit.release() }
+        return try await operation()
     }
 
     /// `2xx` except `206`: no range was requested, so a partial body is never the image.

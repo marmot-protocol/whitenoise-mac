@@ -6649,6 +6649,45 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(harness.network.connections.count == 1)
     }
 
+    /// Showing the same avatar sequentially at two pixel sizes reuses cached source bytes instead
+    /// of opening a second download, until `clearCache()` evicts them.
+    @Test func remoteImageLoaderReusesCachedSourceBytesAcrossSequentialPixelSizes() async throws {
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(transport: harness.transport)
+        let url = try #require(URL(string: "https://example.com/avatar.png"))
+
+        let small = try #require(await loader.image(for: url, maxPixelSize: 32))
+        let large = try #require(await loader.image(for: url, maxPixelSize: 64))
+
+        #expect(small.nsImage.size.width > 0)
+        #expect(large.nsImage.size.width > 0)
+        #expect(harness.network.connections.count == 1)
+
+        loader.clearCache()
+        _ = try #require(await loader.image(for: url, maxPixelSize: 32))
+        #expect(harness.network.connections.count == 2)
+    }
+
+    /// Source caching stays within its configured byte bound and survives `clearLocalCache()`.
+    @Test func remoteImageLoaderSourceCacheRespectsCostLimitAndLocalClear() async throws {
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(transport: harness.transport)
+        #expect(loader.sourceCacheTotalCostLimit == RemoteImageLoader.defaultSourceCacheTotalCostLimit)
+
+        let url = try #require(URL(string: "https://example.com/avatar.png"))
+        _ = try #require(await loader.image(for: url, maxPixelSize: 32))
+        loader.clearLocalCache()
+        _ = try #require(await loader.image(for: url, maxPixelSize: 64))
+        #expect(harness.network.connections.count == 1)
+
+        // A body larger than the source-cache budget is not retained, so a later size refetches.
+        let tinyHarness = Self.remoteImageHarness()
+        let tinyLoader = RemoteImageLoader(transport: tinyHarness.transport, sourceCacheTotalCostLimit: 1)
+        _ = try #require(await tinyLoader.image(for: url, maxPixelSize: 32))
+        _ = try #require(await tinyLoader.image(for: url, maxPixelSize: 64))
+        #expect(tinyHarness.network.connections.count == 2)
+    }
+
     @Test func remoteImageLoaderCancelsCoalescedDownloadAfterLastWaiterCancels() async throws {
         let harness = Self.remoteImageHarness(holdFirstResponse: true)
         let loader = RemoteImageLoader(transport: harness.transport)

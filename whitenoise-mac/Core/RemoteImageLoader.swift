@@ -703,6 +703,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     static let shared = RemoteImageLoader()
     static let defaultDecodedCacheCountLimit = 512
     static let defaultDecodedCacheTotalCostLimit = 64 * 1024 * 1024
+    static let defaultSourceCacheTotalCostLimit = 16 * 1024 * 1024
 
     /// How many primed images to keep source bytes for, oldest evicted first. A handful covers
     /// setting a picture on more than one account in a sitting; the point of the bound is that a
@@ -710,6 +711,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     static let primedSourceLimit = 4
 
     private let cache = NSCache<NSString, NSImage>()
+    private let sourceCache = NSCache<NSString, NSData>()
     private let inFlight = RemoteImageLoadRegistry<LoadedImage>()
     private let rawInFlight = RemoteImageLoadRegistry<Data>()
     private let cacheStateLock = NSLock()
@@ -721,17 +723,20 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
     var decodedCacheCountLimit: Int { cache.countLimit }
     var decodedCacheTotalCostLimit: Int { cache.totalCostLimit }
+    var sourceCacheTotalCostLimit: Int { sourceCache.totalCostLimit }
 
     /// Tests pass a transport built from fake resolver/connection/clock doubles; admission,
     /// answer validation, framing and size bounds still run, only sockets and time are fake.
     init(
         transport: RemoteMediaTransport = .live,
         cacheCountLimit: Int = RemoteImageLoader.defaultDecodedCacheCountLimit,
-        cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit
+        cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit,
+        sourceCacheTotalCostLimit: Int = RemoteImageLoader.defaultSourceCacheTotalCostLimit
     ) {
         self.transport = transport
         cache.countLimit = cacheCountLimit
         cache.totalCostLimit = cacheTotalCostLimit
+        sourceCache.totalCostLimit = max(0, sourceCacheTotalCostLimit)
     }
 
     func image(for url: URL, maxPixelSize: CGFloat) async -> LoadedImage? {
@@ -758,6 +763,9 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// caller hands plaintext to MarmotKit for encrypted Blossom upload.
     func data(for url: URL) async -> Data? {
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
+        if let cached = cachedSourceData(for: url) {
+            return cached
+        }
         // Registration and generation capture share the privacy-wipe lock. A wipe detaches
         // exactly the old tasks; downloads registered afterwards retain the new generation.
         let (generation, key, task) = rawDownloadTask(for: url)
@@ -783,6 +791,9 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             Task { [self] in
                 let data = await download(url)
                 guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
+                if let data {
+                    storeSourceData(data, for: url, cacheGeneration: generation)
+                }
                 return data
             }
         }
@@ -837,6 +848,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
         cacheStateLock.lock()
         defer { cacheStateLock.unlock() }
+        sourceCache.removeObject(forKey: Self.sourceCacheKey(for: url) as NSString)
         primedSources.removeAll { $0.url == url.absoluteString }
         primedSources.append(PrimedSource(url: url.absoluteString, data: data))
         if primedSources.count > Self.primedSourceLimit {
@@ -952,6 +964,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             cacheGenerations[scope, default: 0] += 1
         }
         cache.removeAllObjects()
+        sourceCache.removeAllObjects()
         localCacheKeys.removeAll(keepingCapacity: true)
         // The privacy wipes this serves must not leave the user's own uploaded picture behind
         // in the process either, and a primed URL that outlived its account would go on serving
@@ -1082,6 +1095,23 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         cacheStateLock.lock()
         defer { cacheStateLock.unlock() }
         return cache.object(forKey: key as NSString)
+    }
+
+    private func cachedSourceData(for url: URL) -> Data? {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        return sourceCache.object(forKey: Self.sourceCacheKey(for: url) as NSString) as Data?
+    }
+
+    private func storeSourceData(_ data: Data, for url: URL, cacheGeneration generation: Int) {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        guard cacheGenerations[.remote, default: 0] == generation,
+            !data.isEmpty,
+            sourceCache.totalCostLimit > 0,
+            data.count <= sourceCache.totalCostLimit
+        else { return }
+        sourceCache.setObject(data as NSData, forKey: Self.sourceCacheKey(for: url) as NSString, cost: data.count)
     }
 
     private func currentCacheGeneration(for scope: CacheScope) -> Int {

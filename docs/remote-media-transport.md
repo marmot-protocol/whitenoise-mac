@@ -66,11 +66,12 @@ These fail closed — the image simply does not load:
 
 ## Known limits
 
-- One fresh DNS + TCP + TLS handshake per fetch: no connection reuse, HTTP/2 or Happy
+- One fresh DNS + TCP + TLS handshake per uncached fetch: no connection reuse, HTTP/2 or Happy
   Eyeballs. Addresses are tried in order, so a black-holed first address can spend the 15 s
-  idle budget before the next one is tried.
-- No source-byte cache. Concurrent loads of one URL share one fetch whatever their pixel
-  sizes, but a size requested after that fetch finished downloads the image again.
+  idle budget before the next one is tried. Concurrency is capped at 6 in-flight fetches per host.
+- Source bytes are cached in memory per URL up to 16 MiB (`RemoteImageLoader`) and dropped on
+  `clearCache()`, so requesting another pixel size or re-decoding after decoded-cache eviction
+  reuses those bytes while they stay cached.
 - VPN or router remapping of public destinations, NAT64 prefixes other than the well-known
   one, tracking by the image host, and image-decoder hardening are out of scope.
 - `NIP05Resolver` still uses `URLSession` on peer-controlled domains.

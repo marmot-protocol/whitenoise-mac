@@ -626,4 +626,128 @@ struct RemoteMediaTransportTests {
         #expect(await fetch.value.transportError == .deadlineExceeded)
         #expect(harness.network.connections[1].cancelCount >= 1)
     }
+
+    /// A screen of 50 avatars from one host must never exceed the per-host concurrency cap, and
+    /// every queued fetch completes once earlier connections finish.
+    @Test func concurrentFetchesToOneHostStayWithinTheConcurrencyCap() async throws {
+        let cap = RemoteMediaFetchSlots.maximumConcurrentFetchesPerHost
+        let total = 50
+        let origin = RemoteMediaRequestTarget.Origin.name("cdn.example.com")
+        let harness = RemoteMediaFakeHarness()
+        harness.network.respond { _, _ in .held }
+
+        let tasks = try (0..<total).map { index in
+            harness.startFetch(try Self.url("https://cdn.example.com/avatar-\(index).png"))
+        }
+
+        await harness.wait {
+            harness.network.connections.filter(\.hasPendingReceive).count == cap
+                && harness.fetchSlots.queuedCount(for: origin) == total - cap
+        }
+        #expect(harness.network.connections.count == cap)
+        #expect(harness.fetchSlots.inUseCount(for: origin) == cap)
+
+        var delivered = 0
+        var maxInFlight = 0
+        while delivered < total {
+            await harness.wait {
+                harness.network.connections.count > delivered
+                    && harness.network.connections[delivered].hasPendingReceive
+            }
+            let active = harness.network.connections.filter { $0.cancelCount == 0 }.count
+            maxInFlight = max(maxInFlight, active)
+            #expect(active <= cap)
+            harness.network.connections[delivered].deliver(
+                FakeHTTP.response(body: Data("ok-\(delivered)".utf8))
+            )
+            delivered += 1
+        }
+
+        var succeeded = 0
+        for task in tasks {
+            if case .success(let result) = await task.value, result.head.statusCode == 200 {
+                succeeded += 1
+            }
+        }
+        #expect(succeeded == total)
+        #expect(maxInFlight <= cap)
+        #expect(harness.fetchSlots.inUseCount(for: origin) == 0)
+        #expect(harness.fetchSlots.queuedCount(for: origin) == 0)
+    }
+
+    @Test func cancellingQueuedOrActiveFetchReleasesPerHostSlotsCleanly() async throws {
+        let origin = RemoteMediaRequestTarget.Origin.name("cdn.example.com")
+        let harness = RemoteMediaFakeHarness(fetchSlotLimitPerHost: 2)
+        harness.network.respond { _, _ in .held }
+
+        let first = harness.startFetch(try Self.url("https://cdn.example.com/1.png"))
+        await harness.wait {
+            harness.network.connections.count == 1 && harness.network.connections[0].hasPendingReceive
+        }
+        let second = harness.startFetch(try Self.url("https://cdn.example.com/2.png"))
+        await harness.wait {
+            harness.network.connections.count == 2 && harness.network.connections[1].hasPendingReceive
+        }
+
+        let cancelledQueued = harness.startFetch(try Self.url("https://cdn.example.com/3.png"))
+        let waiting = harness.startFetch(try Self.url("https://cdn.example.com/4.png"))
+        await harness.wait { harness.fetchSlots.queuedCount(for: origin) == 2 }
+
+        // Cancelling a queued waiter drops it from the queue without freeing an active slot.
+        cancelledQueued.cancel()
+        #expect(await cancelledQueued.value.transportError == .cancelled)
+        #expect(harness.fetchSlots.inUseCount(for: origin) == 2)
+        #expect(harness.fetchSlots.queuedCount(for: origin) == 1)
+
+        // Cancelling an active fetch frees its slot so the remaining waiter proceeds immediately.
+        first.cancel()
+        #expect(await first.value.transportError == .cancelled)
+        await harness.wait {
+            harness.network.connections.count == 3 && harness.network.connections[2].hasPendingReceive
+        }
+
+        harness.network.connections[1].deliver(FakeHTTP.response(body: Data("two".utf8)))
+        harness.network.connections[2].deliver(FakeHTTP.response(body: Data("four".utf8)))
+
+        if case .success(let result) = await second.value {
+            #expect(result.body == Data("two".utf8))
+        } else {
+            Issue.record("expected second fetch to succeed")
+        }
+        if case .success(let result) = await waiting.value {
+            #expect(result.body == Data("four".utf8))
+        } else {
+            Issue.record("expected queued fetch to succeed after cancellation freed a slot")
+        }
+        #expect(harness.fetchSlots.inUseCount(for: origin) == 0)
+        #expect(harness.fetchSlots.queuedCount(for: origin) == 0)
+    }
+
+    @Test func slowHostDoesNotBlockConcurrentFetchesToAnotherHost() async throws {
+        let slowOrigin = RemoteMediaRequestTarget.Origin.name("slow.example")
+        let fastOrigin = RemoteMediaRequestTarget.Origin.name("fast.example")
+        let harness = RemoteMediaFakeHarness(fetchSlotLimitPerHost: 2)
+        harness.network.respond { endpoint, _ in
+            endpoint.tlsServerName == "fast.example"
+                ? .serving(FakeHTTP.response(body: Data("fast".utf8)))
+                : .held
+        }
+
+        let slowTasks = try (0..<3).map { index in
+            harness.startFetch(try Self.url("https://slow.example/avatar-\(index).png"))
+        }
+        await harness.wait {
+            harness.fetchSlots.inUseCount(for: slowOrigin) == 2
+                && harness.fetchSlots.queuedCount(for: slowOrigin) == 1
+        }
+
+        let fastResult = try await harness.transport.fetch(try Self.url("https://fast.example/avatar.png"))
+        #expect(fastResult.body == Data("fast".utf8))
+        #expect(harness.fetchSlots.inUseCount(for: fastOrigin) == 0)
+
+        for task in slowTasks { task.cancel() }
+        for task in slowTasks { _ = await task.value }
+        #expect(harness.fetchSlots.inUseCount(for: slowOrigin) == 0)
+        #expect(harness.fetchSlots.queuedCount(for: slowOrigin) == 0)
+    }
 }
