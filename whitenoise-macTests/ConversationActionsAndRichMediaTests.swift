@@ -147,15 +147,15 @@ struct ConversationActionsAndRichMediaTests {
     }
 
     @Test func pendingPollVoteSwitchKeepsConfirmedOptionVisuallyDistinctFromPendingTarget() async throws {
-        // Confirmed single-choice vote is on option 0 ("Alpha"); a vote switching to option 1
-        // ("Beta") is still in flight. Option 0 must keep its filled confirmed symbol while
+        // Confirmed single-choice vote is on option 0 ("Museum"); a vote switching to option 1
+        // ("Library") is still in flight. Option 0 must keep its filled confirmed symbol while
         // option 1 keeps its hollow unconfirmed symbol, so the two leading indicators do not
         // collapse into identical spinners.
         let openPoll = MessagePoll(
             question: "Pick one",
             options: [
-                .init(id: "0", label: "Alpha", votes: 1),
-                .init(id: "1", label: "Beta", votes: 0),
+                .init(id: "0", label: "Museum", votes: 1),
+                .init(id: "1", label: "Library", votes: 0),
             ],
             kind: .singleChoice,
             participants: 1,
@@ -179,21 +179,21 @@ struct ConversationActionsAndRichMediaTests {
         defer { host.close() }
 
         let drawn = try #require(await host.steadyDrawing())
-        let alphaCenter = try #require(Self.centerOfText("Alpha", in: drawn, viewSize: size))
-        let betaCenter = try #require(Self.centerOfText("Beta", in: drawn, viewSize: size))
+        let museumCenter = try #require(Self.centerOfText("Museum", in: drawn))
+        let libraryCenter = try #require(Self.centerOfText("Library", in: drawn))
 
         // Sample the leading icon column to the left of each label (same horizontal band,
         // centered vertically on each row's text baseline). A filled checkmark.circle.fill inks
         // substantially more dark pixels than an unfilled circle.
-        let alphaLeadingInk = Self.darkPixelCount(
+        let museumLeadingInk = Self.darkPixelCount(
             in: drawn,
-            rectInPoints: CGRect(x: 16, y: alphaCenter.y - 10, width: 32, height: 20)
+            rectInPoints: CGRect(x: 16, y: museumCenter.y - 10, width: 32, height: 20)
         )
-        let betaLeadingInk = Self.darkPixelCount(
+        let libraryLeadingInk = Self.darkPixelCount(
             in: drawn,
-            rectInPoints: CGRect(x: 16, y: betaCenter.y - 10, width: 32, height: 20)
+            rectInPoints: CGRect(x: 16, y: libraryCenter.y - 10, width: 32, height: 20)
         )
-        #expect(alphaLeadingInk > betaLeadingInk)
+        #expect(museumLeadingInk > libraryLeadingInk)
     }
 
     // MARK: - Action grouping (K02, K03, #1104)
@@ -556,7 +556,7 @@ struct ConversationActionsAndRichMediaTests {
         )
 
         // Activate Retry via a real click on the rendered button and Done via Escape (.cancelAction).
-        let retryPoint = try #require(Self.centerOfText(L10n.string("Retry"), in: drawn, viewSize: size))
+        let retryPoint = try #require(Self.centerOfText(L10n.string("Retry"), in: drawn))
         host.click(at: retryPoint)
         #expect(await host.settle { retried })
 
@@ -578,24 +578,21 @@ struct ConversationActionsAndRichMediaTests {
         #expect(await host.settle { closed })
     }
 
-    private static func centerOfText(
-        _ phrase: String, exact: Bool = false, in rep: NSBitmapImageRep, viewSize: CGSize
-    ) -> CGPoint? {
+    private static func centerOfText(_ phrase: String, in rep: NSBitmapImageRep) -> CGPoint? {
         guard let image = rep.cgImage else { return nil }
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
-        request.usesLanguageCorrection = false
-        try? VNImageRequestHandler(cgImage: image).perform([request])
-        let target = phrase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        for observation in request.results ?? [] {
-            guard
-                let raw = observation.topCandidates(1).first?.string
-                    .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            else { continue }
-            let matches = exact ? raw == target : raw.contains(target)
-            guard matches else { continue }
-            let box = observation.boundingBox
-            return CGPoint(x: box.midX * viewSize.width, y: (1 - box.midY) * viewSize.height)
+        let target = phrase.lowercased()
+        for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = level
+            request.usesLanguageCorrection = false
+            try? VNImageRequestHandler(cgImage: image).perform([request])
+            for observation in request.results ?? [] {
+                guard observation.topCandidates(1).first?.string.lowercased().contains(target) == true else { continue }
+                let box = observation.boundingBox
+                return CGPoint(
+                    x: box.midX * CGFloat(image.width) / HostedViewWindow.scale,
+                    y: (1 - box.midY) * CGFloat(image.height) / HostedViewWindow.scale)
+            }
         }
         return nil
     }

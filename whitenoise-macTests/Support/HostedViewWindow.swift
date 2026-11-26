@@ -94,8 +94,18 @@ final class HostedViewWindow {
 
     /// A left click at `point`, in points from the window's top-left corner.
     func click(at point: CGPoint) {
-        guard let height = window.contentView?.bounds.height else { return }
-        let location = NSPoint(x: point.x, y: height - point.y)
+        guard let content = window.contentView else { return }
+        let location = NSPoint(x: point.x, y: content.bounds.height - point.y)
+        // Native buttons use the physical pointer position while tracking. A hit-tested button
+        // in an offscreen test window can perform its normal action without moving the pointer.
+        var hit = content.hitTest(content.superview?.convert(location, from: nil) ?? location)
+        while let view = hit {
+            if let button = view as? NSButton {
+                if button.isEnabled { button.performClick(nil) }
+                return
+            }
+            hit = view.superview
+        }
         clickNumber += 1
         func mouseEvent(_ type: NSEvent.EventType) -> NSEvent? {
             NSEvent.mouseEvent(
