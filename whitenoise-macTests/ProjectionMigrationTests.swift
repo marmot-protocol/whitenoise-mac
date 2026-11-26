@@ -713,6 +713,8 @@ struct ProjectionMigrationTests {
 
         #expect(try await model.forgetLocally())
         #expect(runtime.forgottenGroupIDs == ["group"])
+        // The confirmation can also close when MDK reports that the group was already reset.
+        #expect(try await model.forgetLocally())
     }
 
     @Test func onboardingActionsInstallTheDurableReturnedRevision() async {

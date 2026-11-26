@@ -198,12 +198,15 @@ final class GroupSafetyViewModel {
         }
     }
 
+    /// Returns false only when another moderation action prevents the request. A group already
+    /// awaiting a fresh invitation has reached the same local end state as a newly reset group.
     @discardableResult
     func forgetLocally() async throws -> Bool {
         guard !isModerating else { return false }
         isModerating = true
         defer { isModerating = false }
-        return try await runtime.forgetGroupLocal(accountRef: accountRef, groupIdHex: groupIdHex)
+        _ = try await runtime.forgetGroupLocal(accountRef: accountRef, groupIdHex: groupIdHex)
+        return true
     }
 
     private func containsDisplayed(_ invitation: GroupRejoinInvitationFfi) -> Bool {

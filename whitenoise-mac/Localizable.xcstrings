@@ -111568,6 +111568,71 @@
         }
       }
     },
+    "This deletes the group’s history from this Mac. Other members keep their history. To rejoin on this Mac, ask a member for a new invitation." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dadurch wird der Gruppenverlauf von diesem Mac gelöscht. Andere Mitglieder behalten ihren Verlauf. Bitte ein Mitglied um eine neue Einladung, um auf diesem Mac wieder beizutreten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se eliminará el historial del grupo de este Mac. Los demás miembros conservarán su historial. Para volver a unirte desde este Mac, pide una nueva invitación a un miembro."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ryhmän historia poistetaan tältä Macilta. Muiden jäsenten historia säilyy. Jos haluat liittyä uudelleen tällä Macilla, pyydä jäseneltä uusi kutsu."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’historique du groupe sera supprimé de ce Mac. Les autres membres conserveront leur historique. Pour rejoindre à nouveau le groupe sur ce Mac, demandez une nouvelle invitation à un membre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La cronologia del gruppo verrà eliminata da questo Mac. Gli altri membri conserveranno la propria cronologia. Per rientrare nel gruppo da questo Mac, chiedi a un membro un nuovo invito."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O histórico do grupo será apagado deste Mac. Os outros membros manterão o seu histórico. Para voltar a entrar no grupo neste Mac, peça um novo convite a um membro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "История группы будет удалена с этого Mac. У остальных участников история сохранится. Чтобы снова вступить в группу на этом Mac, попросите участника прислать новое приглашение."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grup geçmişi bu Mac’ten silinir. Diğer üyelerin geçmişi korunur. Bu Mac’te gruba yeniden katılmak için bir üyeden yeni bir davet isteyin."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这将从这台 Mac 上删除群组历史记录。其他成员的历史记录会保留。要在这台 Mac 上重新加入群组，请让一位成员发送新邀请。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這會從這部 Mac 上刪除群組記錄。其他成員的記錄會保留。若要在這部 Mac 上重新加入群組，請向一位成員索取新的邀請。"
+          }
+        }
+      }
+    },
     "This deletes the local copy only. Other members are not notified, and you can be re-added later." : {
       "extractionState" : "manual",
       "localizations" : {

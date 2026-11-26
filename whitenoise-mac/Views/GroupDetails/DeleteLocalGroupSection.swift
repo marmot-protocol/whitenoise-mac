@@ -22,7 +22,7 @@ struct DeleteLocalGroupSection: View {
                     Text(L10n.string("Delete local group?")).font(.headline)
                     Text(
                         L10n.string(
-                            "This deletes this group’s local history and state without leaving or ending the group for other members. Downloaded media caches on this device are also cleared. Old invitations cannot restore it; ask a member to send a fresh invitation after the reset."
+                            "This deletes the group’s history from this Mac. Other members keep their history. To rejoin on this Mac, ask a member for a new invitation."
                         )
                     )
                     .fixedSize(horizontal: false, vertical: true)
