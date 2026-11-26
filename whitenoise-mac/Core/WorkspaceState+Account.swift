@@ -1046,14 +1046,19 @@ extension WorkspaceState {
         // every read here, the local one first on every call (outside the relay refresh's guard, as
         // an earlier refresh may still be waiting on a relay) and again after the relay refresh.
         func reloadLeavingAMissedUnlink() async {
+            let previouslyUnlinked = Set(accounts.filter(\.unlinked).map { $0.accountIdHex.lowercased() })
             guard (try? await accountRoster.reload(from: client)) != nil else { return }
             let activeUnlinkedId = activeAccount?.unlinked == true ? activeAccount?.accountIdHex.lowercased() : nil
             if let activeUnlinkedId {
                 await AccountExit.leaveSignedOutAccount(accountIdHex: activeUnlinkedId, in: self)
             }
+            var excluded = previouslyUnlinked
+            if let activeUnlinkedId {
+                excluded.insert(activeUnlinkedId)
+            }
             await AccountExit.clearDeliveredNotificationsForUnlinkedAccounts(
                 in: self,
-                excluding: activeUnlinkedId.map { [$0] } ?? []
+                excluding: excluded
             )
         }
         await reloadLeavingAMissedUnlink()

@@ -54,11 +54,15 @@ final class MacLocalNotificationCenter: NSObject, LocalNotificationCenter, UNUse
         }
     }
 
-    func removeDeliveredNotifications(forAccountIdHex accountIdHex: String) async {
+    func removeDeliveredNotifications(
+        forAccountIdHex accountIdHex: String,
+        includingIdentifiers: [String]
+    ) async {
         let delivered = await center.deliveredNotifications()
         let identifiers = Self.deliveredNotificationIdentifiers(
             matchingAccountIdHex: accountIdHex,
-            in: delivered.map { ($0.request.identifier, $0.request.content.userInfo) }
+            in: delivered.map { ($0.request.identifier, $0.request.content.userInfo) },
+            includingIdentifiers: includingIdentifiers
         )
         guard !identifiers.isEmpty else { return }
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
@@ -66,16 +70,24 @@ final class MacLocalNotificationCenter: NSObject, LocalNotificationCenter, UNUse
 
     nonisolated static func deliveredNotificationIdentifiers(
         matchingAccountIdHex accountIdHex: String,
-        in delivered: [(identifier: String, userInfo: [AnyHashable: Any])]
+        in delivered: [(identifier: String, userInfo: [AnyHashable: Any])],
+        includingIdentifiers: [String] = []
     ) -> [String] {
         let target = accountIdHex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !target.isEmpty else { return [] }
-        return delivered.compactMap { entry in
-            guard let deliveredAccountId = entry.userInfo["accountIdHex"] as? String,
-                deliveredAccountId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == target
-            else { return nil }
-            return entry.identifier
+        var matched: [String] = []
+        if !target.isEmpty {
+            matched = delivered.compactMap { entry in
+                guard let deliveredAccountId = entry.userInfo["accountIdHex"] as? String,
+                    deliveredAccountId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == target
+                else { return nil }
+                return entry.identifier
+            }
         }
+        var seen = Set(matched)
+        for identifier in includingIdentifiers where !identifier.isEmpty && seen.insert(identifier).inserted {
+            matched.append(identifier)
+        }
+        return matched
     }
 
     func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void) {

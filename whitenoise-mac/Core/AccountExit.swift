@@ -105,6 +105,18 @@ enum AccountExit {
         }
     }
 
+    /// Whether a notification for `accountIdHex`/`accountRef` must be suppressed because the
+    /// account is marked unlinked, or was known when processing started and has since been removed.
+    static func shouldSuppressNotification(
+        accountIdHex: String,
+        accountRef: String,
+        wasKnownAtStart: Bool,
+        in workspace: WorkspaceState
+    ) -> Bool {
+        isAccountUnlinked(accountIdHex: accountIdHex, accountRef: accountRef, in: workspace)
+            || (wasKnownAtStart && !hasAccount(accountIdHex: accountIdHex, accountRef: accountRef, in: workspace))
+    }
+
     /// Deletes an account another device unlinked, once nothing else is changing accounts.
     ///
     /// The alert's Delete Everything can be pressed while another account change runs, and

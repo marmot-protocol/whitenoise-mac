@@ -101,7 +101,6 @@ struct ContentView: View {
             // and shown nowhere else, so its notice comes back once a launch.
             .task(id: workspace.accounts.filter(\.unlinked).map(\.accountIdHex)) {
                 session.deviceUnlinks.remind(about: workspace.accounts)
-                await AccountExit.clearDeliveredNotificationsForUnlinkedAccounts(in: workspace)
             }
             // App-wide default: static text is selectable, so anything on screen — a startup
             // failure message, a relay URL, an npub, a profile field — can be selected and
