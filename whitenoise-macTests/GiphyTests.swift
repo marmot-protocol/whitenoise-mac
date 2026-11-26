@@ -185,6 +185,175 @@ struct GiphyTests: WorkspaceTestSupport {
         #expect(await calls.count == 0)
     }
 
+    /// When a GIF fails validation permanently, rebuilding its bubble on a transcript reload
+    /// (new message or page load) must remember the refusal instead of downloading the bytes again.
+    @MainActor
+    @Test func aRebuiltBubbleForAnUnsupportedGIFDoesNotDownloadItAgain() async throws {
+        let calls = PrepareCallCounter()
+        let cache = GiphyPlaybackCache()
+        let preference = RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+
+        do {
+            let visibility = TranscriptCellVisibility()
+            visibility.isVisible = true
+            let firstWindow = Self.hostingWindow(
+                RemoteGiphyMediaView(
+                    media: media,
+                    mayLoadAutomatically: true,
+                    loadingPreference: preference,
+                    cache: cache,
+                    prepare: { _ in
+                        await calls.increment()
+                        throw GiphyRemoteMediaLoader.Failure.unsupportedMedia
+                    }
+                )
+                .environment(\.transcriptCellVisibility, visibility)
+            )
+            defer { firstWindow.orderOut(nil) }
+            #expect(await Self.waitForPrepareCount(1, in: calls))
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        let visibility = TranscriptCellVisibility()
+        visibility.isVisible = true
+        let rebuiltWindow = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: true,
+                loadingPreference: preference,
+                cache: cache,
+                prepare: { _ in
+                    await calls.increment()
+                    throw GiphyRemoteMediaLoader.Failure.unsupportedMedia
+                }
+            )
+            .environment(\.transcriptCellVisibility, visibility)
+        )
+        defer { rebuiltWindow.orderOut(nil) }
+        rebuiltWindow.contentView?.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(cache.isUnsupported(media.url))
+        #expect(await calls.count == 1)
+    }
+
+    /// Transient failures (network errors) must not be remembered as unsupported: a rebuilt bubble
+    /// is still allowed to try again.
+    @MainActor
+    @Test func aTransientFailureStillRetriesWhenItsBubbleIsRebuilt() async throws {
+        let calls = PrepareCallCounter()
+        let cache = GiphyPlaybackCache()
+        let preference = RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+
+        do {
+            let visibility = TranscriptCellVisibility()
+            visibility.isVisible = true
+            let firstWindow = Self.hostingWindow(
+                RemoteGiphyMediaView(
+                    media: media,
+                    mayLoadAutomatically: true,
+                    loadingPreference: preference,
+                    cache: cache,
+                    prepare: { _ in
+                        await calls.increment()
+                        throw URLError(.timedOut)
+                    }
+                )
+                .environment(\.transcriptCellVisibility, visibility)
+            )
+            defer { firstWindow.orderOut(nil) }
+            #expect(await Self.waitForPrepareCount(1, in: calls))
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        #expect(!cache.isUnsupported(media.url))
+
+        let visibility = TranscriptCellVisibility()
+        visibility.isVisible = true
+        let rebuiltWindow = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: true,
+                loadingPreference: preference,
+                cache: cache,
+                prepare: { _ in
+                    await calls.increment()
+                    throw URLError(.timedOut)
+                }
+            )
+            .environment(\.transcriptCellVisibility, visibility)
+        )
+        defer { rebuiltWindow.orderOut(nil) }
+        #expect(await Self.waitForPrepareCount(2, in: calls))
+    }
+
+    /// Even when a GIF is already known unsupported in the cache, requesting it from another bubble
+    /// settles straight to unsupported without starting another download.
+    @MainActor
+    @Test func anAlreadyUnsupportedGIFSkipsDownloadWhenRequested() async throws {
+        let calls = PrepareCallCounter()
+        let cache = GiphyPlaybackCache()
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+        cache.markUnsupported(media.url)
+
+        let preference = RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let visibility = TranscriptCellVisibility()
+        visibility.isVisible = true
+        let window = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: false,
+                loadingPreference: preference,
+                cache: cache,
+                prepare: { _ in
+                    await calls.increment()
+                    throw GiphyRemoteMediaLoader.Failure.unsupportedMedia
+                }
+            )
+            .environment(\.transcriptCellVisibility, visibility)
+        )
+        defer { window.orderOut(nil) }
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        preference.recordLoadRequest(for: media.url)
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(await calls.count == 0)
+    }
+
+    @MainActor
+    @Test func playbackCacheBoundsAndClearsUnsupportedURLs() throws {
+        let cache = GiphyPlaybackCache(unsupportedURLLimit: 2)
+        let first = try #require(URL(string: "https://media1.giphy.com/media/one/giphy.gif"))
+        let second = try #require(URL(string: "https://media1.giphy.com/media/two/giphy.gif"))
+        let third = try #require(URL(string: "https://media1.giphy.com/media/three/giphy.gif"))
+
+        let playback = GiphyRemoteMediaLoader.PreparedPlayback(
+            data: try Self.animatedGIF(width: 4, height: 2), aspectRatio: 2)
+        cache.insert(playback, for: first)
+        cache.markUnsupported(first)
+        #expect(cache.playback(for: first) == nil)
+        #expect(cache.isUnsupported(first))
+
+        cache.markUnsupported(second)
+        // Re-marking `first` makes `second` the least recently recorded entry.
+        cache.markUnsupported(first)
+        cache.markUnsupported(third)
+        #expect(cache.isUnsupported(first))
+        #expect(!cache.isUnsupported(second))
+        #expect(cache.isUnsupported(third))
+
+        cache.insert(playback, for: first)
+        #expect(!cache.isUnsupported(first))
+        #expect(cache.playback(for: first) == playback)
+
+        cache.removeAll()
+        #expect(cache.playback(for: first) == nil)
+        #expect(!cache.isUnsupported(third))
+    }
+
     /// The same rebuild for a GIF the viewer never chose to load must still wait for the click:
     /// the cache is not a way around the preference.
     @MainActor

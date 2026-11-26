@@ -1179,6 +1179,7 @@ extension WorkspaceState {
         // process-lifetime decoded-image cache; those images derive from attacker-controlled
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
         RemoteImageLoader.shared.clearCache()
+        GiphyPlaybackCache.shared.removeAll()
         RemoteGIFLoadingPreference.shared.reset()
         StickerLoadingPreference.shared.reset()
         DictationPreference.shared.reset()
