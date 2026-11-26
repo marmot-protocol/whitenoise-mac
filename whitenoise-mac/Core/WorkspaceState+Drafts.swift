@@ -30,13 +30,8 @@ extension WorkspaceState {
         composerDraftMutationGenerations[key, default: 0] &+= 1
         let generation = composerDraftMutationGenerations[key] ?? 0
         dirtyComposerDraftKeys.insert(key)
-        let previousTask = composerDraftPersistenceTasks[key]
-        previousTask?.cancel()
+        composerDraftPersistenceTasks[key]?.cancel()
         composerDraftPersistenceTasks[key] = Task { [weak self] in
-            // Wait for any already-dispatched off-main save to finish before starting another, so
-            // cancelling a debounce that has already entered `FFIExecutor.run` never orphans a
-            // concurrent write on `FFIExecutor.queue`.
-            await previousTask?.value
             do {
                 try await Task.sleep(nanoseconds: Self.composerDraftSaveDebounceNanoseconds)
             } catch {
@@ -63,19 +58,14 @@ extension WorkspaceState {
         }
         let keys =
             dirtyComposerDraftKeys
-            .union(composerDraftPersistenceTasks.keys)
             .filter { accountId == nil || $0.accountId == accountId }
             .sorted {
                 if $0.accountId != $1.accountId { return $0.accountId < $1.accountId }
                 return $0.chatId < $1.chatId
             }
         for key in keys {
-            let pendingTask = composerDraftPersistenceTasks[key]
-            pendingTask?.cancel()
-            await pendingTask?.value
-            guard dirtyComposerDraftKeys.contains(key),
-                let generation = composerDraftMutationGenerations[key]
-            else { continue }
+            composerDraftPersistenceTasks[key]?.cancel()
+            guard let generation = composerDraftMutationGenerations[key] else { continue }
             await persistComposerDraft(for: key, generation: generation)
         }
     }
@@ -260,21 +250,18 @@ extension WorkspaceState {
     }
 
     /// A successful send must win over any debounced or already-queued save for the same key.
-    /// Awaiting the cancelled persistence task orders any in-flight off-main save before this delete.
+    /// The shared serial FFI queue orders an in-flight save before this awaited delete.
     func deletePersistedComposerDraft(
         for key: ComposerDraftKey,
         accountRef: String,
         client: any MarmotRuntime
     ) async {
-        let pendingTask = composerDraftPersistenceTasks[key]
-        pendingTask?.cancel()
+        composerDraftPersistenceTasks[key]?.cancel()
         composerDraftPersistenceTasks[key] = nil
         composerDraftMutationGenerations[key, default: 0] &+= 1
         let generation = composerDraftMutationGenerations[key] ?? 0
         dirtyComposerDraftKeys.insert(key)
         composerDraftRestores[key] = .settled
-        await pendingTask?.value
-        guard composerDraftMutationGenerations[key] == generation else { return }
         do {
             // An empty save is a clear, retried if a file copy lands between its read and its write.
             try await FFIExecutor.run {

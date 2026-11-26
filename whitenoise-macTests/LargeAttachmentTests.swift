@@ -302,56 +302,6 @@ struct LargeAttachmentTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func flushingComposerDraftWaitsForAnInFlightDebouncedSaveBeforeReturning() async throws {
-        let (state, runtime) = await Self.bootstrappedState()
-        let draftKey = try #require(state.selectedComposerDraftKey)
-
-        // Park the first debounced save inside its off-main `selectedMessageDraft` read so it is
-        // already running on the concurrent `FFIExecutor.queue` when a newer edit and flush land.
-        runtime.messageDraftReadGateEnabled = true
-        state.draftText = "first"
-        let didPark = await waitFor(attempts: 300) { runtime.didReachMessageDraftReadGate }
-        #expect(didPark)
-
-        state.draftText = "second"
-        let flushFinished = AtomicCounter()
-        let flush = Task { @MainActor in
-            await state.flushComposerDraftPersistence()
-            flushFinished.increment()
-        }
-        for _ in 0..<50 { await Task.yield() }
-        #expect(flushFinished.value == 0)
-
-        runtime.releaseMessageDraftReadGate()
-        await flush.value
-        #expect(flushFinished.value == 1)
-        let stored = try #require(runtime.storedMessageDraft(accountRef: Self.accountRef, groupIdHex: draftKey.chatId))
-        #expect(stored.content == "second")
-    }
-
-    @MainActor
-    @Test func restoringALargeDraftRetriesAfterARevisionConflict() async throws {
-        let runtime: FakeMarmotRuntime
-        let large = Self.video(byteCount: OutgoingMediaDraftProcessor.maxInlineAttachmentBytes + 1)
-        do {
-            let (state, fake) = await Self.bootstrappedState()
-            runtime = fake
-            let draftKey = try #require(state.selectedComposerDraftKey)
-            #expect(state.appendPendingMediaAttachment(large, for: draftKey))
-            await Self.settleDraftFileCopies(state)
-            await state.flushComposerDraftPersistence()
-        }
-
-        runtime.openMessageDraftAttachmentHandoffConflicts = 1
-        let restored = WorkspaceState(clientFactory: { runtime })
-        await restored.bootstrap()
-
-        #expect(restored.backgroundStatus == nil)
-        #expect(restored.pendingMediaAttachments.map(\.id) == [large.id])
-        #expect(restored.pendingMediaAttachments.first?.data == large.data)
-    }
-
-    @MainActor
     @Test func aSaveWhileALargeAttachmentCopiesKeepsIt() async throws {
         let (state, runtime) = await Self.bootstrappedState()
         let draftKey = try #require(state.selectedComposerDraftKey)

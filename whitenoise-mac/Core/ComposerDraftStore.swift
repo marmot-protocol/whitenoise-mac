@@ -154,24 +154,7 @@ nonisolated enum ComposerDraftStore {
     /// The stored draft with every attachment's bytes. A file-backed attachment is read through a
     /// handoff copy that is cloned, mapped and unlinked (`PickedMediaFile`), then released, so its
     /// bytes are never resident; an inline one is read whole. One whose bytes are gone is left out.
-    /// Retries on `MessageDraftRevisionConflict` like `save`, in case a concurrent draft update
-    /// advances the revision while an attachment is being read.
     static func restore(
-        accountRef: String,
-        groupIdHex: String,
-        client: any MarmotRuntime
-    ) async throws -> (draft: SelectedMessageDraftContentFfi?, attachments: [MessageDraftAttachmentFfi]) {
-        var attempt = 1
-        while true {
-            do {
-                return try await restoreOnce(accountRef: accountRef, groupIdHex: groupIdHex, client: client)
-            } catch MarmotKitError.MessageDraftRevisionConflict where attempt < maxSaveAttempts {
-                attempt += 1
-            }
-        }
-    }
-
-    private static func restoreOnce(
         accountRef: String,
         groupIdHex: String,
         client: any MarmotRuntime
