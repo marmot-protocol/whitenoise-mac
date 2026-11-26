@@ -202,15 +202,18 @@ import Testing
         let library = EmojiSetLibrary(accountRef: "account", runtime: runtime)
         await library.reloadInstalled()
 
-        let removeRows = try await Self.pageRows(library, current)
-        let updateRows = try await Self.pageRows(library, outdated)
-        // The Remove Set button under the grid.
-        #expect(updateRows > removeRows + 20)
-        #expect(library.images.image(for: Self.preview(outdated, "blob")) != nil)
-
         let host = HostedViewWindow(Self.page(library, outdated), size: Self.pageSize)
         defer { host.close() }
-        _ = await host.settleDrawing { DrawnPixels.fixturePixels(in: $0) > 0 }
+        let drawn = try #require(await host.settleDrawing { DrawnPixels.fixturePixels(in: $0) > 0 })
+        #expect(library.images.image(for: Self.preview(outdated, "blob")) != nil)
+
+        // Look below the emoji grid for the separate Remove Set action. Pixel counts also
+        // change with the system font and button style, even when the action is missing.
+        let emoji = try #require(DrawnPixels.firstFixturePoint(in: drawn))
+        let top = ceil(emoji.y * HostedViewWindow.scale)
+        let below = CGRect(x: 0, y: top, width: CGFloat(drawn.pixelsWide), height: CGFloat(drawn.pixelsHigh) - top)
+        let lowerImage = try #require(drawn.cgImage?.cropping(to: below))
+        #expect(DrawnText.contains(L10n.string("Remove Set"), in: NSBitmapImageRep(cgImage: lowerImage)))
         host.clickHeaderTrailingControl()
         #expect(await host.settle { runtime.installEmojiSetControls.count == 1 })
     }

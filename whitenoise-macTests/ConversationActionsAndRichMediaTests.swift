@@ -583,7 +583,7 @@ struct ConversationActionsAndRichMediaTests {
     ) -> CGPoint? {
         guard let image = rep.cgImage else { return nil }
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
+        request.recognitionLevel = .fast
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: image).perform([request])
         let target = phrase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
