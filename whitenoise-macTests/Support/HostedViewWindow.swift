@@ -95,6 +95,8 @@ final class HostedViewWindow {
     func click(at point: CGPoint) {
         guard let height = window.contentView?.bounds.height else { return }
         let location = NSPoint(x: point.x, y: height - point.y)
+        // Native buttons can enter a tracking loop on mouse-down. Queue both events so the
+        // corresponding mouse-up is already available when AppKit starts tracking.
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             guard
                 let event = NSEvent.mouseEvent(
@@ -102,7 +104,7 @@ final class HostedViewWindow {
                     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
                     eventNumber: 0, clickCount: 1, pressure: 1)
             else { continue }
-            window.sendEvent(event)
+            NSApp.postEvent(event, atStart: false)
         }
     }
 
@@ -225,7 +227,7 @@ enum DrawnPixels {
 /// Text read back out of a `HostedViewWindow` snapshot. For copy that must be on screen, such as a
 /// privacy disclosure, where how much a view drew cannot tell one sentence from another.
 enum DrawnText {
-    /// Whether `phrase` was drawn, ignoring case, line breaks, how the text wrapped, whether its
+    /// Whether `phrase` was drawn, ignoring case, spacing (Vision can join adjacent words), whether its
     /// apostrophes are typographic, and the narrow glyphs recognition confuses in small type.
     static func contains(_ phrase: String, in rep: NSBitmapImageRep) -> Bool {
         normalized(recognized(in: rep)).contains(normalized(phrase))
@@ -258,6 +260,6 @@ enum DrawnText {
         let folded = text.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
             .replacingOccurrences(of: "\u{2018}", with: "'")
             .map { narrowGlyphs.contains($0) ? "i" : $0 }
-        return String(folded).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return String(folded).split(whereSeparator: \.isWhitespace).joined()
     }
 }
