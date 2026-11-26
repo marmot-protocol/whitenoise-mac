@@ -300,6 +300,146 @@ struct LargeAttachmentTests: WorkspaceTestSupport {
     }
 
     @MainActor
+    @Test func flushingComposerDraftWaitsForAnInFlightDebouncedSaveBeforeReturning() async throws {
+        let (state, runtime) = await Self.bootstrappedState()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        defer { runtime.releaseMessageDraftReadGate() }
+
+        // Park the first debounced save inside its off-main `selectedMessageDraft` read so it is
+        // already running on the concurrent `FFIExecutor.queue` when a newer edit and flush land.
+        runtime.messageDraftReadGateEnabled = true
+        state.draftText = "first"
+        let didPark = await waitFor(attempts: 300) { runtime.didReachMessageDraftReadGate }
+        #expect(didPark)
+
+        state.draftText = "second"
+        let flushFinished = AtomicCounter()
+        let flush = Task { @MainActor in
+            await state.flushComposerDraftPersistence()
+            flushFinished.increment()
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(flushFinished.value == 0)
+
+        runtime.releaseMessageDraftReadGate()
+        await flush.value
+        #expect(flushFinished.value == 1)
+        let stored = try #require(runtime.storedMessageDraft(accountRef: Self.accountRef, groupIdHex: draftKey.chatId))
+        #expect(stored.content == "second")
+        #expect(state.backgroundStatus == nil)
+    }
+
+    @MainActor
+    @Test func deletingComposerDraftWaitsForInFlightDebouncedSaveSoStaleSaveCannotRestoreIt() async throws {
+        let (state, runtime) = await Self.bootstrappedState()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        defer { runtime.releaseMessageDraftReadGate() }
+
+        runtime.messageDraftReadGateEnabled = true
+        state.draftText = "first"
+        let didPark = await waitFor(attempts: 300) { runtime.didReachMessageDraftReadGate }
+        #expect(didPark)
+
+        let deleteFinished = AtomicCounter()
+        let delete = Task { @MainActor in
+            await state.deletePersistedComposerDraft(for: draftKey, accountRef: Self.accountRef, client: runtime)
+            deleteFinished.increment()
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(deleteFinished.value == 0)
+
+        runtime.releaseMessageDraftReadGate()
+        await delete.value
+        #expect(deleteFinished.value == 1)
+        #expect(runtime.storedMessageDraft(accountRef: Self.accountRef, groupIdHex: draftKey.chatId) == nil)
+        #expect(state.backgroundStatus == nil)
+    }
+
+    @MainActor
+    @Test func deletingComposerDraftPreservesNewerEditMadeWhileWaitingOnPriorSave() async throws {
+        let (state, runtime) = await Self.bootstrappedState()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        defer { runtime.releaseMessageDraftReadGate() }
+
+        runtime.messageDraftReadGateEnabled = true
+        state.draftText = "first"
+        let didPark = await waitFor(attempts: 300) { runtime.didReachMessageDraftReadGate }
+        #expect(didPark)
+
+        let deleteFinished = AtomicCounter()
+        let delete = Task { @MainActor in
+            await state.deletePersistedComposerDraft(for: draftKey, accountRef: Self.accountRef, client: runtime)
+            deleteFinished.increment()
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(deleteFinished.value == 0)
+
+        // A newer draft typed while the delete is waiting must supersede the delete.
+        state.draftText = "newer"
+        runtime.releaseMessageDraftReadGate()
+        await delete.value
+        await state.flushComposerDraftPersistence()
+
+        let stored = try #require(runtime.storedMessageDraft(accountRef: Self.accountRef, groupIdHex: draftKey.chatId))
+        #expect(stored.content == "newer")
+        #expect(state.backgroundStatus == nil)
+    }
+
+    @MainActor
+    @Test func deletingComposerDraftWaitsForInFlightFlushBeforeClearing() async throws {
+        let (state, runtime) = await Self.bootstrappedState()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        defer { runtime.releaseMessageDraftReadGate() }
+
+        state.draftText = "queued"
+        runtime.messageDraftReadGateEnabled = true
+        let flush = Task { @MainActor in
+            await state.flushComposerDraftPersistence()
+        }
+        let didPark = await waitFor(attempts: 300) { runtime.didReachMessageDraftReadGate }
+        #expect(didPark)
+
+        let deleteFinished = AtomicCounter()
+        let delete = Task { @MainActor in
+            await state.deletePersistedComposerDraft(for: draftKey, accountRef: Self.accountRef, client: runtime)
+            deleteFinished.increment()
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(deleteFinished.value == 0)
+
+        runtime.releaseMessageDraftReadGate()
+        await flush.value
+        await delete.value
+        #expect(deleteFinished.value == 1)
+        #expect(runtime.storedMessageDraft(accountRef: Self.accountRef, groupIdHex: draftKey.chatId) == nil)
+        #expect(state.backgroundStatus == nil)
+    }
+
+    @MainActor
+    @Test func restoringALargeDraftRetriesAfterARevisionConflict() async throws {
+        let runtime: FakeMarmotRuntime
+        let large = Self.video(byteCount: OutgoingMediaDraftProcessor.maxInlineAttachmentBytes + 1)
+        do {
+            let (state, fake) = await Self.bootstrappedState()
+            runtime = fake
+            let draftKey = try #require(state.selectedComposerDraftKey)
+            #expect(state.appendPendingMediaAttachment(large, for: draftKey))
+            await Self.settleDraftFileCopies(state)
+            await state.flushComposerDraftPersistence()
+        }
+
+        runtime.openMessageDraftAttachmentHandoffConflicts = 1
+        let restored = WorkspaceState(clientFactory: { runtime })
+        await restored.bootstrap()
+
+        #expect(restored.backgroundStatus == nil)
+        #expect(restored.pendingMediaAttachments.map(\.id) == [large.id])
+        #expect(restored.pendingMediaAttachments.first?.data == large.data)
+        await Self.waitUntil { runtime.releasedAttachmentHandoffLeases.count == 1 }
+        #expect(runtime.releasedAttachmentHandoffLeases.count == 1)
+    }
+
+    @MainActor
     @Test func aSaveWhileALargeAttachmentCopiesKeepsIt() async throws {
         let (state, runtime) = await Self.bootstrappedState()
         let draftKey = try #require(state.selectedComposerDraftKey)

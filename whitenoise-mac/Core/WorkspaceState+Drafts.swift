@@ -16,6 +16,20 @@ enum ComposerDraftRestore: Equatable {
 }
 
 @MainActor
+private final class ComposerDraftTaskRef {
+    var task: Task<Void, Never>?
+
+    func clearIfCurrent(for key: WorkspaceState.ComposerDraftKey, in workspace: WorkspaceState?) {
+        let ownTask = task
+        task = nil
+        guard let workspace, let ownTask, workspace.composerDraftPersistenceTasks[key] == ownTask else {
+            return
+        }
+        workspace.composerDraftPersistenceTasks[key] = nil
+    }
+}
+
+@MainActor
 extension WorkspaceState {
     private static let composerDraftSaveDebounceNanoseconds: UInt64 = 400_000_000
 
@@ -30,8 +44,15 @@ extension WorkspaceState {
         composerDraftMutationGenerations[key, default: 0] &+= 1
         let generation = composerDraftMutationGenerations[key] ?? 0
         dirtyComposerDraftKeys.insert(key)
-        composerDraftPersistenceTasks[key]?.cancel()
-        composerDraftPersistenceTasks[key] = Task { [weak self] in
+        let previousTask = composerDraftPersistenceTasks[key]
+        previousTask?.cancel()
+        let taskRef = ComposerDraftTaskRef()
+        let task = Task { [weak self] in
+            defer { taskRef.clearIfCurrent(for: key, in: self) }
+            // Wait for any already-dispatched off-main write to finish before starting another, so
+            // cancelling a debounce that has already entered `FFIExecutor.run` never orphans a
+            // concurrent write on `FFIExecutor.queue`.
+            await previousTask?.value
             do {
                 try await Task.sleep(nanoseconds: Self.composerDraftSaveDebounceNanoseconds)
             } catch {
@@ -39,6 +60,8 @@ extension WorkspaceState {
             }
             await self?.persistComposerDraft(for: key, generation: generation)
         }
+        taskRef.task = task
+        composerDraftPersistenceTasks[key] = task
     }
 
     /// Flush every dirty draft through the normal off-main FFI boundary. Account teardown uses
@@ -58,15 +81,30 @@ extension WorkspaceState {
         }
         let keys =
             dirtyComposerDraftKeys
+            .union(composerDraftPersistenceTasks.keys)
             .filter { accountId == nil || $0.accountId == accountId }
             .sorted {
                 if $0.accountId != $1.accountId { return $0.accountId < $1.accountId }
                 return $0.chatId < $1.chatId
             }
         for key in keys {
-            composerDraftPersistenceTasks[key]?.cancel()
-            guard let generation = composerDraftMutationGenerations[key] else { continue }
-            await persistComposerDraft(for: key, generation: generation)
+            let previousTask = composerDraftPersistenceTasks[key]
+            previousTask?.cancel()
+            guard dirtyComposerDraftKeys.contains(key),
+                let generation = composerDraftMutationGenerations[key]
+            else {
+                await previousTask?.value
+                continue
+            }
+            let flushTask = Task { [weak self] in
+                await previousTask?.value
+                await self?.persistComposerDraft(for: key, generation: generation)
+            }
+            composerDraftPersistenceTasks[key] = flushTask
+            await flushTask.value
+            if composerDraftPersistenceTasks[key] == flushTask {
+                composerDraftPersistenceTasks[key] = nil
+            }
         }
     }
 
@@ -250,36 +288,48 @@ extension WorkspaceState {
     }
 
     /// A successful send must win over any debounced or already-queued save for the same key.
-    /// The shared serial FFI queue orders an in-flight save before this awaited delete.
+    /// Chaining onto `composerDraftPersistenceTasks[key]` orders any in-flight save or flush before
+    /// this delete, and orders any newer edit or flush behind it.
     func deletePersistedComposerDraft(
         for key: ComposerDraftKey,
         accountRef: String,
         client: any MarmotRuntime
     ) async {
-        composerDraftPersistenceTasks[key]?.cancel()
-        composerDraftPersistenceTasks[key] = nil
+        let previousTask = composerDraftPersistenceTasks[key]
+        previousTask?.cancel()
         composerDraftMutationGenerations[key, default: 0] &+= 1
         let generation = composerDraftMutationGenerations[key] ?? 0
         dirtyComposerDraftKeys.insert(key)
         composerDraftRestores[key] = .settled
-        do {
-            // An empty save is a clear, retried if a file copy lands between its read and its write.
-            try await FFIExecutor.run {
-                try ComposerDraftStore.save(
-                    ComposerDraftContents(content: "", replyToMessageIdHex: nil, attachments: []),
-                    accountRef: accountRef,
-                    groupIdHex: key.chatId,
-                    client: client
+        let deleteTask = Task { [weak self] in
+            await previousTask?.value
+            guard let self, self.composerDraftMutationGenerations[key] == generation else { return }
+            do {
+                // An empty save is a clear, retried if a file copy lands between its read and its write.
+                try await FFIExecutor.run {
+                    try ComposerDraftStore.save(
+                        ComposerDraftContents(content: "", replyToMessageIdHex: nil, attachments: []),
+                        accountRef: accountRef,
+                        groupIdHex: key.chatId,
+                        client: client
+                    )
+                }
+                guard self.composerDraftMutationGenerations[key] == generation else { return }
+                self.dirtyComposerDraftKeys.remove(key)
+            } catch {
+                guard self.composerDraftMutationGenerations[key] == generation else { return }
+                self.setBackgroundStatus(
+                    String(
+                        format: L10n.string("A sent draft could not be removed: %@"),
+                        UserFacingError.message(for: error)
+                    )
                 )
             }
-            guard composerDraftMutationGenerations[key] == generation else { return }
-            dirtyComposerDraftKeys.remove(key)
-        } catch {
-            guard composerDraftMutationGenerations[key] == generation else { return }
-            setBackgroundStatus(
-                String(
-                    format: L10n.string("A sent draft could not be removed: %@"), UserFacingError.message(for: error))
-            )
+        }
+        composerDraftPersistenceTasks[key] = deleteTask
+        await deleteTask.value
+        if composerDraftPersistenceTasks[key] == deleteTask {
+            composerDraftPersistenceTasks[key] = nil
         }
     }
 
@@ -321,11 +371,6 @@ extension WorkspaceState {
             let client,
             let account = accounts.first(where: { $0.id == key.accountId })
         else { return }
-        defer {
-            if composerDraftMutationGenerations[key] == generation {
-                composerDraftPersistenceTasks[key] = nil
-            }
-        }
 
         let contents = composerDraftContents(for: key)
         do {
