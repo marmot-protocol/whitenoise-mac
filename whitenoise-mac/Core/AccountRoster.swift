@@ -31,6 +31,10 @@ final class AccountRoster {
     /// out). Each is applied again to the reloads that were in flight when it was made, since those
     /// may have read the old value, and dropped after the last of them lands.
     @ObservationIgnored private var edits: [Edit] = []
+    /// Unlinked accounts (lowercased hex id) whose delivered notifications have already been swept,
+    /// so focus refreshes do not repeat Notification Center queries while still catching accounts
+    /// whose unlink was first observed by an unrelated roster reload.
+    @ObservationIgnored private var cleanedUpUnlinkedNotificationAccountIds: Set<String> = []
 
     private struct Edit {
         let readsBefore: Set<UUID>
@@ -63,6 +67,7 @@ final class AccountRoster {
                 items = edit.apply(items)
             }
             self.accounts = items
+            self.pruneNotificationCleanupMarks(for: items)
             return items
         }
         inFlight[id] = read
@@ -102,6 +107,22 @@ final class AccountRoster {
         edits = []
         tail = nil
         accounts = []
+        cleanedUpUnlinkedNotificationAccountIds.removeAll()
+    }
+
+    func unlinkedAccountIdsNeedingNotificationCleanup() -> [String] {
+        Set(accounts.filter(\.unlinked).map { $0.accountIdHex.lowercased() })
+            .subtracting(cleanedUpUnlinkedNotificationAccountIds)
+            .sorted()
+    }
+
+    func markUnlinkedNotificationsCleanedUp(forAccountIdHex accountIdHex: String) {
+        cleanedUpUnlinkedNotificationAccountIds.insert(accountIdHex.lowercased())
+    }
+
+    private func pruneNotificationCleanupMarks(for items: [AccountItem]) {
+        let linkedIds = Set(items.filter { !$0.unlinked }.map { $0.accountIdHex.lowercased() })
+        cleanedUpUnlinkedNotificationAccountIds.subtract(linkedIds)
     }
 
     /// Shows a name or picture for `accountId` right away. `confirmed` when MDK now holds it (the

@@ -1629,6 +1629,81 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
         #expect(notifications.deliveredRequests.isEmpty)
         #expect(notifications.removedDeliveredAccountIdHexes.contains(removedId.lowercased()))
     }
+
+    /// Issue #1094: if an unrelated roster reload discovers a background profile's unlink before
+    /// `refreshAccountProfiles()` runs, the subsequent refresh still clears that profile's
+    /// delivered notifications once and does not re-sweep on later refreshes.
+    @Test func unrelatedRosterReloadBeforeRefreshStillClearsBackgroundUnlinkedNotificationsOnce() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: desktop, notificationKey: "desktop-stay", senderName: "Alice", previewText: "Stay")
+        )
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup, notificationKey: "backup-stale", senderName: "Bob", previewText: "Remove")
+        )
+
+        runtime.unlinkFromAnotherDevice(accountRef: backup.label)
+        _ = try await state.accountRoster.reload(from: runtime)
+        #expect(notifications.removedDeliveredAccountIdHexes.isEmpty)
+
+        await state.refreshAccountProfiles()
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["desktop-stay"])
+        #expect(notifications.removedDeliveredAccountIdHexes == [backup.accountIdHex.lowercased()])
+
+        await state.refreshAccountProfiles()
+        #expect(notifications.removedDeliveredAccountIdHexes == [backup.accountIdHex.lowercased()])
+    }
+
+    /// Issue #1094: deleting an unlinked background profile whose unlink was discovered by an
+    /// unrelated roster reload still clears its delivered notifications before removal.
+    @Test func deletingUnlinkedAccountBeforeRefreshStillClearsItsDeliveredNotifications() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: desktop, notificationKey: "desktop-keep", senderName: "Alice", previewText: "Stay")
+        )
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup, notificationKey: "backup-delete", senderName: "Bob", previewText: "Remove")
+        )
+
+        runtime.unlinkFromAnotherDevice(accountRef: backup.label)
+        _ = try await state.accountRoster.reload(from: runtime)
+        _ = await AccountExit.removeUnlinkedAccount(accountIdHex: backup.accountIdHex.lowercased(), in: state)
+
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["desktop-keep"])
+        #expect(notifications.removedDeliveredAccountIdHexes == [backup.accountIdHex.lowercased()])
+    }
 }
 
 struct DeliveredNotificationMatchingTests {

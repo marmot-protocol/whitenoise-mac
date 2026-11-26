@@ -31,6 +31,7 @@ enum AccountExit {
         else {
             await workspace.localNotificationCenter.removeDeliveredNotifications(
                 forAccountIdHex: normalizedAccountIdHex)
+            workspace.accountRoster.markUnlinkedNotificationsCleanedUp(forAccountIdHex: normalizedAccountIdHex)
             return
         }
         let wasActive = workspace.activeAccountId == account.id
@@ -51,6 +52,7 @@ enum AccountExit {
             workspace.activeAccountId = nil
         }
         await workspace.localNotificationCenter.removeDeliveredNotifications(forAccountIdHex: normalizedAccountIdHex)
+        workspace.accountRoster.markUnlinkedNotificationsCleanedUp(forAccountIdHex: normalizedAccountIdHex)
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)
             try await finishSigningOut(accountId: account.id, in: workspace, client: client)
@@ -62,21 +64,13 @@ enum AccountExit {
         }
     }
 
-    /// Removes delivered notifications belonging to every profile currently marked unlinked.
-    /// Covers accounts unlinked while the app was quit or when a live event was missed.
-    static func clearDeliveredNotificationsForUnlinkedAccounts(
-        in workspace: WorkspaceState,
-        excluding excludedAccountIds: Set<String> = []
-    ) async {
-        let unlinkedAccountIds = Set(
-            workspace.accounts
-                .filter(\.unlinked)
-                .map { $0.accountIdHex.lowercased() }
-        )
-        .subtracting(excludedAccountIds)
-        .sorted()
-        for accountIdHex in unlinkedAccountIds {
+    /// Removes delivered notifications belonging to every profile currently marked unlinked whose
+    /// notifications have not yet been swept. Covers accounts unlinked while the app was quit,
+    /// missed live events, or unlinks first observed by an unrelated roster reload.
+    static func clearDeliveredNotificationsForUnlinkedAccounts(in workspace: WorkspaceState) async {
+        for accountIdHex in workspace.accountRoster.unlinkedAccountIdsNeedingNotificationCleanup() {
             await workspace.localNotificationCenter.removeDeliveredNotifications(forAccountIdHex: accountIdHex)
+            workspace.accountRoster.markUnlinkedNotificationsCleanedUp(forAccountIdHex: accountIdHex)
         }
     }
 
