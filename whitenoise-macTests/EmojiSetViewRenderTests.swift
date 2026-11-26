@@ -204,7 +204,10 @@ import Testing
 
         let host = HostedViewWindow(Self.page(library, outdated), size: Self.pageSize)
         defer { host.close() }
-        let drawn = try #require(await host.settleDrawing { DrawnPixels.fixturePixels(in: $0) > 0 })
+        let drawn = try #require(
+            await host.settleDrawing {
+                DrawnPixels.isAbout(DrawnPixels.fixturePixels(in: $0), outdated.emoji.count * Self.cellPixels)
+            })
         #expect(library.images.image(for: Self.preview(outdated, "blob")) != nil)
 
         // Look below the emoji grid for the separate Remove Set action. Pixel counts also
