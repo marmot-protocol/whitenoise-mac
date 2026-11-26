@@ -124,6 +124,21 @@ final class OnboardingCoordinator {
         snapshot?.ready == true && snapshot?.cancellationPending == false
     }
 
+    /// Whether this account's setup is still being walked through, so its pane stands in for the
+    /// sign-in panes (and a banner click waits for it rather than leaving onboarding).
+    ///
+    /// Not merely "there is a checkpoint". MarmotKit keeps a ready one, and Settings → Add
+    /// Account reopens onboarding with the current account's scope still active — so that test
+    /// put the current account's "You’re ready to chat" where Welcome belongs, with an Open Chats
+    /// that changes nothing the shell waits on and a ✕ that cancels *that* account's onboarding.
+    /// A checkpoint that was ready before anyone was walked through it, or whose chats were
+    /// already entered, is excluded. One that is ready and waiting on Open Chats, or on the shell
+    /// after it, still shows, so its spinner is not replaced by the sign-in pane mid-transition.
+    var isWalkingThroughSetup: Bool {
+        guard snapshot != nil, !hasEnteredChats else { return false }
+        return !(isDurablyReady && !hasShownIncompleteSetup)
+    }
+
     /// Whether the shell may leave onboarding for the chat list. A guided setup ends on its own
     /// "You’re ready to chat" step, which the user leaves with Open Chats, instead of the chat list
     /// replacing the checklist the moment the last check passes.

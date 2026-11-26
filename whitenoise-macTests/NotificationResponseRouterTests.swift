@@ -8,13 +8,14 @@
 
 import Foundation
 import MarmotKit
+import Observation
 import Testing
 
 @testable import whitenoise_mac
 
 @MainActor
 @Suite(.serialized)
-struct NotificationResponseRouterTests {
+struct NotificationResponseRouterTests: WorkspaceTestSupport {
     private static let primary = AccountSummaryFfi(
         label: "primary-account",
         accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
@@ -96,9 +97,12 @@ struct NotificationResponseRouterTests {
             let state = WorkspaceState(clientFactory: { runtime })
             #expect(state.phase == .bootstrapping)
 
-            let router = NotificationResponseRouter(workspace: state) { nil }
+            let clock = TestNow()
+            let router = NotificationResponseRouter(workspace: state, now: { clock.date }) { nil }
             router.route(Self.inviteClick)
             #expect(router.pendingResponse == Self.inviteClick)
+            // A slow launch does not expire the click: the user is still waiting on it.
+            clock.date += NotificationResponseRouter.setupHoldLifetime * 10
             #expect(
                 state.backgroundStatus
                     != L10n.string("This notification is for an account or chat that is no longer available.")
@@ -109,6 +113,35 @@ struct NotificationResponseRouterTests {
             router.phaseDidChange()
 
             #expect(router.pendingResponse == nil)
+            #expect(state.activeAccountId == Self.invited.label)
+            #expect(state.selection == .chat("direct-group"))
+        }
+    }
+
+    /// The shell replays on `.onChange(of: phase)`, and `activateReadyState()` sets `.ready`
+    /// *before* its own notification, chat-list and deep-link awaits. So the replay runs inside
+    /// bootstrap, not after it: the switch it makes has to survive bootstrap's remaining reloads.
+    @Test func clickDuringLaunchReplayedAsThePhaseFlipsOpensTheChat() async throws {
+        try await withPrimaryActive {
+            let runtime = Self.runtime()
+            let state = WorkspaceState(clientFactory: { runtime })
+            let router = NotificationResponseRouter(workspace: state) { nil }
+            router.route(Self.inviteClick)
+
+            let replay = ReplayProbe()
+            Self.onFirstReady(state) {
+                replay.ranBeforeBootstrapReturned = !replay.bootstrapReturned
+                router.phaseDidChange()
+            }
+            await state.bootstrap()
+            replay.bootstrapReturned = true
+
+            #expect(replay.ranBeforeBootstrapReturned == true, "the replay must land inside bootstrap")
+            #expect(router.pendingResponse == nil)
+            #expect(state.activeAccountId == Self.invited.label)
+            #expect(state.selection == .chat("direct-group"))
+            await Self.waitUntil { state.chatsByAccount[Self.invited.label]?.isEmpty == false }
+            #expect(state.chatsByAccount[Self.invited.label]?.contains { $0.id == "direct-group" } == true)
             #expect(state.activeAccountId == Self.invited.label)
             #expect(state.selection == .chat("direct-group"))
         }
@@ -127,7 +160,7 @@ struct NotificationResponseRouterTests {
             let setup = await OnboardingFixtures.coordinator(
                 OnboardingFixtures.snapshot(steps: [OnboardingFixtures.step(.relays, .checking)])
             )
-            #expect(OnboardingView.showsAccountSetup(setup))
+            #expect(setup.isWalkingThroughSetup)
 
             let router = NotificationResponseRouter(workspace: state) { setup }
             router.route(Self.inviteClick)
@@ -136,6 +169,7 @@ struct NotificationResponseRouterTests {
             #expect(state.selection == selectionBefore)
             #expect(state.activeAccountId == Self.primary.label)
             #expect(router.pendingResponse == Self.inviteClick)
+            #expect(setup.hasConfirmedOpenChats == false, "an unfinished setup is never skipped")
 
             state.phase = .ready
             router.phaseDidChange()
@@ -143,6 +177,165 @@ struct NotificationResponseRouterTests {
             #expect(router.pendingResponse == nil)
             #expect(state.activeAccountId == Self.invited.label)
             #expect(state.selection == .chat("direct-group"))
+        }
+    }
+
+    /// The usual way an invite is clicked: a freshly signed-up identity finished its setup and sits
+    /// on "You’re ready to chat". The click presses Open Chats for the user and opens the invite
+    /// once the shell has taken the phase to `.ready`.
+    @Test func clickOnAFinishedSetupOpensTheChatsThenTheInvite() async throws {
+        try await withPrimaryActive {
+            let runtime = Self.runtime()
+            let state = WorkspaceState(clientFactory: { runtime })
+            await state.bootstrap()
+            state.phase = .onboarding
+
+            let setupRuntime = FakeMarmotRuntime(accounts: [])
+            let setup = await OnboardingFixtures.coordinator(
+                OnboardingFixtures.snapshot(steps: [OnboardingFixtures.step(.relays, .checking)]),
+                runtime: setupRuntime
+            )
+            setupRuntime.onboardingState = OnboardingFixtures.snapshot(
+                steps: [OnboardingFixtures.step(.relays, .passed)], ready: true, revision: 5
+            )
+            await setup.run()
+            #expect(setup.hasShownIncompleteSetup)
+            #expect(setup.isDurablyReady)
+            #expect(setup.hasConfirmedOpenChats == false)
+
+            let router = NotificationResponseRouter(workspace: state) { setup }
+            router.route(Self.inviteClick)
+
+            #expect(setup.hasConfirmedOpenChats)
+            #expect(setup.canEnterChats)
+            #expect(router.pendingResponse == Self.inviteClick)
+            #expect(state.phase == .onboarding)
+            #expect(state.activeAccountId == Self.primary.label)
+
+            state.phase = .ready
+            router.phaseDidChange()
+
+            #expect(router.pendingResponse == nil)
+            #expect(state.activeAccountId == Self.invited.label)
+            #expect(state.selection == .chat("direct-group"))
+        }
+    }
+
+    /// A sign-in or sign-up in flight picks the active identity itself; a click then is dropped
+    /// rather than switching identity under it.
+    @Test func clickDuringASignInInFlightIsDropped() async throws {
+        try await withPrimaryActive {
+            let runtime = Self.runtime()
+            let state = WorkspaceState(clientFactory: { runtime })
+            await state.bootstrap()
+            state.showAccountOnboarding()
+            state.showSignUp()
+            state.authenticationActivity = .signUp
+            defer { state.authenticationActivity = nil }
+            #expect(state.isAuthenticating)
+            let selectionBefore = state.selection
+            // The new identity's checkpoint already shows while its sign-in finishes; without the
+            // in-flight check the click would be held for that setup and replayed afterwards.
+            let setup = await OnboardingFixtures.coordinator(
+                OnboardingFixtures.snapshot(steps: [OnboardingFixtures.step(.relays, .checking)])
+            )
+            #expect(setup.isWalkingThroughSetup)
+
+            let router = NotificationResponseRouter(workspace: state) { setup }
+            router.route(Self.inviteClick)
+
+            #expect(router.pendingResponse == nil)
+            #expect(state.phase == .onboarding)
+            #expect(state.authenticationMode == .signUp)
+            #expect(state.activeAccountId == Self.primary.label)
+            #expect(state.selection == selectionBefore)
+        }
+    }
+
+    /// A slow setup — a relay or KeyPackage check on a bad network — still running just short of
+    /// the lifetime keeps its click: the user is still waiting on it, and Open Chats opens it.
+    @Test func aClickHeldForASetupStillRunningJustBeforeItsLifetimeOpensTheChat() async throws {
+        try await withPrimaryActive {
+            let runtime = Self.runtime()
+            let state = WorkspaceState(clientFactory: { runtime })
+            await state.bootstrap()
+            state.phase = .onboarding
+
+            let setup = await OnboardingFixtures.coordinator(
+                OnboardingFixtures.snapshot(steps: [OnboardingFixtures.step(.relays, .checking)])
+            )
+            let clock = TestNow()
+            let router = NotificationResponseRouter(workspace: state, now: { clock.date }) { setup }
+            router.route(Self.inviteClick)
+            #expect(router.pendingResponse == Self.inviteClick)
+            #expect(setup.isDurablyReady == false, "the setup is still running")
+
+            clock.date += NotificationResponseRouter.setupHoldLifetime - 1
+            state.phase = .ready
+            router.phaseDidChange()
+
+            #expect(router.pendingResponse == nil)
+            #expect(state.activeAccountId == Self.invited.label)
+            #expect(state.selection == .chat("direct-group"))
+        }
+    }
+
+    /// A click whose setup is still on screen after the lifetime is stale by the time the chats
+    /// show; it is dropped instead of jumping to an old invite.
+    @Test func aClickHeldForASetupExpires() async throws {
+        try await withPrimaryActive {
+            let runtime = Self.runtime()
+            let state = WorkspaceState(clientFactory: { runtime })
+            await state.bootstrap()
+            state.phase = .onboarding
+            let selectionBefore = state.selection
+
+            let setup = await OnboardingFixtures.coordinator(
+                OnboardingFixtures.snapshot(steps: [OnboardingFixtures.step(.relays, .checking)])
+            )
+            let clock = TestNow()
+            let router = NotificationResponseRouter(workspace: state, now: { clock.date }) { setup }
+            router.route(Self.inviteClick)
+            #expect(router.pendingResponse == Self.inviteClick)
+
+            clock.date += NotificationResponseRouter.setupHoldLifetime
+            state.phase = .ready
+            router.phaseDidChange()
+
+            #expect(router.pendingResponse == nil)
+            #expect(state.activeAccountId == Self.primary.label)
+            #expect(state.selection == selectionBefore)
+        }
+    }
+
+    /// A held click that is routed again without reaching the chats — a phase change that lands
+    /// back in onboarding — keeps its original deadline rather than starting a new one.
+    @Test func reholdingAClickKeepsItsOriginalExpiry() async throws {
+        try await withPrimaryActive {
+            let runtime = Self.runtime()
+            let state = WorkspaceState(clientFactory: { runtime })
+            await state.bootstrap()
+            state.phase = .onboarding
+            let selectionBefore = state.selection
+
+            let setup = await OnboardingFixtures.coordinator(
+                OnboardingFixtures.snapshot(steps: [OnboardingFixtures.step(.relays, .checking)])
+            )
+            let clock = TestNow()
+            let router = NotificationResponseRouter(workspace: state, now: { clock.date }) { setup }
+            router.route(Self.inviteClick)
+
+            clock.date += NotificationResponseRouter.setupHoldLifetime - 1
+            router.phaseDidChange()
+            #expect(router.pendingResponse == Self.inviteClick, "still onboarding, so held again")
+
+            clock.date += 1
+            state.phase = .ready
+            router.phaseDidChange()
+
+            #expect(router.pendingResponse == nil)
+            #expect(state.activeAccountId == Self.primary.label)
+            #expect(state.selection == selectionBefore)
         }
     }
 
@@ -159,4 +352,27 @@ struct NotificationResponseRouterTests {
         #expect(state.selection == nil)
         #expect(router.pendingResponse == nil)
     }
+
+    /// Runs `body` on the main actor at the first hop after `state.phase` becomes `.ready` — where
+    /// SwiftUI's `.onChange(of: phase)` runs, while whoever set it may still be suspended.
+    private static func onFirstReady(_ state: WorkspaceState, _ body: @escaping @MainActor @Sendable () -> Void) {
+        withObservationTracking {
+            _ = state.phase
+        } onChange: {
+            Task { @MainActor in
+                if state.phase == .ready { body() } else { onFirstReady(state, body) }
+            }
+        }
+    }
+}
+
+@MainActor
+private final class TestNow {
+    var date = Date(timeIntervalSince1970: 1_800_000_000)
+}
+
+@MainActor
+private final class ReplayProbe {
+    var bootstrapReturned = false
+    var ranBeforeBootstrapReturned: Bool?
 }

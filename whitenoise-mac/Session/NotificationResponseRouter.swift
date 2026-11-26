@@ -17,7 +17,10 @@ import Foundation
 /// So a click that cannot be answered yet is held here and replayed once `phase` reaches `.ready`
 /// (`phaseDidChange()`), and a click during onboarding leaves it the way the user would: Cancel on
 /// the Welcome panes, Open Chats on a finished setup. A setup still running is never skipped — the
-/// click waits for it, and lands when the user opens the chats.
+/// click waits for it, and lands when the user opens the chats. Abandoning the setup (Cancel or ✕)
+/// changes `phase` at once, so the click is replayed or dropped then; the only click that can
+/// outlive `setupHoldLifetime` is one whose setup is still on screen after it, and that is
+/// dropped so a chat list opened long after the click does not jump to it.
 ///
 /// Lives in the session layer, not on `WorkspaceState` (which is frozen): it needs the active
 /// account's onboarding checkpoint, which only the account scope holds.
@@ -30,25 +33,45 @@ final class NotificationResponseRouter {
     /// The latest click that could not be answered yet. One, not a queue: a later click supersedes
     /// an earlier one, as it would on screen.
     private(set) var pendingResponse: [String: String]?
+    /// When a click held for a setup stops being worth replaying. Nil for a click held through
+    /// launch, which the user is still waiting on however long bootstrap takes.
+    private var pendingResponseExpiry: Date?
+    private let now: @MainActor () -> Date
 
-    init(workspace: WorkspaceState, onboarding: @escaping @MainActor () -> OnboardingCoordinator?) {
+    /// How long a click waits for an unfinished setup before it is dropped. Well past a relay or
+    /// KeyPackage check on a bad network, so a setup the user is still waiting on keeps its click.
+    static let setupHoldLifetime: TimeInterval = 10 * 60
+
+    init(
+        workspace: WorkspaceState,
+        now: @escaping @MainActor () -> Date = { Date() },
+        onboarding: @escaping @MainActor () -> OnboardingCoordinator?
+    ) {
         self.workspace = workspace
+        self.now = now
         self.onboarding = onboarding
     }
 
     func route(_ userInfo: [String: String]) {
+        route(userInfo, heldUntil: nil)
+    }
+
+    /// `heldUntil` is the expiry a replayed click already had, so holding it again for a setup
+    /// keeps its original deadline instead of restarting the clock on every phase change.
+    private func route(_ userInfo: [String: String], heldUntil expiry: Date?) {
         guard userInfo["groupIdHex"] != nil else { return }
         switch workspace.phase {
         case .ready:
-            pendingResponse = nil
+            dropPendingResponse()
             workspace.handleNotificationResponse(userInfo)
         case .bootstrapping:
             pendingResponse = userInfo
+            pendingResponseExpiry = nil
         case .onboarding:
-            routeDuringOnboarding(userInfo)
+            routeDuringOnboarding(userInfo, heldUntil: expiry)
         case .failed:
             // Nothing behind the failure pane can show a chat.
-            pendingResponse = nil
+            dropPendingResponse()
         }
     }
 
@@ -57,30 +80,38 @@ final class NotificationResponseRouter {
     /// which drops it there.
     func phaseDidChange() {
         guard workspace.phase != .bootstrapping, let pendingResponse else { return }
-        self.pendingResponse = nil
-        route(pendingResponse)
+        let expiry = pendingResponseExpiry
+        dropPendingResponse()
+        if let expiry, now() >= expiry { return }
+        route(pendingResponse, heldUntil: expiry)
     }
 
-    private func routeDuringOnboarding(_ userInfo: [String: String]) {
+    private func dropPendingResponse() {
+        pendingResponse = nil
+        pendingResponseExpiry = nil
+    }
+
+    private func routeDuringOnboarding(_ userInfo: [String: String], heldUntil expiry: Date?) {
         // Only a signed-in identity has chats to show. A banner for one that is gone, or a click
         // with nothing signed in, leaves the user where they are.
         guard let account = workspace.notificationAccount(from: userInfo), !account.signedOut else {
-            pendingResponse = nil
+            dropPendingResponse()
             return
         }
         // A sign-in or sign-up in flight is about to pick the active identity itself; switching
         // under it would land on one account and then be moved to the other.
         guard !workspace.isAuthenticating else {
-            pendingResponse = nil
+            dropPendingResponse()
             return
         }
 
-        if let setup = onboarding(), OnboardingView.showsAccountSetup(setup) {
+        if let setup = onboarding(), setup.isWalkingThroughSetup {
             // The active identity's setup is on screen. It is not cancelled or skipped for a
             // banner: a finished one opens its chats the way Open Chats does, and the shell's
             // entry check takes the phase to `.ready`; an unfinished one keeps the click until it
             // is. Either way the chat opens from `phaseDidChange()`.
             pendingResponse = userInfo
+            pendingResponseExpiry = expiry ?? now().addingTimeInterval(Self.setupHoldLifetime)
             if setup.isDurablyReady {
                 setup.openChats()
             }
@@ -91,10 +122,10 @@ final class NotificationResponseRouter {
         // only way into those panes with one. Clicking the banner is choosing to leave it, which
         // is what Cancel does.
         guard workspace.canLeaveAccountOnboarding else {
-            pendingResponse = nil
+            dropPendingResponse()
             return
         }
-        pendingResponse = nil
+        dropPendingResponse()
         workspace.leaveAccountOnboarding(returningToSettings: false)
         guard workspace.phase == .ready else { return }
         workspace.handleNotificationResponse(userInfo)

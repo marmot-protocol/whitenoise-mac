@@ -508,7 +508,7 @@ import Testing
         let model = await F.coordinator(F.snapshot(steps: [F.step(.relays, .passed)], ready: true))
 
         #expect(model.canEnterChats)
-        #expect(OnboardingView.showsAccountSetup(model) == false)
+        #expect(model.isWalkingThroughSetup == false)
         #expect(OnboardingView.showsAccountSetup(nil) == false)
     }
 
@@ -517,19 +517,19 @@ import Testing
     @Test func aWalkedThroughSetupLeavesThePaneOnceTheChatsAreEntered() async {
         let runtime = FakeMarmotRuntime(accounts: [])
         let model = await F.coordinator(F.snapshot(steps: [F.step(.relays, .checking)]), runtime: runtime)
-        #expect(OnboardingView.showsAccountSetup(model))
+        #expect(model.isWalkingThroughSetup)
 
         runtime.onboardingState = F.snapshot(steps: [F.step(.relays, .passed)], ready: true, revision: 5)
         await model.run()
         model.didEnterChats()
         #expect(model.hasEnteredChats == false, "the shell cannot enter before Open Chats")
-        #expect(OnboardingView.showsAccountSetup(model))
+        #expect(model.isWalkingThroughSetup)
 
         model.openChats()
-        #expect(OnboardingView.showsAccountSetup(model), "Opening your chats… stays up until the shell leaves")
+        #expect(model.isWalkingThroughSetup, "Opening your chats… stays up until the shell leaves")
 
         model.didEnterChats()
-        #expect(OnboardingView.showsAccountSetup(model) == false)
+        #expect(model.isWalkingThroughSetup == false)
     }
 
     /// An account opened at launch or by a switch is in its chats without ever passing through
@@ -537,12 +537,12 @@ import Testing
     /// checkpoint, ready or not, must neither replace Welcome nor take the user back to the chats.
     @Test func anAccountWhoseChatsAreShowingNeverTakesOverAddProfile() async {
         let model = await F.coordinator(F.snapshot(steps: [F.step(.relays, .checking)]))
-        #expect(OnboardingView.showsAccountSetup(model), "an unfinished checkpoint shows while signing in")
+        #expect(model.isWalkingThroughSetup, "an unfinished checkpoint shows while signing in")
 
         model.chatsAreShowing()
 
         #expect(model.hasEnteredChats)
-        #expect(OnboardingView.showsAccountSetup(model) == false)
+        #expect(model.isWalkingThroughSetup == false)
     }
 
     // MARK: - Cancel
