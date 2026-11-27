@@ -200,6 +200,12 @@ final class FakeLocalNotificationCenter: LocalNotificationCenter {
     private(set) var didReachRequestAuthorizationGate = false
     private var requestAuthorizationGateContinuation: CheckedContinuation<Void, Never>?
     private(set) var postedRequests: [LocalNotificationRequest] = []
+    private(set) var deliveredRequests: [LocalNotificationRequest] = []
+    private(set) var removedDeliveredAccountIdHexes: [String] = []
+    private(set) var removedDeliveredExplicitIdentifiers: [String] = []
+    var postGateEnabled = false
+    private(set) var didReachPostGate = false
+    private var postGateContinuation: CheckedContinuation<Void, Never>?
     private var responseHandler: (@MainActor ([String: String]) -> Void)?
 
     init(
@@ -244,11 +250,44 @@ final class FakeLocalNotificationCenter: LocalNotificationCenter {
         requestAuthorizationGateContinuation = nil
     }
 
+    func releasePostGate() {
+        postGateContinuation?.resume()
+        postGateContinuation = nil
+    }
+
+    /// Seeds notifications that were already in Notification Center before this launch.
+    func seedDelivered(_ notification: LocalNotificationRequest) {
+        deliveredRequests.append(notification)
+    }
+
     func post(_ notification: LocalNotificationRequest) async throws {
+        if postGateEnabled {
+            didReachPostGate = true
+            await withCheckedContinuation { continuation in
+                postGateContinuation = continuation
+            }
+        }
         if let postError {
             throw postError
         }
         postedRequests.append(notification)
+        deliveredRequests.append(notification)
+    }
+
+    func removeDeliveredNotifications(
+        forAccountIdHex accountIdHex: String,
+        includingIdentifiers: [String]
+    ) async {
+        removedDeliveredAccountIdHexes.append(accountIdHex)
+        removedDeliveredExplicitIdentifiers.append(contentsOf: includingIdentifiers)
+        let matching = Set(
+            MacLocalNotificationCenter.deliveredNotificationIdentifiers(
+                matchingAccountIdHex: accountIdHex,
+                in: deliveredRequests.map { ($0.identifier, $0.userInfo) },
+                includingIdentifiers: includingIdentifiers
+            )
+        )
+        deliveredRequests.removeAll { matching.contains($0.identifier) }
     }
 
     func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void) {
@@ -292,6 +331,11 @@ final class GatedLocalNotificationCenter: LocalNotificationCenter {
     }
 
     func post(_ notification: LocalNotificationRequest) async throws {}
+
+    func removeDeliveredNotifications(
+        forAccountIdHex accountIdHex: String,
+        includingIdentifiers: [String]
+    ) async {}
 
     func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void) {
         responseHandler = handler

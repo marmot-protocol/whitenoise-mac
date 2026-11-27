@@ -8,5 +8,15 @@ protocol LocalNotificationCenter: AnyObject {
     func authorizationStatus() async -> LocalNotificationAuthorizationStatus
     func requestAuthorization() async throws -> LocalNotificationAuthorizationStatus
     func post(_ notification: LocalNotificationRequest) async throws
+    func removeDeliveredNotifications(
+        forAccountIdHex accountIdHex: String,
+        includingIdentifiers: [String]
+    ) async
     func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void)
+}
+
+extension LocalNotificationCenter {
+    func removeDeliveredNotifications(forAccountIdHex accountIdHex: String) async {
+        await removeDeliveredNotifications(forAccountIdHex: accountIdHex, includingIdentifiers: [])
+    }
 }

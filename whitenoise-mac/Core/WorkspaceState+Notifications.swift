@@ -29,6 +29,18 @@ extension WorkspaceState {
     func handleNotificationUpdate(_ update: NotificationUpdateFfi) async {
         guard !update.isFromSelf else { return }
         guard !deliveredNotificationKeys.contains(update.notificationKey) else { return }
+        let accountWasKnownAtStart = AccountExit.hasAccount(
+            accountIdHex: update.accountIdHex,
+            accountRef: update.accountRef,
+            in: self
+        )
+        guard
+            !AccountExit.isAccountUnlinked(
+                accountIdHex: update.accountIdHex,
+                accountRef: update.accountRef,
+                in: self
+            )
+        else { return }
         let activeNotificationAccountId =
             activeAccount?.accountIdHex == update.accountIdHex ? activeAccount?.id : nil
         // A same-account settings toggle/load that commits while the FFI read is
@@ -81,6 +93,14 @@ extension WorkspaceState {
             await refreshNotificationAuthorizationStatus()
         }
         guard notificationAuthorizationStatus.canPostNotifications else { return }
+        guard
+            !AccountExit.shouldSuppressNotification(
+                accountIdHex: update.accountIdHex,
+                accountRef: update.accountRef,
+                wasKnownAtStart: accountWasKnownAtStart,
+                in: self
+            )
+        else { return }
 
         do {
             let request = localNotificationRequest(
@@ -88,6 +108,18 @@ extension WorkspaceState {
                 withholdingContent: chatVerdict == .ringWithoutContent
             )
             try await localNotificationCenter.post(request)
+            if AccountExit.shouldSuppressNotification(
+                accountIdHex: update.accountIdHex,
+                accountRef: update.accountRef,
+                wasKnownAtStart: accountWasKnownAtStart,
+                in: self
+            ) {
+                await localNotificationCenter.removeDeliveredNotifications(
+                    forAccountIdHex: update.accountIdHex,
+                    includingIdentifiers: [request.identifier]
+                )
+                return
+            }
             rememberDeliveredNotificationKey(update.notificationKey)
         } catch {
             setBackgroundStatus(UserFacingError.message(for: error))

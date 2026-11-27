@@ -1257,6 +1257,503 @@ struct DeviceUnlinkMonitorTests: WorkspaceTestSupport {
 
         #expect(runtime.eventHub.subscriberCount == 0)
     }
+
+    /// Issue #1094: when another device removes this Mac, already-delivered notifications for the
+    /// unlinked account are removed from Notification Center while other accounts' alerts remain.
+    @Test func liveUnlinkClearsDeliveredNotificationsOnlyForTheUnlinkedAccount() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.deviceGroupsEnabled = true
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: desktop, notificationKey: "desktop-1", senderName: "Alice", previewText: "Private desktop msg")
+        )
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup, notificationKey: "backup-1", senderName: "Bob", previewText: "Private backup msg")
+        )
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["desktop-1", "backup-1"])
+
+        let monitor = DeviceUnlinkMonitor()
+        let observing = Task {
+            await monitor.observe(runtime) { accountIdHex in
+                await AccountExit.leaveSignedOutAccount(accountIdHex: accountIdHex, in: state)
+            }
+        }
+        defer { observing.cancel() }
+        await Self.waitUntil { runtime.eventHub.subscriberCount == 1 }
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        await Self.waitUntil { monitor.notice?.accountIdHex == desktop.accountIdHex.lowercased() }
+        await monitor.finishLeaving(desktop.accountIdHex.lowercased())
+
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["backup-1"])
+        #expect(notifications.postedRequests.map(\.identifier) == ["desktop-1", "backup-1"])
+    }
+
+    /// Issue #1094: an unlink discovered through `refreshAccountProfiles()` (when the live event
+    /// was missed) still clears delivered notifications for both active and background accounts.
+    @Test func missedUnlinkOnAccountRefreshClearsDeliveredNotifications() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: desktop, notificationKey: "desktop-refresh-1", senderName: "Alice", previewText: "Secret")
+        )
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup, notificationKey: "backup-refresh-1", senderName: "Bob", previewText: "Keep me")
+        )
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["desktop-refresh-1", "backup-refresh-1"])
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        await state.refreshAccountProfiles()
+
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["backup-refresh-1"])
+    }
+
+    /// Issue #1094: notifications delivered before the app quit are cleared on launch when the
+    /// account is already marked unlinked on disk, including when it was the only profile.
+    @Test func previouslyUnlinkedAccountAtLaunchClearsDeliveredNotifications() async throws {
+        var unlinkedDesktop = desktopAccount()
+        unlinkedDesktop.signedOut = true
+        unlinkedDesktop.unlinked = true
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [unlinkedDesktop, backup])
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        notifications.seedDelivered(
+            LocalNotificationRequest(
+                identifier: "stale-unlinked",
+                title: "Alice",
+                body: "Old secret",
+                threadIdentifier: "group-1",
+                userInfo: [
+                    "accountIdHex": unlinkedDesktop.accountIdHex.uppercased(),
+                    "accountRef": unlinkedDesktop.label,
+                    "groupIdHex": "group-1",
+                ]
+            )
+        )
+        notifications.seedDelivered(
+            LocalNotificationRequest(
+                identifier: "active-backup",
+                title: "Bob",
+                body: "Still signed in",
+                threadIdentifier: "group-2",
+                userInfo: [
+                    "accountIdHex": backup.accountIdHex,
+                    "accountRef": backup.label,
+                    "groupIdHex": "group-2",
+                ]
+            )
+        )
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["active-backup"])
+    }
+
+    /// Issue #1094: a teardown failure (such as an unreadable account list during unlink) must not
+    /// prevent delivered notifications for the unlinked account from being cleared.
+    @Test func unlinkClearsDeliveredNotificationsEvenWhenTeardownReloadFails() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: desktop, notificationKey: "desktop-fail-1", senderName: "Alice", previewText: "Secret")
+        )
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup, notificationKey: "backup-fail-1", senderName: "Bob", previewText: "Keep")
+        )
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        runtime.listAccountsError = MarmotKitError.Runtime(details: "storage busy")
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["backup-fail-1"])
+    }
+
+    /// Issue #1094: an incoming notification already suspended in FFI reads when an unlink lands
+    /// must not post stale private content after cleanup has run.
+    @Test func inFlightNotificationSuspendedBeforePostIsDroppedOnUnlink() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        runtime.notificationSettingsGateEnabled = true
+        let incoming = Task {
+            await state.handleNotificationUpdate(
+                notificationUpdate(
+                    account: desktop, notificationKey: "in-flight-before-post", senderName: "Alice",
+                    previewText: "Late secret")
+            )
+        }
+        await Self.waitUntil { runtime.didReachNotificationSettingsGate }
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+
+        runtime.releaseNotificationSettingsGate()
+        await incoming.value
+
+        #expect(notifications.deliveredRequests.isEmpty)
+        #expect(notifications.postedRequests.isEmpty)
+    }
+
+    /// Issue #1094: if an account is unlinked and removed ("Delete Everything") while an incoming
+    /// notification is suspended before posting, it must still be dropped rather than posted.
+    @Test func inFlightNotificationDroppedWhenAccountIsUnlinkedAndRemovedBeforePost() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        runtime.notificationSettingsGateEnabled = true
+        let incoming = Task {
+            await state.handleNotificationUpdate(
+                notificationUpdate(
+                    account: desktop, notificationKey: "in-flight-unlink-delete", senderName: "Alice",
+                    previewText: "Wiped account secret")
+            )
+        }
+        await Self.waitUntil { runtime.didReachNotificationSettingsGate }
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+        _ = await AccountExit.removeUnlinkedAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+        #expect(!state.accounts.contains { $0.accountIdHex.lowercased() == desktop.accountIdHex.lowercased() })
+
+        runtime.releaseNotificationSettingsGate()
+        await incoming.value
+
+        #expect(notifications.deliveredRequests.isEmpty)
+        #expect(notifications.postedRequests.isEmpty)
+    }
+
+    /// Issue #1094: if an unlink lands while `localNotificationCenter.post(_:)` is already in
+    /// flight, the just-posted notification is swept immediately once `post(_:)` finishes.
+    @Test func notificationPostingConcurrentlyWithUnlinkIsSweptAfterPostCompletes() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        notifications.postGateEnabled = true
+        let posting = Task {
+            await state.handleNotificationUpdate(
+                notificationUpdate(
+                    account: desktop, notificationKey: "in-flight-post", senderName: "Alice",
+                    previewText: "Raced secret")
+            )
+        }
+        await Self.waitUntil { notifications.didReachPostGate }
+
+        runtime.unlinkFromAnotherDevice(accountRef: desktop.label)
+        await AccountExit.leaveSignedOutAccount(accountIdHex: desktop.accountIdHex.lowercased(), in: state)
+
+        notifications.releasePostGate()
+        await posting.value
+
+        #expect(notifications.deliveredRequests.isEmpty)
+        #expect(notifications.removedDeliveredExplicitIdentifiers == ["in-flight-post"])
+    }
+
+    /// Issue #1094: a background profile whose live unlink event was missed also has its delivered
+    /// notifications cleared on account refresh without disturbing the active profile's alerts,
+    /// and subsequent refreshes do not re-sweep already-unlinked profiles.
+    @Test func missedUnlinkOfBackgroundAccountOnRefreshClearsOnlyItsNotifications() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: desktop, notificationKey: "active-desktop-1", senderName: "Alice", previewText: "Stay")
+        )
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup, notificationKey: "bg-backup-1", senderName: "Bob", previewText: "Remove")
+        )
+
+        runtime.unlinkFromAnotherDevice(accountRef: backup.label)
+        await state.refreshAccountProfiles()
+
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["active-desktop-1"])
+        #expect(state.activeAccountId == desktop.label)
+        #expect(notifications.removedDeliveredAccountIdHexes == [backup.accountIdHex.lowercased()])
+
+        await state.refreshAccountProfiles()
+        #expect(notifications.removedDeliveredAccountIdHexes == [backup.accountIdHex.lowercased()])
+    }
+
+    /// Issue #1094: when the sole profile on this Mac was unlinked while the app was quit,
+    /// `bootstrap()` lands in onboarding and still clears that profile's stale notifications.
+    @Test func solePreviouslyUnlinkedAccountAtLaunchStillClearsDeliveredNotifications() async throws {
+        var onlyAccount = desktopAccount()
+        onlyAccount.signedOut = true
+        onlyAccount.unlinked = true
+        let runtime = FakeMarmotRuntime(accounts: [onlyAccount])
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        notifications.seedDelivered(
+            LocalNotificationRequest(
+                identifier: "only-stale",
+                title: "Alice",
+                body: "Leftover",
+                threadIdentifier: "group-1",
+                userInfo: ["accountIdHex": onlyAccount.accountIdHex, "groupIdHex": "group-1"]
+            )
+        )
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+
+        #expect(state.phase == .onboarding)
+        #expect(notifications.deliveredRequests.isEmpty)
+    }
+
+    /// Issue #1094: `leaveSignedOutAccount` still asks the notification center to clear alerts
+    /// for an unlinked account even if the roster already dropped that account record.
+    @Test func leaveSignedOutAccountClearsNotificationsEvenWhenAccountIsAlreadyAbsent() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [Self.backupSummary])
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        let removedId = desktopAccount().accountIdHex
+        notifications.seedDelivered(
+            LocalNotificationRequest(
+                identifier: "orphan-unlinked",
+                title: "Alice",
+                body: "Orphaned",
+                threadIdentifier: "group-1",
+                userInfo: ["accountIdHex": removedId, "groupIdHex": "group-1"]
+            )
+        )
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await AccountExit.leaveSignedOutAccount(accountIdHex: removedId.uppercased(), in: state)
+
+        #expect(notifications.deliveredRequests.isEmpty)
+        #expect(notifications.removedDeliveredAccountIdHexes.contains(removedId.lowercased()))
+    }
+
+    /// Issue #1094: if an unrelated roster reload discovers a background profile's unlink before
+    /// `refreshAccountProfiles()` runs, the subsequent refresh still clears that profile's
+    /// delivered notifications once and does not re-sweep on later refreshes.
+    @Test func unrelatedRosterReloadBeforeRefreshStillClearsBackgroundUnlinkedNotificationsOnce() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: desktop, notificationKey: "desktop-stay", senderName: "Alice", previewText: "Stay")
+        )
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup, notificationKey: "backup-stale", senderName: "Bob", previewText: "Remove")
+        )
+
+        runtime.unlinkFromAnotherDevice(accountRef: backup.label)
+        _ = try await state.accountRoster.reload(from: runtime)
+        #expect(notifications.removedDeliveredAccountIdHexes.isEmpty)
+
+        await state.refreshAccountProfiles()
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["desktop-stay"])
+        #expect(notifications.removedDeliveredAccountIdHexes == [backup.accountIdHex.lowercased()])
+
+        await state.refreshAccountProfiles()
+        #expect(notifications.removedDeliveredAccountIdHexes == [backup.accountIdHex.lowercased()])
+    }
+
+    /// Issue #1094: deleting an unlinked background profile whose unlink was discovered by an
+    /// unrelated roster reload still clears its delivered notifications before removal.
+    @Test func deletingUnlinkedAccountBeforeRefreshStillClearsItsDeliveredNotifications() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let desktop = desktopAccount()
+        let backup = Self.backupSummary
+        let runtime = FakeMarmotRuntime(accounts: [desktop, backup])
+        runtime.notificationSettings = notificationSettings(for: desktop, localEnabled: true)
+        let notifications = FakeLocalNotificationCenter(status: .authorized)
+        UserDefaults.standard.set(desktop.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            localNotificationCenter: notifications,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: desktop, notificationKey: "desktop-keep", senderName: "Alice", previewText: "Stay")
+        )
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup, notificationKey: "backup-delete", senderName: "Bob", previewText: "Remove")
+        )
+
+        runtime.unlinkFromAnotherDevice(accountRef: backup.label)
+        _ = try await state.accountRoster.reload(from: runtime)
+        _ = await AccountExit.removeUnlinkedAccount(accountIdHex: backup.accountIdHex.lowercased(), in: state)
+
+        #expect(notifications.deliveredRequests.map(\.identifier) == ["desktop-keep"])
+        #expect(notifications.removedDeliveredAccountIdHexes == [backup.accountIdHex.lowercased()])
+    }
+}
+
+struct DeliveredNotificationMatchingTests {
+    @Test func matchesAccountIdCaseInsensitivelyAndIgnoresOtherOrMalformedEntries() {
+        let target = "ABCDEF1234567890"
+        let delivered: [(identifier: String, userInfo: [AnyHashable: Any])] = [
+            ("exact-lower", ["accountIdHex": "abcdef1234567890"]),
+            ("mixed-trimmed", ["accountIdHex": "  AbCdEf1234567890 \n"]),
+            ("other-account", ["accountIdHex": "1111111111111111"]),
+            ("missing-key", ["groupIdHex": "g1"]),
+            ("blank-value", ["accountIdHex": "   "]),
+            ("non-string-value", ["accountIdHex": 12345]),
+        ]
+
+        let matched = MacLocalNotificationCenter.deliveredNotificationIdentifiers(
+            matchingAccountIdHex: target,
+            in: delivered
+        )
+
+        #expect(matched == ["exact-lower", "mixed-trimmed"])
+    }
+
+    @Test func blankTargetAccountIdMatchesNothing() {
+        let delivered: [(identifier: String, userInfo: [AnyHashable: Any])] = [
+            ("blank-entry", ["accountIdHex": ""]),
+            ("normal-entry", ["accountIdHex": "abcdef"]),
+        ]
+
+        let matched = MacLocalNotificationCenter.deliveredNotificationIdentifiers(
+            matchingAccountIdHex: "   ",
+            in: delivered
+        )
+
+        #expect(matched.isEmpty)
+    }
+
+    @Test func explicitIdentifiersAreIncludedWithoutDuplicates() {
+        let delivered: [(identifier: String, userInfo: [AnyHashable: Any])] = [
+            ("already-delivered", ["accountIdHex": "abcdef"]),
+            ("other-account", ["accountIdHex": "111111"]),
+        ]
+
+        let matched = MacLocalNotificationCenter.deliveredNotificationIdentifiers(
+            matchingAccountIdHex: "abcdef",
+            in: delivered,
+            includingIdentifiers: ["already-delivered", "just-posted", "", "just-posted"]
+        )
+
+        #expect(matched == ["already-delivered", "just-posted"])
+    }
 }
 
 struct DeviceUnlinkPresentationTests {

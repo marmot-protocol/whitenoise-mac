@@ -50,6 +50,7 @@ extension WorkspaceState {
             loadContactNicknames()
             loadRememberedDirectPeers()
             try await accountRoster.reload(from: runtime)
+            await AccountExit.clearDeliveredNotificationsForUnlinkedAccounts(in: self)
             restoreOrSelectFirstAccount()
             await configureObservabilityRuntimeBestEffort()
             // Not `accounts.isEmpty`: a Mac holding nothing but deactivated identities has
@@ -71,6 +72,7 @@ extension WorkspaceState {
 
             try await bringRuntimeOnline(runtime)
             try await accountRoster.reload(from: runtime)
+            await AccountExit.clearDeliveredNotificationsForUnlinkedAccounts(in: self)
             restoreOrSelectFirstAccount()
             await migrateLegacyPinnedChats(runtime: runtime)
             await activateReadyState()
@@ -665,6 +667,13 @@ extension WorkspaceState {
         let selectedGroupId = wasActive ? selectedChat?.id : nil
         suppressMediaDiskStores(forAccountId: removedAccountId)
         defer { resumeMediaDiskStores(forAccountId: removedAccountId) }
+        if account.unlinked {
+            let normalizedId = removedAccountIdHex.lowercased()
+            if accountRoster.unlinkedAccountIdsNeedingNotificationCleanup().contains(normalizedId) {
+                await localNotificationCenter.removeDeliveredNotifications(forAccountIdHex: normalizedId)
+                accountRoster.markUnlinkedNotificationsCleanedUp(forAccountIdHex: normalizedId)
+            }
+        }
         // Outside the `do`: a wipe that went through is still reported if a later step fails.
         var outcome: WipeOutcomeFfi?
         // MDK answered that it no longer holds the account, so it is gone too.
@@ -1103,10 +1112,11 @@ extension WorkspaceState {
         // every read here, the local one first on every call (outside the relay refresh's guard, as
         // an earlier refresh may still be waiting on a relay) and again after the relay refresh.
         func reloadLeavingAMissedUnlink() async {
-            guard (try? await accountRoster.reload(from: client)) != nil,
-                let active = activeAccount, active.unlinked
-            else { return }
-            await AccountExit.leaveSignedOutAccount(accountIdHex: active.accountIdHex.lowercased(), in: self)
+            guard (try? await accountRoster.reload(from: client)) != nil else { return }
+            if let active = activeAccount, active.unlinked {
+                await AccountExit.leaveSignedOutAccount(accountIdHex: active.accountIdHex, in: self)
+            }
+            await AccountExit.clearDeliveredNotificationsForUnlinkedAccounts(in: self)
         }
         await reloadLeavingAMissedUnlink()
 
