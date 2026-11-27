@@ -730,6 +730,7 @@ extension WorkspaceState {
                 // account-partitioned, so evict it after every successful background-account removal.
                 // Active-account removal clears it through `resetActiveAccountUIState()`. See #177.
                 RemoteImageLoader.shared.clearCache()
+                GiphyPlaybackCache.shared.removeAll()
             }
 
             // Deliberately `signedInAccounts`, not `accounts`: removing the last signed-in
@@ -1179,6 +1180,7 @@ extension WorkspaceState {
         // process-lifetime decoded-image cache; those images derive from attacker-controlled
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
         RemoteImageLoader.shared.clearCache()
+        GiphyPlaybackCache.shared.removeAll()
         RemoteGIFLoadingPreference.shared.reset()
         StickerLoadingPreference.shared.reset()
         DictationPreference.shared.reset()

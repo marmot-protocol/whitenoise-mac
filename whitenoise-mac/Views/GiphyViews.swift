@@ -242,10 +242,12 @@ struct RemoteGiphyMediaView: View {
         let cache = cache ?? .shared
         self.cache = cache
         var state = initialState
-        if state == .idle, Self.mayLoad(media, mayLoadAutomatically, loadingPreference),
-            let cached = cache.playback(for: media.url)
-        {
-            state = .playing(cached)
+        if state == .idle, Self.mayLoad(media, mayLoadAutomatically, loadingPreference) {
+            if let cached = cache.playback(for: media.url) {
+                state = .playing(cached)
+            } else if cache.isUnsupported(media.url) {
+                state = .unsupported
+            }
         }
         _state = State(initialValue: state)
         var geometry = StableGiphyDisplayGeometry(fallbackAspectRatio: media.aspectRatio)
@@ -302,6 +304,10 @@ struct RemoteGiphyMediaView: View {
                 state = .playing(cached)
                 return
             }
+            if cache.isUnsupported(media.url) {
+                state = .unsupported
+                return
+            }
             await load()
         }
         .accessibilityElement(children: .combine)
@@ -309,11 +315,14 @@ struct RemoteGiphyMediaView: View {
     }
 
     private func load() async {
+        let token = cache.invalidationToken
         state = .loading
         do {
             let prepared = try await prepare(media)
             try Task.checkCancellation()
-            cache.insert(prepared, for: media.url)
+            if cache.invalidationToken == token {
+                cache.insert(prepared, for: media.url)
+            }
             displayGeometry.record(decodedAspectRatio: prepared.aspectRatio)
             state = .playing(prepared)
         } catch {
@@ -321,7 +330,11 @@ struct RemoteGiphyMediaView: View {
             // would clobber a newer load's spinner. The task that found the bubble ineligible
             // already put it back to `.idle`.
             guard !Task.isCancelled, !(error is CancellationError) else { return }
-            state = .failure(for: error)
+            let failureState = GiphyPlaybackState.failure(for: error)
+            if failureState == .unsupported, cache.invalidationToken == token {
+                cache.markUnsupported(media.url)
+            }
+            state = failureState
         }
     }
 
