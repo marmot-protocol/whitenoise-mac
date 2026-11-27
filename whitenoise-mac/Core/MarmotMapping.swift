@@ -735,6 +735,7 @@ nonisolated extension MessageItem {
                 ? record.groupSystem?.systemType ?? MessageItem.tagValue("system", in: record.tags)
                 : nil
         )
+        self.agent = MessageAgentContext.make(record: record)
     }
 
     /// `preparedReactions`, keyed by message id, replaces each record's own reaction summary. A

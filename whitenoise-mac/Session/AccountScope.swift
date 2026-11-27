@@ -40,6 +40,8 @@ final class AccountScope {
     /// `GroupCommitUndelivered`) is acknowledged and retried.
     let groupChangeAdvisory: GroupChangeAdvisoryPrompter
     let productAnalytics: ProductAnalyticsRecorder
+    /// Answers and controls this account sends to AI agents, pending until an item settles them.
+    let agentRequests: AgentRequestLedger
     private(set) var selectedConversationModel: ConversationViewModel?
     /// Groups whose End Group run is in flight. Kept here, observed, rather than read off the
     /// per-group models: those are created lazily from view bodies, so a query over them would not
@@ -152,6 +154,11 @@ final class AccountScope {
         )
         self.stickers = StickerLibrary(accountRef: account.accountRef, runtime: runtime)
         self.emojiSets = EmojiSetLibrary(accountRef: account.accountRef, runtime: runtime)
+        self.agentRequests = AgentRequestLedger(
+            accountRef: account.accountRef,
+            accountIdHex: account.accountIdHex,
+            runtime: runtime
+        )
         chatListSelection.isEnding = { [weak self] groupIdHex in
             self?.endingGroupIds.contains(groupIdHex) == true
         }
@@ -166,6 +173,7 @@ final class AccountScope {
         recoveryStatus.start()
         refusedIntents.start()
         deviceLinking.start()
+        agentRequests.start()
         let diagnosticsTask = Task { [settingsModel] in
             await settingsModel.diagnostics.load()
         }
@@ -173,8 +181,9 @@ final class AccountScope {
             [
                 chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, recoveryStatus,
                 refusedIntents, productAnalytics, settingsModel, groupChangeAdvisory, moderationReporter, stickers,
-                emojiSets, chatListSelection, chatListSearch, globalMessageSearch, deviceLinking
+                emojiSets, chatListSelection, chatListSearch, globalMessageSearch, deviceLinking, agentRequests
             ] in
+            agentRequests.stop()
             chatListModel.stop()
             chatListSelection.stop()
             chatListSearch.stop()
@@ -238,7 +247,8 @@ final class AccountScope {
             productAnalytics: productAnalytics,
             stickers: stickers,
             emojiSets: emojiSets,
-            isBlocked: { [blockedUsers = self.blockedUsers] in blockedUsers.isBlocked(accountID: $0) }
+            isBlocked: { [blockedUsers = self.blockedUsers] in blockedUsers.isBlocked(accountID: $0) },
+            agentRequests: agentRequests
         )
         let cancellation = addCancellation { [model] in model.stop() }
         conversations[groupIdHex] = (model, cancellation)

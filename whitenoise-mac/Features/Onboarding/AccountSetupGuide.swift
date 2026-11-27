@@ -206,6 +206,7 @@ struct AccountSetupGuide: Equatable {
         case .authenticationRequired: "A relay requires authentication."
         case .paymentRequired: "A relay requires payment."
         case .accessRestricted: "A relay restricted access."
+        case .rateLimited: "A relay is limiting requests. Retry in a moment."
         case .noUsableRoute: "No usable relay route was found."
         case .publicationFailed: "Publishing did not finish. Retry to continue from the saved progress."
         case .signerUnavailable: "Your signer is unavailable."

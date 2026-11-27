@@ -502,6 +502,16 @@ nonisolated protocol MarmotRuntime: Sendable {
         text: String,
         clientToken: String
     ) async throws -> LocalSendAcceptanceFfi
+    /// Durably admits an app-defined event, such as an answer or a control for an agent (kind
+    /// 1202). The same token after a restart returns the same event and sends nothing.
+    func sendCustomEventWithClientToken(
+        accountRef: String,
+        groupIdHex: String,
+        kind: UInt64,
+        tags: [[String]],
+        content: String,
+        clientToken: String
+    ) async throws -> LocalSendAcceptanceFfi
     func sendMessageDraftWithClientToken(
         accountRef: String,
         revision: MessageDraftRevisionFfi,
@@ -1969,6 +1979,24 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             groupIdHex: groupIdHex,
             targetMessageId: targetMessageId,
             text: text,
+            clientToken: clientToken
+        )
+    }
+
+    func sendCustomEventWithClientToken(
+        accountRef: String,
+        groupIdHex: String,
+        kind: UInt64,
+        tags: [[String]],
+        content: String,
+        clientToken: String
+    ) async throws -> LocalSendAcceptanceFfi {
+        try await marmot.sendCustomEventWithClientToken(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            kind: kind,
+            tags: tags,
+            content: content,
             clientToken: clientToken
         )
     }

@@ -4449,6 +4449,41 @@
             return localSendAcceptance ?? LocalSendAcceptanceFfi(clientToken: clientToken, messageIdHex: "reply")
         }
 
+        struct SentCustomEvent: Equatable {
+            let groupIdHex: String
+            let kind: UInt64
+            let tags: [[String]]
+            let content: String
+            let clientToken: String
+        }
+
+        /// Every custom event sent, oldest first (agent answers and controls, kind 1202).
+        var sentCustomEvents: [SentCustomEvent] {
+            recordedStateLock.withLock { _sentCustomEvents }
+        }
+        private var _sentCustomEvents: [SentCustomEvent] = []
+        var sendCustomEventError: Error?
+
+        func sendCustomEventWithClientToken(
+            accountRef: String,
+            groupIdHex: String,
+            kind: UInt64,
+            tags: [[String]],
+            content: String,
+            clientToken: String
+        ) async throws -> LocalSendAcceptanceFfi {
+            if let sendCustomEventError {
+                throw sendCustomEventError
+            }
+            let count = recordedStateLock.withLock {
+                _sentCustomEvents.append(
+                    SentCustomEvent(
+                        groupIdHex: groupIdHex, kind: kind, tags: tags, content: content, clientToken: clientToken))
+                return _sentCustomEvents.count
+            }
+            return LocalSendAcceptanceFfi(clientToken: clientToken, messageIdHex: "custom-\(count)")
+        }
+
         func sendMessageDraftWithClientToken(
             accountRef: String,
             revision: MessageDraftRevisionFfi,

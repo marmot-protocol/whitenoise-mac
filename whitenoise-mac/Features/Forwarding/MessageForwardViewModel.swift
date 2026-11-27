@@ -232,7 +232,7 @@ extension MessageForwardDependencies {
                         switch status {
                         case .queued, .engineOwned, .completed:
                             return
-                        case .rejected:
+                        case .rejected, .refusedNewMembers:
                             break
                         }
                     }

@@ -761,7 +761,15 @@ private struct ConversationView: View {
 
     var body: some View {
         @Bindable var workspace = workspace
-        let displayItems = workspace.selectedTimelineDisplayItems
+        // Agent items in a loaded subagent thread go to that thread, and every agent row carries
+        // its presses and its thread's state (`AgentTranscript`).
+        let agentTranscript = model.agents.transcript(
+            displayItems: workspace.selectedTimelineDisplayItems,
+            localAccountIdHex: model.account.accountIdHex
+        )
+        let displayItems = agentTranscript.mainItems
+        let agentActions = model.agents.actions(
+            memberCount: model.snapshot?.header.memberCount, isDirect: chat.isDirect)
         let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
@@ -987,6 +995,16 @@ private struct ConversationView: View {
                                         onCancel: { Task { await model.cancelBlockedLeave() } }
                                     )
                                 } else {
+                                    if agentTranscript.hasAgentActivity || model.agents.failure != nil {
+                                        AgentActivityBar(
+                                            runningTurn: agentTranscript.runningTurn,
+                                            session: agentTranscript.session,
+                                            waitingCount: agentTranscript.waiting.count,
+                                            failure: model.agents.failure,
+                                            actions: agentActions,
+                                            onDismissFailure: model.agents.dismissFailure
+                                        )
+                                    }
                                     composerControls
                                 }
                             }
@@ -1153,6 +1171,25 @@ private struct ConversationView: View {
             // Nothing left to forward (the messages scrolled out of the window, or the account
             // went away): close the forward rather than leave it open with no sheet.
             if isPresented, forwardModel == nil { workspace.cancelForwarding() }
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { !model.agents.threadPath.isEmpty },
+                set: { if !$0 { model.agents.closeAllThreads() } }
+            )
+        ) {
+            if let taskId = model.agents.threadPath.last {
+                AgentThreadSheet(
+                    task: agentTranscript.mainItems.first { $0.id == taskId }?.message
+                        ?? agentTranscript.threads.values.lazy.flatMap { $0 }.first { $0.id == taskId },
+                    rows: agentTranscript.threads[taskId] ?? [],
+                    depth: model.agents.threadPath.count,
+                    actions: agentActions,
+                    timeLabel: { $0.timeLabel(at: timestampReferenceDate, locale: locale) },
+                    onBack: model.agents.closeThread,
+                    onClose: model.agents.closeAllThreads
+                )
+            }
         }
         .sheet(isPresented: $isPollComposerPresented) {
             PollComposerSheet(

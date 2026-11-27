@@ -2191,16 +2191,27 @@ struct ProjectionMigrationTests {
 }
 
 struct MarmotKitReleaseProvenanceTests {
+    /// The module the app links is the release `MARMOT_VERSION` stamps. The pin moves every day on
+    /// develop (`just sync-rc`), so the stamp, not a literal here, names the audited build;
+    /// `just sanity` ties the stamp to `Package.swift` and the vendored sources.
     @Test func generatedReleaseProvenancePinsTheAuditedBuild() throws {
-        #expect(MarmotKitVersion.mdkTag == "marmotkit-v0.19.0")
-        #expect(MarmotKitVersion.mdkSHA == "3fce95465cdea1edc8456dbd1c6691d1c8dc1f2e")
-        #expect(MarmotKitVersion.uniffiVersion == "0.29.4")
+        let stampURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Vendored/MarmotKit/MARMOT_VERSION")
+        var stamp: [String: String] = [:]
+        for line in try String(contentsOf: stampURL, encoding: .utf8).split(separator: "\n") {
+            guard let colon = line.firstIndex(of: ":"), !line.hasPrefix("-") else { continue }
+            stamp[String(line[..<colon])] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        }
+        #expect(MarmotKitVersion.mdkTag == stamp["mdk-tag"])
+        #expect(MarmotKitVersion.mdkSHA == stamp["mdk-sha"])
+        #expect(MarmotKitVersion.channel == stamp["channel"])
+        #expect(MarmotKitVersion.uniffiVersion == stamp["uniffi-version"])
         #expect(MarmotKitVersion.features == "otlp-export,product-analytics-export")
-        #expect(MarmotKitVersion.swiftPMChecksum == "ccbb5cfce89c3285265261c1cdc8bd475849016c7667a587e743e53a6e9b1322")
-        #expect(
-            MarmotKitVersion.vendoredSwiftSHA256 == "503c47713b0fb216410a3546f13a12f918b001d703a3befcad013ee477493228")
+        #expect(MarmotKitVersion.swiftPMChecksum == stamp["swiftpm-checksum"])
+        #expect(MarmotKitVersion.vendoredSwiftSHA256 == stamp["swift-vendored-sha256"])
         #expect(MarmotKitVersion.distribution == "static-library-and-privacy-v1")
-        #expect(MarmotKitVersion.privacySHA256 == "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7")
+        #expect(MarmotKitVersion.privacySHA256 == stamp["privacy-sha256"])
         let privacyData = try #require(MarmotKitVersion.privacyManifestData())
         #expect(
             SHA256.hash(data: privacyData).map { String(format: "%02x", $0) }.joined()

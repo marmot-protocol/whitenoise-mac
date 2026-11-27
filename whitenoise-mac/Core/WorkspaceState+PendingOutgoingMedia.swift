@@ -197,7 +197,7 @@ extension WorkspaceState {
                         client: client
                     )
                     return
-                case .rejected:
+                case .rejected, .refusedNewMembers:
                     break
                 }
             }
