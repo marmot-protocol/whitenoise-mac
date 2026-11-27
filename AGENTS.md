@@ -1,7 +1,28 @@
 # Agent Notes
 
 Notes for automated agents working in this repo. Keep this file current when the
-build/test workflow or the MarmotKit boundary changes.
+build/test workflow, the branch and release flow, or the MarmotKit boundary changes. People
+should start with [CONTRIBUTING.md](CONTRIBUTING.md); everything below applies to them too.
+
+## Branches, pull requests and releases
+
+- **Work branches from `develop`, and pull requests target `develop`.** `master` is production:
+  it changes only through a `release/X.Y.Z` pull request (a staging tag plus the Stable
+  MarmotKit pin) or a hotfix. Never open a feature pull request into `master`, and never merge
+  `develop` into it wholesale.
+- **MarmotKit channel follows the branch.** `develop` pins the daily Release Candidate
+  (`just sync-rc`); `master` pins Stable only (`just promote-stable`), and the CI step
+  "MarmotKit release channel" (`scripts/ci/check-marmotkit-channel.sh`) fails a pull request
+  into `master` that pins anything else. Do not move the pin as a side effect of other work;
+  never hand-edit `Vendored/MarmotKit`, rerun the script instead.
+- **The daily bump PR** (`automation/marmotkit-rc`, from the "MarmotKit RC bump" workflow) is
+  the place to fix call sites a `minor` RC breaks: read `rc/integration-notes.md` and the PR's
+  list of breaking UniFFI changes, push fixes to that branch. The workflow stops replacing the
+  branch once it holds commits by anyone else.
+- **Before handing work off**, run `just precommit` (or at least `just checks` and `just test`)
+  and report what failed rather than calling it done. CI's required status is "PR Checks".
+- The whole flow, with staging tags, promotion and hotfixes:
+  [docs/release-flow.md](docs/release-flow.md).
 
 ## macOS design skills
 
@@ -50,6 +71,15 @@ through `Core/AppFlavor.swift`.
   development). The test host never bootstraps its own workspace (`AppLaunchConfiguration
   .isUnitTestHost`): it opens no Marmot root and connects to no relay, and every test builds its
   own workspace on a fake runtime.
+- `just run`, `just run-staging` and `just test` sign with the developer's own Apple Development
+  identity when the keychain has one (`LOCAL_SIGNING` in the `justfile`), with no entitlements,
+  sandbox or hardened runtime, so the build behaves as unsigned but macOS keeps what it granted
+  `White Noise Dev` (Removable Volumes for a checkout on an external disk, notifications) across
+  rebuilds; an ad-hoc build forgets every grant on the next rebuild, and an unattended run stalls on
+  the prompt. `WN_UNSIGNED=1`, or no identity (CI), builds unsigned as before. Over SSH, unlock the
+  login keychain first (`security unlock-keychain ~/Library/Keychains/login.keychain-db`), or
+  `codesign` fails. Prefer `just test` to a hand-written `xcodebuild … CODE_SIGNING_ALLOWED=NO`
+  locally, for the same reason.
 - `just run` / `just reset-dev` build and wipe the development app, `just run-staging` /
   `just reset-staging` the staging app; `just sanity` asserts all three flavors' identities.
 - Build, run and test as the development flavor by default (`just run`, the main scheme's Debug,
@@ -215,9 +245,16 @@ build.
   switch). `MarmotRuntime.deviceGroupsEnabled` is always true for `MarmotClient` and exists so
   tests can run the fake without linking. `White Noise Dev` and `White Noise Staging` keep separate roots and keychain services, so the two
   can sign in to one account on one Mac and link to each other.
-- A dated nightly installs the same way (`just sync-bindings 0.14.0-nightly.20261022`). Nightlies
-  are for testing only and upstream deletes them after 30 days; pin a formal release before
-  shipping.
+- **Release channels** ([docs/release-flow.md](docs/release-flow.md)). `develop` (where work lands, and
+  where staging builds are cut) pins MDK's daily Release Candidate, `marmotkit-vX.Y.Z-rc.N`:
+  `just sync-rc` reads `rc-meta:rc/latest.json` (schema 2), checks every asset against its sha256,
+  and is a no-op when the RC is already pinned; the "MarmotKit RC bump" workflow runs it daily and
+  opens one PR into `develop`. `master` ships to production and pins Stable `marmotkit-vX.Y.Z`
+  only (`scripts/ci/check-marmotkit-channel.sh` fails a PR into master otherwise):
+  `just promote-stable` swaps the RC for the Stable release MDK promoted from it, and refuses one
+  built from other source. RCs (like the retired dated nightlies) are deleted upstream after 30
+  days. A `minor` RC can break the bindings: read `rc/integration-notes.md` and fix the call sites
+  in the bump PR.
 - Every `Marmot` construction, tests included, passes White Noise's deployment (required since
   0.14.0): the app goes through `AppFlavor.current.marmotDeployment()`, which is
   `marmotDeploymentWhiteNoise()` untouched for production. Its keychain service is
@@ -329,7 +366,8 @@ build.
   201 → 207), which 0.16.0 refuses. 0.18.0 moves account databases through 208–216 (schema
   207 → 216), `shared.sqlite3` from 4 to 5 and the directory cache from 2 to 3, which 0.17.0
   refuses. 0.19.0 moves account databases through 217–218 (schema 216 → 218), which 0.18.0
-  refuses. An older app must not
+  refuses. 0.20.0 (pinned on develop as `0.20.0-rc.2`, `a3228a2`, for agent items) moves them through
+  219–227 (schema 218 → 227), which 0.19.0 refuses. An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every
   database once to a raw SQLCipher key, which 0.13.0 cannot open at all, so the only way back is a
@@ -337,8 +375,8 @@ build.
   `docs/MarmotKit-0.10.4-migration.md`, `docs/MarmotKit-0.11.0-migration.md`,
   `docs/MarmotKit-0.12.0-migration.md`, `docs/MarmotKit-0.14.0-migration.md`,
   `docs/MarmotKit-0.15.0-migration.md`, `docs/MarmotKit-0.16.0-migration.md`,
-  `docs/MarmotKit-0.17.0-migration.md`, `docs/MarmotKit-0.18.0-migration.md` and
-  `docs/MarmotKit-0.19.0-migration.md`.
+  `docs/MarmotKit-0.17.0-migration.md`, `docs/MarmotKit-0.18.0-migration.md`,
+  `docs/MarmotKit-0.19.0-migration.md` and `docs/MarmotKit-0.20.0-migration.md`.
 - NIP-22 thread messages (kind 1111) are chat. MDK marks each one with `thread` (root and parent,
   kept on a deleted row) on timeline records and reply previews, and counts it wherever kind 9
   counts: unread, mentions, read position, notifications, search, author edits. Recognise one by
@@ -346,6 +384,17 @@ build.
   `thread` is a custom event. The Mac has no thread view, so it draws a thread message as an inline
   reply and answers any row with `replyToMessage`, not `sendThreadMessage`. Admin removal stays
   kind 9 only.
+- AI agents (marmot-agents) send one kind-1201 item per turn, tool call, approval, plan and so on;
+  MDK applies their edits and keeps one row per item with its latest version
+  (`TimelineMessageRecordFfi.agentItem`, read into `MessageAgentContext`/`AgentItem` in
+  `Core/AgentItem.swift`). Never follow the edits yourself. A kind-1201 row with no `agentItem` is
+  an old-shape item: show its plain content as a simple row. Answers and controls are kind 1202
+  sent through `sendCustomEventWithClientToken` (`AgentRequest`, `AgentRequestLedger` on
+  `AccountScope`): a press stays pending until some item version lists its event id in `settles`.
+  `AgentTranscript` (`Features/Agents/`) moves a subagent's items and comments into its `task`
+  row's thread when that row is loaded, and leaves them in the main chat otherwise. MDK decides
+  every agent alert (`alerts`, `["phase","commentary"]`, kind 1202); the app adds none. The agent's
+  words are ordinary kind 9 with a `turn` tag, so today's `wn-agent` answers render unchanged.
 - Start a direct chat with `startDirectConversation` (both accounts founding admins, retry-safe),
   not `createGroup` plus a promotion. The one exception is an explicitly requested *additional*
   direct chat with someone, which that call would answer with the existing one.

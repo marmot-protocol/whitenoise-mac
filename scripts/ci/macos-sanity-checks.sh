@@ -210,6 +210,19 @@ generated_version_value() {
   || fail "$MARMOT_SWIFT_VERSION mdkTag does not match $MARMOT_VERSION_FILE"
 [[ "$(generated_version_value swiftPMChecksum)" == "$stamped_checksum" ]] \
   || fail "$MARMOT_SWIFT_VERSION swiftPMChecksum does not match $MARMOT_VERSION_FILE"
+# The channel decides where a pin may go (check-marmotkit-channel.sh), so it must
+# be the one the tag names.
+stamped_channel="$(sed -nE 's/^channel: (.*)$/\1/p' "$MARMOT_VERSION_FILE")"
+case "$stamped_tag" in
+  marmotkit-v*-rc.*) expected_channel="rc" ;;
+  marmotkit-v*-nightly.*) expected_channel="nightly" ;;
+  marmotkit-snapshot-*) expected_channel="snapshot" ;;
+  *) expected_channel="stable" ;;
+esac
+[[ "$stamped_channel" == "$expected_channel" ]] \
+  || fail "$MARMOT_VERSION_FILE channel '$stamped_channel' does not match its tag $stamped_tag ($expected_channel)"
+[[ "$(generated_version_value channel)" == "$stamped_channel" ]] \
+  || fail "$MARMOT_SWIFT_VERSION channel does not match $MARMOT_VERSION_FILE"
 [[ "$(generated_version_value distribution)" == "$stamped_distribution" ]] \
   || fail "$MARMOT_SWIFT_VERSION distribution does not match $MARMOT_VERSION_FILE"
 [[ "$(generated_version_value privacySHA256)" == "$stamped_privacy_sha" ]] \

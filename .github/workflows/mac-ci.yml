@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+      - develop
   workflow_dispatch:
   schedule:
     - cron: "17 9 * * *"
@@ -66,6 +67,13 @@ jobs:
       - name: Localization coverage
         if: ${{ !cancelled() }}
         run: scripts/ci/check-localizations.sh
+
+      # master ships to production, so it (and every PR into it) pins Stable
+      # MarmotKit only; develop and staging take the daily RCs. Reads the PR's
+      # base branch, else the pushed one.
+      - name: MarmotKit release channel
+        if: ${{ !cancelled() }}
+        run: scripts/ci/check-marmotkit-channel.sh
 
       # Only the steps below here resolve SwiftPM, so the cache is restored late.
       - name: Cache MarmotKit binary artifact
