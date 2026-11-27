@@ -4766,6 +4766,14 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(runtime.updateGroupImageCallCount == 0)
         #expect(state.selection == .chat("created-group"))
         #expect(!state.isNewChatComposerVisible)
+        // The chat list draws the new row's picture from the bytes MDK founded the group with.
+        let chatList = ChatListViewModel(account: try #require(state.activeAccount), runtime: runtime)
+        chatList.start()
+        defer { chatList.stop() }
+        await Self.waitUntil { !chatList.presentedRows.isEmpty }
+        try #require(!chatList.presentedRows.isEmpty)
+        let created = try #require(chatList.chats(view: .chats, nicknames: .none).first { $0.id == "created-group" })
+        #expect(created.groupImagePayload?.data == image.attachment.data)
     }
     @MainActor
     @Test func groupDraftWithoutAPictureCreatesWithoutOne() async throws {
