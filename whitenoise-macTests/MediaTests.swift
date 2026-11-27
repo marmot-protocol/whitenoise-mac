@@ -5876,11 +5876,11 @@ struct MediaTests: WorkspaceTestSupport {
             }
         }
 
-        for _ in 0..<100 {
-            if await limiter.queuedWaiterCount() == 1 {
-                break
-            }
-            await Task.yield()
+        // Waiting on a fixed number of cooperative yields runs out on a loaded CI runner before
+        // `waitingTask` enters the limiter actor, so wait against a real deadline.
+        let firstQueueDeadline = ContinuousClock.now + .seconds(3)
+        while await limiter.queuedWaiterCount() != 1 && ContinuousClock.now < firstQueueDeadline {
+            try? await Task.sleep(for: .milliseconds(10))
         }
         #expect(await limiter.queuedWaiterCount() == 1)
 
@@ -5894,16 +5894,15 @@ struct MediaTests: WorkspaceTestSupport {
             try? await limiter.acquire()
             acquired.increment()
         }
-        for _ in 0..<50 where acquired.value == 0 {
-            await Task.yield()
+        let nextQueueDeadline = ContinuousClock.now + .seconds(3)
+        while await limiter.queuedWaiterCount() != 1 && ContinuousClock.now < nextQueueDeadline {
+            try? await Task.sleep(for: .milliseconds(10))
         }
+        #expect(await limiter.queuedWaiterCount() == 1)
         #expect(acquired.value == 0)
 
         await limiter.release()
-        for _ in 0..<50 where acquired.value == 0 {
-            await Task.yield()
-        }
-        #expect(acquired.value == 1)
+        #expect(await waitFor(attempts: 300) { acquired.value == 1 })
 
         await limiter.release()
         _ = await nextTask.result

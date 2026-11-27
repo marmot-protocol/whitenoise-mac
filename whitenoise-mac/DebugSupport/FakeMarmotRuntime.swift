@@ -376,6 +376,8 @@
         private(set) var createdGroupName: String?
         private(set) var createdGroupDescription: String?
         /// The founding picture of the last group created through `createGroupWithInitialImage`.
+        /// Recorded only when a group was created: a create that adds nobody leaves it untouched, as
+        /// MDK founds nothing to carry the picture.
         private(set) var createdGroupInitialImage: InitialGroupImageFfi?
         /// Member refs MDK finds no published KeyPackage for, valued by the account id hex it reports.
         /// Since 0.17 `createGroup` and `inviteMembersDetailed` report each as a `missingKeyPackage`
@@ -2728,6 +2730,33 @@
                 groups[index].imageHashHex = imageHashHex
             }
             groupDetailsById[groupIdHex]?.group.imageHashHex = imageHashHex
+            // Served back the way `updateGroupImage` serves a changed picture, so the created row
+            // resolves the founding bytes through `readAvatarAssets` like any other group image.
+            let reference = "avatar:\(groupIdHex):\(imageHashHex)"
+            let byteCount = UInt64(initialImage.plaintext.count)
+            avatarAssets.removeAll { $0.target == groupIdHex }
+            avatarAssets.append(
+                AvatarAssetFfi(
+                    target: groupIdHex,
+                    reference: reference,
+                    availability: .ready,
+                    acquisition: nil,
+                    contentRevision: 1,
+                    byteCount: byteCount
+                ))
+            avatarBytes.removeAll { $0.reference == reference }
+            avatarBytes.append(
+                AvatarBytesFfi(
+                    reference: reference,
+                    availability: .ready,
+                    contentRevision: 1,
+                    byteCount: byteCount,
+                    deferred: false,
+                    bytes: initialImage.plaintext,
+                    mediaType: initialImage.mediaType,
+                    width: 1,
+                    height: 1
+                ))
             return result
         }
 
