@@ -314,6 +314,48 @@ struct AgentItemTests {
         #expect(transcript.mainItems.last?.message.agent?.answeredBy == name)
     }
 
+    /// Stop settles on the turn it stopped, which shows the press settled but names nobody as
+    /// having "answered" it: only approvals and questions are answered.
+    @Test func aSettledControlOnATurnNamesNoAnswerer() throws {
+        let stop = AgentSentRequest(
+            idHex: "s1", groupIdHex: F.groupIdHex, targetEventIdHex: F.eventId(2), agentAccountIdHex: F.agent,
+            label: "Stop", sentAt: Date())
+        let transcript = Self.transcript(
+            [F.record(id: F.eventId(2), event: Self.event(Self.approvalAllowed[4]), version: 2, settles: ["s1"])],
+            sends: [stop])
+        let turn = try #require(transcript.mainItems.first?.message.agent)
+        #expect(turn.requests.map(\.isSettled) == [true])
+        #expect(turn.answeredBy == nil)
+    }
+
+    /// A day's divider rides on its first row; when that row moves into a subagent's thread, the
+    /// next row the main chat keeps carries it.
+    @Test func aDayDividerSurvivesItsRowMovingIntoAThread() {
+        let task = F.eventId(1)
+        let threadRow = TimelineMessageDisplayItem(
+            message: Self.items([
+                F.record(
+                    id: F.eventId(2), event: Self.event(Self.approvalAllowed[1]),
+                    thread: TimelineThreadRefFfi(rootMessageIdHex: task, parentMessageIdHex: task))
+            ])[0],
+            dayLabel: "Today")
+        let rows = [
+            TimelineMessageDisplayItem(
+                message: Self.items([
+                    F.record(
+                        id: task,
+                        event: ["type": "task", "state": "running", "title": "Subagent", "body": ["kind": "subagent"]])
+                ])[0],
+                dayLabel: "Yesterday"),
+            threadRow,
+            TimelineMessageDisplayItem(
+                message: Self.items([F.words(id: F.eventId(3), text: "done")])[0], dayLabel: nil),
+        ]
+        let transcript = AgentTranscript.build(
+            displayItems: rows, localAccountIdHex: F.person, sends: { _ in [] }, requestSender: { _ in nil })
+        #expect(transcript.mainItems.map(\.dayLabel) == ["Yesterday", "Today"])
+    }
+
     @Test func theRunningTurnAndTheSessionAreFound() {
         let transcript = F.transcript
         #expect(transcript.runningTurn?.firstEventIdHex == F.eventId(2))

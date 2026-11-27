@@ -19,13 +19,8 @@ nonisolated struct AgentTranscript {
     let session: AgentItem?
     /// Approvals and questions waiting anywhere in the window, oldest first.
     let waiting: [AgentItem]
-    /// The item each settled request id was settled by.
-    let settledRequestIds: Set<String>
 
     var hasAgentActivity: Bool { session != nil || runningTurn != nil || !waiting.isEmpty }
-
-    static let empty = AgentTranscript(
-        mainItems: [], threads: [:], runningTurn: nil, session: nil, waiting: [], settledRequestIds: [])
 
     /// `sends` gives this account's requests for an item's first event (nil for untargeted
     /// controls); `requestSender` names who sent a request id, when known.
@@ -37,8 +32,7 @@ nonisolated struct AgentTranscript {
     ) -> AgentTranscript {
         let rows = displayItems.filter { $0.message.timelineKind != AgentItem.requestKind }
         guard rows.contains(where: { $0.message.agent != nil }) else {
-            return AgentTranscript(
-                mainItems: rows, threads: [:], runningTurn: nil, session: nil, waiting: [], settledRequestIds: [])
+            return AgentTranscript(mainItems: rows, threads: [:], runningTurn: nil, session: nil, waiting: [])
         }
 
         var itemsById: [String: AgentItem] = [:]
@@ -83,7 +77,7 @@ nonisolated struct AgentTranscript {
                 agent.requests = sends(item.firstEventIdHex).map {
                     AgentRequestStatus(idHex: $0.idHex, label: $0.label, isSettled: settled.contains($0.idHex))
                 }
-                if item.state != .waiting {
+                if item.state != .waiting, Self.isAnswerable(item) {
                     agent.answeredBy =
                         item.settles
                         .compactMap { requestSender($0).flatMap { names[$0] ?? DisplayText.short($0) } }
@@ -136,11 +130,17 @@ nonisolated struct AgentTranscript {
             threads[owner] = ids.compactMap { decoratedById[$0] }
         }
 
-        let mainItems = rows.compactMap { row -> TimelineMessageDisplayItem? in
+        // A day's divider rides on its first row; when that row moved into a thread, the next row
+        // the main chat keeps carries it instead.
+        var mainItems: [TimelineMessageDisplayItem] = []
+        var carriedDayLabel: String?
+        for row in rows {
             guard !inThread.contains(row.message.id), let message = decoratedById[row.message.id] else {
-                return nil
+                carriedDayLabel = row.dayLabel ?? carriedDayLabel
+                continue
             }
-            return TimelineMessageDisplayItem(message: message, dayLabel: row.dayLabel)
+            mainItems.append(TimelineMessageDisplayItem(message: message, dayLabel: row.dayLabel ?? carriedDayLabel))
+            carriedDayLabel = nil
         }
 
         let allItems = rows.compactMap { $0.message.agent?.item }
@@ -149,14 +149,17 @@ nonisolated struct AgentTranscript {
             threads: threads,
             runningTurn: topLevelItems.last { $0.type == "turn" && $0.state == .running },
             session: session,
-            waiting: allItems.filter(awaitsAnswer),
-            settledRequestIds: settled
+            waiting: allItems.filter(awaitsAnswer)
         )
     }
 
     /// An approval or a question a person can answer now.
     static func awaitsAnswer(_ item: AgentItem) -> Bool {
-        guard item.state == .waiting else { return false }
+        item.state == .waiting && isAnswerable(item)
+    }
+
+    /// An approval or a question: the items a person answers, as against controls such as Stop.
+    static func isAnswerable(_ item: AgentItem) -> Bool {
         switch item.body {
         case .approval, .question: return true
         default: return false
