@@ -152,8 +152,15 @@ final class ChatListSelectionViewModel {
         hasRetriedFailedRead = false
     }
 
+    /// A click is the user's own decision about the chat, so it also takes the chat out of
+    /// `selectionHiddenBySearch`: between a new search and its read the two can overlap, and the
+    /// read's reconcile would otherwise put back a chat the user just deselected. In that gap the
+    /// chat's checkmark shows it unchecked, since `isSelected` reads only `selectedIds`, and the
+    /// click follows what is on screen: it selects the chat. Keep `isSelected` off the hidden set,
+    /// or clicks there would seem inverted.
     func toggle(_ groupIdHex: String) {
         guard isActive, !isBusy else { return }
+        selectionHiddenBySearch.remove(groupIdHex)
         selectedIds = ChatListSelection.toggling(selectedIds, id: groupIdHex)
         anchorId = groupIdHex
     }
@@ -199,9 +206,14 @@ final class ChatListSelectionViewModel {
         ChatListSelection.ordered(selectedIds, by: selectableIds ?? visibleOrder)
     }
 
+    /// Select All, or Deselect All once everything is selected. Deselect All also forgets the
+    /// chats a search set aside: the bar has just said nothing is selected, so erasing the search
+    /// must not bring any back. A search that matches nothing has nothing to select or clear, so
+    /// it does nothing there rather than drop the chats the search set aside.
     func toggleAll() {
-        guard isActive, !isBusy, let selectableIds else { return }
+        guard isActive, !isBusy, let selectableIds, !selectableIds.isEmpty else { return }
         selectedIds = ChatListSelection.togglingAll(selectedIds, visibleIds: Set(selectableIds))
+        if selectedIds.isEmpty { selectionHiddenBySearch = [] }
     }
 
     /// The Select All row's checkbox: whether none, some or every selectable chat is selected.
@@ -216,10 +228,13 @@ final class ChatListSelectionViewModel {
     }
 
     /// Clears the selection but stays in selection mode, so the next click picks a chat instead of
-    /// opening it.
+    /// opening it. Like Deselect All through `toggleAll()`, it also forgets the chats a search set
+    /// aside: the bar has just said nothing is selected, so erasing the search must not bring any
+    /// back.
     func deselectAll() {
         guard isActive, !isBusy else { return }
         selectedIds = []
+        selectionHiddenBySearch = []
     }
 
     /// The list changed under the selection — a new filter, a search, a chat that moved away.
@@ -451,7 +466,7 @@ final class ChatListSelectionViewModel {
             await self.chatsDidChange(ChatListBatchChanges(departedGroupIds: departed))
             guard !Task.isCancelled else { return }
             if !failed.isEmpty {
-                self.selectedIds = failed
+                self.keepOnlyFailed(failed)
                 self.alert = ChatActionAlert(
                     title: L10n.string("Couldn't leave chat"),
                     message: L10n.plural("Couldn't leave %lld chats. Try again.", Int64(failed.count))
@@ -542,7 +557,7 @@ final class ChatListSelectionViewModel {
             if failed.isEmpty {
                 self.endAfterBatch()
             } else {
-                self.selectedIds = failed
+                self.keepOnlyFailed(failed)
                 self.alert = Self.deleteFailedAlert(count: failed.count)
             }
         }
@@ -652,7 +667,7 @@ final class ChatListSelectionViewModel {
             if failed.isEmpty {
                 self.endAfterBatch()
             } else {
-                self.selectedIds = failed
+                self.keepOnlyFailed(failed)
                 self.alert = failure(failed.count)
             }
         }
@@ -758,6 +773,14 @@ final class ChatListSelectionViewModel {
         // Chats that stopped matching are no longer the user's to act on.
         selectedIds.subtract(Set(groupIds).subtracting(current))
         return current
+    }
+
+    /// A batch that failed for some chats stays in selection mode with only those selected, so a
+    /// retry reaches the failures alone. The chats a search set aside were never part of the batch,
+    /// and are forgotten as a clean pass forgets them: erasing the search must not add them back.
+    private func keepOnlyFailed(_ failed: Set<String>) {
+        selectedIds = failed
+        selectionHiddenBySearch = []
     }
 
     private func endAfterBatch() {

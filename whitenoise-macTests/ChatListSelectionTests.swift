@@ -53,11 +53,16 @@ struct ChatListSelectionTests {
         #expect(narrowed.selected == ["b"])
         #expect(narrowed.hiddenBySearch == ["a"])
 
-        // Erasing the search returns every one the list shows, and forgets the rest.
+        // Erasing the search returns every one the list shows.
         let erased = ChatListSelection.reconcile(
             narrowed.selected, hiddenBySearch: narrowed.hiddenBySearch, visibleIds: ["a", "b", "c"], isSearch: false)
         #expect(erased.selected == ["a", "b"])
         #expect(erased.hiddenBySearch.isEmpty)
+    }
+
+    /// Only a search holds a chat aside: a hidden chat the list no longer shows once the search
+    /// is erased (archived, left) is dropped for good rather than kept waiting.
+    @Test func erasingASearchForgetsAHiddenChatTheListNoLongerShows() {
         let gone = ChatListSelection.reconcile(["b"], hiddenBySearch: ["a"], visibleIds: ["b"], isSearch: false)
         #expect(gone.selected == ["b"])
         #expect(gone.hiddenBySearch.isEmpty)

@@ -25,6 +25,8 @@ struct ChatListSelectAllRow: View {
             }
             .buttonStyle(.plain)
             .padding(.leading, 4)
+            // The same control as the box beside it, so it is off whenever the box is.
+            .disabled(!model.canToggleAll)
             // The box beside it is the same control, named; reading both would announce it twice.
             .accessibilityHidden(true)
 
