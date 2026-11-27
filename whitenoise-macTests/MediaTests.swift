@@ -6701,6 +6701,71 @@ struct MediaTests: WorkspaceTestSupport {
         #expect(tinyHarness.network.connections.count == 2)
     }
 
+    /// Invalid image bytes returned with HTTP 200 are evicted when remote-image decoding fails so
+    /// a later retry can fetch a repaired image, while direct `data(for:)` consumers still reuse
+    /// arbitrary non-image payloads.
+    @Test func remoteImageLoaderEvictsInvalidSourceBytesOnDecodeFailure() async throws {
+        let harness = RemoteMediaFakeHarness()
+        let invalidBody = Data("not-an-image".utf8)
+        let validResponse = Self.singlePixelPNGResponse
+        harness.network.respond { _, index in
+            index == 0
+                ? .serving(FakeHTTP.response(headers: [("Content-Type", "image/png")], body: invalidBody))
+                : .serving(validResponse)
+        }
+        let loader = RemoteImageLoader(transport: harness.transport)
+        let imageURL = try #require(URL(string: "https://example.com/repaired.png"))
+
+        #expect(await loader.image(for: imageURL, maxPixelSize: 32) == nil)
+        #expect(loader.sourceCacheByteCount == 0)
+
+        let repaired = try #require(await loader.image(for: imageURL, maxPixelSize: 32))
+        #expect(repaired.nsImage.size.width > 0)
+        #expect(harness.network.connections.count == 2)
+
+        // Direct `data(for:)` consumers (such as GIPHY or arbitrary blobs) still keep cached bytes.
+        let rawHarness = RemoteMediaFakeHarness()
+        rawHarness.network.respond { _, _ in
+            .serving(FakeHTTP.response(body: invalidBody))
+        }
+        let rawLoader = RemoteImageLoader(transport: rawHarness.transport)
+        let rawURL = try #require(URL(string: "https://example.com/blob.bin"))
+        #expect(await rawLoader.data(for: rawURL) == invalidBody)
+        #expect(await rawLoader.data(for: rawURL) == invalidBody)
+        #expect(rawHarness.network.connections.count == 1)
+    }
+
+    /// The source-bytes cache strictly enforces its aggregate byte limit with LRU eviction.
+    @Test func remoteImageLoaderEnforcesAggregateSourceCacheByteLimitWithLRU() async throws {
+        let payloadSize = Self.singlePixelPNG.count
+        let budget = payloadSize * 2
+        let harness = Self.remoteImageHarness()
+        let loader = RemoteImageLoader(transport: harness.transport, sourceCacheTotalCostLimit: budget)
+        let first = try #require(URL(string: "https://example.com/1.png"))
+        let second = try #require(URL(string: "https://example.com/2.png"))
+        let third = try #require(URL(string: "https://example.com/3.png"))
+
+        #expect(await loader.data(for: first) == Self.singlePixelPNG)
+        #expect(await loader.data(for: second) == Self.singlePixelPNG)
+        #expect(loader.sourceCacheByteCount == budget)
+
+        // Reading `first` refreshes its recency, so inserting `third` evicts `second` instead.
+        #expect(await loader.data(for: first) == Self.singlePixelPNG)
+        #expect(harness.network.connections.count == 2)
+
+        #expect(await loader.data(for: third) == Self.singlePixelPNG)
+        #expect(loader.sourceCacheByteCount <= budget)
+        #expect(harness.network.connections.count == 3)
+
+        // `first` is still cached; `second` was evicted and must refetch.
+        #expect(await loader.data(for: first) == Self.singlePixelPNG)
+        #expect(harness.network.connections.count == 3)
+
+        #expect(await loader.data(for: second) == Self.singlePixelPNG)
+        #expect(harness.network.connections.count == 4)
+        #expect(loader.sourceCacheByteCount <= budget)
+    }
+
     @Test func remoteImageLoaderCancelsCoalescedDownloadAfterLastWaiterCancels() async throws {
         let harness = Self.remoteImageHarness(holdFirstResponse: true)
         let loader = RemoteImageLoader(transport: harness.transport)
