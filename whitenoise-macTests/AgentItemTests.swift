@@ -481,6 +481,10 @@ struct AgentItemTests {
         #expect(transcript.threadPath(to: deep) == [root, nested])
         #expect(transcript.threadPath(to: nested) == [root])
         #expect(transcript.threadPath(to: root) == nil)
+        // A first unread message deep in a thread draws its divider on the task row the main
+        // chat shows, so opening the chat lands there instead of at the window's top.
+        #expect(transcript.mainChatRow(for: deep) == root)
+        #expect(transcript.mainChatRow(for: root) == root)
     }
 
     @Test func kind1202RowsAreNeverShown() {

@@ -465,7 +465,8 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         _ messages: [MessageItem],
         searchMatchMessageId: String?,
         searchHighlight: MessageSearchHighlight?,
-        context: TranscriptRowContext
+        context: TranscriptRowContext,
+        footerHeight: CGFloat = 28
     ) -> [TranscriptRow] {
         rows(
             displayItems: TimelineMessageDisplayItem.make(from: messages),
@@ -475,7 +476,7 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
             searchMatchMessageId: searchMatchMessageId,
             searchHighlight: searchHighlight,
             context: context,
-            footerHeight: 16
+            footerHeight: footerHeight
         )
     }
 
@@ -688,11 +689,10 @@ private struct ConversationView: View {
     @State private var isPinnedToBottom = false
     /// The pending scroll command for the transcript table, applied once per request id.
     @State private var scrollRequest: TranscriptScrollRequest?
-    /// The same for the open subagent thread's transcript.
-    @State private var threadScrollRequest: TranscriptScrollRequest?
-    /// The message a reveal opened a thread to show; the thread scrolls to it once it is on screen,
-    /// and to its newest row when nothing asked for one.
-    @State private var threadRevealTarget: String?
+    /// A scroll that waits for a change of the open subagent thread (`scroll(_:inThreads:)`):
+    /// applied by that change instead of the default (a thread opens at its newest row, Back
+    /// returns to the row it left from).
+    @State private var pendingThreadScroll: TranscriptScrollRequest?
     /// The open's starting scroll (the unread divider, the newest message, or a search target).
     /// The open has landed once the table confirms it applied this request; until then neither
     /// paging nor read marking acts on what is on screen.
@@ -793,6 +793,8 @@ private struct ConversationView: View {
             localAccountIdHex: model.account.accountIdHex
         )
         let displayItems = agentTranscript.mainItems
+        // A subagent's thread fills the pane in the main chat's place (`AgentThreadBar`).
+        let openThreadId = model.agents.threadPath.last
         let agentActions = model.agents.actions(
             memberCount: model.snapshot?.header.memberCount, isDirect: chat.isDirect,
             copyText: { workspace.copyText($0) })
@@ -813,18 +815,36 @@ private struct ConversationView: View {
             displayItems: displayItems,
             paging: paging,
             pendingOutgoingRows: pendingOutgoingRows,
-            unreadDividerMessageId: model.unreadDivider?.messageIdHex,
+            unreadDividerMessageId: model.unreadDivider.map { agentTranscript.mainChatRow(for: $0.messageIdHex) },
             searchMatchMessageId: searchMatchMessageId,
             searchHighlight: searchHighlight,
             context: rowContext,
             footerHeight: workspace.isTimelineSelectionMode ? 28 : max(28, floatingComposerHeight + 10)
         )
+        let threadRows = openThreadId.map { id in
+            TranscriptRow.threadRows(
+                agentTranscript.threads[id] ?? [],
+                searchMatchMessageId: searchMatchMessageId,
+                searchHighlight: searchHighlight,
+                context: rowContext,
+                footerHeight: workspace.isTimelineSelectionMode ? 28 : max(28, floatingComposerHeight + 10)
+            )
+        }
 
         ZStack {
             VStack(spacing: 0) {
                 if model.search.isActive {
                     ConversationSearchBar(model: model.search, onClose: closeSearch)
                     Divider()
+                }
+                if let openThreadId {
+                    AgentThreadBar(
+                        task: agentTranscript.mainItems.first { $0.id == openThreadId }?.message
+                            ?? agentTranscript.threads.values.lazy.flatMap { $0 }.first { $0.id == openThreadId },
+                        isEmpty: (agentTranscript.threads[openThreadId] ?? []).isEmpty,
+                        actions: agentActions,
+                        onBack: model.agents.closeThread
+                    )
                 }
 
                 Group {
@@ -842,10 +862,11 @@ private struct ConversationView: View {
                         // hosted, and the reader's row held in place by explicit offset arithmetic
                         // whenever the window changes — see `TranscriptTableView`.
                         TranscriptTableView(
-                            rows: transcriptRows,
+                            rows: threadRows ?? transcriptRows,
                             scrollRequest: scrollRequest,
-                            // Pin the foot only while the reader follows the live edge.
-                            followsBottom: hasLanded && !paging.hasMoreAfter,
+                            // Pin the foot only while the reader follows the live edge; a thread
+                            // holds its newest row in view as the subagent adds to it.
+                            followsBottom: threadRows != nil || (hasLanded && !paging.hasMoreAfter),
                             onViewportChanged: viewportChanged,
                             onLiveScrollChanged: { isScrolling in
                                 isActivelyScrolling = isScrolling
@@ -872,6 +893,21 @@ private struct ConversationView: View {
                                 }
                             }
                         )
+                        // The main chat and each thread get a table of their own, so going into a
+                        // thread and back starts each from its own scroll request.
+                        .id(openThreadId ?? "")
+                    }
+                }
+                // A thread follows its subagent's newest row, and Back returns to the row the
+                // thread was opened from, unless a reveal or the open asked for a place.
+                .onChange(of: model.agents.threadPath) { old, new in
+                    if let pending = pendingThreadScroll {
+                        pendingThreadScroll = nil
+                        scrollRequest = pending
+                    } else if new.count < old.count, new == Array(old.prefix(new.count)) {
+                        scrollRequest = TranscriptScrollRequest(target: .center(id: old[new.count]))
+                    } else {
+                        scrollRequest = TranscriptScrollRequest(target: .bottom)
                     }
                 }
                 .accessibilityIdentifier("conversation.transcript")
@@ -1200,66 +1236,6 @@ private struct ConversationView: View {
             // Nothing left to forward (the messages scrolled out of the window, or the account
             // went away): close the forward rather than leave it open with no sheet.
             if isPresented, forwardModel == nil { workspace.cancelForwarding() }
-        }
-        .sheet(
-            isPresented: Binding(
-                get: { !model.agents.threadPath.isEmpty },
-                set: { if !$0 { model.agents.closeAllThreads() } }
-            )
-        ) {
-            if let taskId = model.agents.threadPath.last {
-                let threadMessages = agentTranscript.threads[taskId] ?? []
-                AgentThreadSheet(
-                    task: agentTranscript.mainItems.first { $0.id == taskId }?.message
-                        ?? agentTranscript.threads.values.lazy.flatMap { $0 }.first { $0.id == taskId },
-                    isEmpty: threadMessages.isEmpty,
-                    depth: model.agents.threadPath.count,
-                    actions: agentActions,
-                    onBack: model.agents.closeThread,
-                    onClose: model.agents.closeAllThreads
-                ) {
-                    // The thread is a transcript like the main chat's, so every kind of message,
-                    // its attachments, reactions and reply previews draw the same.
-                    TranscriptTableView(
-                        rows: TranscriptRow.threadRows(
-                            threadMessages,
-                            searchMatchMessageId: searchMatchMessageId,
-                            searchHighlight: searchHighlight,
-                            context: rowContext
-                        ),
-                        scrollRequest: threadScrollRequest,
-                        followsBottom: true,
-                        onViewportChanged: { _ in },
-                        onLiveScrollChanged: { _ in },
-                        onScrollRequestApplied: { _ in },
-                        anchorsPosition: \.anchorsPosition,
-                        cell: { row in
-                            TranscriptRowCell(
-                                row: row,
-                                workspace: workspace,
-                                session: session,
-                                safetyModel: safetyModel,
-                                conversationModel: model,
-                                locale: locale,
-                                timestampReferenceDate: timestampReferenceDate,
-                                openURL: openURL,
-                                hoverSelectionCoordinator: hoverSelectionCoordinator,
-                                composerFocusRequester: composerFocusRequester
-                            ) { gallery in
-                                imageGallery = gallery
-                            } onNavigateToMessage: { targetMessageId in
-                                Task { await revealMessage(targetMessageId) }
-                            }
-                        }
-                    )
-                    // Each thread opens at the message a reveal asked for, else at its newest row.
-                    .task(id: taskId) {
-                        threadScrollRequest = TranscriptScrollRequest(
-                            target: threadRevealTarget.map { .center(id: $0) } ?? .bottom)
-                        threadRevealTarget = nil
-                    }
-                }
-            }
         }
         .sheet(isPresented: $isPollComposerPresented) {
             PollComposerSheet(
@@ -1789,28 +1765,30 @@ private struct ConversationView: View {
         guard workspace.selectedChat?.id == chat.id else { return .failed }
         // The window holds the message but the transcript does not draw it (hidden, blocked).
         guard workspace.selectedTimelineContainsMessage(messageId) else { return .unavailable }
-        // A message in a subagent's thread: open that thread at it, and bring the main chat to
-        // the outermost `task` row, so an open still lands where the thread starts.
-        let agentTranscript = model.agents.transcript(
+        // A message in a subagent's thread opens that thread (and the ones around it) at it; one in
+        // the main chat closes any thread open in its place.
+        let request = TranscriptScrollRequest(target: .center(id: messageId))
+        scroll(request, inThreads: agentTranscript().threadPath(to: messageId) ?? [])
+        return .shown(requestId: request.id)
+    }
+
+    /// The conversation's agent rows, as the body reads them.
+    private func agentTranscript() -> AgentTranscript {
+        model.agents.transcript(
             displayItems: workspace.selectedTimelineDisplayItems,
             localAccountIdHex: model.account.accountIdHex
         )
-        if let path = agentTranscript.threadPath(to: messageId), let outermost = path.first {
-            if model.agents.threadPath == path {
-                threadScrollRequest = TranscriptScrollRequest(target: .center(id: messageId))
-            } else {
-                threadRevealTarget = messageId
-                model.agents.threadPath = path
-            }
-            let request = TranscriptScrollRequest(target: .center(id: outermost))
+    }
+
+    /// Applies `request` in the view that shows `path`'s thread (the main chat for `[]`), opening
+    /// or closing threads first when another one is on screen.
+    private func scroll(_ request: TranscriptScrollRequest, inThreads path: [String]) {
+        if model.agents.threadPath == path {
             scrollRequest = request
-            return .shown(requestId: request.id)
+        } else {
+            pendingThreadScroll = request
+            model.agents.threadPath = path
         }
-        // The main chat shows it: a thread open on top (a reply preview tapped there) gives way.
-        model.agents.closeAllThreads()
-        let request = TranscriptScrollRequest(target: .center(id: messageId))
-        scrollRequest = request
-        return .shown(requestId: request.id)
     }
 
     /// Sends the composer: a draft using custom emoji goes out with their images, anything else
@@ -1833,7 +1811,7 @@ private struct ConversationView: View {
             await model.returnToLatest()
         }
         guard workspace.selectedChat?.id == chat.id else { return }
-        scrollRequest = TranscriptScrollRequest(target: .bottom)
+        scroll(TranscriptScrollRequest(target: .bottom), inThreads: [])
     }
 
     private func resetForNewChat() {
@@ -1843,6 +1821,7 @@ private struct ConversationView: View {
         openedSearch = nil
         isPinnedToBottom = false
         scrollRequest = nil
+        pendingThreadScroll = nil
         openingRequestId = nil
         hasLanded = false
         openedModel = nil
@@ -1864,13 +1843,16 @@ private struct ConversationView: View {
         }
         let target: TranscriptScrollTarget
         if let divider = model.unreadDivider, workspace.selectedTimelineContainsMessage(divider.messageIdHex) {
-            target = .top(id: divider.messageIdHex, inset: 8)
+            // A first unread message in a subagent's thread draws its divider on the thread's
+            // outermost task row, which the main chat shows.
+            target = .top(id: agentTranscript().mainChatRow(for: divider.messageIdHex), inset: 8)
         } else {
             target = .bottom
         }
         let request = TranscriptScrollRequest(target: target)
         openingRequestId = request.id
-        scrollRequest = request
+        // Every open starts in the main chat.
+        scroll(request, inThreads: [])
     }
 
     private func scrollRequestApplied(_ id: UUID) {
@@ -1887,9 +1869,18 @@ private struct ConversationView: View {
 
     /// The table's visible rows or foot changed.
     private func viewportChanged(_ viewport: TranscriptViewport) {
-        isPinnedToBottom = viewport.isAtBottom
         let ids = Set(viewport.visibleRowIds)
-        model.setVisibleMessageIds(ids.filter(workspace.selectedTimelineContainsMessage))
+        let visible = ids.filter(workspace.selectedTimelineContainsMessage)
+        model.setVisibleMessageIds(visible)
+        // A thread's rows are read as they are seen. Its foot is not the window's, so it neither
+        // pages the window nor counts the main chat's later messages as reached.
+        if !model.agents.threadPath.isEmpty {
+            guard hasLanded else { return }
+            model.setReadableMessageIds(visible)
+            if !isActivelyScrolling { markVisibleMessagesRead() }
+            return
+        }
+        isPinnedToBottom = viewport.isAtBottom
         guard hasLanded else { return }
         // A foot that re-attaches the window must not also start an older page in the same turn:
         // both would quote one revision, and the loser's retry could page the re-attached tail.

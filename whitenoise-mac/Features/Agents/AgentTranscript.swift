@@ -36,6 +36,12 @@ nonisolated struct AgentTranscript {
         return path.isEmpty ? nil : path
     }
 
+    /// The main chat's row for `messageId`: itself, or the outermost `task` row of the thread that
+    /// holds it. The unread divider and an open's first scroll anchor there.
+    func mainChatRow(for messageId: String) -> String {
+        threadPath(to: messageId)?.first ?? messageId
+    }
+
     /// `sends` gives this account's requests for an item's first event (nil for untargeted
     /// controls); `requestSender` names who sent a request id, when known.
     static func build(
