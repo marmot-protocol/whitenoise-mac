@@ -315,11 +315,14 @@ struct RemoteGiphyMediaView: View {
     }
 
     private func load() async {
+        let token = cache.invalidationToken
         state = .loading
         do {
             let prepared = try await prepare(media)
             try Task.checkCancellation()
-            cache.insert(prepared, for: media.url)
+            if cache.invalidationToken == token {
+                cache.insert(prepared, for: media.url)
+            }
             displayGeometry.record(decodedAspectRatio: prepared.aspectRatio)
             state = .playing(prepared)
         } catch {
@@ -328,7 +331,7 @@ struct RemoteGiphyMediaView: View {
             // already put it back to `.idle`.
             guard !Task.isCancelled, !(error is CancellationError) else { return }
             let failureState = GiphyPlaybackState.failure(for: error)
-            if failureState == .unsupported {
+            if failureState == .unsupported, cache.invalidationToken == token {
                 cache.markUnsupported(media.url)
             }
             state = failureState

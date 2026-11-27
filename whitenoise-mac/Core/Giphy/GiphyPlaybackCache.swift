@@ -34,6 +34,9 @@ final class GiphyPlaybackCache {
     private let unsupportedURLLimit: Int
     private var unsupportedURLs: [URL] = []
     private var unsupportedURLSet: Set<URL> = []
+    /// Incremented by `removeAll()`. Views own their own `.task` lifecycles outside this cache,
+    /// so checking this token stops an in-flight `prepare` from repopulating a wiped cache.
+    private(set) var invalidationToken: UInt64 = 0
 
     /// - Parameters:
     ///   - totalCostLimit: the encoded bytes past which `NSCache` starts evicting. It is
@@ -85,6 +88,7 @@ final class GiphyPlaybackCache {
     }
 
     func removeAll() {
+        invalidationToken &+= 1
         entries.removeAllObjects()
         unsupportedURLs.removeAll()
         unsupportedURLSet.removeAll()

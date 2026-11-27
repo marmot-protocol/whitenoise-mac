@@ -354,6 +354,42 @@ struct GiphyTests: WorkspaceTestSupport {
         #expect(!cache.isUnsupported(third))
     }
 
+    /// Clearing the cache while a bubble's `prepare` is in flight must stop that stale completion
+    /// from re-inserting an unsupported verdict into the freshly wiped cache.
+    @MainActor
+    @Test func inFlightUnsupportedVerdictDoesNotRepopulateCacheAfterRemoveAll() async throws {
+        let calls = PrepareCallCounter()
+        let gate = PrepareGate()
+        let cache = GiphyPlaybackCache()
+        let preference = RemoteGIFLoadingPreference(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let media = RemoteGiphyMedia(url: Self.gifURL, width: 480, height: 270, attribution: nil)
+        let visibility = TranscriptCellVisibility()
+        visibility.isVisible = true
+
+        let window = Self.hostingWindow(
+            RemoteGiphyMediaView(
+                media: media,
+                mayLoadAutomatically: true,
+                loadingPreference: preference,
+                cache: cache,
+                prepare: { _ in
+                    await calls.increment()
+                    await gate.wait()
+                    throw GiphyRemoteMediaLoader.Failure.unsupportedMedia
+                }
+            )
+            .environment(\.transcriptCellVisibility, visibility)
+        )
+        defer { window.orderOut(nil) }
+
+        #expect(await Self.waitForPrepareCount(1, in: calls))
+        cache.removeAll()
+        await gate.open()
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(!cache.isUnsupported(media.url))
+    }
+
     /// The same rebuild for a GIF the viewer never chose to load must still wait for the click:
     /// the cache is not a way around the preference.
     @MainActor

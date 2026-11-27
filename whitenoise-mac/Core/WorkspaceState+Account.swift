@@ -730,6 +730,7 @@ extension WorkspaceState {
                 // account-partitioned, so evict it after every successful background-account removal.
                 // Active-account removal clears it through `resetActiveAccountUIState()`. See #177.
                 RemoteImageLoader.shared.clearCache()
+                GiphyPlaybackCache.shared.removeAll()
             }
 
             // Deliberately `signedInAccounts`, not `accounts`: removing the last signed-in
