@@ -144,7 +144,10 @@
         private(set) var controlledAttachments: [(reference: String, control: AttachmentControlFfi)] = []
         var attachmentHandoffResults: [Result<AttachmentHandoffFfi?, Error>] = []
         private(set) var openedAttachmentHandoffTargets: [AttachmentLocalTargetFfi] = []
-        private(set) var releasedAttachmentHandoffLeases: [String] = []
+        var releasedAttachmentHandoffLeases: [String] {
+            recordedStateLock.withLock { _releasedAttachmentHandoffLeases }
+        }
+        private var _releasedAttachmentHandoffLeases: [String] = []
         var blockedUsers: [BlockedUserFfi] = []
         var blockedUserSnapshots: [BlockListSnapshotFfi] = []
         var blockUserError: Error?
@@ -373,6 +376,8 @@
         private(set) var createdGroupName: String?
         private(set) var createdGroupDescription: String?
         /// The founding picture of the last group created through `createGroupWithInitialImage`.
+        /// Recorded only when a group was created: a create that adds nobody leaves it untouched, as
+        /// MDK founds nothing to carry the picture.
         private(set) var createdGroupInitialImage: InitialGroupImageFfi?
         /// Member refs MDK finds no published KeyPackage for, valued by the account id hex it reports.
         /// Since 0.17 `createGroup` and `inviteMembersDetailed` report each as a `missingKeyPackage`
@@ -556,6 +561,12 @@
             recordedStateLock.withLock { _stageDraftAttachmentFileCallCount }
         }
         private var _stageDraftAttachmentFileCallCount = 0
+        /// Draft handoff reads answered with `MessageDraftRevisionConflict` before opening a lease.
+        var openMessageDraftAttachmentHandoffConflicts: Int {
+            get { recordedStateLock.withLock { _openMessageDraftAttachmentHandoffConflicts } }
+            set { recordedStateLock.withLock { _openMessageDraftAttachmentHandoffConflicts = newValue } }
+        }
+        private var _openMessageDraftAttachmentHandoffConflicts = 0
         /// MDK's bound on the bytes one draft's attachments may total; a copy past it is refused.
         var draftAttachmentBytesLimit: Int? {
             get { recordedStateLock.withLock { _draftAttachmentBytesLimit } }
@@ -2037,7 +2048,9 @@
         }
 
         func releaseAttachmentHandoff(lease: String) async throws {
-            releasedAttachmentHandoffLeases.append(lease)
+            recordedStateLock.withLock {
+                _releasedAttachmentHandoffLeases.append(lease)
+            }
         }
 
         func getBlockedUsers(accountRef: String) throws -> [BlockedUserFfi] {
@@ -2717,6 +2730,33 @@
                 groups[index].imageHashHex = imageHashHex
             }
             groupDetailsById[groupIdHex]?.group.imageHashHex = imageHashHex
+            // Served back the way `updateGroupImage` serves a changed picture, so the created row
+            // resolves the founding bytes through `readAvatarAssets` like any other group image.
+            let reference = "avatar:\(groupIdHex):\(imageHashHex)"
+            let byteCount = UInt64(initialImage.plaintext.count)
+            avatarAssets.removeAll { $0.target == groupIdHex }
+            avatarAssets.append(
+                AvatarAssetFfi(
+                    target: groupIdHex,
+                    reference: reference,
+                    availability: .ready,
+                    acquisition: nil,
+                    contentRevision: 1,
+                    byteCount: byteCount
+                ))
+            avatarBytes.removeAll { $0.reference == reference }
+            avatarBytes.append(
+                AvatarBytesFfi(
+                    reference: reference,
+                    availability: .ready,
+                    contentRevision: 1,
+                    byteCount: byteCount,
+                    deferred: false,
+                    bytes: initialImage.plaintext,
+                    mediaType: initialImage.mediaType,
+                    width: 1,
+                    height: 1
+                ))
             return result
         }
 
@@ -4103,6 +4143,10 @@
             control: MediaFileTransferControlFfi
         ) async throws -> AttachmentHandoffFfi? {
             let attachment = try recordedStateLock.withLock { () throws -> MessageDraftAttachmentFfi? in
+                if _openMessageDraftAttachmentHandoffConflicts > 0 {
+                    _openMessageDraftAttachmentHandoffConflicts -= 1
+                    throw MarmotKitError.MessageDraftRevisionConflict
+                }
                 let groupIdHex = try currentDraftGroupLocked(for: revision)
                 return storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]?.mediaAttachments
                     .first(where: { $0.id == attachmentId })

@@ -11,6 +11,7 @@ import Vision
 /// Main-actor only, like every AppKit drawing call.
 @MainActor
 final class HostedViewWindow {
+    private var clickNumber = 0
     let window: NSWindow
     /// Snapshot pixels per point.
     static let scale: CGFloat = 2
@@ -93,16 +94,34 @@ final class HostedViewWindow {
 
     /// A left click at `point`, in points from the window's top-left corner.
     func click(at point: CGPoint) {
-        guard let height = window.contentView?.bounds.height else { return }
-        let location = NSPoint(x: point.x, y: height - point.y)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            guard
-                let event = NSEvent.mouseEvent(
-                    with: type, location: location, modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
-                    eventNumber: 0, clickCount: 1, pressure: 1)
-            else { continue }
-            window.sendEvent(event)
+        guard let content = window.contentView else { return }
+        let location = NSPoint(x: point.x, y: content.bounds.height - point.y)
+        // Native buttons use the physical pointer position while tracking. A hit-tested button
+        // in an offscreen test window can perform its normal action without moving the pointer.
+        var hit = content.hitTest(content.superview?.convert(location, from: nil) ?? location)
+        while let view = hit {
+            if let button = view as? NSButton {
+                if button.isEnabled { button.performClick(nil) }
+                return
+            }
+            hit = view.superview
+        }
+        clickNumber += 1
+        func mouseEvent(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(
+                with: type, location: location, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                eventNumber: clickNumber, clickCount: 1, pressure: 1)
+        }
+        guard let down = mouseEvent(.leftMouseDown), let up = mouseEvent(.leftMouseUp) else { return }
+        // Native buttons may wait for the release inside their mouse-down handler. Controls
+        // that don't track synchronously still need their release before the next test click.
+        NSApp.postEvent(up, atStart: true)
+        window.sendEvent(down)
+        let peek = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: false)
+        if peek?.windowNumber == up.windowNumber, peek?.eventNumber == up.eventNumber {
+            _ = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true)
+            window.sendEvent(up)
         }
     }
 
@@ -225,19 +244,21 @@ enum DrawnPixels {
 /// Text read back out of a `HostedViewWindow` snapshot. For copy that must be on screen, such as a
 /// privacy disclosure, where how much a view drew cannot tell one sentence from another.
 enum DrawnText {
-    /// Whether `phrase` was drawn, ignoring case, line breaks, how the text wrapped, whether its
+    /// Whether `phrase` was drawn, ignoring case, spacing (Vision can join adjacent words), whether its
     /// apostrophes are typographic, and the narrow glyphs recognition confuses in small type.
     static func contains(_ phrase: String, in rep: NSBitmapImageRep) -> Bool {
-        normalized(recognized(in: rep)).contains(normalized(phrase))
+        let target = normalized(phrase)
+        return normalized(recognized(in: rep)).contains(target)
+            || normalized(recognized(in: rep, level: .fast)).contains(target)
     }
 
     /// Every line Vision recognizes in reading order, top to bottom then left to right, joined by
     /// spaces. Vision's own result order is not reading order, so a phrase that wraps could
     /// otherwise come back with another line spliced into it.
-    static func recognized(in rep: NSBitmapImageRep) -> String {
+    static func recognized(in rep: NSBitmapImageRep, level: VNRequestTextRecognitionLevel = .accurate) -> String {
         guard let image = rep.cgImage else { return "" }
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
+        request.recognitionLevel = level
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: image).perform([request])
         // Vision's boxes are normalized with the origin at the bottom left; a row is the band of
@@ -258,6 +279,6 @@ enum DrawnText {
         let folded = text.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
             .replacingOccurrences(of: "\u{2018}", with: "'")
             .map { narrowGlyphs.contains($0) ? "i" : $0 }
-        return String(folded).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return String(folded).split(whereSeparator: \.isWhitespace).joined()
     }
 }
