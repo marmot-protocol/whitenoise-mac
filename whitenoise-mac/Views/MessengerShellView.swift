@@ -687,12 +687,9 @@ private struct ConversationView: View {
     @Environment(SessionState.self) private var session
     /// Whether the transcript is scrolled to the foot of its content, as the table reports it.
     @State private var isPinnedToBottom = false
-    /// The pending scroll command for the transcript table, applied once per request id.
-    @State private var scrollRequest: TranscriptScrollRequest?
-    /// A scroll that waits for a change of the open subagent thread (`scroll(_:inThreads:)`):
-    /// applied by that change instead of the default (a thread opens at its newest row, Back
-    /// returns to the row it left from).
-    @State private var pendingThreadScroll: TranscriptScrollRequest?
+    /// Whether an open subagent thread is scrolled to its own foot. Kept apart from
+    /// `isPinnedToBottom`, the main chat's, which a thread never moves.
+    @State private var isThreadAtBottom = false
     /// The open's starting scroll (the unread divider, the newest message, or a search target).
     /// The open has landed once the table confirms it applied this request; until then neither
     /// paging nor read marking acts on what is on screen.
@@ -863,7 +860,8 @@ private struct ConversationView: View {
                         // whenever the window changes — see `TranscriptTableView`.
                         TranscriptTableView(
                             rows: threadRows ?? transcriptRows,
-                            scrollRequest: scrollRequest,
+                            // The model changes this with the view it scrolls (`AgentChatModel`).
+                            scrollRequest: model.agents.scrollRequest,
                             // Pin the foot only while the reader follows the live edge; a thread
                             // holds its newest row in view as the subagent adds to it.
                             followsBottom: threadRows != nil || (hasLanded && !paging.hasMoreAfter),
@@ -898,18 +896,9 @@ private struct ConversationView: View {
                         .id(openThreadId ?? "")
                     }
                 }
-                // A thread follows its subagent's newest row, and Back returns to the row the
-                // thread was opened from, unless a reveal or the open asked for a place.
-                .onChange(of: model.agents.threadPath) { old, new in
-                    if let pending = pendingThreadScroll {
-                        pendingThreadScroll = nil
-                        scrollRequest = pending
-                    } else if new.count < old.count, new == Array(old.prefix(new.count)) {
-                        scrollRequest = TranscriptScrollRequest(target: .center(id: old[new.count]))
-                    } else {
-                        scrollRequest = TranscriptScrollRequest(target: .bottom)
-                    }
-                }
+                // A conversation leaving the screen forgets its pane, so a cached model returns to
+                // the main chat with no stale request for its new table to apply.
+                .onDisappear { model.agents.leavePane() }
                 .accessibilityIdentifier("conversation.transcript")
                 .id(chat.id)
                 // An arrival into a window the reader is at the foot of can change only
@@ -1008,7 +997,7 @@ private struct ConversationView: View {
                     if let exclusions { model.search.exclusions = exclusions }
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if hasLanded && !isPinnedToBottom {
+                    if hasLanded && !isPinnedToBottom && !isShowingThread {
                         Button {
                             Task { await jumpToNewest() }
                         } label: {
@@ -1768,7 +1757,7 @@ private struct ConversationView: View {
         // A message in a subagent's thread opens that thread (and the ones around it) at it; one in
         // the main chat closes any thread open in its place.
         let request = TranscriptScrollRequest(target: .center(id: messageId))
-        scroll(request, inThreads: agentTranscript().threadPath(to: messageId) ?? [])
+        model.agents.scroll(request, inThreads: agentTranscript().threadPath(to: messageId) ?? [])
         return .shown(requestId: request.id)
     }
 
@@ -1778,17 +1767,6 @@ private struct ConversationView: View {
             displayItems: workspace.selectedTimelineDisplayItems,
             localAccountIdHex: model.account.accountIdHex
         )
-    }
-
-    /// Applies `request` in the view that shows `path`'s thread (the main chat for `[]`), opening
-    /// or closing threads first when another one is on screen.
-    private func scroll(_ request: TranscriptScrollRequest, inThreads path: [String]) {
-        if model.agents.threadPath == path {
-            scrollRequest = request
-        } else {
-            pendingThreadScroll = request
-            model.agents.threadPath = path
-        }
     }
 
     /// Sends the composer: a draft using custom emoji goes out with their images, anything else
@@ -1811,7 +1789,7 @@ private struct ConversationView: View {
             await model.returnToLatest()
         }
         guard workspace.selectedChat?.id == chat.id else { return }
-        scroll(TranscriptScrollRequest(target: .bottom), inThreads: [])
+        model.agents.scroll(TranscriptScrollRequest(target: .bottom), inThreads: [])
     }
 
     private func resetForNewChat() {
@@ -1820,8 +1798,8 @@ private struct ConversationView: View {
         if let openedSearch, openedSearch !== model.search { openedSearch.end() }
         openedSearch = nil
         isPinnedToBottom = false
-        scrollRequest = nil
-        pendingThreadScroll = nil
+        isThreadAtBottom = false
+        model.agents.leavePane()
         openingRequestId = nil
         hasLanded = false
         openedModel = nil
@@ -1852,7 +1830,7 @@ private struct ConversationView: View {
         let request = TranscriptScrollRequest(target: target)
         openingRequestId = request.id
         // Every open starts in the main chat.
-        scroll(request, inThreads: [])
+        model.agents.scroll(request, inThreads: [])
     }
 
     private func scrollRequestApplied(_ id: UUID) {
@@ -1870,17 +1848,12 @@ private struct ConversationView: View {
     /// The table's visible rows or foot changed.
     private func viewportChanged(_ viewport: TranscriptViewport) {
         let ids = Set(viewport.visibleRowIds)
-        let visible = ids.filter(workspace.selectedTimelineContainsMessage)
-        model.setVisibleMessageIds(visible)
-        // A thread's rows are read as they are seen. Its foot is not the window's, so it neither
-        // pages the window nor counts the main chat's later messages as reached.
-        if !model.agents.threadPath.isEmpty {
-            guard hasLanded else { return }
-            model.setReadableMessageIds(visible)
-            if !isActivelyScrolling { markVisibleMessagesRead() }
-            return
+        model.setVisibleMessageIds(ids.filter(workspace.selectedTimelineContainsMessage))
+        if isShowingThread {
+            isThreadAtBottom = viewport.isAtBottom
+        } else {
+            isPinnedToBottom = viewport.isAtBottom
         }
-        isPinnedToBottom = viewport.isAtBottom
         guard hasLanded else { return }
         // A foot that re-attaches the window must not also start an older page in the same turn:
         // both would quote one revision, and the loser's retry could page the re-attached tail.
@@ -1888,11 +1861,15 @@ private struct ConversationView: View {
         readingPositionChanged(pages: !returnsToLatest)
     }
 
+    /// A subagent's thread fills the pane. Its rows are a gap-filled subset of the window, so the
+    /// window's paging and foot never act on it, and its own rows and foot set what is read.
+    private var isShowingThread: Bool { !model.agents.threadPath.isEmpty }
+
     /// The reader's position counts from here: page toward the edge they are near and mark what
     /// they have reached.
     private func readingPositionChanged(pages: Bool = true) {
         updateReadableMessages()
-        if pages { requestPageIfNeeded() }
+        if pages, !isShowingThread { requestPageIfNeeded() }
         if !isActivelyScrolling { markVisibleMessagesRead() }
     }
 
@@ -1901,11 +1878,14 @@ private struct ConversationView: View {
             model.setReadableMessageIds([])
             return
         }
+        // In a thread, the thread's own order and foot: its lowest visible row is read once the
+        // reader reaches its bottom or a later row, as in the main chat.
+        let threadMessageIds = model.agents.threadPath.last.map { agentTranscript().threads[$0]?.map(\.id) ?? [] }
         model.setReadableMessageIds(
             timelineReadableMessageIds(
                 visibleMessageIds: model.visibleMessageIds,
-                messageIDs: workspace.selectedMessageIDs,
-                isAtBottom: isPinnedToBottom
+                messageIDs: threadMessageIds ?? workspace.selectedMessageIDs,
+                isAtBottom: threadMessageIds == nil ? isPinnedToBottom : isThreadAtBottom
             )
         )
     }
@@ -1915,7 +1895,7 @@ private struct ConversationView: View {
     /// A page that lands without moving the visible rows reports no viewport change, so the next
     /// page is checked here whenever the window actually grew.
     private func requestPageIfNeeded() {
-        guard hasLanded, !model.isPaging else { return }
+        guard hasLanded, !model.isPaging, !isShowingThread else { return }
         let paging = workspace.selectedTimelinePaging
         let messageIDs = workspace.selectedMessageIDs
         guard
@@ -1943,7 +1923,7 @@ private struct ConversationView: View {
     /// (`timelineFootAction`). Returns whether it re-attached.
     @discardableResult
     private func handleFoot() -> Bool {
-        guard hasLanded, !model.isPaging else { return false }
+        guard hasLanded, !model.isPaging, !isShowingThread else { return false }
         switch timelineFootAction(
             isAtBottom: isPinnedToBottom,
             hasMoreAfter: workspace.selectedTimelinePaging.hasMoreAfter,

@@ -504,18 +504,31 @@ struct AgentItemTests {
         #expect(!model.actions(memberCount: 3, isDirect: true, copyText: { _ in }).canAnswerSecret)
     }
 
-    @Test func threadsOpenAndCloseInOrder() {
+    /// The pane's view and its scroll request change together, so the table made for a new view
+    /// never applies the last one's: a thread opens at its newest row, Back returns to the row it
+    /// left from, and leaving the pane forgets both.
+    @Test func threadsOpenAndCloseInOrderEachWithItsOwnScroll() {
         let model = AgentChatModel(groupIdHex: F.groupIdHex, ledger: nil)
         model.openThread("a")
+        #expect(model.scrollRequest?.target == .bottom)
         model.openThread("b")
         #expect(model.threadPath == ["a", "b"])
         model.closeThread()
         #expect(model.threadPath == ["a"])
+        #expect(model.scrollRequest?.target == .center(id: "b"))
         model.openThread("b")
         model.openThread("a")
         #expect(model.threadPath == ["a"])
+        model.openThread("b")
         model.closeAllThreads()
         #expect(model.threadPath.isEmpty)
+        #expect(model.scrollRequest?.target == .center(id: "a"))
+        model.scroll(TranscriptScrollRequest(target: .center(id: "m")), inThreads: ["a"])
+        #expect(model.threadPath == ["a"])
+        #expect(model.scrollRequest?.target == .center(id: "m"))
+        model.leavePane()
+        #expect(model.threadPath.isEmpty)
+        #expect(model.scrollRequest == nil)
     }
 
     @Test func aFinishedTurnSaysHowItEndedAndWhatItUsed() throws {

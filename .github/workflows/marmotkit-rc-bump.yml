@@ -93,7 +93,10 @@ jobs:
           while IFS= read -r path; do paths+=("$path"); done \
             < <(git status --porcelain --untracked-files=all -- Vendored/MarmotKit | cut -c4-)
           printf 'Moves develop to the RC mdk verified on rc-meta (see the pull request).\n\nMarmotKit-RC-Bump: true\n' > "$RUNNER_TEMP/commit-body.txt"
-          build="$BRANCH-build-$GITHUB_RUN_ID"
+          # The run's own branch goes on every exit, a failed commit or push included; the attempt
+          # number keeps a rerun of this run off a branch a killed attempt left behind.
+          build="$BRANCH-build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          trap 'gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$build" >/dev/null 2>&1 || true' EXIT
           commit="$(scripts/ci/signed-commit.py \
             --repo "$GITHUB_REPOSITORY" \
             --branch "$build" \
@@ -103,7 +106,6 @@ jobs:
             "${paths[@]}")"
           git fetch --quiet origin "$build"
           git push --force-with-lease="refs/heads/$BRANCH:$inspected" origin "$commit:refs/heads/$BRANCH"
-          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$build"
 
           title="Pin MarmotKit $VERSION (staging RC)"
           if [[ "$IMPACT" == "minor" || "$BREAKING" != "0" ]]; then
