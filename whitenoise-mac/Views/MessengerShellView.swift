@@ -896,9 +896,6 @@ private struct ConversationView: View {
                         .id(openThreadId ?? "")
                     }
                 }
-                // A conversation leaving the screen forgets its pane, so a cached model returns to
-                // the main chat with no stale request for its new table to apply.
-                .onDisappear { model.agents.leavePane() }
                 .accessibilityIdentifier("conversation.transcript")
                 .id(chat.id)
                 // An arrival into a window the reader is at the foot of can change only
@@ -1901,7 +1898,9 @@ private struct ConversationView: View {
         guard
             let request = timelinePageRequest(
                 visibleMessageIds: model.visibleMessageIds,
-                messageIDs: messageIDs,
+                // The rows the main chat shows: a run of subagent thread rows at the window's edge
+                // is not drawn there, so the reader is at that edge sooner than the window says.
+                messageIDs: agentTranscript().mainMessageIds,
                 hasMoreBefore: paging.hasMoreBefore,
                 hasMoreAfter: paging.hasMoreAfter
             )

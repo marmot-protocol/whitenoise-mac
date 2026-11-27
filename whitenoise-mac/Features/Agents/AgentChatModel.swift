@@ -92,14 +92,8 @@ final class AgentChatModel {
         scroll(TranscriptScrollRequest(target: .center(id: closed)), inThreads: Array(threadPath.dropLast()))
     }
 
-    /// Back to the main chat, at the outermost thread's row.
-    func closeAllThreads() {
-        guard let outermost = threadPath.first else { return }
-        scroll(TranscriptScrollRequest(target: .center(id: outermost)), inThreads: [])
-    }
-
-    /// Forgets the pane's view and request when its conversation leaves the screen, so a cached
-    /// model comes back to the main chat with nothing stale to apply.
+    /// Forgets the pane's view and request when the pane switches to this conversation, so a
+    /// cached model starts in the main chat with nothing stale left to apply.
     func leavePane() {
         threadPath = []
         scrollRequest = nil

@@ -24,6 +24,9 @@ nonisolated struct AgentTranscript {
 
     var hasAgentActivity: Bool { session != nil || runningTurn != nil || !waiting.isEmpty }
 
+    /// The ids of the rows the main chat shows, oldest first: where its reader is measured from.
+    var mainMessageIds: [String] { mainItems.map(\.message.id) }
+
     /// The threads to open, outermost first, to show `messageId`; nil when the main chat shows it.
     /// A nested subagent's thread opens on top of its parent's.
     func threadPath(to messageId: String) -> [String]? {

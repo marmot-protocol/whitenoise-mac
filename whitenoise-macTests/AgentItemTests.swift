@@ -487,6 +487,28 @@ struct AgentItemTests {
         #expect(transcript.mainChatRow(for: root) == root)
     }
 
+    /// The main chat measures paging from the rows it shows. With a subagent's 39 thread rows
+    /// after the last main-chat row, the reader at the main chat's foot is at the window's edge
+    /// although 39 rows of the window lie past it; newer history still loads.
+    @Test func paginationReachesTheEdgeAcrossHiddenThreadRows() {
+        let task = F.eventId(11)
+        let main = (1...10).map { F.words(id: F.eventId($0), text: "m\($0)") }
+        let thread = (12...50).map {
+            timelineMessage(
+                id: F.eventId($0), groupIdHex: F.groupIdHex, sender: F.agent, plaintext: "t", kind: 1111,
+                recordedAt: UInt64($0), thread: TimelineThreadRefFfi(rootMessageIdHex: task, parentMessageIdHex: task))
+        }
+        let transcript = Self.transcript(
+            main + [F.record(id: task, event: ["type": "task", "state": "running", "body": ["kind": "subagent"]])]
+                + thread)
+        let atFoot: Set<String> = [F.eventId(9), F.eventId(10), task]
+
+        let request = timelinePageRequest(
+            visibleMessageIds: atFoot, messageIDs: transcript.mainMessageIds, hasMoreBefore: false, hasMoreAfter: true)
+        #expect(request?.direction == .newer)
+        #expect(transcript.mainMessageIds.count == 11)
+    }
+
     @Test func kind1202RowsAreNeverShown() {
         let transcript = Self.transcript([
             F.record(id: F.eventId(1), event: Self.event(Self.approvalAllowed[0])),
@@ -519,8 +541,7 @@ struct AgentItemTests {
         model.openThread("b")
         model.openThread("a")
         #expect(model.threadPath == ["a"])
-        model.openThread("b")
-        model.closeAllThreads()
+        model.closeThread()
         #expect(model.threadPath.isEmpty)
         #expect(model.scrollRequest?.target == .center(id: "a"))
         model.scroll(TranscriptScrollRequest(target: .center(id: "m")), inThreads: ["a"])
