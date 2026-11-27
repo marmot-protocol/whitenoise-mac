@@ -46,7 +46,9 @@ final class AgentChatModel {
     }
 
     /// `memberCount` is MDK's count of the chat's member accounts, nil when unknown.
-    func actions(memberCount: UInt64?, isDirect: Bool) -> AgentRowActions {
+    func actions(
+        memberCount: UInt64?, isDirect: Bool, copyText: @escaping @MainActor (String) -> Void
+    ) -> AgentRowActions {
         let groupIdHex = groupIdHex
         let ledger = ledger
         return AgentRowActions(
@@ -58,7 +60,8 @@ final class AgentChatModel {
                 Task { await ledger.send(request, groupIdHex: groupIdHex) }
             },
             isSending: { request in ledger?.isInFlight(groupIdHex: groupIdHex, request: request) ?? false },
-            openThread: { [weak self] id in self?.openThread(id) }
+            openThread: { [weak self] id in self?.openThread(id) },
+            copyText: copyText
         )
     }
 

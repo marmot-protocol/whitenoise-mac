@@ -434,6 +434,55 @@ struct AgentItemTests {
         #expect(transcript.threads[tool] == nil)
     }
 
+    /// A person's reply in a subagent's thread is a full transcript row there, attachments and
+    /// all, even with no text: the thread draws it with the main chat's cell.
+    @Test func anAttachmentOnlyReplyInAThreadKeepsItsAttachment() throws {
+        let task = F.eventId(1)
+        let reply = F.eventId(2)
+        let transcript = Self.transcript([
+            F.record(
+                id: task,
+                event: ["type": "task", "state": "running", "title": "Subagent", "body": ["kind": "subagent"]]),
+            timelineMessage(
+                id: reply, groupIdHex: F.groupIdHex, sender: F.person, plaintext: "", kind: 1111, recordedAt: 2,
+                media: [mediaAttachmentReference(mediaType: "image/png", fileName: "screen.png")],
+                thread: TimelineThreadRefFfi(rootMessageIdHex: task, parentMessageIdHex: task)),
+        ])
+        let rows = TranscriptRow.threadRows(
+            transcript.threads[task] ?? [], searchMatchMessageId: nil, searchHighlight: nil,
+            context: TranscriptRowContext(
+                canVoteInPolls: true, showsDebugMetadata: false, isSelectionMode: false, localeIdentifier: "en",
+                referenceDay: 0))
+        let messages = rows.compactMap { row -> MessageItem? in
+            guard case .message(let item, _, _, _, _, _) = row else { return nil }
+            return item.message
+        }
+        #expect(messages.map(\.id) == [reply])
+        #expect(try #require(messages.first).mediaAttachments.count == 1)
+    }
+
+    /// Search and reply previews reveal a message in a thread by opening every thread around it,
+    /// outermost first; a message in the main chat needs none.
+    @Test func revealingAThreadMessageOpensTheThreadsAroundIt() {
+        let root = F.eventId(1)
+        let nested = F.eventId(2)
+        let deep = F.eventId(3)
+        let task: [String: Any] = [
+            "type": "task", "state": "running", "title": "Subagent", "body": ["kind": "subagent"],
+        ]
+        let transcript = Self.transcript([
+            F.record(id: root, event: task),
+            F.record(
+                id: nested, event: task, thread: TimelineThreadRefFfi(rootMessageIdHex: root, parentMessageIdHex: root)),
+            timelineMessage(
+                id: deep, groupIdHex: F.groupIdHex, sender: F.person, plaintext: "look here", kind: 1111,
+                recordedAt: 3, thread: TimelineThreadRefFfi(rootMessageIdHex: root, parentMessageIdHex: nested)),
+        ])
+        #expect(transcript.threadPath(to: deep) == [root, nested])
+        #expect(transcript.threadPath(to: nested) == [root])
+        #expect(transcript.threadPath(to: root) == nil)
+    }
+
     @Test func kind1202RowsAreNeverShown() {
         let transcript = Self.transcript([
             F.record(id: F.eventId(1), event: Self.event(Self.approvalAllowed[0])),
@@ -446,9 +495,9 @@ struct AgentItemTests {
 
     @Test func aSecretIsAnsweredFromTheChatOnlyWhereTwoAreInIt() {
         let model = AgentChatModel(groupIdHex: F.groupIdHex, ledger: nil)
-        #expect(model.actions(memberCount: 2, isDirect: false).canAnswerSecret)
-        #expect(!model.actions(memberCount: 3, isDirect: false).canAnswerSecret)
-        #expect(!model.actions(memberCount: 3, isDirect: true).canAnswerSecret)
+        #expect(model.actions(memberCount: 2, isDirect: false, copyText: { _ in }).canAnswerSecret)
+        #expect(!model.actions(memberCount: 3, isDirect: false, copyText: { _ in }).canAnswerSecret)
+        #expect(!model.actions(memberCount: 3, isDirect: true, copyText: { _ in }).canAnswerSecret)
     }
 
     @Test func threadsOpenAndCloseInOrder() {

@@ -9,9 +9,12 @@ struct AgentRowActions {
     var send: @MainActor (AgentRequest) -> Void
     var isSending: @MainActor (AgentRequest) -> Bool
     var openThread: @MainActor (_ taskFirstEventIdHex: String) -> Void
+    /// Copies an item's text the way the app copies any message: concealed from clipboard history.
+    var copyText: @MainActor (String) -> Void
 
     static let inert = AgentRowActions(
-        canAnswerSecret: true, isDirectChat: true, send: { _ in }, isSending: { _ in false }, openThread: { _ in })
+        canAnswerSecret: true, isDirectChat: true, send: { _ in }, isSending: { _ in false }, openThread: { _ in },
+        copyText: { _ in })
 }
 
 /// One agent item (kind 1201) at its latest version: its title, a badge for its state, and a body
@@ -53,8 +56,7 @@ struct AgentItemRow: View {
             )
             .contextMenu {
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(item.text, forType: .string)
+                    actions.copyText(item.text)
                 } label: {
                     Label(L10n.string("Copy Text"), systemImage: "doc.on.doc")
                 }

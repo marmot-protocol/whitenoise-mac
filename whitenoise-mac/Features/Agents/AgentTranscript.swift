@@ -19,8 +19,22 @@ nonisolated struct AgentTranscript {
     let session: AgentItem?
     /// Approvals and questions waiting anywhere in the window, oldest first.
     let waiting: [AgentItem]
+    /// The `task` row whose thread holds each row in `threads`, by the row's id.
+    let threadOwners: [String: String]
 
     var hasAgentActivity: Bool { session != nil || runningTurn != nil || !waiting.isEmpty }
+
+    /// The threads to open, outermost first, to show `messageId`; nil when the main chat shows it.
+    /// A nested subagent's thread opens on top of its parent's.
+    func threadPath(to messageId: String) -> [String]? {
+        var path: [String] = []
+        var id = messageId
+        while let owner = threadOwners[id], path.count < 16 {
+            path.insert(owner, at: 0)
+            id = owner
+        }
+        return path.isEmpty ? nil : path
+    }
 
     /// `sends` gives this account's requests for an item's first event (nil for untargeted
     /// controls); `requestSender` names who sent a request id, when known.
@@ -32,7 +46,8 @@ nonisolated struct AgentTranscript {
     ) -> AgentTranscript {
         let rows = displayItems.filter { $0.message.timelineKind != AgentItem.requestKind }
         guard rows.contains(where: { $0.message.agent != nil }) else {
-            return AgentTranscript(mainItems: rows, threads: [:], runningTurn: nil, session: nil, waiting: [])
+            return AgentTranscript(
+                mainItems: rows, threads: [:], runningTurn: nil, session: nil, waiting: [], threadOwners: [:])
         }
 
         var itemsById: [String: AgentItem] = [:]
@@ -63,13 +78,14 @@ nonisolated struct AgentTranscript {
         }
 
         var threadRowIds: [String: [String]] = [:]
-        var inThread: Set<String> = []
+        var threadOwners: [String: String] = [:]
         for row in rows {
             if let owner = threadOwner(of: row.message), owner != row.message.id {
                 threadRowIds[owner, default: []].append(row.message.id)
-                inThread.insert(row.message.id)
+                threadOwners[row.message.id] = owner
             }
         }
+        let inThread = Set(threadOwners.keys)
 
         func decorated(_ message: MessageItem) -> MessageItem {
             guard var agent = message.agent else { return message }
@@ -149,7 +165,8 @@ nonisolated struct AgentTranscript {
             threads: threads,
             runningTurn: topLevelItems.last { $0.type == "turn" && $0.state == .running },
             session: session,
-            waiting: allItems.filter(awaitsAnswer)
+            waiting: allItems.filter(awaitsAnswer),
+            threadOwners: threadOwners
         )
     }
 

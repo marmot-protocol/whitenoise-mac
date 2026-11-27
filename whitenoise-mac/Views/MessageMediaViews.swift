@@ -131,7 +131,8 @@ struct ConversationMessageRow: View {
                 timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
                 actions: conversationModel.agents.actions(
                     memberCount: conversationModel.snapshot?.header.memberCount,
-                    isDirect: workspace.selectedChat?.isDirect ?? false
+                    isDirect: workspace.selectedChat?.isDirect ?? false,
+                    copyText: { workspace.copyText($0) }
                 )
             )
         } else if message.presentation.isChatBubble {
