@@ -144,7 +144,10 @@
         private(set) var controlledAttachments: [(reference: String, control: AttachmentControlFfi)] = []
         var attachmentHandoffResults: [Result<AttachmentHandoffFfi?, Error>] = []
         private(set) var openedAttachmentHandoffTargets: [AttachmentLocalTargetFfi] = []
-        private(set) var releasedAttachmentHandoffLeases: [String] = []
+        var releasedAttachmentHandoffLeases: [String] {
+            recordedStateLock.withLock { _releasedAttachmentHandoffLeases }
+        }
+        private var _releasedAttachmentHandoffLeases: [String] = []
         var blockedUsers: [BlockedUserFfi] = []
         var blockedUserSnapshots: [BlockListSnapshotFfi] = []
         var blockUserError: Error?
@@ -2039,7 +2042,9 @@
         }
 
         func releaseAttachmentHandoff(lease: String) async throws {
-            releasedAttachmentHandoffLeases.append(lease)
+            recordedStateLock.withLock {
+                _releasedAttachmentHandoffLeases.append(lease)
+            }
         }
 
         func getBlockedUsers(accountRef: String) throws -> [BlockedUserFfi] {

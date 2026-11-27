@@ -277,18 +277,20 @@ struct LargeAttachmentTests: WorkspaceTestSupport {
         if let firstState {
             await Self.settleDraftFileCopies(firstState)
             await firstState.flushComposerDraftPersistence()
+            #expect(firstState.backgroundStatus == nil)
         }
         firstState = nil
 
         let restored = WorkspaceState(clientFactory: { runtime })
         await restored.bootstrap()
 
+        #expect(restored.backgroundStatus == nil)
         #expect(restored.pendingMediaAttachments.map(\.id) == [large.id])
         #expect(restored.pendingMediaAttachments.first?.data == large.data)
         #expect(runtime.stagedDraftAttachmentFiles.count == 1)
         #expect(runtime.uploadMediaCallCount == 0)
-        let didRelease = await waitFor { runtime.releasedAttachmentHandoffLeases.count == 1 }
-        #expect(didRelease)
+        await Self.waitUntil { runtime.releasedAttachmentHandoffLeases.count == 1 }
+        #expect(runtime.releasedAttachmentHandoffLeases.count == 1)
 
         // Saving the text again names the held file instead of copying its bytes.
         restored.draftText = "For later"
