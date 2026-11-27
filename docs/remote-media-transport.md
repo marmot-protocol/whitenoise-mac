@@ -63,6 +63,11 @@ These fail closed — the image simply does not load:
   cannot tell a complete image from a cut one.
 - **Content encodings** other than `identity`; we ask for `identity`.
 - **`206 Partial Content`**; no range was requested.
+- **Fake-IP DNS proxies and VPNs.** Clients running in fake-IP DNS mode (such as Clash/ClashX,
+  Surge enhanced mode, sing-box, or Stash) answer hostnames with synthetic addresses in
+  `198.18.0.0/15` or an IPv6 ULA (`fc00::/7`). Because answer admission applies the same
+  non-public address policy to every resolved address to block DNS rebinding, those resolutions
+  are rejected with `unsafeResolution` and remote media fails to load.
 
 ## Known limits
 
@@ -74,6 +79,15 @@ These fail closed — the image simply does not load:
 - VPN or router remapping of public destinations, NAT64 prefixes other than the well-known
   one, tracking by the image host, and image-decoder hardening are out of scope.
 - `NIP05Resolver` still uses `URLSession` on peer-controlled domains.
+
+## Diagnostics
+
+When `RemoteImageLoader.download(_:)` (backing `image(for:maxPixelSize:)` and `data(for:)`) or
+`RemoteImageLoader.page(for:)` catches a transport failure other than cancellation, it emits a
+unified log warning under subsystem `com.whitenoise.media`, category `RemoteImageLoader` in the
+form `remote_media_fetch_failed operation=<download|page> reason=<reason>` (for example
+`unsafeResolution`, `unsupportedFraming`, or `httpStatus(404)`). The log never includes the URL,
+hostname, resolved IP address, or account metadata.
 
 ## Testing
 

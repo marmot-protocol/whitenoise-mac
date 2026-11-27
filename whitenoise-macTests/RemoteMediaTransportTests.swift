@@ -627,3 +627,189 @@ struct RemoteMediaTransportTests {
         #expect(harness.network.connections[1].cancelCount >= 1)
     }
 }
+
+@Suite(.timeLimit(.minutes(1)))
+struct RemoteImageLoaderDiagnosticsTests {
+    private final class RecordedDiagnostics: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [String] = []
+
+        func append(_ entry: String) {
+            lock.lock()
+            entries.append(entry)
+            lock.unlock()
+        }
+
+        var snapshot: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return entries
+        }
+    }
+
+    private static func url(_ raw: String) throws -> URL {
+        try #require(URL(string: raw))
+    }
+
+    /// Fake-IP DNS answers (198.18.0.0/15 and IPv6 ULA fc00::/7) remain refused by answer
+    /// admission, and `RemoteImageLoader` logs a privacy-safe `unsafeResolution` reason without
+    /// embedding the URL, host, or resolved IP.
+    @Test(arguments: ["198.18.0.1", "198.19.255.254", "fd00::1", "fc00::42"])
+    func fakeIPResolutionLogsUnsafeResolutionWithoutLeakingURLOrIPForDownload(fakeIP: String) async throws {
+        let harness = RemoteMediaFakeHarness()
+        let host = "avatar.secret-peer.example"
+        let urlString = "https://\(host)/private/avatar.png?token=secret"
+        harness.network.setDNS(host, .answer(.addresses([fakeIP])))
+
+        let loader = RemoteImageLoader(transport: harness.transport)
+        let recorded = RecordedDiagnostics()
+        loader.setTransportFailureObserver { recorded.append($0) }
+
+        let data = await loader.data(for: try Self.url(urlString))
+
+        #expect(data == nil)
+        #expect(harness.network.connections.isEmpty)
+        let logs = recorded.snapshot
+        #expect(logs == ["remote_media_fetch_failed operation=download reason=unsafeResolution"])
+        for entry in logs {
+            #expect(!entry.contains(host))
+            #expect(!entry.contains(urlString))
+            #expect(!entry.contains("secret"))
+            #expect(!entry.contains(fakeIP))
+        }
+    }
+
+    @Test func fakeIPResolutionLogsUnsafeResolutionWithoutLeakingURLOrIPForImage() async throws {
+        let harness = RemoteMediaFakeHarness()
+        let host = "cdn.fakeip-test.example"
+        let fakeIP = "198.18.0.77"
+        let urlString = "https://\(host)/group-icon.png"
+        harness.network.setDNS(host, .answer(.addresses([fakeIP])))
+
+        let loader = RemoteImageLoader(transport: harness.transport)
+        let recorded = RecordedDiagnostics()
+        loader.setTransportFailureObserver { recorded.append($0) }
+
+        let image = await loader.image(for: try Self.url(urlString), maxPixelSize: 64)
+
+        #expect(image == nil)
+        #expect(harness.network.connections.isEmpty)
+        #expect(recorded.snapshot == ["remote_media_fetch_failed operation=download reason=unsafeResolution"])
+    }
+
+    @Test func pageFetchLogsUnsafeResolutionAndUnsupportedFramingWithoutLeakingURLOrIP() async throws {
+        let harness = RemoteMediaFakeHarness()
+        let fakeIPHost = "preview-fakeip.example"
+        let fakeIP = "198.18.0.42"
+        harness.network.setDNS(fakeIPHost, .answer(.addresses([fakeIP])))
+
+        let framingHost = "preview-close-delimited.example"
+        harness.network.setDNS(framingHost, .answer(.addresses(["93.184.216.34"])))
+        harness.network.respond { _, _ in
+            .serving(Data("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html></html>".utf8))
+        }
+
+        let loader = RemoteImageLoader(transport: harness.transport)
+        let recorded = RecordedDiagnostics()
+        loader.setTransportFailureObserver { recorded.append($0) }
+
+        let fakeIPResult = await loader.page(for: URLRequest(url: try Self.url("https://\(fakeIPHost)/story")))
+        let framingResult = await loader.page(for: URLRequest(url: try Self.url("https://\(framingHost)/story")))
+
+        #expect(fakeIPResult == nil)
+        #expect(framingResult == nil)
+        let logs = recorded.snapshot
+        #expect(
+            logs == [
+                "remote_media_fetch_failed operation=page reason=unsafeResolution",
+                "remote_media_fetch_failed operation=page reason=unsupportedFraming",
+            ]
+        )
+        for entry in logs {
+            #expect(!entry.contains(fakeIPHost))
+            #expect(!entry.contains(framingHost))
+            #expect(!entry.contains(fakeIP))
+            #expect(!entry.contains("story"))
+        }
+    }
+
+    @Test func redirectAndHTTPStatusFailuresLogPrivacySafeReasons() async throws {
+        let harness = RemoteMediaFakeHarness()
+        harness.network.setDNS("cdn.example.com", .answer(.addresses(["93.184.216.34"])))
+        harness.network.respond { _, index in
+            if index == 0 {
+                return .serving(FakeHTTP.redirect(status: 302, to: "http://internal.secret.local/private"))
+            }
+            return .serving(FakeHTTP.response(status: 404, reason: "Not Found", body: Data()))
+        }
+
+        let loader = RemoteImageLoader(transport: harness.transport)
+        let recorded = RecordedDiagnostics()
+        loader.setTransportFailureObserver { recorded.append($0) }
+
+        #expect(await loader.data(for: try Self.url("https://cdn.example.com/redirect")) == nil)
+        #expect(await loader.data(for: try Self.url("https://cdn.example.com/missing")) == nil)
+
+        let logs = recorded.snapshot
+        #expect(
+            logs == [
+                "remote_media_fetch_failed operation=download reason=disallowedURL",
+                "remote_media_fetch_failed operation=download reason=httpStatus(404)",
+            ]
+        )
+        for entry in logs {
+            #expect(!entry.contains("cdn.example.com"))
+            #expect(!entry.contains("internal.secret.local"))
+            #expect(!entry.contains("redirect"))
+            #expect(!entry.contains("missing"))
+        }
+    }
+
+    @Test func routineCancellationDoesNotEmitFailureDiagnostic() async throws {
+        let harness = RemoteMediaFakeHarness()
+        harness.network.setDNS("slow.example", .hold)
+
+        let loader = RemoteImageLoader(transport: harness.transport)
+        let recorded = RecordedDiagnostics()
+        loader.setTransportFailureObserver { recorded.append($0) }
+
+        let task = Task { await loader.data(for: try Self.url("https://slow.example/avatar.png")) }
+        await harness.wait { harness.network.heldResolutionCount == 1 }
+        task.cancel()
+
+        #expect(try await task.value == nil)
+        harness.network.completeHeldResolution(with: .addresses(["93.184.216.34"]))
+        #expect(recorded.snapshot.isEmpty)
+    }
+
+    @Test func everyTransportErrorMapsToExpectedDiagnosticReason() {
+        let cases: [(RemoteMediaTransportError, String)] = [
+            (.disallowedURL, "disallowedURL"),
+            (.invalidRequest, "invalidRequest"),
+            (.dnsUnavailable, "dnsUnavailable"),
+            (.resolutionFailed, "resolutionFailed"),
+            (.malformedResolution, "malformedResolution"),
+            (.tooManyAnswers, "tooManyAnswers"),
+            (.unsafeResolution, "unsafeResolution"),
+            (.connectionFailed, "connectionFailed"),
+            (.idleTimeout, "idleTimeout"),
+            (.deadlineExceeded, "deadlineExceeded"),
+            (.cancelled, "cancelled"),
+            (.httpStatus(503), "httpStatus(503)"),
+            (.tooManyRedirects, "tooManyRedirects"),
+            (.invalidRedirect, "invalidRedirect"),
+            (.malformedResponse, "malformedResponse"),
+            (.headersTooLarge, "headersTooLarge"),
+            (.framingTooLarge, "framingTooLarge"),
+            (.bodyTooLarge, "bodyTooLarge"),
+            (.prematureEOF, "prematureEOF"),
+            (.ambiguousFraming, "ambiguousFraming"),
+            (.unsupportedFraming, "unsupportedFraming"),
+            (.unsupportedContentEncoding, "unsupportedContentEncoding"),
+            (.unsupportedUpgrade, "unsupportedUpgrade"),
+        ]
+        for (error, expected) in cases {
+            #expect(error.diagnosticReason == expected)
+        }
+    }
+}
