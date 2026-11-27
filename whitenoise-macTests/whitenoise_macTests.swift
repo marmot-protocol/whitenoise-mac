@@ -233,8 +233,12 @@ struct whitenoise_macTests: WorkspaceTestSupport {
             isOutgoing: false
         )
 
-        #expect(chat.timestampLabel(at: sameDayNow, locale: locale) == expectedTime)
-        #expect(chat.timestampLabel(at: nextDayNow, locale: locale) != expectedTime)
+        // The chat list uses a 12-hour clock. The transcript follows the device clock.
+        let expectedChatTime = sentAt.formatted(
+            Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en_US@hours=h12"))
+        )
+        #expect(chat.timestampLabel(at: sameDayNow, locale: locale) == expectedChatTime)
+        #expect(chat.timestampLabel(at: nextDayNow, locale: locale) != expectedChatTime)
         #expect(message.timeLabel(at: nextDayNow, locale: locale) == expectedDateTime)
         #expect(
             message.metadataLabel(at: nextDayNow, locale: locale)
