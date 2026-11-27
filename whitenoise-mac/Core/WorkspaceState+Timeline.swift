@@ -1632,10 +1632,11 @@ extension WorkspaceState {
         // parking the marker on a chat message left trailing member changes unread for good.
         let isAuthoritativeGroup = selectedChat?.isAuthoritativeGroup ?? false
         guard
-            let latest = ensureMessageTimelineStore(for: groupIdHex).messages.last(where: { message in
-                message.countsAsReadActivity(inAuthoritativeGroup: isAuthoritativeGroup) && !message.isDeleted
-                    && visibleMessageIds.map { $0.contains(message.id) } ?? true
-            })
+            let latest = latestReadableActivityMessage(
+                groupIdHex: groupIdHex,
+                isAuthoritativeGroup: isAuthoritativeGroup,
+                within: visibleMessageIds
+            )
         else {
             return
         }
@@ -1646,26 +1647,12 @@ extension WorkspaceState {
         lastMarkedReadMarkers[groupIdHex] = marker
 
         do {
-            let accountRef = account.accountRef
-            let messageId = latest.id
-            let row = try await FFIExecutor.run({
-                try client.markTimelineMessageRead(
-                    accountRef: accountRef,
-                    groupIdHex: groupIdHex,
-                    messageIdHex: messageId
-                )
-            })
-            // Read-marker bookkeeping belongs to the account/group, not to the currently
-            // selected conversation. Navigating to another chat while the FFI is in flight
-            // must not discard a successful commit or leave the confirmed marker stale.
-            guard activeAccountId == account.id else { return }
-            let committedState = ReadMarker.afterSuccessfulCommit(
-                current: lastMarkedReadMarkers[groupIdHex],
-                confirmed: lastConfirmedReadMarkers[groupIdHex],
-                attempted: marker
+            let row = try await commitReadMarker(
+                marker,
+                groupIdHex: groupIdHex,
+                account: account,
+                client: client
             )
-            lastMarkedReadMarkers[groupIdHex] = committedState.current
-            lastConfirmedReadMarkers[groupIdHex] = committedState.confirmed
             if let row {
                 await applyChatRow(row, account: account, shouldEnrich: false)
             }
@@ -1683,6 +1670,48 @@ extension WorkspaceState {
                 setBackgroundStatus(UserFacingError.message(for: error))
             }
         }
+    }
+
+    func latestReadableActivityMessage(
+        groupIdHex: String,
+        isAuthoritativeGroup: Bool,
+        within visibleMessageIds: Set<String>? = nil
+    ) -> MessageItem? {
+        ensureMessageTimelineStore(for: groupIdHex).messages.last { message in
+            message.countsAsReadActivity(inAuthoritativeGroup: isAuthoritativeGroup) && !message.isDeleted
+                && visibleMessageIds.map { $0.contains(message.id) } ?? true
+        }
+    }
+
+    /// Sends `markTimelineMessageRead` for `marker` and reconciles the account's confirmed marker
+    /// state if `account` is still active when the FFI returns.
+    func commitReadMarker(
+        _ marker: ReadMarker,
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async throws -> ChatListRowFfi? {
+        let accountRef = account.accountRef
+        let messageId = marker.messageId
+        let row = try await FFIExecutor.run {
+            try client.markTimelineMessageRead(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                messageIdHex: messageId
+            )
+        }
+        // Read-marker bookkeeping belongs to the account/group, not to the currently
+        // selected conversation. Navigating to another chat while the FFI is in flight
+        // must not discard a successful commit or leave the confirmed marker stale.
+        guard activeAccountId == account.id else { return nil }
+        let committedState = ReadMarker.afterSuccessfulCommit(
+            current: lastMarkedReadMarkers[groupIdHex],
+            confirmed: lastConfirmedReadMarkers[groupIdHex],
+            attempted: marker
+        )
+        lastMarkedReadMarkers[groupIdHex] = committedState.current
+        lastConfirmedReadMarkers[groupIdHex] = committedState.confirmed
+        return row
     }
 
     /// Flush any read-marking that was deferred while the conversation was not visible.

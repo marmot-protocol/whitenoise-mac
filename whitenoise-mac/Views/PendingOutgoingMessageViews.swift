@@ -97,11 +97,11 @@ struct PendingOutgoingMessageBubble: View {
                 }
 
             if message.caption.isEmpty {
-                metadata
+                metadata(onBubble: false)
                     .padding(.horizontal, 5)
                     .opacity(dimsForSend ? 0.55 : 1)
             } else {
-                PendingOutgoingMessageCaption(caption: message.caption) { metadata }
+                PendingOutgoingMessageCaption(caption: message.caption) { metadata(onBubble: true) }
                     .opacity(dimsForSend ? 0.55 : 1)
             }
         }
@@ -134,12 +134,13 @@ struct PendingOutgoingMessageBubble: View {
         }
     }
 
-    private var metadata: some View {
+    private func metadata(onBubble: Bool) -> some View {
         PendingOutgoingMessageMetadata(
             createdAt: message.createdAt,
             isFailed: message.state == .failed,
             timestampReferenceDate: timestampReferenceDate,
-            timestampLocale: timestampLocale
+            timestampLocale: timestampLocale,
+            isOnBubble: onBubble
         )
     }
 }
@@ -153,7 +154,7 @@ private struct PendingOutgoingMessageCaption<Metadata: View>: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(caption)
-                .wnFont(.medium16)
+                .font(MessageTypography.body)
                 .foregroundStyle(MessagesPalette.sentBubbleContent)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -180,6 +181,8 @@ private struct PendingOutgoingMessageMetadata: View {
     let isFailed: Bool
     let timestampReferenceDate: Date
     let timestampLocale: Locale
+    /// Drawn on the sent bubble (a caption) rather than on the transcript under bare media.
+    let isOnBubble: Bool
 
     var body: some View {
         HStack(spacing: 4) {
@@ -200,16 +203,17 @@ private struct PendingOutgoingMessageMetadata: View {
                 .monospacedDigit()
             }
         }
-        .wnFont(.medium10)
+        .font(MessageTypography.footer)
         .foregroundStyle(tint)
     }
 
-    /// The same token `MessageBubble.compactMetadata` uses, and for the same reason: the neutral
-    /// `400`/`500` step is the one rung that clears the sent bubble and the transcript surface
-    /// alike, so a pending row and the delivered row that replaces it read identically. That is
-    /// what retired the `isOnBubbleFill` flag this used to branch on.
+    /// The same roles `MessageBubble.compactMetadata` uses, so a pending row and the delivered row
+    /// that replaces it read identically: the sent bubble's own secondary role on the bubble, the
+    /// native secondary label on the transcript under bare media.
     private var tint: Color {
-        WNColor.backgroundContentTertiary
+        isOnBubble
+            ? MessageBubblePolarity.sent.secondaryContent
+            : WNColor.messageReceivedSecondaryContent
     }
 }
 
@@ -376,7 +380,7 @@ private struct PendingOutgoingMediaAttachmentRow: View {
 
     var body: some View {
         fileRow
-            .foregroundStyle(AttachmentRowPalette.outgoingContent)
+            .foregroundStyle(AttachmentRowPalette.content(isOutgoing: true))
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .frame(width: 260, alignment: .leading)
@@ -453,7 +457,7 @@ struct PendingOutgoingTextBubble: View {
     private var bubble: some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(displayText)
-                .wnFont(.medium16)
+                .font(MessageTypography.body)
                 .foregroundStyle(MessagesPalette.sentBubbleContent)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -462,7 +466,8 @@ struct PendingOutgoingTextBubble: View {
                 createdAt: message.createdAt,
                 isFailed: message.state == .failed,
                 timestampReferenceDate: timestampReferenceDate,
-                timestampLocale: timestampLocale
+                timestampLocale: timestampLocale,
+                isOnBubble: true
             )
         }
         .padding(.horizontal, 12)

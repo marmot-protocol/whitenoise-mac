@@ -60,16 +60,16 @@ struct WindowTopNoticeLayoutTests {
         // content. Hanging it back off the top edge as an overlay is what put it on the title.
         let body = try SourceContract.declaration("MessengerShellView")
 
+        let insetIndex = try #require(body.range(of: ".safeAreaInset(edge: .top, spacing: 0) {")?.lowerBound)
         let bandIndex = try #require(body.range(of: "OfflineNoticeBand()")?.lowerBound)
-        let stackIndex = try #require(body.range(of: "VStack(spacing: 0) {")?.lowerBound)
-        #expect(stackIndex < bandIndex, "the notice must be stacked above the content")
+        #expect(insetIndex < bandIndex, "the notice must be placed in a top safe-area inset above the content")
         // Whitespace-normalized so the assertion pins the relationship rather than an
         // indentation level.
         let normalized = body.components(separatedBy: .whitespacesAndNewlines).joined()
         #expect(!normalized.contains(".overlay(alignment:.top){OfflineNoticeBand()"))
 
-        // And the headers it pushes down have to be told the strip is taken, or they keep
-        // padding past traffic lights that are now inside the band.
-        #expect(body.contains(".environment(\\.hasWindowTopNoticeBand, workspace.isOffline)"))
+        // The unified native titlebar owns the traffic-light strip unconditionally, so headers
+        // never reserve hidden-titlebar clearance below the titlebar or the offline band.
+        #expect(body.contains(".environment(\\.hasWindowTopNoticeBand, true)"))
     }
 }

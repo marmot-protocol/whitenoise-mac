@@ -24,7 +24,7 @@ struct GroupLinkedDevicesSection: View {
                 .disabled(model.isEnabling)
                 if let error = model.error {
                     Text(error)
-                        .wnFont(.medium12)
+                        .font(.callout)
                         .foregroundStyle(WNColor.backgroundContentDestructive)
                 }
             } header: {

@@ -84,6 +84,8 @@ private struct LinkPreviewTaskID: Equatable {
 struct LinkPreviewCardContent: View {
     static let imageAspectRatio: CGFloat = 1.91
 
+    @Environment(\.messageBubblePolarity) private var bubblePolarity
+
     let title: String?
     let host: String?
     let image: NSImage?
@@ -96,10 +98,12 @@ struct LinkPreviewCardContent: View {
         return PeerDisplayText.sanitize(display).map { String($0.prefix(64)) }
     }
 
+    private var palette: MessageEmbeddedCardPalette { MessageEmbeddedCardPalette(polarity: bubblePolarity) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showsImageSlot {
-                WNColor.fillSecondary
+                palette.imageSlotFill
                     .aspectRatio(Self.imageAspectRatio, contentMode: .fit)
                     .overlay {
                         if let image {
@@ -114,30 +118,28 @@ struct LinkPreviewCardContent: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let title {
                     Text(verbatim: title)
-                        .wnFont(.semiBold12)
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(palette.primaryContent)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
                 if let host {
                     Text(verbatim: host)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(palette.secondaryContent)
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-        // The same card the reply quote sits on — `backgroundPrimary` with a hairline, identically
-        // in both directions — so its text can take `background*` tokens whatever the bubble fill.
-        .background(WNColor.backgroundPrimary)
+        .background(palette.surfaceFill)
         .clipShape(.rect(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(WNColor.borderTertiary, lineWidth: 1)
+                .strokeBorder(palette.hairlineStroke, lineWidth: 1)
         }
         .contentShape(.rect(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .combine)
@@ -145,7 +147,7 @@ struct LinkPreviewCardContent: View {
     }
 }
 
-#Preview("Link preview card") {
+#Preview("Link preview card – Polarities") {
     VStack(spacing: 16) {
         LinkPreviewCardContent(
             title: "An example article title that runs long enough to wrap onto a second line",
@@ -153,12 +155,19 @@ struct LinkPreviewCardContent: View {
             image: nil,
             showsImageSlot: true
         )
+        .padding(10)
+        .background(MessageBubblePolarity.received.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .environment(\.messageBubblePolarity, .received)
+
         LinkPreviewCardContent(
             title: "A page without an image",
             host: "news.example.com",
             image: nil,
             showsImageSlot: false
         )
+        .padding(10)
+        .background(MessageBubblePolarity.sent.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .environment(\.messageBubblePolarity, .sent)
     }
     .frame(width: LinkPreviewCard.maximumWidth)
     .padding()

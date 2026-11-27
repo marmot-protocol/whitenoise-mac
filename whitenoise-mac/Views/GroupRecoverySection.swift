@@ -83,7 +83,7 @@ private struct GroupRejoinInvitationSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(L10n.string("Invitation"))
-                .wnFont(.semiBold18)
+                .font(.headline)
 
             SettingsValueRow(
                 title: L10n.string("Public Key"),
@@ -100,7 +100,7 @@ private struct GroupRejoinInvitationSheet: View {
                     "Accept this invite to confirm membership, or decline it to remove the group from your chat list."
                 )
             )
-            .wnFont(.medium12)
+            .font(.callout)
             .foregroundStyle(WNColor.backgroundContentSecondary)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -119,7 +119,7 @@ private struct GroupRejoinInvitationSheet: View {
                 Button(L10n.string("Accept")) {
                     Task { await decide(confirm: true) }
                 }
-                .nativeGlassProminentButtonStyle()
+                .wnPrimaryButtonStyle()
                 .disabled(model.isApplyingRecoveryDecision)
             }
         }

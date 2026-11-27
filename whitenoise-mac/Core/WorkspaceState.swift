@@ -208,16 +208,9 @@ final class WorkspaceState {
     var isSearchingSidebarMessages = false
     @ObservationIgnored var sidebarMessageSearchTask: Task<Void, Never>?
     @ObservationIgnored var sidebarMessageSearchGeneration: UInt64 = 0
-    var isGlobalMessageSearchPresented = false
     /// Whether the one-time data-sharing prompt is up over Chats. See `WorkspaceState+ImprovementsPrompt`.
     var isImprovementsPromptPresented = false
-    var globalMessageSearchQuery = ""
-    var globalMessageSearchResults: [GlobalMessageSearchResult] = []
-    var isSearchingAllMessages = false
-    var globalMessageSearchError: String?
     var pendingMessageNavigation: GlobalMessageNavigationTarget?
-    @ObservationIgnored var globalMessageSearchTask: Task<Void, Never>?
-    @ObservationIgnored var globalMessageSearchGeneration: UInt64 = 0
     var chatListFilter: ChatListFilter = .active
     var archivingChatId: String?
     /// Group currently running a confirmed leave, or `nil`. Per-chat rather than global so a leave
@@ -1277,12 +1270,19 @@ final class WorkspaceState {
     }
 
     static func defaultConversationWindowVisibilityProvider() -> Bool {
-        guard let keyWindow = NSApplication.shared.keyWindow else { return false }
+        defaultConversationWindowVisibilityProvider(
+            keyWindow: NSApplication.shared.keyWindow, conversationWindow: ConversationWindowIdentity.window
+        )
+    }
+
+    static func defaultConversationWindowVisibilityProvider(keyWindow: NSWindow?, conversationWindow: NSWindow?) -> Bool
+    {
+        guard let keyWindow, keyWindow === conversationWindow else { return false }
         return keyWindow.isVisible && !keyWindow.isMiniaturized
     }
 
     func selectedConversationIsVisible() -> Bool {
-        appActivityProvider() && conversationWindowVisibilityProvider()
+        showsMessengerChrome && appActivityProvider() && conversationWindowVisibilityProvider()
     }
 
     static func preview() -> WorkspaceState {
@@ -1730,7 +1730,7 @@ final class WorkspaceState {
     }
 
     var showsMessengerChrome: Bool {
-        phase == .ready && activeAccount != nil
+        phase == .ready && activeAccount?.signedOut == false
     }
 
     var preferredColorScheme: ColorScheme? {
@@ -2112,5 +2112,16 @@ extension MissingRelayListKindFfi {
         case .inbox: return RelayRole.inbox.label
         @unknown default: return L10n.string("Unknown")
         }
+    }
+}
+
+/// Registered by the main scene's content view when AppKit attaches it to a window.
+@MainActor
+enum ConversationWindowIdentity {
+    static weak var window: NSWindow?
+
+    static func matches(_ object: Any?) -> Bool {
+        guard let candidate = object as? NSWindow else { return false }
+        return candidate === window
     }
 }

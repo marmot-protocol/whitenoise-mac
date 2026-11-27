@@ -20,6 +20,7 @@ import SwiftUI
 /// is in it, or failing that, what the core said when the last attempt failed — or, when there is
 /// no complaint, the `hint`.
 struct OnboardingMessageLine: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// `nil` draws the `hint`, or the empty reserved line when there is none.
     let message: String?
     /// Shown, in the quieter hint colour, while there is no `message` to show.
@@ -30,14 +31,14 @@ struct OnboardingMessageLine: View {
 
     var body: some View {
         Text(message ?? hint ?? "")
-            .wnFont(.medium12)
+            .font(.subheadline)
             .foregroundStyle(
-                message == nil ? WNColor.backgroundContentTertiary : WNColor.backgroundContentDestructive
+                message == nil ? Color(nsColor: .secondaryLabelColor) : WNColor.intentionErrorContent
             )
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
-            .animation(.default, value: message)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.15), value: message)
             .accessibilityHidden(message == nil && hint == nil)
     }
 

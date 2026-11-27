@@ -39,7 +39,7 @@ struct GroupDisbandStatusSection: View {
                 HStack {
                     Spacer(minLength: 0)
                     Button(L10n.string("Dismiss"), action: onDismiss)
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .disabled(isDismissing)
                 }
             }
@@ -70,11 +70,11 @@ private struct GroupDisbandStatusRow<Icon: View>: View {
         Label {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .wnFont(.semiBold12)
+                    .font(.callout.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail {
                     Text(detail)
-                        .wnFont(.medium12)
+                        .font(.callout)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

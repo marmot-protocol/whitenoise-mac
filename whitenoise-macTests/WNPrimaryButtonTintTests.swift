@@ -11,10 +11,10 @@ import Testing
 
 /// The primary tier draws its own ground, with no ambient tint to lean on.
 ///
-/// `.glassProminent` carries no colour and tints from the environment. The app's only source of
-/// that tint is `ContentView`'s `.tint(WNColor.fillPrimary)`, and a sheet is a separate
-/// presentation that inherits none of it — so a primary button inside one used to fall back to the
-/// system accent and draw **blue**, the one hue the palette reserves for links and search hits.
+/// `.borderedProminent` carries no colour and tints from the environment. Sheets and popovers are
+/// separate presentations that inherit no window-level tint — and we no longer set a window-wide
+/// tint — so an untinted prominent button would fall back to the system accent and draw **blue**,
+/// the one hue the palette reserves for links and search hits.
 ///
 /// Every render below is deliberately given **no** tint, because that is the condition a sheet
 /// actually presents under. A harness that helpfully supplied one is how the defect shipped
@@ -24,14 +24,13 @@ import Testing
 /// `performAsCurrentDrawingAppearance` off the main thread takes the test host down with it.
 @Suite(.serialized) @MainActor struct WNPrimaryButtonTintTests {
 
-    /// Asserted as **neutral, not a hue** rather than against a colour constant. Glass composites
-    /// over its backing, so the Light pill lands on charcoal rather than `neutral950` and an
-    /// equality check against either the ramp or an opaque swatch fails for reasons that have
-    /// nothing to do with the tint. What actually separates right from wrong here is chroma:
-    /// every value `fillPrimary` resolves to is a neutral, and the accent it used to fall back to
-    /// is saturated blue.
+    /// Asserted as **neutral, not a hue** rather than against a colour constant. Native
+    /// `.borderedProminent` composites over its backing and applies system bezel shading, so an
+    /// exact hex match against the ramp is brittle. What actually separates right from wrong here
+    /// is chroma: every value `fillPrimary` resolves to is a neutral, and the accent it used to
+    /// fall back to is saturated blue.
     @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
-    func theGlassPrimaryDrawsFillPrimaryWithNoAmbientTint(appearance: NSAppearance.Name) throws {
+    func thePrimaryDrawsFillPrimaryWithNoAmbientTint(appearance: NSAppearance.Name) throws {
         let fill = try Self.fillOfButton(appearance: appearance) {
             WNPrimaryButton(size: .large) {
                 // Nothing to do: these tests measure the chrome, never the action.
@@ -43,8 +42,8 @@ import Testing
 
         #expect(Self.chroma(fill) < 0.06)
 
-        // The specific regression: an untinted `.glassProminent` falls back to the control accent,
-        // which on a default install is blue — the one hue this palette reserves for links.
+        // The specific regression: an untinted `.borderedProminent` falls back to the control
+        // accent, which on a default install is blue — the one hue this palette reserves for links.
         let accent = try #require(NSColor.controlAccentColor.usingColorSpace(.sRGB))
         #expect(Self.chroma(accent) > 0.2)
         #expect(Self.distance(fill, accent) > 0.3)
@@ -74,6 +73,51 @@ import Testing
         #expect(fill.brightnessComponent < 0.4)
     }
 
+    /// Native `.wnSecondaryButtonStyle()` draws a visible neutral bezel distinct from the
+    /// surrounding pane (no system-accent blue bleed and not collapsed to `.plain`) in both
+    /// appearances with no ambient tint.
+    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
+    func nativeSecondaryButtonDrawsNeutralChrome(appearance: NSAppearance.Name) throws {
+        let (fill, pane) = try Self.fillAndPaneOfButton(appearance: appearance) {
+            Button {
+            } label: {
+                Text("Cancel").frame(minWidth: 96).padding(8)
+            }
+            .wnSecondaryButtonStyle()
+            .controlSize(.large)
+        }
+
+        #expect(Self.distance(fill, pane) > 0.03, "secondary bezel is indistinguishable from the pane")
+        #expect(Self.chroma(fill) < 0.06)
+    }
+
+    /// Native `.wnDestructiveButtonStyle()` renders systemRed when enabled and dims when disabled
+    /// so a gated destructive confirmation never reads as armed before its gate is cleared.
+    @Test(arguments: [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua])
+    func nativeDestructiveButtonDrawsSystemRedAndDimsWhenDisabled(appearance: NSAppearance.Name) throws {
+        let enabled = try Self.fillOfButton(appearance: appearance) {
+            Button(role: .destructive) {
+            } label: {
+                Text("Delete").frame(minWidth: 96).padding(8)
+            }
+            .wnDestructiveButtonStyle()
+            .controlSize(.large)
+        }
+        let disabled = try Self.fillOfButton(appearance: appearance) {
+            Button(role: .destructive) {
+            } label: {
+                Text("Delete").frame(minWidth: 96).padding(8)
+            }
+            .wnDestructiveButtonStyle()
+            .controlSize(.large)
+            .disabled(true)
+        }
+
+        #expect(enabled.redComponent > 0.7)
+        #expect(enabled.redComponent > enabled.blueComponent + 0.3)
+        #expect(Self.distance(enabled, disabled) > 0.15)
+    }
+
     // MARK: - Helpers
 
     /// Rasterizes `content` on a `backgroundPrimary` ground and samples its *fill*.
@@ -87,6 +131,13 @@ import Testing
         appearance: NSAppearance.Name,
         @ViewBuilder content: () -> Content
     ) throws -> NSColor {
+        try fillAndPaneOfButton(appearance: appearance, content: content).fill
+    }
+
+    private static func fillAndPaneOfButton<Content: View>(
+        appearance: NSAppearance.Name,
+        @ViewBuilder content: () -> Content
+    ) throws -> (fill: NSColor, pane: NSColor) {
         let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
         let renderer = ImageRenderer(
             content: content()
@@ -102,13 +153,14 @@ import Testing
         }
         let tiff = try #require(image?.tiffRepresentation)
         let rep = try #require(NSBitmapImageRep(data: tiff))
-        let pixel = try #require(
+        let fill = try #require(
             rep.colorAt(x: Int(Double(rep.pixelsWide) * 0.18), y: rep.pixelsHigh / 2)?
                 .usingColorSpace(.sRGB)
         )
-        // A transparent sample means the glass never drew; assert rather than compare against it.
-        #expect(pixel.alphaComponent > 0.99)
-        return pixel
+        let pane = try #require(rep.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB))
+        // A transparent sample means the control never drew; assert rather than compare against it.
+        #expect(fill.alphaComponent > 0.99)
+        return (fill, pane)
     }
 
     /// How far the three channels spread — 0 for any neutral, large for a saturated hue.

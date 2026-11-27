@@ -47,7 +47,8 @@ enum AccountExit {
         }
         do {
             await workspace.flushComposerDraftPersistence(forAccountId: account.id)
-            try await finishSigningOut(accountId: account.id, in: workspace, client: client)
+            try await finishSigningOut(
+                accountId: account.id, in: workspace, client: client, postSettingsHandoff: false)
         } catch {
             if wasActive, workspace.activeAccountId == account.id {
                 await workspace.restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
@@ -65,7 +66,11 @@ enum AccountExit {
         await untilNoAccountChange(in: workspace)
         guard let account = workspace.accounts.first(where: { $0.accountIdHex.lowercased() == accountIdHex })
         else { return UnlinkedRemoval(outcome: nil, leftBehind: nil) }
-        let outcome = await workspace.removeAccount(account)
+        let outcome = await workspace.removeAccount(
+            account,
+            errorTarget: .mainWindow,
+            postSettingsHandoff: false
+        )
         // A wipe that returned removed the profile, even with cleanup left over (the report says
         // what). Without one, `removeAccount` failed, reported why in `lastError`, and left the
         // profile listed, so Delete Everything can be tried again.
@@ -84,7 +89,10 @@ enum AccountExit {
     /// so a reload that fails carries on with the installed list. That isn't reported: the sign-out
     /// went through, and the next reload reads the list again.
     static func finishSigningOut(
-        accountId: String, in workspace: WorkspaceState, client: any MarmotRuntime
+        accountId: String,
+        in workspace: WorkspaceState,
+        client: any MarmotRuntime,
+        postSettingsHandoff: Bool = true
     ) async throws {
         workspace.clearComposerDrafts(forAccountId: accountId)
         workspace.clearMediaReferenceResolutionCache(forAccountId: accountId)
@@ -110,20 +118,25 @@ enum AccountExit {
             // Exactly one profile left: a chooser with a single row is no choice, so continue
             // straight into it, still on the settings page the sign-out left — as deleting
             // the active profile does (`removeAccount`).
-            workspace.switchActiveAccount(remaining, finalSelection: workspace.settingsSelectionAfterAccountMutation)
+            workspace.switchActiveAccount(remaining, finalSelection: nil)
+            if postSettingsHandoff {
+                WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
+            }
             await workspace.configureObservabilityRuntimeBestEffort()
             await workspace.loadSettingsData()
         } else if !signedInAccounts.isEmpty {
             // Signing out of the profile the user was in, with two or more others still
             // signed in, asks which one to continue with — exactly as deleting it does
             // (`removeAccount`) — rather than silently moving into whichever identity
-            // `accounts` lists first. Settings stays selected behind `ProfileChooserView`, so
-            // the pick lands back on Settings.
+            // `accounts` lists first. The shell retains the Settings destination for the chooser.
             workspace.activeAccountId = nil
             workspace.invalidateNotificationSettingsOperations()
             UserDefaults.standard.removeObject(forKey: WorkspaceState.activeAccountKey)
             workspace.notificationSettings = .defaults
-            workspace.selection = workspace.settingsSelectionAfterAccountMutation
+            workspace.selection = nil
+            if postSettingsHandoff {
+                WorkspaceAccountPresentation.settingsHandoff.post(from: workspace)
+            }
         } else {
             // Signing out the last identity is a way out of the app, so it lands where a
             // first launch does. It used to stay in `.ready` with no active account, which
@@ -155,4 +168,28 @@ enum AccountExit {
             }
         }
     }
+}
+
+/// Presentation intents from completed account transitions. The shell handles them for its
+/// workspace without making window state part of the account mutation or its recovery policy.
+enum WorkspaceAccountPresentation {
+    case settingsHandoff
+    case chooserSelectedAccount
+    case cancelledAddProfile
+    case focusMainWindow
+    case settingsError(String?, accountId: String?)
+    case clearSettingsErrorIfEquals(String)
+
+    static let eventKey = "event"
+
+    @MainActor
+    func post(from workspace: WorkspaceState) {
+        NotificationCenter.default.post(
+            name: .workspaceAccountPresentation, object: workspace, userInfo: [Self.eventKey: self]
+        )
+    }
+}
+
+extension Notification.Name {
+    static let workspaceAccountPresentation = Notification.Name("workspaceAccountPresentation")
 }

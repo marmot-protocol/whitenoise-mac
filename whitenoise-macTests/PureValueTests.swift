@@ -79,7 +79,7 @@ struct PureValueTests {
 
         // The radius is the fourth axis, and it is no longer the size's to hold: it comes from the
         // shared table by way of `controlSize`, which is what keeps a primary button and the
-        // `.wnSecondary` one beside it cut alike.
+        // `.wnSecondaryButtonStyle()` one beside it cut alike.
         #expect(
             WNButtonMetrics.cornerRadius(for: large.controlSize)
                 > WNButtonMetrics.cornerRadius(for: medium.controlSize))
@@ -4785,15 +4785,13 @@ struct PureValueTests {
     /// composer's typing attributes carry a foreground color for every character, so enumerating
     /// color alone would match the entire draft, while only a mention is bold.
     ///
-    /// The baseline is the composer's *own* plain typing face, not the system body font. The
-    /// composer types at the ramp's Medium rung, which AppKit ranks a step above system regular,
-    /// so a plain-system baseline would rank every plain character as styled and match the whole
-    /// draft.
+    /// The baseline is the composer's own semantic body typing font (`typingFont`), so only bold
+    /// mention runs exceed `plainWeight`.
     @MainActor
     private func mentionStyledRanges(in textView: NSTextView) -> [NSRange] {
         guard let storage = textView.textStorage else { return [] }
         let plainWeight = NSFontManager.shared.weight(
-            of: WNNSFont.font(for: ComposerMessageTextViewRepresentable.typingStyle))
+            of: ComposerMessageTextViewRepresentable.typingFont)
         var result: [NSRange] = []
         storage.enumerateAttribute(
             .font,

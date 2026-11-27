@@ -2,80 +2,73 @@
 //  GroupDetailsQuickActionsRow.swift
 //  whitenoise-mac
 //
-//  Mute, Disappearing and Add under the group's name. Ported from the iOS client's
-//  `actionsRowSection`.
+//  Compact native quick actions under the inspector identity header (S05, G05, #1042):
+//  one mute route (using the shared mute options) and in-conversation search, without
+//  oversized phone-style circle tiles or duplicated retention/add controls.
 //
 
 import SwiftUI
 
-/// The quick actions under group info's hero.
-///
-/// iOS has a fourth, Search, which jumps into the conversation's own search. This app has no
-/// per-conversation search — only the global one, which would answer a different question — so
-/// the row leaves it out rather than offer a button that searches every chat.
 struct GroupDetailsQuickActionsRow: View {
     @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.endingGroupIds) private var endingGroupIds
-    @Environment(\.isBulkLeavingChats) private var isBulkLeavingChats
-    @Environment(SessionState.self) private var session
-    @State private var isTimerPresented = false
+    @Environment(\.locale) private var locale
     let chat: ChatItem
-    let snapshot: GroupDetailsSnapshot
-    let permissions: GroupDetailsPermissions
-    let onAddMembers: () -> Void
-
-    private var isGroupCommitInFlight: Bool {
-        GroupCommitGuard.isInFlight(
-            workspace: workspace, endingGroupIds: endingGroupIds, isBulkLeavingChats: isBulkLeavingChats)
-    }
+    var onEditProfile: (() -> Void)? = nil
+    var onSearchInChat: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 12) {
-            GroupDetailsQuickAction(
-                title: L10n.string(chat.muted ? "Unmute" : "Mute"),
-                systemImage: chat.muted ? "bell" : "bell.slash",
-                action: toggleMuted
-            )
-            .disabled(workspace.isMutatingChatPreferences(chat))
-
-            GroupDetailsQuickAction(title: L10n.string("Disappearing"), systemImage: "timer") {
-                isTimerPresented = true
-            }
-            .disabled(isGroupCommitInFlight || !permissions.canEditGroup)
-            .popover(isPresented: $isTimerPresented, arrowEdge: .bottom) {
-                DisappearingTimerPopover(currentSeconds: snapshot.disappearingMessageSecs, onSelect: setTimer)
-                    // Popovers are hosted outside this view's hierarchy and inherit nothing from
-                    // it, so the app-language locale has to be handed over again.
-                    .environment(\.locale, workspace.preferredLocale)
-            }
-
-            if permissions.canInvite {
-                GroupDetailsQuickAction(
-                    title: L10n.string("Add"), systemImage: "person.badge.plus", action: onAddMembers
-                )
-                .disabled(isGroupCommitInFlight)
-            }
-        }
-    }
-
-    /// Mute here is the plain toggle iOS offers — muted until turned back on. The timed mutes stay
-    /// in the chat row's menu, where there is room to list them.
-    private func toggleMuted() {
-        Task {
+        HStack(spacing: 8) {
             if chat.muted {
-                await workspace.clearChatMuted(chat)
+                Button {
+                    Task { await workspace.clearChatMuted(chat) }
+                } label: {
+                    Label(L10n.string("Unmute", locale: locale), systemImage: "bell")
+                }
+                .wnSecondaryButtonStyle()
+                .disabled(workspace.isMutatingChatPreferences(chat))
+                .accessibilityIdentifier("inspector.action.mute")
             } else {
-                await workspace.setChatMuted(chat, duration: nil)
+                Menu {
+                    ForEach(ChatMuteDuration.allCases) { duration in
+                        Button {
+                            Task { await workspace.setChatMuted(chat, duration: duration.interval) }
+                        } label: {
+                            Label(L10n.string(duration.titleKey, locale: locale), systemImage: duration.systemImage)
+                        }
+                    }
+                } label: {
+                    Label(L10n.string("Mute", locale: locale), systemImage: "bell.slash")
+                }
+                .menuStyle(.borderedButton)
+                .fixedSize()
+                .disabled(workspace.isMutatingChatPreferences(chat))
+                .accessibilityIdentifier("inspector.action.mute")
+            }
+
+            if let onSearchInChat {
+                Button(action: onSearchInChat) {
+                    Label(L10n.string("Search", locale: locale), systemImage: "magnifyingglass")
+                }
+                .wnSecondaryButtonStyle()
+                .help(L10n.string("Find in Conversation…", locale: locale))
+                .accessibilityIdentifier("inspector.action.search")
+            }
+
+            if let onEditProfile {
+                Button(action: onEditProfile) {
+                    Label(L10n.string("Edit", locale: locale), systemImage: "pencil")
+                }
+                .wnSecondaryButtonStyle()
+                .help(L10n.string("Edit Group Info", locale: locale))
+                .accessibilityIdentifier("details.topbar.edit")
             }
         }
+        .controlSize(.regular)
     }
+}
 
-    private func setTimer(_ seconds: UInt64) {
-        isTimerPresented = false
-        Task {
-            await workspace.setDisappearingMessages(
-                groupIdHex: snapshot.groupIdHex, seconds: seconds,
-                advisory: session.accountScope?.groupChangeAdvisory)
-        }
-    }
+#Preview("Unmuted") {
+    GroupDetailsQuickActionsRow(chat: ChatItem.samples[0], onSearchInChat: {})
+        .environment(WorkspaceState.preview())
+        .padding()
 }

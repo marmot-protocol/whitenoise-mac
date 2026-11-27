@@ -22,12 +22,16 @@ extension EnvironmentValues {
 struct ContentView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    @Environment(\.openWindow) private var openWindow
+    let settings: SettingsWindowCoordinator
     @State private var timestampReferenceDate = Date()
 
     var body: some View {
         @Bindable var workspace = workspace
 
-        MessengerShellView()
+        MessengerShellView(settings: settings)
+            .environment(settings)
+            .background { MainWindowRegistration() }
             // Attached here, not on the conversation pane: a chat-list delete is most likely with
             // no chat selected, and the sidebar row menu cannot host its own dialog.
             .chatDestructiveActionsConfirmation()
@@ -36,9 +40,10 @@ struct ContentView: View {
             // A device-link request can arrive whatever the user is looking at, and wants an answer
             // while both screens show the code.
             .deviceLinkSheet(
-                session.accountScope?.deviceLinking,
+                currentAccountScope?.deviceLinking,
+                profileName: workspace.activeAccount?.displayName,
                 locale: workspace.preferredLocale,
-                suggestionAllowed: session.accountScope.map {
+                suggestionAllowed: currentAccountScope.map {
                     $0.onboarding.canEnterChats && $0.onboarding.hasShownIncompleteSetup
                 } == true
             )
@@ -73,35 +78,6 @@ struct ContentView: View {
             .profileLinkRequestAlert(session.linkRequests) { request in
                 reviewLinkRequest(request)
             }
-            .task(
-                id: LinkRequestsObserveKey(
-                    runtime: runtimeIdentity, signedIn: workspace.signedInAccounts.map(\.accountIdHex))
-            ) {
-                guard let client = workspace.client else { return }
-                await session.linkRequests.observe(client, accounts: { workspace.signedInAccounts })
-            }
-            // Also re-run once an alert closes, so a second profile's request gets its turn.
-            .task(
-                id: LinkRequestAlertKey(
-                    pending: session.linkRequests.pending, active: workspace.activeAccountId,
-                    showing: session.linkRequests.alert != nil)
-            ) {
-                session.linkRequests.presentIfNeeded(
-                    activeAccountIdHex: workspace.activeAccount?.accountIdHex, accounts: workspace.signedInAccounts)
-            }
-            .task(id: runtimeIdentity) {
-                guard let client = workspace.client else { return }
-                await session.deviceUnlinks.observe(client) { accountIdHex in
-                    // MDK already signed it out: leave it now, as Sign Out does, so the removed
-                    // profile's chats stop showing while the notice waits for an answer.
-                    await AccountExit.leaveSignedOutAccount(accountIdHex: accountIdHex, in: workspace)
-                }
-            }
-            // A profile unlinked in an earlier launch (or left with Later) is still here, signed out
-            // and shown nowhere else, so its notice comes back once a launch.
-            .task(id: workspace.accounts.filter(\.unlinked).map(\.accountIdHex)) {
-                session.deviceUnlinks.remind(about: workspace.accounts)
-            }
             // App-wide default: static text is selectable, so anything on screen — a startup
             // failure message, a relay URL, an npub, a profile field — can be selected and
             // copied without the view having to opt in. `.textSelection` propagates through the
@@ -126,24 +102,23 @@ struct ContentView: View {
                     workspace.handleMessageLinkOpen(url)
                 }
             )
-            // The app-wide tint is `fillPrimary`, the primary action's fill on every White Noise
-            // client: near-black in light appearance, white in dark. It is deliberately not a hue —
-            // the palette's only blue is `intentionInfoContent`, reserved for links and search
-            // hits, and the twelve accent sets are reserved for identifying people.
-            .tint(WNColor.fillPrimary)
-            // The default foreground for anything that does not name a color: text and glyphs that
-            // inherit rather than choose. Without this they fall back to AppKit's `labelColor`,
-            // which is close to `backgroundContentPrimary` but is not part of the palette — so an
-            // unstyled glyph on a `fillSecondary` control would be right only by coincidence.
-            // `fillContentSecondary` happens to be the same value, which is why those controls read
-            // correctly by inheritance.
-            .foregroundStyle(WNColor.backgroundContentPrimary)
-            .nativeWindowGlassBackground()
+            // No blanket `.tint` or `.foregroundStyle` on the window root (F01–F07 / #1034 / #1035):
+            // native controls, selection, focus rings, links, and destructive roles keep system
+            // semantics, while primary monochrome controls apply scoped `.tint(WNColor.fillPrimary)`
+            // and switches apply dark-safe `.tint(WNColor.switchOnTint)`.
             .onOpenURL { url in
                 workspace.handleDeepLinkURL(url)
             }
             .onAppear {
+                settings.installPresentationActions(
+                    showSettings: { openWindow(id: whitenoise_macApp.mainWindowID) },
+                    showMain: { openWindow(id: whitenoise_macApp.mainWindowID) }
+                )
                 applyAppearance(workspace.appearancePreference)
+            }
+            .onChange(of: session.accountScope?.deviceLinking.presentedSheet) {
+                settings.updateDeviceLinkHost(
+                    sheetIsPresented: session.accountScope?.deviceLinking.presentedSheet != nil)
             }
             .onChange(of: workspace.appearancePreference) { _, preference in
                 applyAppearance(preference)
@@ -182,35 +157,28 @@ struct ContentView: View {
                 // while it was in the background so the selected chat clears its unread
                 // state now that the user may be looking at it again.
                 Task {
-                    await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
+                    if !settings.isPresented {
+                        await workspace.handleConversationVisibilityChange(
+                            visibleMessageIds: visibleConversationMessageIds)
+                    }
                     workspace.recordForegroundLocalReady(since: foregroundStartedAt)
                     await workspace.refreshAccountProfiles()
                 }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
-                    for: NSApplication.willTerminateNotification
-                )
-            ) { _ in
-                workspace.flushComposerDraftPersistenceSynchronouslyForTermination()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(
                     for: NSWindow.didBecomeKeyNotification
                 )
-            ) { _ in
+            ) { notification in
+                settings.updateDeviceLinkHost(
+                    sheetIsPresented: session.accountScope?.deviceLinking.presentedSheet != nil)
+                guard ConversationWindowIdentity.matches(notification.object), !settings.isPresented else { return }
                 Task {
                     await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
                 }
             }
-            .sheet(isPresented: $workspace.isGlobalMessageSearchPresented) {
-                GlobalMessageSearchView()
-                    .environment(workspace)
-                    .environment(\.locale, workspace.preferredLocale)
-            }
-            // Presented here rather than from the messenger shell for the same reason as the
-            // search sheet: `\.locale` is injected at this root, and a sheet is a separate
-            // presentation that does not inherit it, so both have to re-inject it themselves.
+            // Presented here rather than from the messenger shell because `\.locale` is injected
+            // at this root, and a sheet is a separate presentation that does not inherit it.
             .sheet(isPresented: $workspace.isImprovementsPromptPresented) {
                 if let model = session.accountScope?.settingsModel.diagnostics {
                     HelpImproveWhiteNoiseSheet(model: model) {
@@ -223,11 +191,19 @@ struct ContentView: View {
                 NotificationCenter.default.publisher(
                     for: NSWindow.didDeminiaturizeNotification
                 )
-            ) { _ in
+            ) { notification in
+                guard ConversationWindowIdentity.matches(notification.object), !settings.isPresented else { return }
                 Task {
                     await workspace.handleConversationVisibilityChange(visibleMessageIds: visibleConversationMessageIds)
                 }
             }
+    }
+
+    private var currentAccountScope: AccountScope? {
+        guard workspace.activeAccount?.signedOut == false,
+            let scope = session.accountScope, scope.account.id == workspace.activeAccountId
+        else { return nil }
+        return scope
     }
 
     /// The open transcript's on-screen messages, so regaining focus marks only what the user can
@@ -245,12 +221,6 @@ struct ContentView: View {
             })
         else { return }
         workspace.selectAccount(account)
-    }
-
-    /// Which runtime is installed. Delete All Local Data replaces the runtime at the same storage
-    /// root, so the root path alone would leave the monitors on the old one.
-    private var runtimeIdentity: ObjectIdentifier? {
-        workspace.client.map { ObjectIdentifier($0 as AnyObject) }
     }
 
     private func account(forUnlinked notice: DeviceUnlinkMonitor.Notice) -> AccountItem? {
@@ -273,19 +243,27 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
-        .environment(WorkspaceState.preview())
+    let workspace = WorkspaceState.preview()
+    ContentView(settings: SettingsWindowCoordinator(workspace: workspace))
+        .environment(workspace)
+        .environment(SessionState())
 }
 
-/// Re-checks whether another profile's link request should raise the alert: when requests change
-/// or the active profile does (its own requests are its model's).
-private struct LinkRequestAlertKey: Equatable {
-    let pending: [String: [String]]
-    let active: String?
-    let showing: Bool
+private struct MainWindowRegistration: NSViewRepresentable {
+    func makeNSView(context: Context) -> RegistrationView {
+        RegistrationView()
+    }
+
+    func updateNSView(_ nsView: RegistrationView, context: Context) {}
+
+    final class RegistrationView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { ConversationWindowIdentity.window = window }
+        }
+    }
 }
 
-private struct LinkRequestsObserveKey: Equatable {
-    let runtime: ObjectIdentifier?
-    let signedIn: [String]
+#Preview("Main window registration") {
+    Color.clear.background { MainWindowRegistration() }
 }

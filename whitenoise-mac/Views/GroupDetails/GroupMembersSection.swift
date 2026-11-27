@@ -60,7 +60,7 @@ struct GroupMembersSection: View {
                         isExpanded = true
                     } label: {
                         Text(L10n.plural("See all %lld members", Int64(list.matching.count)))
-                            .wnFont(.semiBold12)
+                            .font(.callout.weight(.semibold))
                             .foregroundStyle(WNColor.backgroundContentPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(.rect)

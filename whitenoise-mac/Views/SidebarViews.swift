@@ -2,10 +2,8 @@
 //  SidebarViews.swift
 //  whitenoise-mac
 //
-//  Left-hand navigation: the account rail, chat-list and settings-list
-//  drawers, their rows, and the pending-invite badge. The settings drawer
-//  opens with the account switcher card (SettingsAccountSwitcherViews.swift)
-//  above the page list.
+//  Left-hand navigation: the chat-list sidebar, native search/filter controls,
+//  global individual-message search mode, chat rows, and pending-invite badges.
 //
 
 import AppKit
@@ -16,175 +14,74 @@ import SwiftUI
 /// Digits are monospaced so a count ticking 9 → 10 does not shift the pill's width mid-scroll.
 struct UnreadCountBadge: View {
     let count: Int
-    var textStyle: WNTextStyle = .bold10
 
     var body: some View {
         Text(verbatim: count > 99 ? "99+" : "\(count)")
-            .wnFont(textStyle.monospacedDigit())
+            .font(.caption.weight(.bold).monospacedDigit())
             .foregroundStyle(WNColor.fillContentPrimary)
             .padding(.horizontal, 5)
-            .frame(minWidth: 18, minHeight: 18)
+            .frame(minWidth: 19, minHeight: 19)
             .background(Capsule().fill(WNColor.fillPrimary))
-    }
-}
-
-struct AccountRailView: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(SessionState.self) private var session
-
-    private var isSettingsSelected: Bool {
-        if case .settings = workspace.selection { return true }
-        return false
-    }
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Button {
-                workspace.toggleChatList()
-            } label: {
-                Image(systemName: workspace.isChatListVisible ? "sidebar.leading" : "sidebar.right")
-                    .wnFont(.semiBold16)
-                    .frame(width: MessagesLayout.accountRailControlSize, height: MessagesLayout.accountRailControlSize)
-                    .background {
-                        MessagesCircleControlBackground(isSelected: workspace.isChatListVisible)
-                    }
-            }
-            .buttonStyle(.plain)
-            .help(workspace.isChatListVisible ? L10n.string("Hide chat list") : L10n.string("Show chat list"))
-
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 10) {
-                    ForEach(workspace.signedInAccounts) { account in
-                        AccountRailAvatar(
-                            account: account,
-                            projectedUnread: session.accountScope?.attentionModel.unreadCount(
-                                accountIdHex: account.accountIdHex
-                            )
-                        )
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-
-            Spacer(minLength: 0)
-
-            Button {
-                workspace.showSettings()
-            } label: {
-                Image(systemName: "gearshape")
-                    .wnFont(.semiBold18)
-                    .frame(width: MessagesLayout.accountRailControlSize, height: MessagesLayout.accountRailControlSize)
-                    .background {
-                        MessagesCircleControlBackground(isSelected: isSettingsSelected)
-                    }
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(
-                isSettingsSelected ? WNColor.fillContentSecondary : WNColor.fillContentTertiary
-            )
-            .help(L10n.string("Settings"))
-        }
-        .sidebarTitlebarClearance()
-        .padding(.bottom, 14)
-        .frame(width: MessagesLayout.accountRailWidth)
-        .background {
-            MessagesSidebarBackground(level: .rail)
-        }
-    }
-}
-
-/// A single account avatar in the rail: selects that identity on tap, and overlays an
-/// unread badge. Nothing else — the rail switches accounts and does not manage them.
-///
-/// Deliberately has no context menu, and no signed-out case. It used to offer Sign In /
-/// Sign Out on right-click, where Sign Out fired `signOutAccount` with no prompt at all,
-/// so an accidental click dropped that identity's relay key packages. It also used to
-/// draw deactivated identities, dimmed to 0.4 behind a pause glyph, where one tap signed
-/// one back in. Every one of those is account management, and none of it belongs on the
-/// control the user hits all day: leaving the active identity — with or without wiping it off this
-/// Mac — is `SettingsSignOutRow`'s sheet, and a deactivated identity is reached again by signing in
-/// with its key — no surface offers to reactivate one without it.
-///
-/// The rail is fed `signedInAccounts`, so `account.signedOut` is false here by
-/// construction. Reintroducing a branch on it would be dead code describing a row that
-/// cannot reach this view.
-private struct AccountRailAvatar: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let account: AccountItem
-    let projectedUnread: Int?
-
-    private var unread: Int {
-        // Account attention is the sole badge authority. Before its initial complete snapshot,
-        // render no badge rather than reviving the legacy one-shot summary cache.
-        projectedUnread ?? 0
-    }
-    private var isActive: Bool { account.id == workspace.activeAccountId }
-
-    var body: some View {
-        Button {
-            workspace.selectAccount(account)
-        } label: {
-            ProfileImageAvatarView(
-                seed: account.accountIdHex,
-                initials: account.initials,
-                sanitizedPictureURL: account.sanitizedPictureURL,
-                size: MessagesLayout.accountRailAvatarSize,
-                isSelected: isActive
-            )
-            .frame(width: MessagesLayout.accountRailAvatarFrameSize, height: MessagesLayout.accountRailAvatarFrameSize)
-            .contentShape(Circle())
-            .overlay(alignment: .topTrailing) {
-                // A `badge` view builder used to stand here to choose between this and the
-                // signed-out pause glyph. With one case left there is nothing to choose.
-                if unread > 0 {
-                    UnreadCountBadge(count: unread)
-                        .overlay(Capsule().strokeBorder(WNColor.backgroundTertiary, lineWidth: 1.5))
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .help(account.displayName)
     }
 }
 
 struct ChatListDrawerView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: ChatListViewModel?
     let historyNotices: HistoryNoticesViewModel?
     let recoveryStatus: AccountRecoveryStatusViewModel?
     let selection: ChatListSelectionViewModel?
     let search: ChatListSearchViewModel?
+    let globalSearch: SidebarGlobalSearchViewModel?
+    let attentionModel: AccountAttentionViewModel?
+    let deviceLinking: DeviceLinkingViewModel?
+    let onOpenSettings: () -> Void
+    let onOpenDevicesSettings: () -> Void
+    let onOpenGlobalSearchResult: (GlobalMessageSearchResult, String) -> Void
     /// The New group draft's picture. Kept between the members and name panes, and dropped once
     /// the composer leaves the group flow: closed (on Create, on cancel, on the account switch that
     /// closes it) or back on its first pane, which is also where New Chat restarts a draft.
     @State private var groupDraftImage: GroupDraftImage?
+    @State private var sidebarSearchFocusRequest: UUID?
 
     init(
         model: ChatListViewModel? = nil,
         historyNotices: HistoryNoticesViewModel? = nil,
         recoveryStatus: AccountRecoveryStatusViewModel? = nil,
         selection: ChatListSelectionViewModel? = nil,
-        search: ChatListSearchViewModel? = nil
+        search: ChatListSearchViewModel? = nil,
+        globalSearch: SidebarGlobalSearchViewModel? = nil,
+        attentionModel: AccountAttentionViewModel? = nil,
+        deviceLinking: DeviceLinkingViewModel? = nil,
+        onOpenSettings: @escaping () -> Void = {},
+        onOpenDevicesSettings: @escaping () -> Void = {},
+        onOpenGlobalSearchResult: @escaping (GlobalMessageSearchResult, String) -> Void = { _, _ in }
     ) {
         self.recoveryStatus = recoveryStatus
         self.model = model
         self.historyNotices = historyNotices
         self.selection = selection
         self.search = search
-    }
-
-    private var isShowingSettings: Bool {
-        if case .settings = workspace.selection { return true }
-        return false
+        self.globalSearch = globalSearch
+        self.attentionModel = attentionModel
+        self.deviceLinking = deviceLinking
+        self.onOpenSettings = onOpenSettings
+        self.onOpenDevicesSettings = onOpenDevicesSettings
+        self.onOpenGlobalSearchResult = onOpenGlobalSearchResult
     }
 
     var body: some View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 0) {
-            if isShowingSettings {
-                SettingsListDrawerView()
+            if let globalSearch, globalSearch.isActive {
+                SidebarGlobalSearchView(
+                    model: globalSearch,
+                    onBack: { globalSearch.dismiss() },
+                    onOpenResult: onOpenGlobalSearchResult
+                )
             } else if workspace.isNewChatComposerVisible {
                 switch workspace.composePane {
                 case .newChat:
@@ -199,24 +96,65 @@ struct ChatListDrawerView: View {
                 let isShowingArchived = filter == .archived
                 let listing = visibleChats(for: filter)
                 let visibleChats = listing.chats
-                let isCollapsed = workspace.isChatListCollapsed
-                // The avatar-only rail has no room for checkmarks or the action bar.
-                let rowSelection = isCollapsed ? nil : selection
-                let activeSelection = rowSelection?.isActive == true ? rowSelection : nil
+                let showsBulkControls = SidebarSearchModeSelectionPolicy.showsBulkSelectionControls(
+                    isSelectionActive: selection?.isActive == true,
+                    isGlobalMessageSearchActive: globalSearch?.isActive == true
+                )
+                let activeSelection = showsBulkControls ? selection : nil
 
-                if isCollapsed {
-                    CollapsedChatListHeader(isShowingArchived: isShowingArchived)
-                } else {
-                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived)
+                SidebarProfileSwitcherView(
+                    signedInAccounts: workspace.signedInAccounts,
+                    activeAccount: workspace.activeAccount,
+                    isAccountMutationInProgress: workspace.isAccountMutationInProgress,
+                    attentionModel: attentionModel,
+                    onSelectAccount: { workspace.selectAccount($0) },
+                    onAddProfile: { workspace.showAccountOnboarding() },
+                    onOpenSettings: onOpenSettings
+                )
+
+                MessagesSearchField(
+                    text: $workspace.searchText,
+                    accessibilityIdentifier: "chat.search",
+                    placeholder: L10n.string("Search", locale: locale),
+                    focusRequest: sidebarSearchFocusRequest
+                )
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+
+                if filter != .active {
+                    HStack(spacing: 6) {
+                        Label(filter.title, systemImage: filter.systemImage)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Button {
+                            workspace.chatListFilter = .active
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(L10n.string("Clear", locale: locale))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    Divider()
                 }
 
-                GlassSeparator(axis: .horizontal)
+                if let deviceLinking {
+                    AccountDeviceWarningsBanner(
+                        model: deviceLinking,
+                        onOpenDevicesSettings: onOpenDevicesSettings
+                    )
+                }
 
-                if !isCollapsed, let historyNotices {
+                if let historyNotices {
                     AccountHistoryNoticesView(model: historyNotices)
                 }
 
-                if !isCollapsed, let recoveryStatus {
+                if let recoveryStatus {
                     AccountCatchingUpRow(model: recoveryStatus)
                 }
 
@@ -226,50 +164,75 @@ struct ChatListDrawerView: View {
                     ChatListSelectAllRow(model: activeSelection)
                         .padding(.horizontal, 8)
                         .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.bottom, 4)
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 }
 
-                ScrollView {
-                    LazyVStack(spacing: 3) {
-                        ForEach(visibleChats) { chat in
-                            ChatSidebarRow(
-                                chat: chat,
-                                isArchived: listing.archivedIds.contains(chat.id),
-                                isCollapsed: isCollapsed,
-                                searchResult: workspace.sidebarMessageSearchResult(for: chat),
-                                selection: rowSelection
-                            )
-                            .onAppear {
-                                if isSearching {
-                                    search?.setVisibleAnchor(groupIdHex: chat.id)
-                                    if chat.id == visibleChats.last?.id { search?.pageForward() }
-                                    if chat.id == visibleChats.first?.id { search?.pageBackward() }
-                                    return
-                                }
-                                guard filter == .active else { return }
-                                model?.setVisibleWindowAnchor(groupIdHex: chat.id)
-                                if chat.id == visibleChats.last?.id {
-                                    Task { await model?.pageWindow(.forward) }
-                                }
-                                if chat.id == visibleChats.first?.id {
-                                    Task { await model?.pageWindow(.backward) }
-                                }
+                List(selection: openChatSelection(in: visibleChats)) {
+                    ForEach(visibleChats) { chat in
+                        ChatSidebarRow(
+                            chat: chat,
+                            isArchived: listing.archivedIds.contains(chat.id),
+                            searchResult: workspace.sidebarMessageSearchResult(for: chat),
+                            selection: showsBulkControls ? selection : nil
+                        )
+                        .tag(chat.id)
+                        .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .onAppear {
+                            if isSearching {
+                                search?.setVisibleAnchor(groupIdHex: chat.id)
+                                if chat.id == visibleChats.last?.id { search?.pageForward() }
+                                if chat.id == visibleChats.first?.id { search?.pageBackward() }
+                                return
+                            }
+                            guard filter == .active else { return }
+                            model?.setVisibleWindowAnchor(groupIdHex: chat.id)
+                            if chat.id == visibleChats.last?.id {
+                                Task { await model?.pageWindow(.forward) }
+                            }
+                            if chat.id == visibleChats.first?.id {
+                                Task { await model?.pageWindow(.backward) }
                             }
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
 
                     if isSearching, search?.isTruncated == true, search?.hasMoreRows == false {
                         ChatListSearchTruncatedNote()
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 8, trailing: 8))
+                    }
+                }
+                .listStyle(.sidebar)
+                .textSelection(.disabled)
+                .toolbar {
+                    ToolbarItem(placement: .automatic) {
+                        ChatListFilterMenu()
+                    }
+                    ToolbarItem(placement: .automatic) {
+                        Button(action: openGlobalMessageSearch) {
+                            Label(
+                                L10n.string("Search all messages", locale: locale),
+                                systemImage: "text.magnifyingglass"
+                            )
+                        }
+                        .help(L10n.string("Search all messages", locale: locale))
+                        .accessibilityIdentifier("chat.search.global")
+                    }
+                    if !isShowingArchived {
+                        ToolbarItem(placement: .automatic) {
+                            Button {
+                                workspace.showNewChat()
+                            } label: {
+                                Label(L10n.string("New chat", locale: locale), systemImage: "square.and.pencil")
+                            }
+                            .help(L10n.string("New chat", locale: locale))
+                        }
                     }
                 }
                 .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
-                    // The notice needs room for an icon over a line or two of prose; in the
-                    // collapsed rail it would render as a column of hyphenated fragments. An
-                    // empty rail is legible on its own, and widening it brings the wording back.
-                    if visibleChats.isEmpty, !isCollapsed {
+                    if visibleChats.isEmpty {
                         if isSearching, search?.phase != .ready, search?.phase != .failed {
                             ProgressView()
                                 .controlSize(.small)
@@ -315,6 +278,13 @@ struct ChatListDrawerView: View {
                         }
                     }
                 }
+                .onChange(of: workspace.searchText) { _, _ in
+                    // MDK's search (`ChatListSearchViewModel`) decides which chats match and owns
+                    // the progress shown in the list. This legacy search only supplies each
+                    // row's message snippet (`sidebarMessageSearchResult(for:)`), so it shows no
+                    // spinner of its own; a second one would duplicate the list's.
+                    workspace.scheduleSidebarMessageSearch()
+                }
                 .onChange(
                     of: ChatListSearchKey(
                         text: workspace.searchText,
@@ -345,7 +315,7 @@ struct ChatListDrawerView: View {
                 }
 
                 if let activeSelection {
-                    GlassSeparator(axis: .horizontal)
+                    Divider()
                     let visibleById = Dictionary(
                         visibleChats.map { ($0.id, $0) },
                         uniquingKeysWith: { first, _ in first }
@@ -357,25 +327,36 @@ struct ChatListDrawerView: View {
                         },
                         archivedIds: listing.archivedIds
                     )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
-        .background {
-            MessagesSidebarBackground(level: .drawer)
-        }
-        .animation(.smooth(duration: 0.18), value: selection?.isActive == true)
+        .focusedSceneValue(
+            \.sidebarSearchFocus,
+            SidebarSearchFocus {
+                if let globalSearch, globalSearch.isActive {
+                    globalSearch.activate()
+                } else {
+                    sidebarSearchFocusRequest = UUID()
+                }
+            }
+        )
+        .animation(reduceMotion ? .none : .smooth(duration: 0.18), value: selection?.isActive == true)
         .onChange(of: showsSelectableList) { _, shows in
             // Selection belongs to the list on screen: settings, the composer or the collapsed rail
             // replacing it ends selection mode rather than leaving it armed out of sight.
             if !shows { selection?.end() }
         }
         // Hiding the chat list unmounts this drawer, so the `onChange` above never sees it go.
-        // Selection would stay armed with no Done button on screen, and the conversation header
+        // Selection would stay armed with no Done button on screen, and the conversation toolbar
         // leaves Escape to that missing button.
         .onDisappear { selection?.end() }
         .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
-            if !isVisible { groupDraftImage = nil }
+            if isVisible {
+                globalSearch?.dismiss()
+            } else {
+                groupDraftImage = nil
+            }
         }
         .onChange(of: workspace.composePane) { _, pane in
             if pane == .newChat { groupDraftImage = nil }
@@ -383,8 +364,36 @@ struct ChatListDrawerView: View {
         .modifier(ChatListSelectionDialogs(model: selection))
     }
 
+    private func openGlobalMessageSearch() {
+        globalSearch?.activate(initialQuery: workspace.searchText)
+    }
+
     private var showsSelectableList: Bool {
-        !isShowingSettings && !workspace.isNewChatComposerVisible && !workspace.isChatListCollapsed
+        !workspace.isNewChatComposerVisible && workspace.isChatListVisible
+    }
+
+    private func openChatSelection(in visibleChats: [ChatItem]) -> Binding<String?> {
+        Binding(
+            get: {
+                if case .chat(let id) = workspace.selection { return id }
+                return nil
+            },
+            set: { newId in
+                let currentOpenId: String? =
+                    if case .chat(let id) = workspace.selection { id } else { nil }
+                guard
+                    ChatListRowClickPolicy.shouldApplyNativeListSelection(
+                        newId: newId,
+                        currentOpenChatId: currentOpenId,
+                        isBatchSelectionActive: selection?.isActive == true,
+                        modifiers: NSEvent.modifierFlags
+                    ),
+                    let newId,
+                    let chat = visibleChats.first(where: { $0.id == newId })
+                else { return }
+                workspace.selectChat(chat)
+            }
+        )
     }
 }
 
@@ -465,182 +474,35 @@ extension ChatListDrawerView {
     }
 }
 
-private struct ChatListHeader: View {
+/// Native menu Picker exposing the five real chat-list filters: Chats, Unread, Invites, Archived,
+/// and Left chats (N08, C07, #1037).
+private struct ChatListFilterMenu: View {
     @Environment(WorkspaceState.self) private var workspace
-    let filter: ChatListFilter
-    let isShowingArchived: Bool
+    @Environment(\.locale) private var locale
 
     var body: some View {
         @Bindable var workspace = workspace
 
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Text(filter.title)
-                    .wnFont(MessagesType.paneTitle)
-                Spacer()
-                Button {
-                    workspace.presentGlobalMessageSearch()
-                } label: {
-                    Image(systemName: "text.magnifyingglass")
-                        .wnFont(.semiBold14)
-                        .frame(width: 34, height: 34)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Search all messages"))
-                if !isShowingArchived {
-                    Button {
-                        workspace.showNewChat()
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                            .wnFont(.semiBold14)
-                            .frame(width: 34, height: 34)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut("n", modifiers: .command)
-                    .help(L10n.string("New chat"))
-                }
-            }
-
-            HStack(spacing: 8) {
-                MessagesSearchField(
-                    text: $workspace.searchText,
-                    accessibilityIdentifier: "chat.search",
-                    placeholder: L10n.string("Search all messages")
-                )
-                .frame(maxWidth: .infinity)
-                .onChange(of: workspace.searchText) { _, _ in
-                    // MDK's search (`ChatListSearchViewModel`) decides which chats match and owns
-                    // the progress shown in the list. This legacy search only supplies each
-                    // row's message snippet (`sidebarMessageSearchResult(for:)`), so it shows no
-                    // spinner of its own; a second one would duplicate the list's.
-                    workspace.scheduleSidebarMessageSearch()
-                }
-
-                ChatListFilterMenu()
-            }
-        }
-        .padding(.horizontal, 12)
-        .sidebarTitlebarClearance()
-        .padding(.bottom, 12)
-    }
-}
-
-/// Header for the avatar-only rail: the pane title and the row-filtering search field have no
-/// room, so what is left is the three controls that still make sense at 84pt, stacked. Global
-/// search stays reachable (it opens its own sheet), which is why dropping the inline field is
-/// survivable — and `resizeChatListDrawer` clears any query on the way in, so the rail can
-/// never show a silently filtered list.
-private struct CollapsedChatListHeader: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let isShowingArchived: Bool
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Button {
-                workspace.presentGlobalMessageSearch()
-            } label: {
-                Image(systemName: "text.magnifyingglass")
-                    .wnFont(.semiBold14)
-                    .frame(width: 34, height: 34)
-                    .background {
-                        MessagesCircleControlBackground()
-                    }
-            }
-            .buttonStyle(.plain)
-            .help(L10n.string("Search all messages"))
-
-            if !isShowingArchived {
-                Button {
-                    workspace.showNewChat()
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .wnFont(.semiBold14)
-                        .frame(width: 34, height: 34)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("n", modifiers: .command)
-                .help(L10n.string("New chat"))
-            }
-
-            ChatListFilterMenu()
-        }
-        .padding(.horizontal, 8)
-        .sidebarTitlebarClearance()
-        .padding(.bottom, 12)
-    }
-}
-
-private struct ChatListFilterMenu: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @State private var isFilterPickerPresented = false
-
-    var body: some View {
-        Button {
-            isFilterPickerPresented = true
-        } label: {
-            Image(systemName: "line.3.horizontal.decrease")
-                .wnFont(.semiBold16)
-                .frame(width: 34, height: 34)
-                .background {
-                    MessagesCircleControlBackground(isSelected: workspace.chatListFilter != .active)
-                }
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $isFilterPickerPresented, arrowEdge: .top) {
-            VStack(alignment: .leading, spacing: 4) {
+        Menu {
+            Picker(L10n.string("Filter chats", locale: locale), selection: $workspace.chatListFilter) {
                 ForEach(ChatListFilter.allCases, id: \.self) { filter in
-                    filterButton(filter)
+                    Label(filter.title, systemImage: filter.systemImage)
+                        .tag(filter)
                 }
             }
-            .padding(8)
-        }
-        .help(L10n.string("Filter chats"))
-        .accessibilityIdentifier("chat.list.filter")
-    }
-
-    private func filterButton(_ filter: ChatListFilter) -> some View {
-        Button {
-            workspace.chatListFilter = filter
-            isFilterPickerPresented = false
+            .pickerStyle(.inline)
         } label: {
-            HStack(spacing: 8) {
-                if workspace.chatListFilter == filter {
-                    Image(systemName: "checkmark")
-                        .frame(width: 14)
-                } else {
-                    Color.clear
-                        .frame(width: 14, height: 1)
-                }
-
-                // Fixed width keeps the titles aligned across icons of differing widths.
-                Image(systemName: filter.systemImage)
-                    .frame(width: 18)
-                    .accessibilityHidden(true)
-
-                Text(filter.title)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .frame(minWidth: 150, alignment: .leading)
-            .contentShape(Rectangle())
+            Label(
+                L10n.string("Filter chats", locale: locale),
+                systemImage: workspace.chatListFilter == .active
+                    ? "line.3.horizontal.decrease.circle"
+                    : "line.3.horizontal.decrease.circle.fill"
+            )
         }
-        .buttonStyle(.plain)
-        .background {
-            if workspace.chatListFilter == filter {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(WNColor.fillTertiaryHover)
-            }
-        }
+        .menuIndicator(.hidden)
+        .help(L10n.string("Filter chats", locale: locale))
+        .accessibilityLabel(L10n.string("Filter chats", locale: locale))
+        .accessibilityIdentifier("chat.list.filter")
     }
 }
 
@@ -692,7 +554,6 @@ private struct ChatSidebarRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
     let isArchived: Bool
-    let isCollapsed: Bool
     let searchResult: GlobalMessageSearchResult?
     /// `nil` where selection is unavailable (the collapsed rail). The row reads only `isActive`;
     /// the checkmark observes the selected set on its own.
@@ -713,7 +574,6 @@ private struct ChatSidebarRow: View {
                 ChatSidebarRowContent(
                     chat: chat,
                     isArchived: isArchived,
-                    isCollapsed: isCollapsed,
                     searchResult: searchResult
                 )
             }
@@ -737,18 +597,22 @@ private struct ChatSidebarRow: View {
     /// clicked row) to this one — the Finder and Mail conventions.
     private func click() {
         if let selection {
-            let modifiers = NSEvent.modifierFlags
-            if modifiers.contains(.shift) {
-                selection.extend(to: chat.id, defaultAnchor: openChatId)
+            switch ChatListRowClickPolicy.action(
+                modifiers: NSEvent.modifierFlags,
+                isBatchSelectionActive: selection.isActive,
+                openChatId: openChatId
+            ) {
+            case .extendSelection(let defaultAnchor):
+                selection.extend(to: chat.id, defaultAnchor: defaultAnchor)
                 return
-            }
-            if selection.isActive {
+            case .toggleSelection:
                 selection.toggle(chat.id)
                 return
-            }
-            if modifiers.contains(.command) {
+            case .beginSelection:
                 selection.begin(with: chat.id)
                 return
+            case .openChat:
+                break
             }
         }
         workspace.selectChat(chat)
@@ -764,41 +628,26 @@ private struct ChatSidebarRowContent: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
     let isArchived: Bool
-    let isCollapsed: Bool
     let searchResult: GlobalMessageSearchResult?
 
     var body: some View {
-        Group {
-            if isCollapsed {
-                CollapsedChatRowContent(
-                    chat: chat,
-                    isSelected: workspace.selection == .chat(chat.id),
-                    isPinned: !isArchived && workspace.isChatPinned(chat)
-                )
-            } else {
-                ChatRowContent(
-                    chat: chat,
-                    isSelected: workspace.selection == .chat(chat.id),
-                    isPinned: !isArchived && workspace.isChatPinned(chat),
-                    searchResult: searchResult
-                )
-            }
-        }
+        ChatRowContent(
+            chat: chat,
+            isPinned: !isArchived && workspace.isChatPinned(chat),
+            searchResult: searchResult
+        )
     }
 }
 
 private struct ChatSidebarRowMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.endingGroupIds) private var endingGroupIds
+    @Environment(\.locale) private var locale
     let chat: ChatItem
     let isArchived: Bool
     let selection: ChatListSelectionViewModel?
 
-    /// Any archive in flight, not just this chat's: `setChatArchived` refuses every call while one
-    /// is running, so an enabled item on another row would be a click that does nothing.
-    private var isArchiving: Bool {
-        workspace.archivingChatId != nil
-    }
+    private var actions: ChatMenuActions { ChatMenuActions(workspace: workspace, chat: chat) }
 
     var body: some View {
         Group {
@@ -825,37 +674,17 @@ private struct ChatSidebarRowMenuItems: View {
             }
             .disabled(workspace.isMutatingChatPreferences(chat))
 
-            if chat.muted {
-                Button {
-                    Task { await workspace.clearChatMuted(chat) }
-                } label: {
-                    ChatRowMenuLabel(action: .unmute)
-                }
-                .disabled(workspace.isMutatingChatPreferences(chat))
-            } else {
-                Menu {
-                    ForEach(ChatMuteDuration.allCases) { duration in
-                        Button {
-                            Task { await workspace.setChatMuted(chat, duration: duration.interval) }
-                        } label: {
-                            Label(L10n.string(duration.titleKey), systemImage: duration.systemImage)
-                        }
-                    }
-                } label: {
-                    ChatRowMenuLabel(action: .mute)
-                }
-                .disabled(workspace.isMutatingChatPreferences(chat))
-            }
+            ChatMuteMenu(actions: actions, locale: locale, showsRowIcon: true, isCurrent: { true })
 
             Divider()
 
             if isArchived {
                 Button {
-                    Task { await workspace.setChatArchived(chat, archived: false) }
+                    Task { await actions.setArchived(false) }
                 } label: {
                     ChatRowMenuLabel(action: .unarchive)
                 }
-                .disabled(isArchiving)
+                .disabled(!actions.canArchive)
             } else {
                 let isPinned = workspace.isChatPinned(chat)
                 Button {
@@ -868,11 +697,11 @@ private struct ChatSidebarRowMenuItems: View {
                 Divider()
 
                 Button {
-                    Task { await workspace.setChatArchived(chat, archived: true) }
+                    Task { await actions.setArchived(true) }
                 } label: {
                     ChatRowMenuLabel(action: .archive)
                 }
-                .disabled(isArchiving)
+                .disabled(!actions.canArchive)
             }
 
             destructiveItems
@@ -888,197 +717,21 @@ private struct ChatSidebarRowMenuItems: View {
         if let action = ChatDestructiveActions.action(for: chat) {
             Divider()
 
-            switch action {
-            case .leave:
-                Button(role: .destructive) {
-                    Task { await workspace.prepareChatLeave(for: chat) }
-                } label: {
-                    ChatRowMenuLabel(action: .leave)
-                }
-                // An End Group run on this chat is a commit the row cannot see in `chat` until
-                // the read-back after it lands; a leave started meanwhile would race it.
-                .disabled(
-                    workspace.leavingChatId != nil
-                        || workspace.preparingChatLeaveId != nil
-                        || workspace.handingOffAdminChatId != nil
-                        || endingGroupIds.contains(chat.id))
-
-            case .deleteLocally:
-                Button(role: .destructive) {
-                    workspace.requestChatLocalDelete(for: chat)
-                } label: {
-                    ChatRowMenuLabel(action: .deleteLocally)
-                }
-                .disabled(workspace.isDeletingGroupLocally)
-            }
-        }
-    }
-}
-
-struct SettingsListDrawerView: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(SessionState.self) private var session
-    // Localizing through `\.locale` (not the stored preference) is what re-renders this
-    // drawer when the language changes while settings are open — see `L10n.string(_:locale:)`.
-    @Environment(\.locale) private var locale
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text(L10n.string("Settings", locale: locale))
-                .wnFont(.semiBold18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .sidebarTitlebarClearance()
-                .padding(.bottom, 10)
-
-            // No rule under the title. The account card used to be pinned above a
-            // `GlassSeparator`, which split the surface into a header and a list; the prototype's
-            // hub has the profile as the *first card of the same grouped list*, so it scrolls with
-            // the destinations and the only grouping signal is the gap between cards.
-            ScrollView {
-                // One card per group, then the isolated destructive row — the shape
-                // `wn-ios-prototype`'s hub takes. The gap between cards is the only grouping
-                // signal, because the prototype's hub carries no category headings.
-                LazyVStack(spacing: 12) {
-                    SettingsAccountSwitcherCard()
-
-                    ForEach(Array(SettingsPage.sidebarGroups.map(visiblePages).enumerated()), id: \.offset) {
-                        _, group in
-                        SettingsSidebarGroupCard {
-                            ForEach(Array(group.enumerated()), id: \.element) { index, page in
-                                Button {
-                                    workspace.showSettingsPage(page)
-                                } label: {
-                                    SettingsSidebarRow(page: page)
-                                }
-                                .buttonStyle(.plain)
-
-                                if index < group.count - 1 {
-                                    SettingsSidebarRowSeparator()
-                                }
-                            }
-                        }
-                    }
-
-                    SettingsSignOutRow()
-                }
-                // While `ProfileChooserView` asks which profile to continue with there is no
-                // account for these pages to describe, so the drawer waits behind it, as iOS's
-                // Settings does behind its chooser.
-                .disabled(workspace.activeAccount == nil)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 12)
-            }
-
-            // The line that closes the settings surface. It sits under the page list rather than
-            // on a page, because it is about the app and not about any one group of settings.
-            SettingsVersionFooter()
-                .padding(.horizontal, 14)
-                .padding(.bottom, 10)
-        }
-        .background {
-            MessagesSidebarBackground(level: .settingsDrawer)
-        }
-    }
-
-    /// Devices is listed only when linking can work: with the published MarmotKit every linking
-    /// call is refused, so the page would be nothing but errors.
-    private func visiblePages(_ group: [SettingsPage]) -> [SettingsPage] {
-        let devicesAvailable = session.accountScope?.deviceLinking.isAvailable == true
-        return group.filter { $0 != .devices || devicesAvailable }
-    }
-}
-
-struct SettingsSidebarRow: View {
-    @Environment(WorkspaceState.self) private var workspace
-    // The row's labels are the only language-dependent thing in its body, so reading the
-    // locale here is what makes SwiftUI re-render it on a language switch.
-    @Environment(\.locale) private var locale
-    let page: SettingsPage
-
-    private var isSelected: Bool {
-        // Compared through `drawerPage`, so Developer mode stays lit while its Key Packages
-        // destination is the open page — that page has no row of its own.
-        guard case .settings(let open) = workspace.selection else { return false }
-        return open.drawerPage == page
-    }
-
-    var body: some View {
-        // Glyph and title, nothing else: the prototype's hub states outright that it carries no
-        // explanatory subtitles, and a second line under every row is what stopped the ten rows
-        // from reading as a list you could scan.
-        //
-        // The glyph takes the same tint as the title in both states, which is `SettingsSidebarRowLabel`'s
-        // rule. It used to drop to `backgroundContentSecondary` when the row was unselected, and
-        // since nine of the ten rows are unselected at any moment that read as a drawer of
-        // disabled options. The fill behind the row is what says which one is open.
-        SettingsSidebarRowLabel(systemImage: page.systemImage, title: page.title(in: locale))
-            .background {
-                SettingsSidebarRowBackground(isSelected: isSelected)
-            }
-    }
-}
-
-/// The drawer's last row: leave the active account, on its own away from the destinations above it.
-///
-/// Isolated by the same argument the prototype's hub makes — a row that ends a session does not
-/// belong in a card of rows that open a page. It was once reachable only from inside the account
-/// switcher popover, where you had to open a list of identities to act on the one already active;
-/// with that popover gone this row is the only way out of an account.
-///
-/// It opens `SignOutSheet` rather than a `confirmationDialog`, and that sheet now owns removal too
-/// — a dialog cannot hold the wipe toggle, the note that rewrites itself, or the type-to-confirm
-/// field the destructive half needs. This is why the Profile Keys page no longer carries an
-/// Account Removal group: leaving an account and erasing it are one task with one switch in it.
-///
-/// Delete Profile shares the card, above Sign Out, the way `whitenoise-ios`'s Settings puts the
-/// two exits in one section. It opens a page (`SettingsPage.deleteProfile`) rather than the sheet:
-/// someone who came to delete their profile gets a row that says so and a page that spells out
-/// what goes, while the sheet's toggle stays the quick way to leave and erase at once.
-struct SettingsSignOutRow: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.locale) private var locale
-    @State private var isSigningOut = false
-
-    private var isDeleteProfileOpen: Bool {
-        workspace.selection == .settings(.deleteProfile)
-    }
-
-    var body: some View {
-        if let account = workspace.activeAccount {
-            SettingsSidebarGroupCard {
-                Button {
-                    workspace.showSettingsPage(.deleteProfile)
-                } label: {
-                    SettingsSidebarRowLabel(
-                        systemImage: SettingsPage.deleteProfile.systemImage,
-                        title: SettingsPage.deleteProfile.title(in: locale),
-                        tint: WNColor.backgroundContentDestructive
-                    )
-                    .background {
-                        SettingsSidebarRowBackground(isSelected: isDeleteProfileOpen)
+            Button(role: .destructive) {
+                switch action {
+                case .deleteLocally:
+                    actions.requestDeleteLocally(endingGroupIDs: endingGroupIds)
+                case .leave:
+                    let originAccountId = workspace.activeAccountId
+                    Task {
+                        guard workspace.activeAccountId == originAccountId else { return }
+                        await actions.requestLeave(endingGroupIDs: endingGroupIds)
                     }
                 }
-                .buttonStyle(.plain)
-                .disabled(workspace.isAccountMutationInProgress)
-
-                SettingsSidebarRowSeparator()
-
-                Button {
-                    isSigningOut = true
-                } label: {
-                    SettingsSidebarRowLabel(
-                        systemImage: "rectangle.portrait.and.arrow.right",
-                        title: L10n.string("Sign Out", locale: locale),
-                        tint: WNColor.backgroundContentDestructive
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(workspace.isAccountMutationInProgress)
+            } label: {
+                ChatRowMenuLabel(action: action == .leave ? .leave : .deleteLocally)
             }
-            .sheet(isPresented: $isSigningOut) {
-                SignOutSheet(account: account)
-            }
+            .disabled(!actions.canPerformDestructive(action, endingGroupIDs: endingGroupIds))
         }
     }
 }
@@ -1087,7 +740,6 @@ struct ChatRowContent: View {
     @Environment(\.locale) private var locale
     @Environment(\.timestampReferenceDate) private var timestampReferenceDate
     let chat: ChatItem
-    let isSelected: Bool
     var isPinned = false
     var searchResult: GlobalMessageSearchResult?
 
@@ -1109,10 +761,11 @@ struct ChatRowContent: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(chat.title)
-                        .wnFont(MessagesType.rowTitle)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                     // Precedence lives in `ChatRowStatus` so the badge and the row's
                     // destructive menu item are decided by one rule.
@@ -1131,11 +784,11 @@ struct ChatRowContent: View {
                     }
                     if chat.muted {
                         Image(systemName: "bell.slash.fill")
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                             .accessibilityLabel(L10n.string("Muted"))
                     }
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 6)
                     ChatTimestampText(
                         chat: chat,
                         timelineAt: searchResult?.timelineAt,
@@ -1143,15 +796,14 @@ struct ChatRowContent: View {
                         locale: locale
                     )
                     .equatable()
-                    // Monospaced digits, as the prototype sets this label: the timestamp is the
-                    // row's right edge, and proportional digits move that edge as the clock ticks.
-                    .wnFont(MessagesType.meta.monospacedDigit())
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    // Monospaced digits so the row's trailing edge stays steady as the clock ticks.
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
                 }
                 HStack(alignment: .top, spacing: 4) {
                     previewText
-                        .wnFont(MessagesType.preview)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     // The marker describes the message on this line, so it only appears when the
@@ -1170,14 +822,14 @@ struct ChatRowContent: View {
                         // different fill would read as a different kind of thing than the other.
                         if chat.hasMention {
                             Image(systemName: "at")
-                                .wnFont(.bold10)
+                                .font(.caption2.weight(.bold))
                                 .foregroundStyle(WNColor.fillContentPrimary)
-                                .frame(width: 18, height: 18)
+                                .frame(width: 19, height: 19)
                                 .background(Circle().fill(WNColor.fillPrimary))
                                 .help(L10n.string("You were mentioned"))
                         }
                         if chat.unreadCount > 0 {
-                            UnreadCountBadge(count: chat.unreadCount, textStyle: MessagesType.badge)
+                            UnreadCountBadge(count: chat.unreadCount)
                         } else {
                             Circle()
                                 .fill(WNColor.fillPrimary)
@@ -1188,11 +840,8 @@ struct ChatRowContent: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background {
-            MessagesSidebarRowBackground(isSelected: isSelected)
-        }
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 
@@ -1209,28 +858,13 @@ struct ChatRowContent: View {
             }
             return Self.attributedPreview(for: chat)
         }
-        // The sender names the Bold rung outright instead of taking `.bold()`: a rung carries its
-        // own weight, and `.bold()` on top of one is a weight the ladder no longer controls. The
-        // match takes the highlighter mark a match gets inside the conversation.
-        return Text(verbatim: "\(searchResult.senderName): ").wnFont(.bold12)
+        return Text(verbatim: "\(searchResult.senderName): ").font(.callout.weight(.semibold))
             + SearchMatchHighlightStyle.text(searchResult.snippet)
     }
 
-    /// The last-message line with the sender it is attributed to set in Bold, the way the
-    /// prototype's row draws it: **Maya** then what Maya said, so a group's traffic can be scanned
-    /// by who is talking without reading the messages.
-    ///
-    /// The prefix is recovered from the composed line rather than rebuilt from
-    /// `previewAttribution.publishedSenderName`, because the name on display may be a private
-    /// nickname that `relabelingPreviewSender` patched in — see `ChatItem.previewAttributionParts`.
-    ///
-    /// An attachment glyph belongs to the message, not to the attribution, so it follows the name
-    /// rather than leading the line. Everything stays inside one `Text` so the whole line wraps,
-    /// truncates and inherits the row's preview font and secondary style.
-    ///
-    /// A line of your own ("You: …") carries no attribution and so stays one plain run. That is the
-    /// right reading rather than a gap: the Bold run marks *who else* is talking, which is what a
-    /// group is scanned for, and "You" is never the answer to that question.
+    /// Recovers the sender prefix from the composed preview line rather than rebuilding it from
+    /// `publishedSenderName`, because a user's private contact nickname may have been patched into
+    /// the preview. A line of your own ("You: …") carries no attribution and stays one plain run.
     private static func attributedPreview(for chat: ChatItem) -> Text {
         let glyph: Text =
             chat.previewAttachmentKind.map { kind in
@@ -1240,97 +874,10 @@ struct ChatRowContent: View {
         guard let parts = chat.previewAttributionParts else {
             return glyph + Text(chat.preview)
         }
-        // The Bold rung is named outright rather than taken with `.bold()`: a rung carries its
-        // own weight, and `.bold()` on top of one is a weight the ladder no longer controls.
-        return Text(verbatim: parts.senderName).wnFont(.bold12)
+        return Text(verbatim: parts.senderName).font(.callout.weight(.semibold))
             + Text(verbatim: ": ")
             + glyph
             + Text(parts.body)
-    }
-}
-
-/// The chat row at the drawer's narrowest width: the avatar, and the one badge that says
-/// something is waiting on the reader.
-///
-/// This exists so the drawer never has to render a *truncated* row. Title, timestamp and
-/// preview are dropped wholesale rather than clipped — a group name cut mid-word tells the
-/// reader less than the avatar already does, and `ChatListWidthPolicy` snaps past the widths
-/// where that would be the only option.
-///
-/// Everything the row stops showing in words it still says on hover: the title, and "Muted"
-/// when the chat is, in the same `title — state` form the account rail uses.
-struct CollapsedChatRowContent: View {
-    let chat: ChatItem
-    let isSelected: Bool
-    var isPinned = false
-
-    private var rowStatus: ChatRowStatus? { ChatRowStatus.status(for: chat) }
-
-    private var hoverDescription: String {
-        chat.muted ? "\(chat.title) — \(L10n.string("Muted"))" : chat.title
-    }
-
-    var body: some View {
-        ProfileImageAvatarView(
-            seed: chat.avatarSeed,
-            initials: chat.title,
-            sanitizedPictureURL: chat.sanitizedPictureURL,
-            localImagePayload: chat.groupImagePayload,
-            size: MessagesLayout.chatRowAvatarSize,
-            isSelected: false
-        )
-        .overlay(alignment: .topTrailing) {
-            // Nudged onto the avatar's corner rather than centred over its face, the way the
-            // account rail places its own badge. The row's padding leaves room for it, so
-            // nothing is clipped.
-            badge
-                .offset(x: 3, y: -3)
-        }
-        // The other corner, so the pin never contends with the badge slot above. Moving the pin
-        // onto the avatar is what lets the collapsed row keep it at all — there is no title line
-        // here to put it beside.
-        .overlay(alignment: .bottomTrailing) {
-            if isPinned {
-                ChatAvatarPinBadge()
-            }
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
-        .background {
-            MessagesSidebarRowBackground(isSelected: isSelected)
-        }
-        .contentShape(.rect)
-        .help(hoverDescription)
-        .accessibilityLabel(hoverDescription)
-    }
-
-    /// One badge, in the rail's single badge slot, so it has to be the most urgent claim on the
-    /// reader rather than all of them: an unanswered invite, then a mention (which the bare count
-    /// beside it would not distinguish from ordinary traffic), then the count, then the
-    /// manually-marked-unread dot. The expanded row, which has the width for it, still shows the
-    /// mention pill and the count together.
-    @ViewBuilder
-    private var badge: some View {
-        if rowStatus == .pendingInvite {
-            PendingInviteBadge()
-        } else if chat.hasUnread {
-            if chat.hasMention {
-                Image(systemName: "at")
-                    .wnFont(.bold10)
-                    .foregroundStyle(WNColor.fillContentPrimary)
-                    .frame(width: 18, height: 18)
-                    .background(Circle().fill(WNColor.fillPrimary))
-                    .accessibilityLabel(L10n.string("You were mentioned"))
-            } else if chat.unreadCount > 0 {
-                UnreadCountBadge(count: chat.unreadCount, textStyle: MessagesType.badge)
-            } else {
-                Circle()
-                    .fill(WNColor.fillPrimary)
-                    .frame(width: 9, height: 9)
-                    .accessibilityLabel(L10n.string("Marked unread"))
-            }
-        }
     }
 }
 
@@ -1400,7 +947,7 @@ private struct ChatTimestampText: View, Equatable {
 struct PendingInviteBadge: View {
     var body: some View {
         Image(systemName: "plus")
-            .wnFont(.bold10)
+            .font(.caption2.weight(.bold))
             .foregroundStyle(WNColor.fillContentPrimary)
             .frame(width: 18, height: 18)
             .background(Circle().fill(WNColor.fillPrimary))
@@ -1412,7 +959,7 @@ struct PendingInviteBadge: View {
 struct LeavingGroupBadge: View {
     var body: some View {
         Label(L10n.string("Leaving"), systemImage: "hourglass")
-            .wnFont(.semiBold10)
+            .font(.caption2.weight(.semibold))
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -1438,16 +985,18 @@ private struct ChatListSearchFailedState: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: 12) {
-            WNEmptyStateView(
-                title: L10n.string("Search couldn't be completed.", locale: locale),
+        ContentUnavailableView {
+            Label(
+                L10n.string("Search couldn't be completed.", locale: locale),
                 systemImage: "magnifyingglass"
             )
+        } actions: {
             Button(L10n.string("Try Again", locale: locale), action: retry)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .controlSize(.small)
                 .accessibilityIdentifier("chat.search.retry")
         }
+        .controlSize(.small)
     }
 }
 
@@ -1466,8 +1015,8 @@ private struct ChatListSearchTruncatedNote: View {
                 locale: locale
             )
         )
-        .wnFont(.medium12)
-        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .font(.caption)
+        .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
@@ -1482,11 +1031,8 @@ private struct ChatListSearchTruncatedNote: View {
 }
 
 #Preview("ChatSidebarRowContent") {
-    VStack(alignment: .leading, spacing: 12) {
-        ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, isCollapsed: false, searchResult: nil)
-        ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, isCollapsed: true, searchResult: nil)
-    }
-    .padding()
-    .frame(width: 320)
-    .environment(WorkspaceState.preview())
+    ChatSidebarRowContent(chat: ChatItem.samples[0], isArchived: false, searchResult: nil)
+        .padding()
+        .frame(width: 320)
+        .environment(WorkspaceState.preview())
 }

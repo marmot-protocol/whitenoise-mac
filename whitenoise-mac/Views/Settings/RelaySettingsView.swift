@@ -54,7 +54,10 @@ struct RelaySettingsView: View {
                 }
             }
         }
-        .task { await model.load() }
+        .task(id: ObjectIdentifier(model)) { await model.load() }
+        .onChange(of: ObjectIdentifier(model)) { _, _ in
+            openRelayID = nil
+        }
     }
 }
 
@@ -86,7 +89,7 @@ struct RelayListSettingsView: View {
             ) {
                 if endpoints.isEmpty {
                     Text(L10n.string("No relays configured."))
-                        .wnFont(.medium12)
+                        .font(.subheadline)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 } else {
                     ForEach(endpoints) { relay in
@@ -119,18 +122,24 @@ struct RelayListSettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                         Text(L10n.string("Publishing relay lists..."))
-                            .wnFont(.medium12)
+                            .font(.subheadline)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
             }
 
             if let error = model.error?.message {
-                SettingsErrorView(error: error)
+                SettingsSection {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                        .textSelection(.enabled)
+                }
             }
         }
         .sheet(isPresented: $isAddRelayPresented) {
             AddRelaySheet(model: model)
+                .id(ObjectIdentifier(model))
         }
         .confirmationDialog(
             L10n.string("Restore default relays?"),
@@ -156,6 +165,7 @@ struct RelayListSettingsView: View {
     RelaySettingsView(
         model: RelaySettingsViewModel(accountRef: "preview", runtime: nil)
     )
+    .environment(WorkspaceState.preview())
     .frame(width: 760, height: 640)
 }
 
@@ -174,7 +184,7 @@ struct RelayAttentionRow: View {
                 Text(L10n.string("Relays need attention"))
 
                 Text(summary)
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -211,7 +221,7 @@ struct RelayEndpointRow: View {
 
                         if relay.isInsecure {
                             Image(systemName: "lock.open.trianglebadge.exclamationmark")
-                                .wnFont(.semiBold10)
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(WNColor.intentionWarningContent)
                         }
                     }
@@ -228,7 +238,7 @@ struct RelayEndpointRow: View {
                 RelayPublishStateBadge(state: relay.publishState)
 
                 Image(systemName: "chevron.right")
-                    .wnFont(.semiBold10)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(
                         isHovering ? WNColor.backgroundContentSecondary : WNColor.backgroundContentTertiary)
             }
@@ -270,7 +280,7 @@ struct RelayPublishStateBadge: View {
                 .accessibilityHidden(true)
         case .notPublished:
             Label(state.label, systemImage: state.symbol)
-                .wnFont(.medium10)
+                .font(.caption.weight(.medium))
                 .foregroundStyle(WNColor.intentionWarningContent)
                 .accessibilityHidden(true)
         }

@@ -10,9 +10,19 @@ final class AgentSettingsViewModel {
         publicNpub = account.npub
     }
 
+    private init(publicNpub: String?) {
+        self.publicNpub = publicNpub
+    }
+
     static func preview() -> AgentSettingsViewModel {
         AgentSettingsViewModel(account: AccountItem.samples[0])
     }
+
+    #if DEBUG
+        static func preview(publicNpub: String?) -> AgentSettingsViewModel {
+            AgentSettingsViewModel(publicNpub: publicNpub)
+        }
+    #endif
 }
 
 nonisolated enum AIAgentConnector: String, CaseIterable, Identifiable {

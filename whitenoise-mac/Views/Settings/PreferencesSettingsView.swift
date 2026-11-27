@@ -97,7 +97,7 @@ struct LaunchAtLoginStatusRows: View {
             Button(L10n.string("Open Login Items Settings")) {
                 controller.openSystemSettings()
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
 
         case .notFound:
             SettingsStatusNote(
@@ -127,7 +127,7 @@ struct QuickReactionsSettingsSection: View {
                         quickReactionBeingReplaced = index
                     } label: {
                         Text(emoji)
-                            .wnFont(.medium24)
+                            .font(.title2)
                             .frame(width: 38, height: 32)
                             .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 8))
                     }
@@ -174,7 +174,7 @@ struct QuickReactionsSettingsSection: View {
             Button(L10n.string("Restore defaults")) {
                 workspace.restoreDefaultQuickReactions()
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(workspace.quickReactions == ChatReactionDefaults.quick)
         }
     }
@@ -197,4 +197,10 @@ struct QuickReactionsSettingsSection: View {
             }
         )
     }
+}
+
+#Preview("Preferences settings") {
+    PreferencesSettingsView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 560, height: 640)
 }

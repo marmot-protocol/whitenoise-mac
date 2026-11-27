@@ -88,6 +88,7 @@
                 relay: true
             ),
         ]
+        var attachmentDownloadPolicyError: Error?
         var attachmentPolicy = AttachmentDownloadPolicyFfi(
             automatic: false,
             retainedBytes: 2 * 1_024 * 1_024 * 1_024,
@@ -101,9 +102,13 @@
         /// Served in order before falling back to `attachmentHistoryPageResult`, for multi-page reads.
         var attachmentHistoryPageQueue: [AttachmentPageReadFfi] = []
         private(set) var attachmentHistoryPageReadCount = 0
+        var attachmentHistoryPageHook: (@Sendable () async -> Void)?
         var attachmentLocalAssetResults: [AttachmentLocalAssetFfi] = []
+        var attachmentLocalAssetsHook: (@Sendable () async -> Void)?
         var attachmentTransferSnapshots: [AttachmentTransferSnapshotFfi] = []
         var attachmentTransferDelayNanoseconds: UInt64 = 0
+        private(set) var attachmentTransferSubscriptionCount = 0
+        private(set) var attachmentTransferCancellationCount = 0
         var automaticAttachmentResult = AutomaticAttachmentRequestFfi(
             status: AttachmentTransferStatusFfi(
                 reference: nil, state: .notRequested, attempt: 0, received: 0, total: nil, retryAt: nil
@@ -207,6 +212,7 @@
         private(set) var syncStickerPacksCallCount = 0
         /// Packs `fetchStickerPack` resolves, keyed by the pasted input.
         var fetchableStickerPacks: [String: StickerPackFfi] = [:]
+        var onFetchStickerPack: (@Sendable (String) async -> Void)?
         var stickerPackActionError: Error?
         /// Coordinates whose install throws `StickerNotFound`, as an unreachable relay would.
         var failingStickerInstalls: Set<String> = []
@@ -370,6 +376,8 @@
         private(set) var createdGroupName: String?
         private(set) var createdGroupDescription: String?
         /// The founding picture of the last group created through `createGroupWithInitialImage`.
+        /// Recorded only when a group was created: a create that adds nobody leaves it untouched, as
+        /// MDK founds nothing to carry the picture.
         private(set) var createdGroupInitialImage: InitialGroupImageFfi?
         /// Member refs MDK finds no published KeyPackage for, valued by the account id hex it reports.
         /// Since 0.17 `createGroup` and `inviteMembersDetailed` report each as a `missingKeyPackage`
@@ -1066,6 +1074,13 @@
         var listAccountsError: Error?
         /// Returned by `listAccounts` while set, in place of what is stored: a read that lags MDK.
         var listedAccountsOverride: [AccountSummaryFfi]?
+        private let listAccountsGate = BlockingFfiGate()
+        var listAccountsGateEnabled: Bool {
+            get { listAccountsGate.isEnabled }
+            set { listAccountsGate.isEnabled = newValue }
+        }
+        var didReachListAccountsGate: Bool { listAccountsGate.didReach }
+        func releaseListAccountsGate() { listAccountsGate.release() }
 
         /// Tests do not call this: the test target's convenience initialiser picks a storage root
         /// isolated to the running test (`TestStorageRoot`).
@@ -1093,6 +1108,7 @@
 
         func listAccounts() throws -> [AccountSummaryFfi] {
             recordSyncCall("listAccounts")
+            listAccountsGate.passIfArmed()
             if let listAccountsError { throw listAccountsError }
             return listedAccountsOverride ?? storedAccounts
         }
@@ -1817,7 +1833,8 @@
         }
 
         func attachmentDownloadPolicy(accountRef: String) async throws -> AttachmentDownloadPolicyFfi {
-            attachmentPolicy
+            if let error = attachmentDownloadPolicyError { throw error }
+            return attachmentPolicy
         }
 
         func setAttachmentDownloadPolicy(accountRef: String, policy: AttachmentDownloadPolicyFfi) async throws {
@@ -1840,6 +1857,9 @@
             accountRef: String, groupIdHex: String, limit: UInt32, cursor: AttachmentHistoryCursor?
         ) async throws -> AttachmentPageReadFfi {
             attachmentHistoryPageReadCount += 1
+            if let hook = attachmentHistoryPageHook {
+                await hook()
+            }
             if !attachmentHistoryPageQueue.isEmpty { return attachmentHistoryPageQueue.removeFirst() }
             return attachmentHistoryPageResult
         }
@@ -1847,6 +1867,9 @@
         func attachmentLocalAssets(
             accountRef: String, groupIdHex: String, targets: [AttachmentLocalTargetFfi]
         ) async throws -> [AttachmentLocalAssetFfi] {
+            if let hook = attachmentLocalAssetsHook {
+                await hook()
+            }
             if attachmentLocalAssetResults.isEmpty {
                 return targets.map { _ in AttachmentLocalAssetFfi(reference: nil, byteCount: 0) }
             }
@@ -1862,7 +1885,8 @@
         func subscribeAttachmentTransfers(
             accountRef: String, groupIdHex: String, targets: [AttachmentLocalTargetFfi]
         ) async throws -> AttachmentTransferSubscription {
-            FakeAttachmentTransferSubscription(
+            attachmentTransferSubscriptionCount += 1
+            return FakeAttachmentTransferSubscription(
                 snapshots: attachmentTransferSnapshots,
                 updateDelayNanoseconds: attachmentTransferDelayNanoseconds
             )
@@ -1875,6 +1899,7 @@
         }
 
         func cancelAttachmentTransfers(subscription: AttachmentTransferSubscription) {
+            attachmentTransferCancellationCount += 1
             subscription.cancel()
         }
 
@@ -1959,12 +1984,30 @@
             return ChatStoragePageFfi(chats: Array(chatStorageUsage.prefix(Int(limit))), nextCursor: nil)
         }
 
+        private final class FakeRetainedAttachmentsCursor: RetainedAttachmentsCursor, @unchecked Sendable {
+            let offset: Int
+
+            init(offset: Int) {
+                self.offset = offset
+                super.init(noPointer: .init())
+            }
+
+            @available(*, unavailable)
+            required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+                fatalError("FakeRetainedAttachmentsCursor is test-only")
+            }
+        }
+
         func largestRetainedAttachments(
             accountRef: String, groupIdHex: String?, limit: UInt32, cursor: RetainedAttachmentsCursor?
         ) async throws -> RetainedAttachmentsPageFfi {
             largestRetainedAttachmentReads.append(groupIdHex)
             let matching = retainedAttachmentSummaries.filter { groupIdHex == nil || $0.groupIdHex == groupIdHex }
-            return RetainedAttachmentsPageFfi(attachments: Array(matching.prefix(Int(limit))), nextCursor: nil)
+            let start = min((cursor as? FakeRetainedAttachmentsCursor)?.offset ?? 0, matching.count)
+            let end = min(start + Int(limit), matching.count)
+            let next: RetainedAttachmentsCursor? =
+                end < matching.count ? FakeRetainedAttachmentsCursor(offset: end) : nil
+            return RetainedAttachmentsPageFfi(attachments: Array(matching[start..<end]), nextCursor: next)
         }
 
         func removeChatAttachments(accountRef: String, groupIdHex: String) async throws -> UInt64 {
@@ -2130,6 +2173,9 @@
         }
 
         func fetchStickerPack(accountRef: String, input: String) async throws -> StickerPackFfi {
+            if let onFetchStickerPack {
+                await onFetchStickerPack(input)
+            }
             if let stickerPackActionError { throw stickerPackActionError }
             guard let pack = fetchableStickerPacks[input] ?? stickerPackStore.first(where: { $0.coordinate == input })
             else { throw MarmotKitError.StickerNotFound }
@@ -2570,10 +2616,10 @@
 
         func removeAccount(accountRef: String) async throws {
             removedAccountRefs.append(accountRef)
-            if let removeAccountError { throw removeAccountError }
             if let onRemoveAccountMidFlight {
                 await onRemoveAccountMidFlight(accountRef)
             }
+            if let removeAccountError { throw removeAccountError }
             storedAccounts.removeAll { $0.label == accountRef }
         }
 
@@ -2678,6 +2724,33 @@
                 groups[index].imageHashHex = imageHashHex
             }
             groupDetailsById[groupIdHex]?.group.imageHashHex = imageHashHex
+            // Served back the way `updateGroupImage` serves a changed picture, so the created row
+            // resolves the founding bytes through `readAvatarAssets` like any other group image.
+            let reference = "avatar:\(groupIdHex):\(imageHashHex)"
+            let byteCount = UInt64(initialImage.plaintext.count)
+            avatarAssets.removeAll { $0.target == groupIdHex }
+            avatarAssets.append(
+                AvatarAssetFfi(
+                    target: groupIdHex,
+                    reference: reference,
+                    availability: .ready,
+                    acquisition: nil,
+                    contentRevision: 1,
+                    byteCount: byteCount
+                ))
+            avatarBytes.removeAll { $0.reference == reference }
+            avatarBytes.append(
+                AvatarBytesFfi(
+                    reference: reference,
+                    availability: .ready,
+                    contentRevision: 1,
+                    byteCount: byteCount,
+                    deferred: false,
+                    bytes: initialImage.plaintext,
+                    mediaType: initialImage.mediaType,
+                    width: 1,
+                    height: 1
+                ))
             return result
         }
 

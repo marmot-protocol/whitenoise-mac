@@ -156,7 +156,7 @@ struct ReactionEmojiGlyph: View {
             pending: ["party"]
         )
     )
-    .wnFont(.medium16)
+    .font(MessageTypography.body)
     .padding()
     .frame(width: 320)
 }

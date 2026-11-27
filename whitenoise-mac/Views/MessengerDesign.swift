@@ -53,10 +53,8 @@ struct AvatarChromeModifier: ViewModifier {
     static let neutralRing = WNColor.borderTertiary
 
     /// How much the selected avatar grows. Size is the affordance that reads in both appearances,
-    /// so it carries selection on its own where the ring cannot. Kept small enough that the account
-    /// rail's avatar still fits inside its frame (`accountRailAvatarSize` inside
-    /// `accountRailAvatarFrameSize`), and applied as a scale so no neighbour is pushed around when
-    /// the selection moves.
+    /// so it carries selection on its own where the ring cannot, and is applied as a scale so no
+    /// neighbour is pushed around when the selection moves.
     static let selectedScale: CGFloat = 1.15
 
     /// Blur radius of the drop shadow. Named because `overhang(forAvatarSize:)` has to add it —
@@ -69,9 +67,7 @@ struct AvatarChromeModifier: ViewModifier {
     /// Both effects draw beyond the frame they are applied to, so an avatar seated flush against
     /// a clipping container's edge loses that much of its ring — a circle with a flat side, which
     /// is what it looks like rather than a subtle one. Any container that clips (a `ScrollView`,
-    /// a `clipShape`) has to leave this much slack around an avatar on its edge. The account rail
-    /// buys the slack with a bigger frame (`accountRailAvatarSize` inside
-    /// `accountRailAvatarFrameSize`).
+    /// a `clipShape`) has to leave this much slack around an avatar on its edge.
     static func overhang(forAvatarSize size: CGFloat) -> CGFloat {
         size * (selectedScale - 1) / 2 + shadowRadius
     }
@@ -81,8 +77,10 @@ struct AvatarChromeModifier: ViewModifier {
         if isEnabled {
             content
                 .overlay {
-                    Circle()
-                        .strokeBorder(strokeColor, lineWidth: isSelected ? 3 : 1)
+                    if isSelected {
+                        Circle()
+                            .strokeBorder(strokeColor, lineWidth: 3)
+                    }
                 }
                 .shadow(color: WNColor.shadow.opacity(0.1), radius: Self.shadowRadius, y: 1)
                 .scaleEffect(isSelected ? Self.selectedScale : 1)
@@ -212,37 +210,120 @@ nonisolated enum MessagesPalette {
     }
 }
 
+/// Which text bubble a view is drawn on, and the foreground set that goes with it (F02, T02, T07).
+///
+/// Everything drawn inside a text bubble takes its color from here: body, footer metadata, the
+/// quoted-reply inset and its text, links, and Markdown's secondary runs. A role from the window's
+/// own family looks right on one bubble and fails on the other, because the sent bubble inverts
+/// against the window and the received one does not.
+///
+/// The received bubble uses native roles (`secondarySystemFill`, `labelColor`,
+/// `secondaryLabelColor`, `systemFill`, `linkColor`). The sent bubble keeps the inverted primary
+/// fill and its paired content, with its secondary roles crossing over the same way.
+/// Rich message cards (polls, unsupported events, link/Nostr previews) and attachment rows share
+/// these same roles across both polarities (#1113).
+nonisolated enum MessageBubblePolarity: Hashable, Sendable {
+    case sent
+    case received
+
+    init(isOutgoing: Bool) {
+        self = isOutgoing ? .sent : .received
+    }
+
+    var fill: Color { Color(nsColor: nsFill) }
+
+    /// The body text and any glyph that has to read at full strength.
+    var content: Color { Color(nsColor: nsContent) }
+
+    /// Footer metadata, the quoted body, a deleted message's label, and Markdown's quieter runs.
+    var secondaryContent: Color { Color(nsColor: nsSecondaryContent) }
+
+    var quoteFill: Color { Color(nsColor: nsQuoteFill) }
+
+    var link: Color { Color(nsColor: nsLink) }
+
+    /// The single dynamic `NSColor` mapping for each bubble role, shared by both SwiftUI views
+    /// (via `Color(nsColor:)`) and contrast tests.
+    var nsFill: NSColor {
+        switch self {
+        case .sent: WNNSColor.fillPrimary
+        case .received: WNNSColor.messageReceivedFill
+        }
+    }
+
+    var nsContent: NSColor {
+        switch self {
+        case .sent: WNNSColor.fillContentPrimary
+        case .received: WNNSColor.textPrimary
+        }
+    }
+
+    var nsSecondaryContent: NSColor {
+        switch self {
+        case .sent: WNNSColor.messageSentSecondaryContent
+        case .received: WNNSColor.messageReceivedSecondaryContent
+        }
+    }
+
+    var nsQuoteFill: NSColor {
+        switch self {
+        case .sent: WNNSColor.messageSentQuoteFill
+        case .received: WNNSColor.messageReceivedQuoteFill
+        }
+    }
+
+    var nsLink: NSColor {
+        switch self {
+        case .sent: WNNSColor.messageSentLink
+        case .received: WNNSColor.messageReceivedLink
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// The bubble the text below is drawn on, set by `MessageBubble` around its text content. Nil
+    /// outside a bubble, where text keeps the window's roles.
+    @Entry var messageBubblePolarity: MessageBubblePolarity? = nil
+}
+
+/// The native text styles of a chat message (F04, T02). Every caller that draws a message's text
+/// or reserves room for it reads its style from here, so the visible footer and the transparent
+/// copy that reserves its width on the last line use the same font. The transcript measures each
+/// row through SwiftUI at the column width, so these sizes and the cached row heights always agree.
+nonisolated enum MessageTypography {
+    static let body: Font = .body
+    static let bodySemibold: Font = .body.weight(.semibold)
+    static let senderName: Font = .callout.weight(.medium)
+    static let footer: Font = .caption
+    static let quoteSender: Font = .callout.weight(.semibold)
+    static let quoteBody: Font = .callout
+    static let dayDivider: Font = .subheadline.weight(.semibold)
+}
+
+/// Shared color roles for cards embedded inside a message bubble (link previews, Nostr event
+/// previews), falling back to standard surface tokens when rendered outside a bubble (#1113).
+nonisolated struct MessageEmbeddedCardPalette {
+    let polarity: MessageBubblePolarity?
+
+    var surfaceFill: Color { polarity?.quoteFill ?? WNColor.backgroundPrimary }
+    var primaryContent: Color { polarity?.content ?? WNColor.textPrimary }
+    var secondaryContent: Color { polarity?.secondaryContent ?? WNColor.messageReceivedSecondaryContent }
+    var imageSlotFill: Color { polarity.map { $0.content.opacity(0.08) } ?? WNColor.fillSecondary }
+    var hairlineStroke: Color { polarity.map { $0.content.opacity(0.12) } ?? WNColor.borderTertiary }
+}
+
 /// Surface for the non-visual attachment rows: the audio player, the download/failed status rows,
 /// and the document row.
 ///
 /// Unlike the reply quote, these rows sit *beside* the bubble in `MessageBubble`'s stack rather than
 /// inside it, so they never inherit `BubbleBackground`'s fill and have to bring their own.
 nonisolated enum AttachmentRowPalette {
-    /// The same fill the sent bubble uses, which is what `outgoingContent` is drawn for.
-    ///
-    /// It has to stay **opaque**. A translucent wash composites against whatever is behind the
-    /// row, and what is behind it is the window background: dark in dark appearance, light in light
-    /// appearance. That is how sent voice notes and documents came to render white-on-white and
-    /// vanish in light mode while looking correct in dark.
-    static let outgoingFill = MessagesPalette.sentBubble
-
-    /// Received rows take the received bubble's fill, so an attachment row reads as part of the
-    /// same message as the bubble above it.
-    static let incomingFill = MessagesPalette.receivedBubble
-
-    /// The row's content — play button, waveform, detail text. Paired with the fill above, which
-    /// matters more here than anywhere else in the app: both fills invert between appearances, so a
-    /// literal `.white` (what these rows used to draw) is correct in exactly one of the four
-    /// combinations.
-    static let outgoingContent = MessagesPalette.sentBubbleContent
-    static let incomingContent = MessagesPalette.receivedBubbleContent
-
     static func fill(isOutgoing: Bool) -> Color {
-        isOutgoing ? outgoingFill : incomingFill
+        Color(nsColor: nsFill(isOutgoing: isOutgoing))
     }
 
     static func content(isOutgoing: Bool) -> Color {
-        isOutgoing ? outgoingContent : incomingContent
+        Color(nsColor: nsContent(isOutgoing: isOutgoing))
     }
 
     /// The disc behind a play/status glyph, and the unplayed waveform. Derived from the row's own
@@ -276,25 +357,31 @@ nonisolated enum AttachmentRowPalette {
         content(isOutgoing: isOutgoing).opacity(waveformPlayedBarOpacity)
     }
 
-    /// Detail text inside an attachment row — file size, duration.
-    ///
-    /// Derived from the row's own content, like every other value here, because the fill it is
-    /// drawn on is the row's — not the window's. The flat `backgroundContentTertiary` this used to
-    /// be is a *background* token, and pairing it with a bubble fill is the crossover this palette
-    /// exists to prevent: it measured 7.85:1 on the outgoing bubble in light appearance and 2.31:1
-    /// on the incoming one, the same label failing in one place and shouting in another.
+    /// Detail text inside an attachment row — file size, duration — stepped back from the row's
+    /// primary content at 0.72 opacity so both outgoing and incoming rows clear WCAG AA 4.5:1
+    /// contrast in both appearances.
     static let detailContentOpacity = 0.72
 
+    static func nsFill(isOutgoing: Bool) -> NSColor {
+        MessageBubblePolarity(isOutgoing: isOutgoing).nsFill
+    }
+
+    static func nsContent(isOutgoing: Bool) -> NSColor {
+        MessageBubblePolarity(isOutgoing: isOutgoing).nsContent
+    }
+
+    static func nsDetailContent(isOutgoing: Bool) -> NSColor {
+        NSColor(name: nil) { _ in
+            nsContent(isOutgoing: isOutgoing).withAlphaComponent(detailContentOpacity)
+        }
+    }
+
     static func detailContent(isOutgoing: Bool) -> Color {
-        content(isOutgoing: isOutgoing).opacity(detailContentOpacity)
+        Color(nsColor: nsDetailContent(isOutgoing: isOutgoing))
     }
 }
 
 enum MessagesLayout {
-    static let accountRailWidth: CGFloat = 80
-    static let accountRailControlSize: CGFloat = 44
-    static let accountRailAvatarSize: CGFloat = 46
-    static let accountRailAvatarFrameSize: CGFloat = 58
     /// Room a top-of-window header leaves for the traffic lights, which float over the content
     /// in a `.hiddenTitleBar` window.
     static let sidebarTitlebarTopPadding: CGFloat = 42
@@ -311,29 +398,17 @@ enum MessagesLayout {
     /// again on the far side. Centred notice content is held out of it so a narrow window
     /// slides the text right rather than under the buttons.
     static let windowTrafficLightZoneWidth: CGFloat = 78
-    static let chatRowAvatarSize: CGFloat = 46
-    /// The active profile's avatar in Settings' first card.
+    static let chatRowAvatarSize: CGFloat = 38
+    /// The active profile's avatar in Settings' sidebar.
     ///
-    /// Deliberately the same value as `chatRowAvatarSize` and `accountRailAvatarSize`: those three
-    /// are the app's identity rows, and an identity should not be a different size depending on
-    /// which list it is standing in. It was 34pt, which made the one row about *you* the smallest
-    /// avatar on screen — `wn-ios-prototype`'s hub gives the same row its largest (56pt on a 393pt
-    /// iPhone; 46 on this 250–300pt drawer is the same share of the width).
-    static let settingsProfileAvatarSize: CGFloat = 46
-    /// Grab width of the drawer's resize handle. The divider itself stays 1pt in layout —
-    /// the grab area is an overlay, so widening it never opens a gutter between the drawer
-    /// and the detail pane; it only reaches a few points into each.
-    static let chatListResizeGrabWidth: CGFloat = 11
-    static let chatListResizeGrabberHeight: CGFloat = 34
+    /// Deliberately the same value as `chatRowAvatarSize`: those are the app's identity rows, and
+    /// an identity should not be a different size depending on which list it is standing in.
+    static let settingsProfileAvatarSize: CGFloat = 38
     /// Footprint of `GlassCircleCloseButton`. Named because a pane header has to reserve the
     /// same width on the opposite side to keep its title centred in the pane.
     static let circleControlSize: CGFloat = 28
-    /// The group's avatar at the top of group info — the size `ProfileIdentityHeaderView` gives
-    /// your own, since both are the one identity a page is about.
-    static let groupDetailsAvatarSize: CGFloat = 96
-    /// The round buttons in group info's quick-action row. Larger than `circleControlSize`
-    /// because each is a primary action with a caption, not chrome beside a title.
-    static let groupDetailsQuickActionSize: CGFloat = 40
+    /// The group's avatar at the top of group info.
+    static let groupDetailsAvatarSize: CGFloat = 72
 
     /// Top padding for a header on the window's top edge, given whether a window-level notice
     /// band is already there holding the traffic lights.
@@ -371,13 +446,14 @@ struct MessagesSearchField: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .wnFont(.semiBold12)
-                .foregroundStyle(WNColor.backgroundContentTertiary)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .font(.body)
+                .foregroundStyle(.primary)
                 .focused($isFocused)
                 // Searches take names, npubs and pasted keys: a correction or a capitalized first
                 // letter offered over "npub1…" is never what the user meant.
@@ -390,10 +466,10 @@ struct MessagesSearchField: View {
                     isFocused = true
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .wnFont(.medium12)
-                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .help(L10n.string("Clear search"))
             }
         }
@@ -445,87 +521,32 @@ struct MessagesCircleControlBackground: View {
     }
 }
 
-/// The selected chat row in the sidebar. `fillTertiaryHover` is the ghost control's pointed-at
-/// fill — one neutral step off the surface — which is what the other clients highlight a selected
-/// list row with. An unselected row draws nothing at all, since `fillTertiary` is transparent.
-struct MessagesSidebarRowBackground: View {
-    let isSelected: Bool
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(isSelected ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
-    }
-}
-
 struct MessagesSearchFieldBackground: View {
     var body: some View {
         Capsule(style: .continuous)
-            .fill(WNColor.backgroundPrimary)
+            .fill(Color(nsColor: .quaternarySystemFill))
             .overlay {
                 Capsule(style: .continuous)
-                    .stroke(WNColor.borderTertiary, lineWidth: 1)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
             }
     }
 }
 
-/// The send button. `fillPrimary` when it can send, `fillDisabled` when it cannot — the same pair
-/// `WnButton.primary` uses, so the send control and a primary push button are the same button.
-struct MessagesSendButtonBackground: View {
-    let isEnabled: Bool
-
-    var body: some View {
-        Circle()
-            .fill(isEnabled ? WNColor.fillPrimary : WNColor.fillDisabled)
-    }
-}
-
-/// The send control, disc and glyph together, because the two are a pairing rather than two
-/// choices: the glyph on `fillPrimary` is `fillContentPrimary`, and the glyph on `fillDisabled` is
-/// `fillContentDisabled`. Naming the glyph's color is what the two call sites were missing — an
-/// unstyled one inherits the app-wide `backgroundContentPrimary`, which is near-black in light
-/// appearance and disappears into the near-black `fillPrimary` disc under it.
-struct MessagesSendButtonLabel: View {
-    let systemImage: String
-    /// Whether the composer can send right now. The disc stays filled while a send is in flight, so
-    /// the spinner is never drawn on the disabled gray.
-    let isEnabled: Bool
-    let isSending: Bool
-
-    private var isFilled: Bool { isEnabled || isSending }
-
-    var body: some View {
-        Group {
-            if isSending {
-                ProgressView()
-                    .controlSize(.small)
-                    // Spins inside the send button, so it takes the send button's content color
-                    // rather than a literal white.
-                    .tint(WNColor.fillContentPrimary)
-                    .scaleEffect(0.72)
-            } else {
-                Image(systemName: systemImage)
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(isFilled ? WNColor.fillContentPrimary : WNColor.fillContentDisabled)
-            }
-        }
-        .frame(width: 32, height: 32)
-        .background {
-            MessagesSendButtonBackground(isEnabled: isFilled)
-        }
-    }
-}
-
-/// The composer's text field: `backgroundPrimary` inside a `borderSecondary` hairline, matching
-/// `WnChatMessageInput` on the other clients. `borderSecondary` rather than `borderTertiary` because
-/// this is an editable field at rest, not a divider.
+/// The composer's text field: a Liquid Glass pill on macOS 26+ (material fallback on macOS 15.6)
+/// so scrolled transcript content refracts softly behind the floating composer.
 struct MessagesComposerFieldBackground: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(WNColor.backgroundPrimary)
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(WNColor.borderSecondary, lineWidth: 1)
-            }
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
+                }
+        }
     }
 }
 
@@ -554,62 +575,21 @@ struct GlassFill: View {
     }
 }
 
-/// The window's base surface, behind every pane.
-///
-/// This and the three below were the app's hardcoded grays — `#0E0E0F` / `#F9F9F6` and friends,
-/// values that existed nowhere else in White Noise. They are the neutral ramp now, which is what
-/// makes the mac app's chrome the same set of surfaces the other clients use rather than a
-/// look-alike.
+/// The window's base surface, behind every pane (F02/F03: native `windowBackgroundColor`).
 struct MessagesWindowBackground: View {
     var body: some View {
         Rectangle()
-            .fill(WNColor.backgroundSecondary)
+            .fill(Color(nsColor: .windowBackgroundColor))
             .ignoresSafeArea()
     }
 }
 
-/// The transcript, the detail panes, and the settings pages: the app's primary reading surface.
+/// The transcript, the detail panes, and the settings pages: native macOS window reading surface.
 struct MessagesTranscriptBackground: View {
     var body: some View {
         Rectangle()
-            .fill(WNColor.backgroundPrimary)
+            .fill(Color(nsColor: .windowBackgroundColor))
             .ignoresSafeArea()
-    }
-}
-
-/// The two sidebar columns. Both sit *off* the primary surface, one step further than the
-/// transcript, which is how the other clients separate navigation from content — the account
-/// rail takes the deeper of the two.
-struct MessagesSidebarBackground: View {
-    enum Level {
-        case rail
-        case drawer
-        /// The settings drawer, which is a grouped list rather than a list of chats.
-        ///
-        /// Its own level because a grouped list is only legible when its cards read as raised off
-        /// the background, and `.drawer`'s `backgroundSecondary` is one ramp step from the card
-        /// surface: `FAFAFA` under white in light, `0A0A0A` under black in dark. Stepping to
-        /// `backgroundTertiary` takes that to `F5F5F5`/`171717` — a tenth of the ramp in light,
-        /// which is the margin iOS's own grouped background keeps, and more than twice the
-        /// separation in dark. The chat drawer stays on `.drawer`: its rows are not carded, so it
-        /// wants the quieter backdrop.
-        case settingsDrawer
-    }
-
-    let level: Level
-
-    var body: some View {
-        Rectangle()
-            .fill(backgroundColor)
-            .ignoresSafeArea()
-    }
-
-    private var backgroundColor: Color {
-        switch level {
-        case .rail: WNColor.backgroundTertiary
-        case .drawer: WNColor.backgroundSecondary
-        case .settingsDrawer: WNColor.backgroundTertiary
-        }
     }
 }
 
@@ -617,13 +597,14 @@ struct MessagesSidebarBackground: View {
 struct MessagesHeaderBackground: View {
     var body: some View {
         Rectangle()
-            .fill(WNColor.backgroundPrimary)
+            .fill(Color(nsColor: .windowBackgroundColor))
     }
 }
 
 struct MessagesComposerBarBackground: View {
     var body: some View {
-        GlassFill(material: .ultraThinMaterial, darkOpacity: 0.42, lightOpacity: 0.2)
+        Rectangle()
+            .fill(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -645,12 +626,6 @@ struct GlassSeparator: View {
                 width: axis == .vertical ? 1 : nil,
                 height: axis == .horizontal ? 1 : nil
             )
-    }
-}
-
-struct GlassToolbarBackground: View {
-    var body: some View {
-        GlassFill(material: .ultraThinMaterial, darkOpacity: 0.24, lightOpacity: 0.34)
     }
 }
 
@@ -712,8 +687,10 @@ struct GlassCapsuleBackground: View {
         Capsule(style: .continuous)
             .fill(fill)
             .overlay {
-                Capsule(style: .continuous)
-                    .stroke(borderColor ?? WNColor.borderTertiary, lineWidth: 1)
+                if let borderColor {
+                    Capsule(style: .continuous)
+                        .stroke(borderColor, lineWidth: 1)
+                }
             }
     }
 }
@@ -754,7 +731,7 @@ struct MessageBubbleShape: Shape {
 struct ChatAvatarPinBadge: View {
     var body: some View {
         Image(systemName: "pin.fill")
-            .wnFont(.semiBold10)
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(WNColor.backgroundContentPrimary)
             .padding(3)
             .background {
@@ -773,6 +750,18 @@ struct ChatAvatarPinBadge: View {
 extension View {
     func menuLabelIcons() -> some View {
         labelStyle(.titleAndIcon)
+    }
+
+    /// Native macOS 26+ Liquid Glass floating control chrome with a clean material fallback on
+    /// macOS 15.6 (no hard dark ring around translucent controls).
+    @ViewBuilder
+    func wnFloatingGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+        } else {
+            background(.regularMaterial, in: shape)
+                .shadow(color: .black.opacity(0.14), radius: 6, y: 2)
+        }
     }
 
     func glassCard(
@@ -806,15 +795,6 @@ extension View {
     }
 
     @ViewBuilder
-    func nativeGlassProminentButtonStyle() -> some View {
-        if #available(macOS 26.0, *) {
-            self.buttonStyle(.glassProminent)
-        } else {
-            self.buttonStyle(.borderedProminent)
-        }
-    }
-
-    @ViewBuilder
     func nativeWindowGlassBackground() -> some View {
         if #available(macOS 26.0, *) {
             self
@@ -833,13 +813,13 @@ extension View {
 /// title, and glass gives it the emphasis of a filled control — so it takes `outline` instead:
 /// `MessagesCircleControlBackground`, the `WnIconButton.outline` disc this app already draws for
 /// the composer and account-rail controls. That puts every back affordance on the secondary tier,
-/// matching the settings header's chevron and `WNSecondaryButtonStyle`.
+/// matching the settings header's chevron and `.wnSecondaryButtonStyle()`.
 ///
 /// Note that circle control still strokes `borderTertiary`, which is the same value as its own
-/// `fillSecondary` in Dark Aqua — so its ring is invisible there. The push tier hit the same defect
-/// and answered it by dropping the ring altogether: `WNSecondaryButtonStyle` is raised now, not
-/// outlined. The demotion from glass holds either way; giving the discs a visible edge — or a lift
-/// — is a separate change, because it also restyles the composer and the account rail.
+/// `fillSecondary` in Dark Aqua — so its ring is invisible there. The push tier moved to native
+/// `.bordered` chrome (`.wnSecondaryButtonStyle()`). The demotion from glass holds either way; giving
+/// the discs a visible edge — or a lift — is a separate change, because it also restyles the
+/// composer and the account rail.
 struct GlassCircleCloseButton: View {
     enum Appearance {
         /// The glass disc. For a ✕ that dismisses and is meant to read as prominent.

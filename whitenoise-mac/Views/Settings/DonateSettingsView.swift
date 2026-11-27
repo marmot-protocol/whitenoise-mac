@@ -49,6 +49,19 @@ struct DonateSettingsView: View {
             }
 
             DonationMethodDetail(method: selectedMethod)
+
+            Link(destination: DonationMethod.cardDonationURL) {
+                HStack(spacing: 4) {
+                    Text(L10n.string("Or donate with a credit card"))
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption.weight(.semibold))
+                }
+                .font(.callout)
+            }
+            .pointerStyle(.link)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
+            .accessibilityIdentifier("settings.donate.card")
         }
     }
 }
@@ -63,11 +76,11 @@ private struct DonateIntroduction: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "heart")
-                .wnFont(.medium24)
+                .font(.title2)
                 .foregroundStyle(WNColor.backgroundContentPrimary)
 
             Text(L10n.string("Donate to White Noise"))
-                .wnFont(.semiBold16)
+                .font(.headline)
                 .foregroundStyle(WNColor.backgroundContentPrimary)
 
             Text(
@@ -75,7 +88,7 @@ private struct DonateIntroduction: View {
                     "As a 501(c)3 non-profit, White Noise exists solely for your privacy and freedom, not for profit. Your support keeps us independent and uncompromised."
                 )
             )
-            .wnFont(.medium14)
+            .font(.body)
             .foregroundStyle(WNColor.backgroundContentSecondary)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
@@ -122,11 +135,16 @@ private struct DonationMethodDetail: View {
             .padding(.top, 18)
 
             Text(method.addressLabel)
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .foregroundStyle(WNColor.backgroundContentTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
     }
+}
+
+#Preview("Donate settings") {
+    DonateSettingsView()
+        .frame(width: 560, height: 640)
 }

@@ -41,7 +41,9 @@ extension WorkspaceState {
             }
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            let message = UserFacingError.message(for: error)
+            lastError = message
+            setBackgroundStatus(message)
         }
     }
 
@@ -65,7 +67,9 @@ extension WorkspaceState {
             await reloadChats(forceFreshSnapshot: true)
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            let message = UserFacingError.message(for: error)
+            lastError = message
+            setBackgroundStatus(message)
         }
     }
 
@@ -82,7 +86,9 @@ extension WorkspaceState {
             await reloadChats(forceFreshSnapshot: true)
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            let message = UserFacingError.message(for: error)
+            lastError = message
+            setBackgroundStatus(message)
         }
     }
 
@@ -559,7 +565,6 @@ extension WorkspaceState {
 
         let chats = removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
         teardownRemovedChatPerChatState(groupIdHex: groupIdHex, accountId: account.id)
-        invalidateGlobalMessageSearch(clearQuery: false, restartIfPresented: true)
         invalidateSidebarMessageSearch(clearQuery: false, restart: true)
 
         guard wasSelected else { return }

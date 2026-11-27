@@ -176,27 +176,6 @@ struct PollTests {
                 == nil)
     }
 
-    // MARK: Optimistic overlay
-
-    @Test func firstLocalVoteAddsAParticipantAndAVote() {
-        let result = PollPresentation.applyingLocalSelection(["1"], to: Self.poll(votes: [2, 0, 1], participants: 3))
-        #expect(result.options.map(\.votes) == [2, 1, 1])
-        #expect(result.participants == 4)
-        #expect(result.localSelection == ["1"])
-    }
-
-    @Test func changedLocalVoteMovesTheVoteWithoutAddingAParticipant() {
-        let base = Self.poll(votes: [2, 1, 1], participants: 4, localSelection: ["1"])
-        let result = PollPresentation.applyingLocalSelection(["2"], to: base)
-        #expect(result.options.map(\.votes) == [2, 0, 2])
-        #expect(result.participants == 4)
-    }
-
-    @Test func overlayNeverUnderflowsAStaleZeroCount() {
-        let base = Self.poll(votes: [0, 0, 0], participants: 1, localSelection: ["0"])
-        #expect(PollPresentation.applyingLocalSelection(["1"], to: base).options.map(\.votes) == [0, 1, 0])
-    }
-
     // MARK: Deadline and results
 
     @Test func pollClosesAtItsDeadlineEvenWhenProjectedOpen() {
@@ -400,10 +379,7 @@ struct PollTests {
         for _ in 0..<100 where !gate.didReach { await Task.yield() }
 
         #expect(gate.didReach)
-        let shown = model.displayedPoll(poll, messageIdHex: "poll")
-        #expect(shown.localSelection == ["1"])
-        #expect(shown.options.map(\.votes) == [1, 1, 0])
-        #expect(shown.participants == 2)
+        #expect(model.pendingPollSelections["poll"] == ["1"])
 
         gate.release()
         try await vote.value
@@ -446,7 +422,6 @@ struct PollTests {
         second.release()
         await #expect(throws: Refused.self) { try await newer.value }
         #expect(model.pendingPollSelections["poll"] == nil)
-        #expect(model.displayedPoll(poll, messageIdHex: "poll") == poll)
     }
 
     /// The newer vote fails while the older one is still in flight: the older selection is what
@@ -485,7 +460,6 @@ struct PollTests {
         }
 
         #expect(model.pendingPollSelections["poll"] == nil)
-        #expect(model.displayedPoll(poll, messageIdHex: "poll") == poll)
     }
 
     @Test func aClosedPollIgnoresClicks() async throws {

@@ -16,6 +16,7 @@ final class AccountScope {
     let chatListModel: ChatListViewModel
     let chatListSelection: ChatListSelectionViewModel
     let chatListSearch: ChatListSearchViewModel
+    let globalMessageSearch: SidebarGlobalSearchViewModel
     let attentionModel: AccountAttentionViewModel
     let attachmentPolicy: AttachmentPolicyController
     let avatarAssets: AvatarAssetStore
@@ -60,7 +61,9 @@ final class AccountScope {
         attachmentsDidChange: @escaping @MainActor () async -> Void = {},
         removeAccount: DeleteProfileViewModel.RemoveAccount? = nil,
         groupDisbandHooks: GroupDisbandHooks = GroupDisbandHooks(),
-        chatsDidChange: @escaping @MainActor (ChatListBatchChanges) async -> Void = { _ in }
+        chatsDidChange: @escaping @MainActor (ChatListBatchChanges) async -> Void = { _ in },
+        globalMessageSearchScopes: @escaping @MainActor () -> [GlobalMessageSearchScope] = { [] },
+        globalMessageSearchNicknames: @escaping @MainActor () -> ContactNicknames = { .none }
     ) {
         let attachmentPolicy = AttachmentPolicyController(accountRef: account.accountRef, runtime: runtime)
         let blockedUsers = BlockedUsersViewModel(accountRef: account.accountRef, runtime: runtime)
@@ -94,6 +97,28 @@ final class AccountScope {
             chatsDidChange: chatsDidChange
         )
         self.chatListSearch = ChatListSearchViewModel(accountRef: account.accountRef, runtime: runtime)
+        let accountRef = account.accountRef
+        let localAccountId = account.accountIdHex
+        let localDisplayName = account.displayName
+        self.globalMessageSearch = SidebarGlobalSearchViewModel { query, checkCancellation in
+            let scopes = globalMessageSearchScopes()
+            let nicknames = globalMessageSearchNicknames()
+            return try await FFIExecutor.runCancellable { ffiCheckCancellation in
+                try GlobalMessageSearchEngine.search(
+                    client: runtime,
+                    accountRef: accountRef,
+                    localAccountId: localAccountId,
+                    localDisplayName: localDisplayName,
+                    nicknames: nicknames,
+                    scopes: scopes,
+                    query: query,
+                    checkCancellation: {
+                        try checkCancellation()
+                        try ffiCheckCancellation()
+                    }
+                )
+            }
+        }
         self.attentionModel = AccountAttentionViewModel(runtime: runtime)
         self.attachmentPolicy = attachmentPolicy
         self.avatarAssets = AvatarAssetStore(accountRef: account.accountRef, runtime: runtime)
@@ -148,11 +173,12 @@ final class AccountScope {
             [
                 chatListModel, attentionModel, blockedUsers, onboarding, historyNotices, recoveryStatus,
                 refusedIntents, productAnalytics, settingsModel, groupChangeAdvisory, moderationReporter, stickers,
-                emojiSets, chatListSelection, chatListSearch, deviceLinking
+                emojiSets, chatListSelection, chatListSearch, globalMessageSearch, deviceLinking
             ] in
             chatListModel.stop()
             chatListSelection.stop()
             chatListSearch.stop()
+            globalMessageSearch.stop()
             attentionModel.stop()
             blockedUsers.stop()
             onboarding.stop()

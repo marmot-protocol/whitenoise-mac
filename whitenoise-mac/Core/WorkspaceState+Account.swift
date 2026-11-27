@@ -146,32 +146,12 @@ extension WorkspaceState {
         withRememberedChatPreserved(outcome.preservesMemory) { selectChat(chat) }
     }
 
-    /// Switch identity from a control anchored inside Settings, landing on the settings page the
-    /// user is already reading rather than on a conversation.
-    ///
-    /// Reached from `ProfileChooserView`, which the detail pane shows after the active profile is
-    /// deleted or signed out of: Settings stays selected behind the chooser, so the pick lands back on the settings
-    /// page the deletion left. The account rail uses `selectAccount(_:)`, which lands on a chat.
+    /// Choose a signed-in identity when the previous account no longer drives the workspace.
+    /// The shell delivers any pending Settings destination to its own window.
     func selectAccountFromSettings(_ account: AccountItem) {
-        guard !account.signedOut else { return }
-        // The row for the already-active account is a no-op: a switch anchored to the settings
-        // page the user is already reading would tear the session down and rebuild it only to
-        // land back on the same screen.
-        guard account.id != activeAccountId else { return }
-        switchActiveAccount(account, finalSelection: settingsSelectionAfterAccountMutation)
-    }
-
-    /// Where to land after an account mutation hands the app a different active identity.
-    ///
-    /// Identity work lives at the top of Settings rather than on an Accounts page of its own, so
-    /// these paths stay in Settings: on the page the user was already reading (it is simply
-    /// re-answered for the new identity — `SettingsPanelView` reloads off `activeAccountId`), or
-    /// on the profile overview when the mutation came from the account rail instead.
-    var settingsSelectionAfterAccountMutation: WorkspaceSelection {
-        if case .settings(let page) = selection {
-            return .settings(page.pageAfterActiveAccountChange)
-        }
-        return .settings(.overview)
+        guard !account.signedOut, account.id != activeAccountId else { return }
+        switchActiveAccount(account, finalSelection: nil)
+        WorkspaceAccountPresentation.chooserSelectedAccount.post(from: self)
     }
 
     func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
@@ -195,7 +175,6 @@ extension WorkspaceState {
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
     ) {
-        dismissGlobalMessageSearch()
         invalidateSidebarMessageSearch(clearQuery: true)
         leaveActiveConversation()
         stopTimelineListener()
@@ -215,6 +194,10 @@ extension WorkspaceState {
         // Settings → Profile is showing account A's name in an open editor and a seal earned by
         // account A's address. Neither survives the switch: B's settings load writes the new draft,
         // and an edit session left open over it would let A's baseline be restored onto B.
+        // The web image picker is shared across profiles too, so close and clear it before B can
+        // inherit A's search or selected tile.
+        closeProfileImagePicker()
+        profileImageSearchQuery = ""
         resetProfileEditingState()
         closeNewChatComposer()
         resetComposeContacts()
@@ -321,9 +304,12 @@ extension WorkspaceState {
     /// more, the latter opening a popover instead of calling this — so the same row meant two
     /// different things depending on state the user had not thought about.
     ///
-    /// Deliberately leaves `selection` alone, so `leaveAccountOnboarding()` puts the user back on
-    /// the page they opened this from rather than somewhere merely plausible.
+    /// The existing conversation stays selected for Cancel. The Settings window owns the
+    /// originating page when the user entered from there.
     func showAccountOnboarding() {
+        // Stop any in-progress voice recording or live conversation state before onboarding
+        // replaces the messenger chrome (#311).
+        leaveActiveConversation()
         authenticationMode = .landing
         clearEnteredLoginIdentity()
         lastError = nil
@@ -351,12 +337,15 @@ extension WorkspaceState {
     /// rebuild and `activateReadyState()`'s reloads would be work done for a user who pressed
     /// cancel. What it does scrub is the key field, because Cancel is one of the exits #32 is
     /// about: a typed-but-unsubmitted nsec must not outlive the pane it was typed into.
-    func leaveAccountOnboarding() {
+    func leaveAccountOnboarding(returningToSettings: Bool = true) {
         guard canLeaveAccountOnboarding, !isAuthenticating else { return }
         authenticationMode = .landing
         clearEnteredLoginIdentity()
         lastError = nil
         phase = .ready
+        if returningToSettings {
+            WorkspaceAccountPresentation.cancelledAddProfile.post(from: self)
+        }
     }
 
     func cancelLogin() {
@@ -504,28 +493,30 @@ extension WorkspaceState {
     /// mode. Returns `nil` (and sets `lastError`) on failure.
     func revealActiveAccountNsec() async -> String? {
         guard let client, let activeAccount else { return nil }
+        let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
-        lastError = nil
+        setSettingsError(nil, accountId: accountId)
         do {
             return try await FFIExecutor.run { try client.revealNsec(accountRef: accountRef) }
         } catch {
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             return nil
         }
     }
 
     /// Export the active account's private key as a passphrase-encrypted NIP-49
-    /// `ncryptsec1…` string. Returns `nil` (and sets `lastError`) on failure.
+    /// `ncryptsec1…` string. Returns `nil` (and reports a Settings error) on failure.
     func exportActiveAccountEncryptedKey(passphrase: String) async -> String? {
         guard let client, let activeAccount else { return nil }
+        let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
-        lastError = nil
+        setSettingsError(nil, accountId: accountId)
         do {
             return try await FFIExecutor.run {
                 try client.exportEncryptedSecretKey(accountRef: accountRef, passphrase: passphrase)
             }
         } catch {
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             return nil
         }
     }
@@ -587,7 +578,7 @@ extension WorkspaceState {
             )
             return true
         } catch {
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: exportingAccount.id)
             return false
         }
     }
@@ -625,11 +616,46 @@ extension WorkspaceState {
     /// which then only clears it here. Either way its report is returned for the shell to show. An
     /// account the user signed out has nothing left to tell the network, so it is removed locally
     /// and returns nil.
-    @discardableResult
-    func removeAccount(_ account: AccountItem) async -> WipeOutcomeFfi? {
-        guard let client, !isAccountMutationInProgress else { return nil }
+    enum AccountRemovalErrorTarget {
+        case settings
+        case mainWindow
+        case none
+    }
 
-        lastError = nil
+    @discardableResult
+    func removeAccount(
+        _ account: AccountItem,
+        errorTarget: AccountRemovalErrorTarget = .settings,
+        postSettingsHandoff: Bool = true
+    ) async
+        -> WipeOutcomeFfi?
+    {
+        await removeAccountResult(
+            account,
+            errorTarget: errorTarget,
+            postSettingsHandoff: postSettingsHandoff
+        ).outcome
+    }
+
+    /// Removes `account` and returns both its wipe report and any failure message directly to the
+    /// caller, so Settings' Delete Profile flow never has to inspect or clear a shared error channel
+    /// that another profile may have written to while removal was in flight.
+    func removeAccountResult(
+        _ account: AccountItem,
+        errorTarget: AccountRemovalErrorTarget = .settings,
+        postSettingsHandoff: Bool = true
+    ) async -> (outcome: WipeOutcomeFfi?, errorMessage: String?) {
+        guard let client, !isAccountMutationInProgress else { return (nil, nil) }
+
+        let originAccountId = activeAccountId
+        switch errorTarget {
+        case .settings:
+            setSettingsError(nil, accountId: originAccountId)
+        case .mainWindow:
+            lastError = nil
+        case .none:
+            break
+        }
         isRemovingAccount = true
         defer { isRemovingAccount = false }
 
@@ -691,14 +717,12 @@ extension WorkspaceState {
             // selected an account from settings while this removal was in flight. Decide
             // recovery from the post-await state, not the pre-await `wasActive` snapshot,
             // so we never leave `activeAccountId`/UserDefaults pointing at a removed
-            // account. `needsActiveReset` is true if the removed account was driving the
-            // UI, or if the (possibly newly-selected) active account no longer exists.
+            // account. Reset only when the post-await active account is gone.
             let activeAccountInvalid =
                 activeAccountId == nil
                 || !accounts.contains(where: { $0.id == activeAccountId })
-            let needsActiveReset = wasActive || activeAccountInvalid
 
-            if needsActiveReset {
+            if activeAccountInvalid {
                 resetActiveAccountUIState()
             } else {
                 // Decoded peer/group avatars derive from account contacts' attacker-controlled
@@ -720,7 +744,7 @@ extension WorkspaceState {
                 clearEnteredLoginIdentity()
                 phase = .onboarding
                 notificationSettings = .defaults
-                return outcome
+                return (outcome, nil)
             }
 
             // Reselecting and reloading is only required when the account currently
@@ -729,41 +753,72 @@ extension WorkspaceState {
             // still-valid active account untouched needs no reselection.
             // Deleting the profile the user was in, with others still signed in, asks which one
             // to continue with — iOS's account exit does the same — rather than silently moving
-            // into whichever identity `accounts` happens to list first. Settings stays selected
-            // behind the chooser, so the pick lands back on Settings (see `ProfileChooserView`).
+            // into whichever identity `accounts` happens to list first. The shell keeps the
+            // Settings destination until the chooser supplies an account.
             // A racing selection of a still-valid account is the user's choice already, and a
             // racing selection of the removed one leaves the old active account to restore.
             if wasActive, activeAccountInvalid {
                 // A chooser with a single row is no choice: with exactly one profile left, go
                 // straight into it, still on the settings page the deletion left.
                 if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
-                    switchActiveAccount(remaining, finalSelection: settingsSelectionAfterAccountMutation)
+                    switchActiveAccount(remaining, finalSelection: nil)
+                    if postSettingsHandoff {
+                        WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+                    }
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
-                    return outcome
+                    return (outcome, nil)
                 }
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 notificationSettings = .defaults
-                selection = settingsSelectionAfterAccountMutation
-                return outcome
+                selection = nil
+                if postSettingsHandoff {
+                    WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+                }
+                return (outcome, nil)
             }
 
-            if needsActiveReset {
-                restoreOrSelectFirstAccount()
-                selection = settingsSelectionAfterAccountMutation
-                await configureObservabilityRuntimeBestEffort()
-                await loadSettingsData()
-                await reloadChats()
+            if activeAccountInvalid {
+                if postSettingsHandoff {
+                    restoreOrSelectFirstAccount()
+                    selection = nil
+                    WorkspaceAccountPresentation.settingsHandoff.post(from: self)
+                    await configureObservabilityRuntimeBestEffort()
+                    await loadSettingsData()
+                    await reloadChats()
+                } else if signedInAccounts.count == 1, let remaining = signedInAccounts.first {
+                    switchActiveAccount(remaining, finalSelection: nil)
+                    await configureObservabilityRuntimeBestEffort()
+                    await loadSettingsData()
+                    await reloadChats()
+                } else {
+                    // With 2+ signed-in profiles after a non-Settings removal (e.g. Delete
+                    // Everything from the remote-unlink alert), keep the profile chooser in the
+                    // main window without popping Settings open, and clear any stale active id.
+                    activeAccountId = nil
+                    invalidateNotificationSettingsOperations()
+                    UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
+                    notificationSettings = .defaults
+                    selection = nil
+                }
             }
-            return outcome
+            return (outcome, nil)
         } catch {
             if wasActive, activeAccountId == removedAccountId {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            lastError = UserFacingError.message(for: error)
-            return outcome
+            let errorMessage = UserFacingError.message(for: error)
+            switch errorTarget {
+            case .settings:
+                setSettingsError(errorMessage, accountId: originAccountId)
+            case .mainWindow:
+                lastError = errorMessage
+            case .none:
+                break
+            }
+            return (outcome, errorMessage)
         }
     }
 
@@ -836,7 +891,8 @@ extension WorkspaceState {
     /// remain.
     func signOutAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
-        lastError = nil
+        let originAccountId = activeAccountId
+        setSettingsError(nil, accountId: originAccountId)
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
 
@@ -866,14 +922,15 @@ extension WorkspaceState {
             if wasActive, activeAccountId == account.id {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
             }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: originAccountId)
         }
     }
 
     /// Re-activate a previously signed-out account and make it the active one.
     func signInAccount(_ account: AccountItem) async {
         guard let client, !isAccountMutationInProgress else { return }
-        lastError = nil
+        let originAccountId = activeAccountId
+        setSettingsError(nil, accountId: originAccountId)
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
 
@@ -894,21 +951,23 @@ extension WorkspaceState {
                     && activeAccountId != preAwaitActiveAccountId
                     && currentActiveAccount?.id != account.id
                 if !userRacedToDifferentAccount {
-                    switchActiveAccount(refreshed, finalSelection: settingsSelectionAfterAccountMutation)
+                    switchActiveAccount(refreshed, finalSelection: nil)
+                    WorkspaceAccountPresentation.settingsHandoff.post(from: self)
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
                 }
             }
         } catch {
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: originAccountId)
         }
     }
 
     func deleteAllData() async {
         guard let client, !isAccountMutationInProgress else { return }
 
+        let originAccountId = activeAccountId
         isDeletingAllData = true
-        lastError = nil
+        setSettingsError(nil, accountId: originAccountId)
         suppressAllMediaDiskStores()
         defer { resumeAllMediaDiskStores() }
         defer { isDeletingAllData = false }
@@ -945,10 +1004,11 @@ extension WorkspaceState {
                 if let recreationError = await recreateClientForOnboarding() {
                     setBackgroundStatus(recreationError.localizedDescription)
                 }
+                lastError = errorMessage
             } else {
                 await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
+                setSettingsError(errorMessage, accountId: originAccountId)
             }
-            lastError = errorMessage
             return
         }
 

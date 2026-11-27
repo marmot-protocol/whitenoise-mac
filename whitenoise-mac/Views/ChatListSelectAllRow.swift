@@ -38,7 +38,8 @@ struct ChatListSelectAllRow: View {
                                 .controlSize(.small)
                         }
                         Text(title)
-                            .wnFont(.medium14)
+                            .font(.subheadline.weight(.medium))
+                            .monospacedDigit()
                             .contentTransition(.numericText())
                             .lineLimit(1)
                     }
@@ -64,7 +65,8 @@ struct ChatListSelectAllRow: View {
             Button(L10n.string("Done", locale: locale)) {
                 model.end()
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
+            .controlSize(.small)
             .keyboardShortcut(.cancelAction)
             .accessibilityIdentifier("chat.selection.done")
         }
@@ -78,91 +80,50 @@ private struct ChatListSelectAllBoxBackground: View {
     let isFilled: Bool
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(isFilled ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
             .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
             }
     }
 }
 
-/// The dropdown in the Select All box. A popover rather than a `Menu`: a menu flattens a custom
-/// label on macOS.
+/// Native menu in the Select All box offering Select All and Deselect All.
 private struct ChatListSelectAllOptionsButton: View {
     @Environment(\.locale) private var locale
-    @State private var isPresented = false
     let model: ChatListSelectionViewModel
 
     var body: some View {
-        Button {
-            isPresented = true
+        Menu {
+            Button {
+                model.selectAll()
+            } label: {
+                Label(L10n.string("Select All", locale: locale), systemImage: "checkmark.circle")
+            }
+            .disabled(model.selectAllState == .all)
+            .accessibilityIdentifier("chat.selection.options.selectAll")
+
+            Button {
+                model.deselectAll()
+            } label: {
+                Label(L10n.string("Deselect All", locale: locale), systemImage: "circle")
+            }
+            .disabled(model.selectAllState == .empty)
+            .accessibilityIdentifier("chat.selection.options.deselectAll")
         } label: {
             Image(systemName: "chevron.down")
-                .wnFont(.semiBold12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                .frame(width: 22, height: 22)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .help(L10n.string("Options", locale: locale))
         .accessibilityLabel(L10n.string("Options", locale: locale))
         .accessibilityIdentifier("chat.selection.options")
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 2) {
-                ChatListSelectAllOption(
-                    title: L10n.string("Select All", locale: locale),
-                    systemImage: "checkmark.circle",
-                    identifier: "chat.selection.options.selectAll"
-                ) {
-                    isPresented = false
-                    model.selectAll()
-                }
-                .disabled(model.selectAllState == .all)
-
-                ChatListSelectAllOption(
-                    title: L10n.string("Deselect All", locale: locale),
-                    systemImage: "circle",
-                    identifier: "chat.selection.options.deselectAll"
-                ) {
-                    isPresented = false
-                    model.deselectAll()
-                }
-                .disabled(model.selectAllState == .empty)
-            }
-            .padding(6)
-            // Popovers do not inherit the injected locale.
-            .environment(\.locale, locale)
-        }
-    }
-}
-
-private struct ChatListSelectAllOption: View {
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovered = false
-    let title: String
-    let systemImage: String
-    let identifier: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(isEnabled ? WNColor.backgroundContentPrimary : WNColor.fillContentDisabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .frame(minWidth: 160, alignment: .leading)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isHovered && isEnabled ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
-        }
-        .onHover { isHovered = $0 }
-        .accessibilityIdentifier(identifier)
     }
 }
 

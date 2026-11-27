@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension EnvironmentValues {
@@ -7,14 +8,17 @@ extension EnvironmentValues {
 }
 
 /// How a search hit is marked wherever one is shown — in a bubble of the conversation being
-/// searched, in the "Search all messages" results and in the sidebar's message matches: a
-/// highlighter stroke behind the matched words only, never a wash over the whole row.
+/// searched, in the "Search all messages" results and in the sidebar's message matches: a native
+/// macOS find-highlight fill behind the matched words only, never a wash over the whole row or
+/// blanket transcript dimming (F07, #1043).
 ///
 /// Only colors change, never the font, so marking a bubble cannot move a line break and the
 /// transcript row keeps the height it was measured at.
 nonisolated enum SearchMatchHighlightStyle {
-    static let background = WNColor.searchHighlightBackground
-    static let content = WNColor.searchHighlightContent
+    static let nsBackground = WNNSColor.searchHighlightBackground
+    static let nsContent = WNNSColor.searchHighlightContent
+    static let background = Color(nsColor: nsBackground)
+    static let content = Color(nsColor: nsContent)
 
     /// `text` with every match of `highlight` marked.
     static func marking(_ text: AttributedString, with highlight: MessageSearchHighlight?) -> AttributedString {
@@ -53,22 +57,23 @@ nonisolated enum SearchMatchHighlightStyle {
             SearchMatchHighlightStyle.marking(
                 "Lunch at noon? Lunch is on me.", with: MessageSearchHighlight(query: "lunch"))
         )
-        .wnFont(.medium16)
+        .font(MessageTypography.body)
+        .foregroundStyle(MessageBubblePolarity.received.content)
         .padding(12)
-        .background(WNColor.backgroundMessageIncoming, in: .rect(cornerRadius: 14))
+        .background(MessageBubblePolarity.received.fill, in: .rect(cornerRadius: 14))
         Text(
             SearchMatchHighlightStyle.marking(
                 "Lunch at noon? Lunch is on me.", with: MessageSearchHighlight(query: "lunch"))
         )
-        .wnFont(.medium16)
-        .foregroundStyle(WNColor.fillContentPrimary)
+        .font(MessageTypography.body)
+        .foregroundStyle(MessageBubblePolarity.sent.content)
         .padding(12)
-        .background(WNColor.fillPrimary, in: .rect(cornerRadius: 14))
+        .background(MessageBubblePolarity.sent.fill, in: .rect(cornerRadius: 14))
         SearchMatchHighlightStyle.text(
             GlobalMessageSearchSnippet(leading: "Lunch at ", match: "noon", trailing: " tomorrow?")
         )
-        .wnFont(.medium12)
-        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .font(.callout)
+        .foregroundStyle(.secondary)
     }
     .padding(24)
 }

@@ -11,94 +11,133 @@ import UniformTypeIdentifiers
 struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let settings: SettingsWindowCoordinator
+
+    private var sidebarVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: { workspace.isChatListVisible ? .all : .detailOnly },
+            set: { workspace.isChatListVisible = $0 != .detailOnly }
+        )
+    }
+
+    private var isShowingSettings: Bool {
+        settings.isPresented
+            && workspace.showsMessengerChrome
+            && session.accountScope?.account.id == workspace.activeAccount?.id
+            && session.accountScope?.account.id == settings.accountID
+    }
 
     private var productScreen: ProductScreen? {
         guard workspace.phase == .ready, workspace.activeAccount != nil else { return nil }
+        if isShowingSettings { return .settings }
         switch workspace.selection {
-        case .settings:
-            return .settings
         case .chat:
             return workspace.selectedChat == nil ? .inbox : .conversation
-        case nil:
+        case .settings, nil:
             return .inbox
         }
     }
 
     var body: some View {
-        let ignoredEdges: Edge.Set = workspace.showsMessengerChrome ? .top : []
-
-        VStack(spacing: 0) {
-            // Laid out above the content rather than floating over it: being offline is a
-            // standing condition, and a card on this edge sits on the pane title and the
-            // conversation header for as long as it lasts. Outside the `showsMessengerChrome`
-            // branch so it also reaches the onboarding and login surfaces, which is where a
-            // user with no network is most likely to be stuck.
-            if workspace.isOffline {
-                OfflineNoticeBand()
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
-            Group {
-                if workspace.showsMessengerChrome {
-                    HStack(spacing: 0) {
-                        AccountRailView()
-                        GlassSeparator()
-
-                        Group {
-                            if workspace.isChatListVisible {
-                                ChatListDrawerView(
-                                    model: session.accountScope?.chatListModel,
-                                    historyNotices: session.accountScope?.historyNotices,
-                                    recoveryStatus: session.accountScope?.recoveryStatus,
-                                    selection: session.accountScope?.chatListSelection,
-                                    search: session.accountScope?.chatListSearch
-                                )
-                                // Deliberately un-animated: the width is dragged, so animating
-                                // it would re-wrap the non-lazy transcript on every frame of the
-                                // drag *and* again through the collapse snap — the same layout
-                                // storm the `isChatListVisible` transition below is scoped away
-                                // from. The snap is a single jump instead.
-                                .frame(width: workspace.chatListDrawerWidth, alignment: .leading)
-                                .transition(.move(edge: .leading).combined(with: .opacity))
-
-                                ChatListResizeHandle()
-                                    .transition(.opacity)
-                                    // The handle's grab area is an overlay reaching a few points
-                                    // into both neighbours, and later siblings in an `HStack` are
-                                    // hit-tested first — without this the detail pane would swallow
-                                    // the right half of the strip and the divider would only be
-                                    // grabbable from the drawer side.
-                                    .zIndex(1)
-                            }
+        Group {
+            if workspace.showsMessengerChrome {
+                NavigationSplitView(columnVisibility: sidebarVisibility) {
+                    Group {
+                        if isShowingSettings,
+                            let scope = session.accountScope,
+                            let activeAccount = workspace.activeAccount
+                        {
+                            SettingsSidebarView(
+                                coordinator: settings,
+                                account: activeAccount,
+                                devicesAvailable: scope.deviceLinking.isAvailable,
+                                isAccountMutationInProgress: workspace.isAccountMutationInProgress,
+                                preferredLocale: workspace.preferredLocale,
+                                onBackToChats: { settings.close() }
+                            )
+                        } else {
+                            ChatListDrawerView(
+                                model: session.accountScope?.chatListModel,
+                                historyNotices: session.accountScope?.historyNotices,
+                                recoveryStatus: session.accountScope?.recoveryStatus,
+                                selection: session.accountScope?.chatListSelection,
+                                search: session.accountScope?.chatListSearch,
+                                globalSearch: session.accountScope?.globalMessageSearch,
+                                attentionModel: session.accountScope?.attentionModel,
+                                deviceLinking: session.accountScope?.deviceLinking,
+                                onOpenSettings: { settings.open() },
+                                onOpenDevicesSettings: { settings.open(at: .devices) },
+                                onOpenGlobalSearchResult: { result, query in
+                                    session.accountScope?.globalMessageSearch.openResult(result, query: query) {
+                                        result, searchQuery in
+                                        await workspace.openGlobalMessageSearchResult(
+                                            result, searchQuery: searchQuery)
+                                    }
+                                }
+                            )
                         }
-                        // Scope the sidebar transition to the drawer. The detail pane
-                        // width should jump once, not animate through every intermediate
-                        // width and force the non-lazy transcript to re-wrap each frame.
-                        .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
-
-                        DetailPaneView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                } else {
-                    DetailPaneView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .navigationSplitViewColumnWidth(
+                        min: ChatListWidthPolicy.minimumExpandedWidth,
+                        ideal: max(workspace.chatListWidth, ChatListWidthPolicy.minimumExpandedWidth),
+                        max: ChatListWidthPolicy.maximumWidth
+                    )
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width.rounded()
+                    } action: { newWidth in
+                        guard workspace.isChatListVisible,
+                            let resolved = ChatListWidthPolicy.adoptedNativeSidebarWidth(
+                                proposedWidth: newWidth,
+                                storedWidth: workspace.chatListWidth
+                            )
+                        else { return }
+                        workspace.resizeChatListDrawer(toProposedWidth: resolved)
+                    }
+                } detail: {
+                    Group {
+                        if isShowingSettings, let scope = session.accountScope {
+                            SettingsDetailRouter(
+                                settings: settings,
+                                model: scope.settingsModel,
+                                deviceLinking: scope.deviceLinking
+                            )
+                            .id(scope.account.id)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            DetailPaneView(settings: settings)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if workspace.isOffline {
+                            OfflineNoticeBand()
+                                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                        }
+                    }
                 }
-            }
-            // A dismissible, transient failure keeps floating over the content instead of
-            // shifting the transcript down and back up for a few seconds. It hangs off the top
-            // of the content, which the band above has already moved, so the two cannot
-            // collide the way two views claiming the same edge would.
-            .overlay(alignment: .top) {
-                BackgroundStatusBanner()
+            } else {
+                DetailPaneView(settings: settings)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if workspace.isOffline {
+                            OfflineNoticeBand()
+                                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                        }
+                    }
+                    .background {
+                        MessagesWindowBackground()
+                    }
             }
         }
-        .background {
-            MessagesWindowBackground()
+        // A dismissible, transient failure keeps floating over the content instead of
+        // shifting the transcript down and back up for a few seconds.
+        .overlay(alignment: .top) {
+            BackgroundStatusBanner()
         }
-        // The band has taken the strip the traffic lights float in, so the headers it pushed
-        // down must drop the clearance they keep for those buttons.
-        .environment(\.hasWindowTopNoticeBand, workspace.isOffline)
-        .animation(.smooth(duration: 0.2), value: workspace.isOffline)
+        .environment(\.hasWindowTopNoticeBand, true)
+        .animation(reduceMotion ? .none : .smooth(duration: 0.2), value: workspace.isOffline)
         // Above the conversation pane rather than inside it: the image gallery is an overlay on
         // the transcript, and a download started from the gallery has to confirm itself over the
         // gallery, not underneath it.
@@ -109,17 +148,63 @@ struct MessengerShellView: View {
                 MediaDownloadFeedbackToast()
             }
         }
-        .ignoresSafeArea(.container, edges: ignoredEdges)
+        .focusedSceneValue(
+            \.messengerCommands,
+            workspace.activeAccountId.map {
+                MessengerCommandContext(
+                    workspace: workspace,
+                    accountID: $0,
+                    selectedConversation: { session.accountScope?.selectedConversationModel },
+                    onSearchAllMessages: openSidebarGlobalSearch,
+                    isMessengerWindowTarget: {
+                        !settings.isPresented && MessengerCommandContext.acceptsCommandsInKeyWindow()
+                    }
+                )
+            }
+        )
+        .onChange(of: settings.isPresented) { _, presented in
+            if presented {
+                workspace.isChatListVisible = true
+            }
+        }
+        .onChange(of: workspace.showsMessengerChrome) { _, shows in
+            if !shows { session.accountScope?.globalMessageSearch.dismiss() }
+        }
+        .onChange(of: Set(workspace.activeChats.map(\.id))) { oldIds, newIds in
+            guard oldIds != newIds else { return }
+            session.accountScope?.globalMessageSearch.handleVisibleChatsChanged(visibleGroupIds: newIds)
+        }
         .task(id: productScreen) {
             guard let productScreen else { return }
             session.accountScope?.productAnalytics.record(.screen(productScreen))
         }
+    }
+
+    private func openSidebarGlobalSearch() {
+        SidebarGlobalSearchViewModel.open(in: workspace, globalSearch: session.accountScope?.globalMessageSearch)
+    }
+}
+
+/// Observes `settings.page` inside a leaf detail view so switching Settings categories never
+/// invalidates `MessengerShellView` or rebuilds the enclosing `NavigationSplitView`.
+private struct SettingsDetailRouter: View {
+    let settings: SettingsWindowCoordinator
+    let model: SettingsViewModel
+    let deviceLinking: DeviceLinkingViewModel
+
+    var body: some View {
+        SettingsPanelView(
+            model: model,
+            deviceLinking: deviceLinking,
+            page: settings.page
+        )
     }
 }
 
 private struct DetailPaneView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(SessionState.self) private var session
+    let settings: SettingsWindowCoordinator
 
     var body: some View {
         Group {
@@ -131,7 +216,7 @@ private struct DetailPaneView: View {
             case .failed(let message):
                 FailureView(message: message)
             case .ready:
-                if workspace.activeAccount == nil, !workspace.signedInAccounts.isEmpty {
+                if !workspace.showsMessengerChrome, !workspace.signedInAccounts.isEmpty {
                     // The active profile was deleted or signed out of, and two or more others are
                     // still signed in. The user picks the next one, as on iOS, rather than being
                     // dropped into whichever identity happens to be listed first. With exactly one
@@ -149,7 +234,7 @@ private struct DetailPaneView: View {
                         },
                         onAddProfile: { workspace.showAccountOnboarding() }
                     )
-                } else if workspace.activeAccount == nil {
+                } else if !workspace.showsMessengerChrome {
                     // Nothing is signed in, so there is nothing to show but the way in. This used
                     // to be a `SignedOutAccountsView` listing the deactivated identities on this
                     // Mac, each one a single click from being reactivated — a sign-in that asked
@@ -167,32 +252,34 @@ private struct DetailPaneView: View {
                     switch workspace.selection {
                     case .chat:
                         if let chat = workspace.selectedChat,
-                            let model = session.accountScope?.selectedConversationModel,
-                            model.groupIdHex == chat.id,
-                            let scope = session.accountScope
+                            let scope = session.accountScope,
+                            scope.account.id == workspace.activeAccountId
                         {
-                            ConversationView(
-                                chat: chat,
-                                model: model,
-                                chatListModel: scope.chatListModel,
-                                attachmentModel: scope.attachmentModel(groupIdHex: chat.id),
-                                safetyModel: scope.safetyModel(groupIdHex: chat.id),
-                                disbandModel: scope.disbandModel(groupIdHex: chat.id),
-                                accountDevicesModel: scope.accountDevicesModel(groupIdHex: chat.id),
-                                deviceLinking: scope.deviceLinking,
-                                blockedUsersModel: scope.blockedUsers,
-                                avatarAssets: scope.avatarAssets
-                            )
+                            if let model = scope.selectedConversationModel,
+                                model.groupIdHex == chat.id
+                            {
+                                ConversationView(
+                                    chat: chat,
+                                    model: model,
+                                    chatListModel: scope.chatListModel,
+                                    attachmentModel: scope.attachmentModel(groupIdHex: chat.id),
+                                    safetyModel: scope.safetyModel(groupIdHex: chat.id),
+                                    disbandModel: scope.disbandModel(groupIdHex: chat.id),
+                                    accountDevicesModel: scope.accountDevicesModel(groupIdHex: chat.id),
+                                    deviceLinking: scope.deviceLinking,
+                                    blockedUsersModel: scope.blockedUsers,
+                                    avatarAssets: scope.avatarAssets
+                                )
+                            } else {
+                                ConversationSwitchingPlaceholderView(
+                                    chat: chat,
+                                    metadata: workspace.conversationMetadataByChat[chat.id]
+                                )
+                            }
                         } else {
                             EmptyDetailView()
                         }
-                    case .settings:
-                        if let scope = session.accountScope {
-                            SettingsPanelView(model: scope.settingsModel, deviceLinking: scope.deviceLinking)
-                        } else {
-                            EmptyDetailView()
-                        }
-                    case nil:
+                    case .settings, nil:
                         EmptyDetailView()
                     }
                 }
@@ -330,7 +417,7 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
     )
     case loadingNewer(isLoading: Bool)
     case pending(PendingOutgoingMessageRow, cluster: MessageClusterPosition = .standalone)
-    case footer
+    case footer(height: CGFloat = 28)
 
     /// Loading indicators and the foot do not travel with the messages, so they never anchor the
     /// reader's position (`TranscriptTableView.anchorsPosition`).
@@ -363,8 +450,8 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
                 && matchA == matchB && contextA == contextB && importedA == importedB && clusterA == clusterB
         case (.pending(let a, let clusterA), .pending(let b, let clusterB)):
             return a == b && clusterA == clusterB
-        case (.footer, .footer):
-            return true
+        case (.footer(let a), .footer(let b)):
+            return a == b
         default:
             return false
         }
@@ -379,7 +466,8 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         unreadDividerMessageId: String?,
         searchMatchMessageId: String? = nil,
         searchHighlight: MessageSearchHighlight? = nil,
-        context: TranscriptRowContext
+        context: TranscriptRowContext,
+        footerHeight: CGFloat = 28
     ) -> [TranscriptRow] {
         var rows: [TranscriptRow] = []
         rows.reserveCapacity(displayItems.count + pendingOutgoingRows.count + 3)
@@ -399,7 +487,7 @@ nonisolated enum TranscriptRow: Identifiable, Equatable {
         }
         if paging.hasMoreAfter { rows.append(.loadingNewer(isLoading: paging.isLoadingAfter)) }
         rows += pendingOutgoingRows.map { TranscriptRow.pending($0) }
-        rows.append(.footer)
+        rows.append(.footer(height: footerHeight))
         let positions = MessageClusterProjection.positions(for: rows.map(\.clusterEntry))
         return zip(rows, positions).map { $0.placed(in: $1) }
     }
@@ -524,8 +612,8 @@ private struct TranscriptRowCell: View {
                     timestampReferenceDate: timestampReferenceDate,
                     timestampLocale: locale
                 )
-            case .footer:
-                Color.clear.frame(height: 28)
+            case .footer(let height):
+                Color.clear.frame(height: height)
             }
         }
         .padding(.horizontal, 28)
@@ -533,8 +621,6 @@ private struct TranscriptRowCell: View {
         .padding(.bottom, row.verticalInsets.bottom)
         .frame(maxWidth: .infinity)
         .textSelection(.disabled)
-        .tint(WNColor.fillPrimary)
-        .foregroundStyle(WNColor.backgroundContentPrimary)
         .environment(workspace)
         .environment(session)
         .environment(\.locale, locale)
@@ -611,6 +697,10 @@ private struct ConversationView: View {
     @State private var mentionHighlightIndex = 0
     @State private var composerMentionInsertion: ComposerMentionInsertion?
     @State private var imageGallery: MessageImageGalleryPresentation?
+    @State private var isSharedMediaLibraryPresented = false
+    @State private var sharedMediaCategory: SharedMediaLibraryCategory = .media
+    @State private var sharedMediaViewer: SharedMediaViewerPresentation?
+    @State private var findSelectionRevision = 0
     /// Hover-scoped text-selection gate for chat bubbles. Not read by `body` — bubbles
     /// register local `isSelectable` state so hover only updates the previous and active row
     /// (whitenoise-mac#397).
@@ -624,6 +714,9 @@ private struct ConversationView: View {
     /// The search this view opened. Conversation models outlive a chat switch, so the switch ends
     /// it: coming back reopens the transcript at its landing, where a stale cursor would mislead.
     @State private var openedSearch: ConversationSearchViewModel?
+    /// Measured height of the floating Liquid Glass composer overlay, fed into `TranscriptRow.footer`
+    /// so the newest message rests above the composer while scrolled messages pass behind it.
+    @State private var floatingComposerHeight: CGFloat = 68
     let chat: ChatItem
     let model: ConversationViewModel
     let chatListModel: ChatListViewModel
@@ -637,6 +730,24 @@ private struct ConversationView: View {
     /// Avatar bytes for the snapshot's identities, so the mention picker draws the same pictures
     /// the transcript does.
     let avatarAssets: AvatarAssetStore
+
+    private var inspectorPresented: Binding<Bool> {
+        Binding(
+            get: {
+                !workspace.isTimelineSelectionMode
+                    && (workspace.isGroupDetailsPresented || workspace.contactDetailsTarget != nil)
+            },
+            set: { presented in
+                if presented {
+                    guard !workspace.isTimelineSelectionMode else { return }
+                    guard !workspace.isGroupDetailsPresented, workspace.contactDetailsTarget == nil else { return }
+                    Task { await workspace.showGroupDetails(for: chat) }
+                } else if workspace.isGroupDetailsPresented || workspace.contactDetailsTarget != nil {
+                    workspace.closeGroupDetails()
+                }
+            }
+        )
+    }
 
     private var isBlockedDirectPeer: Bool {
         chat.directPeerAccountIdHex.map {
@@ -668,30 +779,15 @@ private struct ConversationView: View {
                 isSelectionMode: workspace.isTimelineSelectionMode,
                 localeIdentifier: locale.identifier,
                 referenceDay: Calendar.current.ordinality(of: .day, in: .era, for: timestampReferenceDate) ?? 0
-            )
+            ),
+            footerHeight: workspace.isTimelineSelectionMode ? 28 : max(28, floatingComposerHeight + 10)
         )
 
         ZStack {
             VStack(spacing: 0) {
-                ConversationHeader(
-                    chat: chat,
-                    recoveryStatus: session.accountScope?.recoveryStatus,
-                    onSearch: searchCommand.open,
-                    escapeEndsMessageSelection: session.accountScope?.chatListSelection.isActive != true
-                )
-                .messageDeletionConfirmation()
-                .messageEditHistory(model: model)
-                .pollVotesSheet(
-                    model: model,
-                    blockedUsersModel: blockedUsersModel,
-                    voterDisplay: { workspace.reactionReactorDisplay(accountIdHex: $0) }
-                )
-                GlassSeparator(axis: .horizontal)
-
                 if model.search.isActive {
                     ConversationSearchBar(model: model.search, onClose: closeSearch)
-                        .background { MessagesHeaderBackground() }
-                    GlassSeparator(axis: .horizontal)
+                    Divider()
                 }
 
                 Group {
@@ -773,7 +869,12 @@ private struct ConversationView: View {
                         await workspace.restoreComposerDraftIfNeeded(accountId: accountId, groupIdHex: chat.id)
                     }
                     guard !Task.isCancelled else { return }
-                    composerFocusRequester.request()
+                    // Keep keyboard focus in the sidebar list during arrow-key navigation (N03).
+                    if ChatListRowClickPolicy.shouldFocusComposerOnChatOpen(
+                        firstResponder: NSApp.keyWindow?.firstResponder
+                    ) {
+                        composerFocusRequester.request()
+                    }
                 }
                 // Pressing Send scrolls to the live edge, off the send itself rather than off
                 // the message it produces. Arrivals while following are pinned by the table, and
@@ -807,6 +908,7 @@ private struct ConversationView: View {
                         target.groupId == chat.id
                     else { return }
                     let outcome = await revealMessage(target.messageId)
+                    guard !Task.isCancelled, workspace.pendingMessageNavigation == target else { return }
                     if !hasLanded {
                         if case .shown(let requestId) = outcome {
                             openingRequestId = requestId
@@ -815,6 +917,9 @@ private struct ConversationView: View {
                             // stands where it is.
                             land()
                         }
+                    }
+                    if let query = target.searchQuery, case .shown = outcome {
+                        openSearch(withQuery: query, anchorMessageId: target.messageId)
                     }
                     workspace.completePendingMessageNavigation(target)
                 }
@@ -835,62 +940,67 @@ private struct ConversationView: View {
                             Task { await jumpToNewest() }
                         } label: {
                             Image(systemName: "arrow.down")
-                                .wnFont(.bold14)
-                                .frame(width: 40, height: 40)
-                                .background(.regularMaterial, in: Circle())
-                                .overlay {
-                                    Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1)
-                                }
-                                .shadow(color: WNColor.shadow.opacity(0.1), radius: 8, y: 3)
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 36, height: 36)
+                                .contentShape(Circle())
+                                .wnFloatingGlass(in: Circle(), interactive: true)
                         }
                         .buttonStyle(.plain)
                         .help(L10n.string("Jump to latest message"))
-                        .padding(18)
+                        .padding(.trailing, 18)
+                        .padding(.bottom, workspace.isTimelineSelectionMode ? 18 : floatingComposerHeight + 12)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                 }
+                .overlay(alignment: .bottom) {
+                    VStack(spacing: 6) {
+                        ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
+                            .padding(.horizontal, 16)
 
-                GlassSeparator(axis: .horizontal)
-
-                VStack(spacing: 8) {
-                    ChatHistoryReceivingNotice(model: deviceLinking, groupIdHex: chat.id)
-                    // The core rejects sends to a group the local account left or was
-                    // removed from (`invalid_transition`), so the whole composer —
-                    // reply/media drafts included — gives way to an explanatory notice.
-                    if workspace.isTimelineSelectionMode {
-                        MessageSelectionToolbar(conversationModel: model)
-                    } else if !chat.lifecycle.allowsMessaging {
-                        // A disband ends the group for everyone, members included, so it
-                        // outranks where this account stood in it.
-                        GroupLifecycleComposerNotice(lifecycle: chat.lifecycle)
-                    } else if chat.isNoLongerMember {
-                        MembershipEndedComposerNotice(membership: chat.selfMembership)
-                    } else if isBlockedDirectPeer {
-                        BlockedConversationComposerNotice()
-                    } else if chat.pendingConfirmation {
-                        PendingGroupInviteComposerNotice(chat: chat)
-                    } else if BlockedLeavePresentation.isBlocked(
-                        leaveRequestPending: chat.leaveRequestPending, leaveBlocked: chat.leaveBlocked)
-                    {
-                        BlockedLeaveNotice(
-                            canCancel: model.canCancelBlockedLeave,
-                            isCancelling: model.isCancellingLeave,
-                            failure: model.cancelLeaveFailure,
-                            onCancel: { Task { await model.cancelBlockedLeave() } }
-                        )
-                    } else {
-                        composerControls
+                        if !workspace.isTimelineSelectionMode {
+                            VStack(spacing: 8) {
+                                // The core rejects sends to a group the local account left or was
+                                // removed from (`invalid_transition`), so the whole composer —
+                                // reply/media drafts included — gives way to an explanatory notice.
+                                if !chat.lifecycle.allowsMessaging {
+                                    // A disband ends the group for everyone, members included, so it
+                                    // outranks where this account stood in it.
+                                    GroupLifecycleComposerNotice(lifecycle: chat.lifecycle)
+                                } else if chat.isNoLongerMember {
+                                    MembershipEndedComposerNotice(membership: chat.selfMembership)
+                                } else if isBlockedDirectPeer {
+                                    BlockedConversationComposerNotice()
+                                } else if chat.pendingConfirmation {
+                                    PendingGroupInviteComposerNotice(
+                                        chat: chat,
+                                        blockedUsersModel: blockedUsersModel,
+                                        moderationReporter: session.accountScope?.moderationReporter
+                                    )
+                                } else if BlockedLeavePresentation.isBlocked(
+                                    leaveRequestPending: chat.leaveRequestPending, leaveBlocked: chat.leaveBlocked)
+                                {
+                                    BlockedLeaveNotice(
+                                        canCancel: model.canCancelBlockedLeave,
+                                        isCancelling: model.isCancellingLeave,
+                                        failure: model.cancelLeaveFailure,
+                                        onCancel: { Task { await model.cancelBlockedLeave() } }
+                                    )
+                                } else {
+                                    composerControls
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 14)
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        ceil(proxy.size.height)
+                    } action: { newHeight in
+                        guard newHeight > 0, abs(newHeight - floatingComposerHeight) > 1 else { return }
+                        floatingComposerHeight = newHeight
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 14)
-                .background {
-                    MessagesComposerBarBackground()
-                }
-            }
-            .background {
-                MessagesTranscriptBackground()
             }
             .overlay {
                 if let imageGallery {
@@ -933,32 +1043,88 @@ private struct ConversationView: View {
                 }
             }
 
-            // Chat info / settings slides in from the right as a full-size pane
-            // over the mounted conversation. Keeping the transcript mounted preserves
-            // scroll position, while the details pane supplies its own opaque base so
-            // chat content and media never visually bleed through during the slide.
-            if workspace.isGroupDetailsPresented {
-                GroupDetailsPane(
-                    chat: chat,
-                    conversationModel: model,
-                    attachmentModel: attachmentModel,
-                    safetyModel: safetyModel,
-                    disbandModel: disbandModel,
-                    accountDevicesModel: accountDevicesModel,
-                    blockedUsersModel: blockedUsersModel
+            // Large shared-media library renders in the spacious conversation content area while
+            // keeping the transcript mounted underneath (preserving scroll position and draft) and
+            // keeping the trailing inspector intact (D04, #1044).
+            if isSharedMediaLibraryPresented {
+                SharedMediaLibraryView(
+                    model: attachmentModel,
+                    category: $sharedMediaCategory,
+                    onBack: { isSharedMediaLibraryPresented = false },
+                    onOpenMedia: { sharedMediaViewer = $0 }
                 )
-                .transition(.move(edge: .trailing))
+                .background { MessagesTranscriptBackground() }
                 .zIndex(3)
             }
 
-            if let contact = workspace.contactDetailsTarget {
-                ContactDetailsPane(contact: contact, blockedUsersModel: blockedUsersModel)
-                    .transition(.move(edge: .trailing))
-                    .zIndex(4)
+            if let sharedMediaViewer {
+                SharedMediaViewerOverlay(presentation: sharedMediaViewer, model: attachmentModel) {
+                    self.sharedMediaViewer = nil
+                }
+                .id(sharedMediaViewer.id)
+                .transition(.opacity)
+                .zIndex(4)
             }
         }
-        .animation(.smooth(duration: 0.24), value: workspace.isGroupDetailsPresented)
-        .animation(.smooth(duration: 0.24), value: workspace.contactDetailsTarget?.accountIdHex)
+        .animation(.smooth(duration: 0.18), value: sharedMediaViewer?.id)
+        .conversationToolbar(
+            messenger: MessengerCommandContext(
+                workspace: workspace,
+                accountID: workspace.activeAccountId ?? "",
+                selectedConversation: { model },
+                isMessengerWindowTarget: { true }
+            ),
+            chat: chat,
+            model: model,
+            metadata: workspace.conversationMetadataByChat[chat.id],
+            isCatchingUp: session.accountScope?.recoveryStatus.isCatchingUp(groupIdHex: chat.id) == true,
+            isGroupDetailsPresented: workspace.isGroupDetailsPresented,
+            isDetailsPanePresented: workspace.isGroupDetailsPresented || workspace.contactDetailsTarget != nil,
+            blockedUsersModel: blockedUsersModel,
+            isGroupImagePickerPresented: $workspace.isGroupImagePickerPresented,
+            onSearch: searchCommand.open,
+            escapeEndsMessageSelection: session.accountScope?.chatListSelection.isActive != true
+        )
+        // Native trailing inspector beside the selected conversation (N06, #1042). Attached after
+        // `.conversationToolbar` so the conversation toolbar stays cleanly scoped to the chat pane
+        // and never triggers macOS toolbar overflow when the inspector animates open or closed.
+        .inspector(isPresented: inspectorPresented) {
+            Group {
+                if let contact = workspace.contactDetailsTarget {
+                    ContactDetailsPane(
+                        contact: contact,
+                        blockedUsersModel: blockedUsersModel,
+                        returnsToGroupInfo: workspace.isGroupDetailsPresented
+                    )
+                } else {
+                    GroupDetailsPane(
+                        chat: chat,
+                        conversationModel: model,
+                        attachmentModel: attachmentModel,
+                        safetyModel: safetyModel,
+                        disbandModel: disbandModel,
+                        accountDevicesModel: accountDevicesModel,
+                        blockedUsersModel: blockedUsersModel,
+                        onSearchInChat: openSearch,
+                        onOpenSharedMediaLibrary: { isSharedMediaLibraryPresented = true },
+                        onOpenSharedMediaViewer: { sharedMediaViewer = $0 }
+                    )
+                }
+            }
+            .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSTextView.didChangeSelectionNotification)) { _ in
+            findSelectionRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSText.didBeginEditingNotification)) { _ in
+            findSelectionRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSText.didEndEditingNotification)) { _ in
+            findSelectionRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            findSelectionRevision &+= 1
+        }
         .task(id: chat.id) {
             await workspace.refreshConversationMetadata(for: chat)
         }
@@ -1003,26 +1169,38 @@ private struct ConversationView: View {
             )
             .environment(\.locale, locale)
         }
-        // Switching conversations must not leave the previous chat's body-level
-        // overlays open over a different transcript.
+        // Switching conversations or accounts must not leave the previous chat's overlays or
+        // editors targeting a stale conversation (P07, #1042).
         .onChange(of: chat.id) { _, _ in
-            isPollComposerPresented = false
-            imageGallery = nil
-            composerMentionContext = nil
-            composerMentionInsertion = nil
-            workspace.cancelMessageSelection()
-            workspace.cancelForwarding()
-            workspace.messageInfoTarget = nil
-            workspace.closeContactDetails()
-            if workspace.isGroupDetailsPresented {
-                workspace.closeGroupDetails()
-            }
+            invalidateConversationPresentation()
+        }
+        .onChange(of: workspace.activeAccountId) { _, _ in
+            invalidateConversationPresentation()
         }
         // New Chat replaces the sidebar but leaves this conversation mounted. Its Escape (back in
         // the compose flow) would lose to the selection's cancel shortcut, so the selection ends
         // as the user moves to the sidebar, the way chat-list selection ends when the list goes.
         .onChange(of: workspace.isNewChatComposerVisible) { _, isVisible in
             if isVisible { workspace.cancelMessageSelection() }
+        }
+    }
+
+    private func invalidateConversationPresentation() {
+        isPollComposerPresented = false
+        imageGallery = nil
+        isSharedMediaLibraryPresented = false
+        sharedMediaCategory = .media
+        sharedMediaViewer = nil
+        findSelectionRevision &+= 1
+        composerMentionContext = nil
+        composerMentionInsertion = nil
+        workspace.cancelMessageSelection()
+        workspace.cancelForwarding()
+        workspace.messageInfoTarget = nil
+        workspace.closeGroupImagePicker()
+        workspace.closeContactDetails()
+        if workspace.isGroupDetailsPresented {
+            workspace.closeGroupDetails()
         }
     }
 
@@ -1176,26 +1354,6 @@ private struct ConversationView: View {
         } else {
             HStack(alignment: .bottom, spacing: 8) {
                 if workspace.editingMessageContext == nil {
-                    Button {
-                        isComposerEmojiPickerPresented.toggle()
-                    } label: {
-                        Image(systemName: "face.smiling")
-                            .wnFont(.medium18)
-                            .frame(width: 30, height: 30)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isSending)
-                    .help(L10n.string("Emoji"))
-                    .popover(isPresented: $isComposerEmojiPickerPresented, arrowEdge: .bottom) {
-                        ChatEmojiPicker(custom: .conversation(model)) { emoji in
-                            composerEmojiInsertion = ComposerEmojiInsertion(emoji: emoji)
-                            isComposerEmojiPickerPresented = false
-                        }
-                    }
-
                     // A GIF goes out as its GIPHY text envelope, through the same durable text
                     // send the conversation model uses, so it needs no composer state of its own.
                     ComposerAttachmentMenu(
@@ -1225,130 +1383,200 @@ private struct ConversationView: View {
                     )
                 }
 
-                ComposerMessageInputView(
-                    text: $workspace.draftText,
-                    placeholder: workspace.editingMessageContext == nil
-                        ? L10n.string("Message") : L10n.string("Edit message"),
-                    emojiInsertion: composerEmojiInsertion,
-                    onEmojiInsertionConsumed: { insertionID in
-                        guard composerEmojiInsertion?.id == insertionID else { return }
-                        composerEmojiInsertion = nil
-                    },
-                    mentionInsertion: composerMentionInsertion,
-                    onMentionInsertionConsumed: { insertionID in
-                        guard composerMentionInsertion?.id == insertionID else { return }
-                        composerMentionInsertion = nil
-                    },
-                    mentionSelections: $workspace.composerMentionSelections,
-                    mentionContextScope: workspace.selectedComposerDraftKey,
-                    onMentionContextChange: { context in
-                        if context != composerMentionContext {
-                            mentionHighlightIndex = 0
-                        }
-                        composerMentionContext = context
-                        if context != nil {
-                            workspace.ensureMentionRosterLoaded()
-                        }
-                    },
-                    onMentionCommand: { command in
-                        guard let context = composerMentionContext else { return false }
-                        let candidates = mentionCandidates(for: context)
-                        guard !candidates.isEmpty else { return false }
-                        let index = highlightedMentionIndex(in: candidates)
-                        if command == .accept {
-                            return insertMention(candidates[index], for: context)
-                        }
-                        // The arrows stay consumed at either end, so the caret never jumps
-                        // while the picker is showing.
-                        mentionHighlightIndex = command.movingHighlight(index, among: candidates.count)
-                        return true
-                    },
-                    onEditCommand: { command in
-                        guard !workspace.isSending else { return false }
-                        switch command {
-                        case .editLastMessage:
-                            guard workspace.editingMessageContext == nil,
-                                let target = ComposerLastMessageEdit.target(
-                                    in: workspace.selectedMessages,
-                                    paging: workspace.selectedTimelinePaging
-                                )
-                            else { return false }
-                            workspace.startEditingMessage(target)
-                            // Puts the caret at the end of the loaded text, as the Edit action does.
-                            composerFocusRequester.request()
+                HStack(alignment: .bottom, spacing: 6) {
+                    ComposerMessageInputView(
+                        text: $workspace.draftText,
+                        placeholder: workspace.editingMessageContext == nil
+                            ? L10n.string("Message") : L10n.string("Edit message"),
+                        emojiInsertion: composerEmojiInsertion,
+                        onEmojiInsertionConsumed: { insertionID in
+                            guard composerEmojiInsertion?.id == insertionID else { return }
+                            composerEmojiInsertion = nil
+                        },
+                        mentionInsertion: composerMentionInsertion,
+                        onMentionInsertionConsumed: { insertionID in
+                            guard composerMentionInsertion?.id == insertionID else { return }
+                            composerMentionInsertion = nil
+                        },
+                        mentionSelections: $workspace.composerMentionSelections,
+                        mentionContextScope: workspace.selectedComposerDraftKey,
+                        onMentionContextChange: { context in
+                            if context != composerMentionContext {
+                                mentionHighlightIndex = 0
+                            }
+                            composerMentionContext = context
+                            if context != nil {
+                                workspace.ensureMentionRosterLoaded()
+                            }
+                        },
+                        onMentionCommand: { command in
+                            guard let context = composerMentionContext else { return false }
+                            let candidates = mentionCandidates(for: context)
+                            guard !candidates.isEmpty else { return false }
+                            let index = highlightedMentionIndex(in: candidates)
+                            if command == .accept {
+                                return insertMention(candidates[index], for: context)
+                            }
+                            // The arrows stay consumed at either end, so the caret never jumps
+                            // while the picker is showing.
+                            mentionHighlightIndex = command.movingHighlight(index, among: candidates.count)
                             return true
-                        case .cancelEdit:
-                            guard workspace.editingMessageContext != nil else { return false }
-                            workspace.cancelEditingMessage()
-                            return true
+                        },
+                        onEditCommand: { command in
+                            guard !workspace.isSending else { return false }
+                            switch command {
+                            case .editLastMessage:
+                                guard workspace.editingMessageContext == nil,
+                                    let target = ComposerLastMessageEdit.target(
+                                        in: workspace.selectedMessages,
+                                        paging: workspace.selectedTimelinePaging
+                                    )
+                                else { return false }
+                                workspace.startEditingMessage(target)
+                                // Puts the caret at the end of the loaded text, as the Edit action does.
+                                composerFocusRequester.request()
+                                return true
+                            case .cancelEdit:
+                                guard workspace.editingMessageContext != nil else { return false }
+                                workspace.cancelEditingMessage()
+                                return true
+                            }
+                        },
+                        onPasteMedia: { attachments in
+                            guard workspace.editingMessageContext == nil else { return }
+                            Task {
+                                await stageMediaAttachments {
+                                    await workspace.addPastedMediaAttachments(attachments)
+                                }
+                            }
+                        },
+                        onSend: sendComposer,
+                        focusRequestID: composerFocusRequester.requestID,
+                        onFocusRequestConsumed: composerFocusRequester.consume
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if workspace.editingMessageContext == nil {
+                        Button {
+                            isComposerEmojiPickerPresented.toggle()
+                        } label: {
+                            Label(L10n.string("Emoji"), systemImage: "face.smiling")
+                                .labelStyle(.iconOnly)
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24, height: 24)
+                                .contentShape(Circle())
                         }
-                    },
-                    onPasteMedia: { attachments in
-                        guard workspace.editingMessageContext == nil else { return }
-                        Task {
-                            await stageMediaAttachments { await workspace.addPastedMediaAttachments(attachments) }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isSending)
+                        .help(L10n.string("Emoji"))
+                        .accessibilityLabel(L10n.string("Emoji"))
+                        .popover(isPresented: $isComposerEmojiPickerPresented, arrowEdge: .bottom) {
+                            ChatEmojiPicker(custom: .conversation(model)) { emoji in
+                                composerEmojiInsertion = ComposerEmojiInsertion(emoji: emoji)
+                                isComposerEmojiPickerPresented = false
+                            }
                         }
-                    },
-                    onSend: sendComposer,
-                    focusRequestID: composerFocusRequester.requestID,
-                    onFocusRequestConsumed: composerFocusRequester.consume
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                    }
+                }
+                .padding(.leading, 14)
+                .padding(.trailing, 8)
+                .padding(.vertical, 6)
+                .frame(minHeight: 36)
                 .background {
                     MessagesComposerFieldBackground()
                 }
                 .accessibilityIdentifier("composer.message")
 
-                if DictationSupport.isSupportedOS, DictationPreference.shared.isEnabled {
-                    ComposerDictationButton(
-                        isDisabled: workspace.isSending || workspace.isRecordingVoiceMessage
-                            || workspace.isPreparingVoiceRecording,
-                        action: startDictation
-                    )
-                }
-
                 if workspace.editingMessageContext != nil {
-                    Button {
-                        workspace.cancelEditingMessage()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .wnFont(.bold14)
-                            .frame(width: 32, height: 32)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
+                    HStack(spacing: 0) {
+                        if DictationSupport.isSupportedOS, DictationPreference.shared.isEnabled {
+                            ComposerDictationButton(
+                                isDisabled: workspace.isSending || workspace.isRecordingVoiceMessage
+                                    || workspace.isPreparingVoiceRecording,
+                                action: startDictation
+                            )
+                        }
+
+                        Button {
+                            workspace.cancelEditingMessage()
+                        } label: {
+                            Label(L10n.string("Cancel edit"), systemImage: "xmark")
+                                .labelStyle(.iconOnly)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                                .frame(width: 34, height: 36)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isSending)
+                        .help(L10n.string("Cancel edit"))
+                        .accessibilityLabel(L10n.string("Cancel edit"))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isSending)
-                    .help(L10n.string("Cancel edit"))
+                    .padding(.horizontal, 2)
+                    .wnFloatingGlass(in: Capsule(), interactive: true)
                 } else {
-                    Button {
-                        Task { model.showVoiceRecordingNotice(await workspace.toggleVoiceRecording()) }
-                    } label: {
-                        Image(systemName: "mic.fill")
-                            .wnFont(.semiBold14)
-                            .frame(width: 32, height: 32)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
+                    HStack(spacing: 0) {
+                        if DictationSupport.isSupportedOS, DictationPreference.shared.isEnabled {
+                            ComposerDictationButton(
+                                isDisabled: workspace.isSending || workspace.isRecordingVoiceMessage
+                                    || workspace.isPreparingVoiceRecording,
+                                action: startDictation
+                            )
+                        }
+
+                        Button {
+                            Task { model.showVoiceRecordingNotice(await workspace.toggleVoiceRecording()) }
+                        } label: {
+                            Label(voiceRecordingButtonHelp, systemImage: "mic")
+                                .labelStyle(.iconOnly)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                                .frame(width: 34, height: 36)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isSending || !workspace.canRecordVoiceMessage)
+                        .help(voiceRecordingButtonHelp)
+                        .accessibilityLabel(voiceRecordingButtonHelp)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isSending || !workspace.canRecordVoiceMessage)
-                    .help(voiceRecordingButtonHelp)
+                    .padding(.horizontal, 2)
+                    .wnFloatingGlass(in: Capsule(), interactive: true)
                 }
 
+                let sendTitle =
+                    workspace.editingMessageContext == nil
+                    ? L10n.string("Send") : L10n.string("Save edit")
                 Button(action: sendComposer) {
-                    MessagesSendButtonLabel(
-                        systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark",
-                        isEnabled: workspace.canSend,
-                        isSending: workspace.isSending
-                    )
+                    Group {
+                        if workspace.isSending {
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.72)
+                        } else {
+                            Label(
+                                sendTitle,
+                                systemImage: workspace.editingMessageContext == nil ? "arrow.up" : "checkmark"
+                            )
+                            .labelStyle(.iconOnly)
+                            .font(.body.weight(.semibold))
+                        }
+                    }
+                    .foregroundStyle(workspace.canSend ? WNColor.fillContentPrimary : Color.secondary)
+                    .frame(width: 36, height: 36)
+                    .background {
+                        if workspace.canSend {
+                            Circle().fill(WNColor.fillPrimary)
+                        } else {
+                            Color.clear.wnFloatingGlass(in: Circle())
+                        }
+                    }
+                    .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!workspace.canSend)
-                .help(workspace.editingMessageContext == nil ? L10n.string("Send") : L10n.string("Save edit"))
+                .help(sendTitle)
+                .accessibilityLabel(sendTitle)
             }
         }
     }
@@ -1383,16 +1611,36 @@ private struct ConversationView: View {
         )
     }
 
-    /// Search within this chat, offered by the header button and Navigate ▸ Find in Conversation.
+    /// Search within this chat, offered by the header button and Edit ▸ Find in Conversation.
     /// Offered for an invite not yet accepted too: its transcript is on screen and global search
     /// already finds its messages, so in-chat search must not be the one place they are hidden.
     private var searchCommand: ConversationSearchCommand {
-        ConversationSearchCommand(open: openSearch)
+        ConversationSearchCommand(
+            accountID: model.account.id,
+            chatID: chat.id,
+            model: model.search,
+            open: openSearch,
+            selectionRevision: findSelectionRevision,
+            selectedTextForFind: {
+                ConversationFindSelection.selectedQuery(from: NSApp.keyWindow?.firstResponder)
+            },
+            useSelectionForFind: { query in
+                openSearch(withQuery: query)
+            }
+        )
     }
 
     private func openSearch() {
+        isSharedMediaLibraryPresented = false
         model.search.exclusions = searchExclusions
         model.search.activate()
+        openedSearch = model.search
+    }
+
+    private func openSearch(withQuery query: String, anchorMessageId: String? = nil) {
+        isSharedMediaLibraryPresented = false
+        model.search.exclusions = searchExclusions
+        model.search.activate(withQuery: query, anchorMessageId: anchorMessageId)
         openedSearch = model.search
     }
 
@@ -1614,6 +1862,8 @@ private struct ConversationView: View {
 }
 
 private struct StartupView: View {
+    @Environment(\.locale) private var locale
+
     var body: some View {
         VStack(spacing: 28) {
             // The window's splash. It showed a spinner over an empty pane before — the app's own
@@ -1624,12 +1874,15 @@ private struct StartupView: View {
 
             VStack(spacing: 12) {
                 ProgressView()
-                Text(L10n.string("Starting Marmot"))
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                Text(L10n.string("Starting Marmot", locale: locale))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("")
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     }
 }
 
@@ -1641,6 +1894,9 @@ private struct GroupDetailsPane: View {
     let disbandModel: GroupDisbandViewModel
     let accountDevicesModel: GroupAccountDevicesViewModel
     let blockedUsersModel: BlockedUsersViewModel
+    let onSearchInChat: () -> Void
+    let onOpenSharedMediaLibrary: () -> Void
+    let onOpenSharedMediaViewer: (SharedMediaViewerPresentation) -> Void
 
     var body: some View {
         GroupDetailsSheet(
@@ -1650,14 +1906,12 @@ private struct GroupDetailsPane: View {
             safetyModel: safetyModel,
             disbandModel: disbandModel,
             accountDevicesModel: accountDevicesModel,
-            isBlocked: { blockedUsersModel.isBlocked(accountID: $0) }
+            isBlocked: { blockedUsersModel.isBlocked(accountID: $0) },
+            onSearchInChat: onSearchInChat,
+            onOpenSharedMediaLibrary: onOpenSharedMediaLibrary,
+            onOpenSharedMediaViewer: onOpenSharedMediaViewer
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            MessagesTranscriptBackground()
-        }
-        .clipped()
-        .contentShape(Rectangle())
         .accessibilityIdentifier("group.details.pane")
     }
 }
@@ -1665,29 +1919,33 @@ private struct GroupDetailsPane: View {
 private struct ContactDetailsPane: View {
     let contact: NewChatRecipient
     let blockedUsersModel: BlockedUsersViewModel
+    let returnsToGroupInfo: Bool
 
     var body: some View {
-        ContactDetailsView(contact: contact, blockedUsersModel: blockedUsersModel)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                MessagesTranscriptBackground()
-            }
-            .clipped()
-            .contentShape(Rectangle())
-            .accessibilityIdentifier("contact.details.pane")
+        ContactDetailsView(
+            contact: contact,
+            blockedUsersModel: blockedUsersModel,
+            returnsToGroupInfo: returnsToGroupInfo
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("contact.details.pane")
     }
 }
 
 private struct FailureView: View {
+    @Environment(\.locale) private var locale
     let message: String
 
     var body: some View {
         ContentUnavailableView {
-            Label(L10n.string("Startup failed"), systemImage: "exclamationmark.triangle")
+            Label(L10n.string("Startup failed", locale: locale), systemImage: "exclamationmark.triangle")
         } description: {
             Text(message)
+                .foregroundStyle(WNColor.intentionErrorContent)
+                .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("startup.failure")
     }
 }
 
@@ -1707,8 +1965,11 @@ private struct EmptyConversationView: View {
     @Environment(\.locale) private var locale
 
     var body: some View {
-        WNEmptyStateView(title: L10n.string("No messages", locale: locale), systemImage: "text.bubble")
-            .frame(maxWidth: .infinity, minHeight: 360)
+        ContentUnavailableView(
+            L10n.string("No messages", locale: locale),
+            systemImage: "text.bubble"
+        )
+        .frame(maxWidth: .infinity, minHeight: 360)
     }
 }
 
@@ -1727,23 +1988,53 @@ private struct EmptyDetailView: View {
     var body: some View {
         Group {
             if workspace.accounts.isEmpty {
-                WNEmptyStateView(
-                    title: L10n.string("No accounts", locale: locale),
+                ContentUnavailableView(
+                    L10n.string("No accounts", locale: locale),
                     systemImage: "person.crop.circle.badge.questionmark"
                 )
             } else if workspace.hasNoChats {
-                WNEmptyStateView(
-                    title: L10n.string("No chats yet", locale: locale),
-                    description: L10n.string("Start a conversation", locale: locale),
-                    systemImage: "bubble.left.and.bubble.right"
-                )
+                ContentUnavailableView {
+                    Label(
+                        L10n.string("No chats yet", locale: locale),
+                        systemImage: "bubble.left.and.bubble.right"
+                    )
+                } description: {
+                    Text(L10n.string("Start a conversation", locale: locale))
+                } actions: {
+                    Button {
+                        workspace.showNewChat()
+                    } label: {
+                        Label(L10n.string("New chat", locale: locale), systemImage: "square.and.pencil")
+                    }
+                    .wnPrimaryButtonStyle()
+                    .disabled(workspace.isNewChatComposerVisible)
+                }
             } else {
-                WNEmptyStateView(
-                    title: L10n.string("Select a chat", locale: locale),
+                ContentUnavailableView(
+                    L10n.string("Select a chat", locale: locale),
                     systemImage: "bubble.left.and.bubble.right"
                 )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("")
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     }
+}
+
+#Preview("Startup") {
+    StartupView()
+        .frame(width: 480, height: 360)
+}
+
+#Preview("Startup failure") {
+    FailureView(message: "Couldn’t open local storage on this Mac.")
+        .frame(width: 480, height: 360)
+}
+
+#Preview("Empty detail") {
+    EmptyDetailView()
+        .environment(WorkspaceState.preview())
+        .frame(width: 480, height: 360)
 }

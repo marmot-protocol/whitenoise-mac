@@ -46,12 +46,11 @@ struct ProfileImageSourceMenu<Label: View>: View {
         /// asked for. The sign-up hero.
         ///
         /// **This case names no style on purpose.** Not because there are two secondary tiers to
-        /// choose between any more — there is one, `.wnSecondary` — but because naming it here
-        /// would be a second copy of a decision `OnboardingActionTier` already owns, and the tier
-        /// carries a label height as well as a style. Leaving it out lets the caller hand both
-        /// over: `OnboardingSignUpAvatar` does, with `.onboardingActionTier(.secondary)`. The
-        /// capsule comes from `wnButtonShape` in the environment, which the pane sets for all of
-        /// them at once.
+        /// choose between any more — there is one, `.wnSecondaryButtonStyle()` — but because naming
+        /// it here would be a second copy of a decision `OnboardingActionTier` already owns. Leaving
+        /// it out lets the caller hand the tier over: `OnboardingSignUpAvatar` does, with
+        /// `.onboardingActionTier(.secondary)`. The capsule comes from `wnButtonShape` in the
+        /// environment, which the pane sets for all of them at once.
         case pushButton
     }
 
@@ -64,6 +63,7 @@ struct ProfileImageSourceMenu<Label: View>: View {
 
     @State private var isSourceListPresented = false
     @State private var isFileImporterPresented = false
+    @State private var filePickerAccountId: String?
     @State private var cropModel: AvatarCropViewModel?
 
     var body: some View {
@@ -82,7 +82,13 @@ struct ProfileImageSourceMenu<Label: View>: View {
                     guard let url = urls.first else { return }
                     cropFile(at: url)
                 case .failure(let error):
-                    workspace.reportUserActionError(UserFacingError.message(for: error))
+                    let message = UserFacingError.message(for: error)
+                    switch destination {
+                    case .activeAccount:
+                        workspace.setSettingsError(message)
+                    case .signUpDraft:
+                        workspace.reportUserActionError(message)
+                    }
                 }
             }
             .avatarCropSheet($cropModel)
@@ -117,7 +123,11 @@ struct ProfileImageSourceMenu<Label: View>: View {
 
     private func chooseFile() {
         isSourceListPresented = false
-        guard workspace.prepareProfileImageDestination(destination) else { return }
+        filePickerAccountId = destination == .activeAccount ? workspace.activeAccountId : nil
+        guard workspace.prepareProfileImageDestination(destination) else {
+            filePickerAccountId = nil
+            return
+        }
         isFileImporterPresented = true
     }
 
@@ -127,15 +137,21 @@ struct ProfileImageSourceMenu<Label: View>: View {
     /// over the wait instead of closing on a picture that was never saved.
     private func cropFile(at url: URL) {
         let destination = destination
+        let expectedAccountId = destination == .activeAccount ? filePickerAccountId : nil
+        filePickerAccountId = nil
+        if destination == .activeAccount {
+            guard let expectedAccountId, workspace.activeAccountId == expectedAccountId else { return }
+        }
         cropModel = AvatarCropViewModel(
             loadData: { try await AvatarImageCropSource.data(fromFileURL: url) },
             commit: { [workspace] data in
+                if let expectedAccountId, workspace.activeAccountId != expectedAccountId { return }
                 let isSigningUp = destination == .signUpDraft && workspace.isAuthenticating
                 guard !workspace.isUploadingProfileImage, !isSigningUp else {
                     throw AvatarImageCropper.CommitError.busy
                 }
                 guard workspace.prepareProfileImageDestination(destination) else { return }
-                try await workspace.setProfileImage(croppedImageData: data)
+                try await workspace.setProfileImage(croppedImageData: data, expectedAccountId: expectedAccountId)
             }
         )
     }
@@ -198,11 +214,11 @@ private struct ProfileImageSourceButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
                     .frame(width: 16)
 
                 Text(title)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
 
                 Spacer(minLength: 0)
             }

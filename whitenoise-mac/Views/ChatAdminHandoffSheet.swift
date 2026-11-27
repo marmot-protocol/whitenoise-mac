@@ -42,43 +42,67 @@ struct ChatAdminHandoffSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            ChatAdminHandoffHeader()
             Divider()
-            explanation
+            ChatAdminHandoffExplanation(text: target.subject.adminHandoffExplanation)
             Divider()
-            candidateList
+            ChatAdminHandoffCandidateList(
+                candidates: target.candidates,
+                selectedMemberId: $selectedMemberId
+            )
             Divider()
-            footer
+            ChatAdminHandoffFooter(
+                isConfirmDisabled: selectedMember == nil || isGroupCommitInFlight,
+                onCancel: { dismiss() },
+                onConfirm: {
+                    guard let selectedMember else { return }
+                    // The handoff closes this sheet as it starts, so a consent prompt is asked from the
+                    // window, through the account's shared prompter.
+                    let advisory = session.accountScope?.groupChangeAdvisory
+                    Task {
+                        await workspace.confirmChatAdminHandoff(target, successor: selectedMember, advisory: advisory)
+                    }
+                }
+            )
         }
         .frame(width: 420, height: 460)
     }
+}
 
-    private var header: some View {
+private struct ChatAdminHandoffHeader: View {
+    var body: some View {
         HStack {
             Text(L10n.string("Choose a new admin"))
-                .wnFont(.semiBold14)
+                .font(.headline)
             Spacer()
-            Button(L10n.string("Cancel")) { dismiss() }
-                .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
+}
 
-    private var explanation: some View {
-        Text(target.subject.adminHandoffExplanation)
-            .wnFont(.medium12)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+private struct ChatAdminHandoffExplanation: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
     }
+}
 
-    private var candidateList: some View {
+private struct ChatAdminHandoffCandidateList: View {
+    let candidates: [GroupMemberItem]
+    @Binding var selectedMemberId: String?
+
+    var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(target.candidates) { candidate in
+                ForEach(candidates) { candidate in
                     ChatAdminHandoffCandidateRow(
                         candidate: candidate,
                         isSelected: candidate.id == selectedMemberId
@@ -86,7 +110,7 @@ struct ChatAdminHandoffSheet: View {
                         selectedMemberId = candidate.id
                     }
 
-                    if candidate.id != target.candidates.last?.id {
+                    if candidate.id != candidates.last?.id {
                         Divider().padding(.leading, 54)
                     }
                 }
@@ -94,25 +118,29 @@ struct ChatAdminHandoffSheet: View {
             .padding(.vertical, 4)
         }
     }
+}
 
-    private var footer: some View {
-        HStack {
+private struct ChatAdminHandoffFooter: View {
+    let isConfirmDisabled: Bool
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
             Spacer()
-            Button {
-                guard let selectedMember else { return }
-                // The handoff closes this sheet as it starts, so a consent prompt is asked from the
-                // window, through the account's shared prompter.
-                let advisory = session.accountScope?.groupChangeAdvisory
-                Task { await workspace.confirmChatAdminHandoff(target, successor: selectedMember, advisory: advisory) }
-            } label: {
+            Button(L10n.string("Cancel"), role: .cancel, action: onCancel)
+                .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
+
+            Button(action: onConfirm) {
                 Text(L10n.string("Make Admin & Leave")).frame(minWidth: 96)
             }
             .keyboardShortcut(.defaultAction)
-            .nativeGlassProminentButtonStyle()
+            .wnPrimaryButtonStyle()
             // Only the leave half is destructive, and it is the half the confirmation below the
             // button already describes — so the affordance stays a plain prominent action rather
             // than shouting at a user whose alternative is being stuck in the group forever.
-            .disabled(selectedMember == nil || isGroupCommitInFlight)
+            .disabled(isConfirmDisabled)
         }
         .padding(16)
     }
@@ -138,11 +166,11 @@ private struct ChatAdminHandoffCandidateRow: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(candidate.displayName)
-                        .wnFont(.medium12)
+                        .font(.body)
                         .lineLimit(1)
                     Text(candidate.detailLabel)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
 
@@ -160,4 +188,30 @@ private struct ChatAdminHandoffCandidateRow: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
+}
+
+#Preview("Admin handoff") {
+    let candidate = GroupMemberItem(
+        id: "bob",
+        displayName: "Bob",
+        publishedDisplayName: nil,
+        profileName: "Bob",
+        npub: "npub1bob",
+        accountLabel: nil,
+        isLocal: false,
+        isAdmin: false,
+        isSelf: false,
+        canRemove: true,
+        canPromote: true,
+        canDemote: false
+    )
+    ChatAdminHandoffSheet(
+        target: ChatAdminHandoffTarget(
+            groupIdHex: "group",
+            subject: .namedGroup("Design Crew"),
+            candidates: [candidate]
+        )
+    )
+    .environment(WorkspaceState.preview())
+    .environment(SessionState())
 }

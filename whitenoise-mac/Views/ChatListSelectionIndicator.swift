@@ -32,7 +32,7 @@ struct ChatListSelectionMark: View {
                     .foregroundStyle(WNColor.backgroundContentTertiary)
             }
         }
-        .wnFont(.medium16)
+        .font(.body)
         .frame(width: 20)
         .contentTransition(.symbolEffect(.replace))
         .accessibilityHidden(true)

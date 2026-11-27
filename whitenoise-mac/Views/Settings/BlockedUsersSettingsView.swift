@@ -50,7 +50,7 @@ private struct BlockedUserSettingsRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.xmark")
-                .wnFont(.medium18)
+                .font(.title3)
 
             Text(DisplayText.short(user.publicKey, head: 12, tail: 8))
                 .font(.callout.monospaced())
@@ -65,7 +65,7 @@ private struct BlockedUserSettingsRow: View {
                     isBusy: isSaving
                 )
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .disabled(isSaving)
         }
     }

@@ -17,14 +17,14 @@
 import AppKit
 
 nonisolated enum WNNSFont {
-    /// The system face at a rung's size and weight.
+    /// The legacy system face at a fixed rung's size and weight.
     static func font(for style: WNTextStyle) -> NSFont {
         style.usesMonospacedDigits
             ? .monospacedDigitSystemFont(ofSize: style.size, weight: style.weight.appKit)
             : .systemFont(ofSize: style.size, weight: style.weight.appKit)
     }
 
-    /// A rung as a `TextKit` attribute dictionary, ready to drop into text storage.
+    /// A legacy rung as a `TextKit` attribute dictionary, ready to drop into text storage.
     static func attributes(for style: WNTextStyle) -> [NSAttributedString.Key: Any] {
         [.font: font(for: style)]
     }

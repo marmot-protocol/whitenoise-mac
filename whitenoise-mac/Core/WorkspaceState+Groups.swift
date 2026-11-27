@@ -1204,12 +1204,21 @@ extension WorkspaceState {
         groupIdHex: String, subject: ChatConfirmationSubject, lifecycle: GroupLifecycle = .active
     ) {
         guard !isDeletingGroupLocally, chatPendingLocalDelete == nil else { return }
-        chatPendingLocalDelete = ChatLocalDeleteTarget(groupIdHex: groupIdHex, subject: subject, lifecycle: lifecycle)
+        chatPendingLocalDelete = ChatLocalDeleteTarget(
+            groupIdHex: groupIdHex,
+            subject: subject,
+            lifecycle: lifecycle,
+            accountId: activeAccountId
+        )
     }
 
     func confirmChatLocalDelete(_ target: ChatLocalDeleteTarget) async {
         chatPendingLocalDelete = nil
-        await deleteGroupLocally(groupIdHex: target.groupIdHex, reportsToChatAlert: true)
+        await deleteGroupLocally(
+            groupIdHex: target.groupIdHex,
+            expectedAccountId: target.accountId,
+            reportsToChatAlert: true
+        )
     }
 
     func clearPendingChatDestructiveActions() {
@@ -1569,8 +1578,15 @@ extension WorkspaceState {
     /// delete (see `ChatDestructiveActions`), and non-user-initiated callers must keep working.
     /// `reportsToChatAlert` routes failures to the destructive-action alert instead of `lastError`,
     /// which is not rendered anywhere near the sidebar.
-    func deleteGroupLocally(groupIdHex: String, reportsToChatAlert: Bool = false) async {
+    func deleteGroupLocally(
+        groupIdHex: String,
+        expectedAccountId: String? = nil,
+        reportsToChatAlert: Bool = false
+    ) async {
         guard let client, let activeAccount, !isDeletingGroupLocally else { return }
+        if let expectedAccountId, activeAccount.id != expectedAccountId { return }
+        let accountId = activeAccount.id
+        let accountRef = activeAccount.accountRef
         lastError = nil
         isDeletingGroupLocally = true
         // Also recorded per-chat so a surface can say *which* chat is being removed. The re-entrancy
@@ -1584,10 +1600,11 @@ extension WorkspaceState {
 
         do {
             _ = try await client.deleteGroupLocal(
-                accountRef: activeAccount.accountRef,
+                accountRef: accountRef,
                 groupIdHex: groupIdHex
             )
-            clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: groupIdHex)
+            clearMediaReferenceResolutionCache(forAccountId: accountId, groupIdHex: groupIdHex)
+            guard activeAccountId == accountId else { return }
             if groupDetailsSnapshot?.groupIdHex == groupIdHex {
                 closeGroupDetails()
             }
@@ -1599,6 +1616,7 @@ extension WorkspaceState {
             }
             await reloadChats(forceFreshSnapshot: true)
         } catch {
+            guard activeAccountId == accountId else { return }
             if reportsToChatAlert {
                 chatActionAlert = .localDeleteFailed()
             } else {

@@ -26,6 +26,9 @@ import SwiftUI
 struct PrivacySecuritySettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     let model: DiagnosticsSettingsViewModel
+    var gifPreference: RemoteGIFLoadingPreference = .shared
+    var stickerPreference: StickerLoadingPreference = .shared
+    var linkPreviewPreference: LinkPreviewPreference = .shared
     @State private var showClearLogsConfirmation = false
     @State private var showEraseAppDataConfirmation = false
 
@@ -35,11 +38,11 @@ struct PrivacySecuritySettingsView: View {
                 SettingsNavigationRow(page: .blockedUsers)
             }
 
-            RemoteGIFLoadingSection(preference: .shared)
+            RemoteGIFLoadingSection(preference: gifPreference)
 
-            StickerLoadingSection(preference: .shared)
+            StickerLoadingSection(preference: stickerPreference)
 
-            LinkPreviewSettingsSection(preference: .shared)
+            LinkPreviewSettingsSection(preference: linkPreviewPreference)
 
             DiagnosticsAndImprovementsSections(model: model)
 
@@ -71,7 +74,7 @@ struct PrivacySecuritySettingsView: View {
                         isBusy: workspace.isDeletingAllData
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(workspace.isAccountMutationInProgress)
             }
         }
@@ -299,7 +302,7 @@ private struct StoredDiagnosticLogsSection: View {
                             isBusy: model.isUploadingAuditLogs
                         )
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(model.isUploadingAuditLogs)
 
                     Button {
@@ -312,7 +315,7 @@ private struct StoredDiagnosticLogsSection: View {
                             isBusy: model.isDeletingAuditLogs
                         )
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(model.isDeletingAuditLogs)
                 }
 
@@ -363,6 +366,7 @@ struct DiagnosticLogRetentionSection: View {
                         Text(Self.ageLabel(days)).tag(days)
                     }
                 }
+                .pickerStyle(.menu)
                 .disabled(!isEnabled || model.isBusy)
 
                 Picker(
@@ -376,6 +380,7 @@ struct DiagnosticLogRetentionSection: View {
                         Text(Self.sizeLabel(bytes)).tag(bytes)
                     }
                 }
+                .pickerStyle(.menu)
                 .disabled(!isEnabled || model.isBusy)
             }
 
@@ -429,4 +434,10 @@ enum AuditLogByteCount {
     static func string(_ bytes: UInt64) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
+}
+
+#Preview("Privacy & Security") {
+    PrivacySecuritySettingsView(model: .preview())
+        .environment(WorkspaceState.preview())
+        .frame(width: 600, height: 760)
 }

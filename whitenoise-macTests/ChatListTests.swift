@@ -1599,8 +1599,9 @@ struct ChatListTests: WorkspaceTestSupport {
         let state = WorkspaceState.preview()
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
         state.client = runtime
+        let account = try #require(state.activeAccount)
         let chat = try #require(state.activeChats.first)
-        let sender = try #require(state.activeAccount).accountIdHex
+        let sender = account.accountIdHex
         runtime.timelineMessagesHandler = { query in
             TimelinePageFfi(
                 messages: [
@@ -1617,17 +1618,23 @@ struct ChatListTests: WorkspaceTestSupport {
             )
         }
 
-        state.presentGlobalMessageSearch()
-        state.globalMessageSearchQuery = "superseded"
-        state.scheduleGlobalMessageSearch()
-        state.globalMessageSearchQuery = "fresh"
-        state.scheduleGlobalMessageSearch()
+        let scope = AccountScope(
+            account: account,
+            runtime: runtime,
+            globalMessageSearchScopes: {
+                state.activeChats.map { GlobalMessageSearchScope(groupId: $0.id, title: $0.title) }
+            },
+            globalMessageSearchNicknames: { state.activeContactNicknames }
+        )
+        let search = scope.globalMessageSearch
+        search.activate(initialQuery: "superseded")
+        search.query = "fresh"
 
-        #expect(await waitFor { !state.isSearchingAllMessages && !state.globalMessageSearchResults.isEmpty })
-        #expect(state.globalMessageSearchResults.allSatisfy { $0.snippet.match == "fresh" })
+        #expect(await waitFor { !search.isSearching && !search.results.isEmpty })
+        #expect(search.results.allSatisfy { $0.snippet.match == "fresh" })
         #expect(runtime.timelineMessageQueries.count == state.activeChats.count)
         #expect(runtime.syncCallThreadRecord("timelineMessages").allSatisfy { !$0 })
-        state.dismissGlobalMessageSearch()
+        search.dismiss()
     }
 
     @Test func sidebarMessageSearchKeepsTheNewestMatchFromEveryChat() throws {
@@ -1706,13 +1713,11 @@ struct ChatListTests: WorkspaceTestSupport {
         state.searchText = query
         state.scheduleSidebarMessageSearch()
 
-        #expect(!state.isGlobalMessageSearchPresented)
         #expect(
             await waitFor {
                 !state.isSearchingSidebarMessages && !state.sidebarMessageSearchResultsByGroupId.isEmpty
             })
         #expect(state.sidebarMessageSearchResult(for: target)?.snippet.match == query)
-        #expect(state.globalMessageSearchQuery.isEmpty)
     }
 
     @MainActor
@@ -1723,7 +1728,8 @@ struct ChatListTests: WorkspaceTestSupport {
         let firstQueryEntered = DispatchSemaphore(value: 0)
         let releaseFirstQuery = DispatchSemaphore(value: 0)
         let calls = AtomicCounter()
-        let sender = try #require(state.activeAccount).accountIdHex
+        let account = try #require(state.activeAccount)
+        let sender = account.accountIdHex
         runtime.timelineMessagesHandler = { query in
             let call = calls.increment()
             if call == 1 {
@@ -1745,28 +1751,37 @@ struct ChatListTests: WorkspaceTestSupport {
             )
         }
 
-        state.presentGlobalMessageSearch()
-        state.globalMessageSearchQuery = "stale"
-        state.scheduleGlobalMessageSearch()
+        let session = SessionState()
+        await session.activate(
+            account: account,
+            runtime: runtime,
+            connectivityAvailable: true,
+            globalMessageSearchScopes: {
+                state.activeChats.map { GlobalMessageSearchScope(groupId: $0.id, title: $0.title) }
+            },
+            globalMessageSearchNicknames: { state.activeContactNicknames }
+        )
+        let search = try #require(session.accountScope?.globalMessageSearch)
+        search.activate(initialQuery: "stale")
         #expect(await waitForSemaphore(firstQueryEntered, timeout: .now() + 2) == .success)
 
-        state.globalMessageSearchQuery = "current"
-        state.scheduleGlobalMessageSearch()
+        search.query = "current"
         releaseFirstQuery.signal()
 
         #expect(
             await waitFor(attempts: 300) {
-                !state.isSearchingAllMessages && !state.globalMessageSearchResults.isEmpty
+                !search.isSearching && !search.results.isEmpty
             })
-        #expect(state.globalMessageSearchResults.allSatisfy { $0.snippet.match == "current" })
-        #expect(!state.globalMessageSearchResults.contains { $0.snippet.leading.contains("stale") })
+        #expect(search.results.allSatisfy { $0.snippet.match == "current" })
+        #expect(!search.results.contains { $0.snippet.leading.contains("stale") })
 
         let nextAccount = try #require(state.accounts.dropFirst().first)
-        state.prepareForActiveAccountSwitch(to: nextAccount, preservingMessageCacheFor: nil)
-        #expect(!state.isGlobalMessageSearchPresented)
-        #expect(state.globalMessageSearchQuery.isEmpty)
-        #expect(state.globalMessageSearchResults.isEmpty)
-        #expect(!state.isSearchingAllMessages)
+        await session.activate(account: nextAccount, runtime: runtime, connectivityAvailable: true)
+        #expect(!search.isActive)
+        #expect(search.query.isEmpty)
+        #expect(search.results.isEmpty)
+        #expect(!search.isSearching)
+        #expect(session.accountScope?.globalMessageSearch !== search)
     }
 
     @MainActor
@@ -1838,29 +1853,39 @@ struct ChatListTests: WorkspaceTestSupport {
     }
 
     @MainActor
-    @Test func globalMessageSearchInvalidatesResultsWhenAVisibleChatIsDeleted() throws {
+    @Test func globalMessageSearchInvalidatesResultsWhenAVisibleChatIsDeleted() async throws {
         let state = WorkspaceState.preview()
         let account = try #require(state.activeAccount)
         let deletedChat = try #require(state.activeChats.last)
-        state.presentGlobalMessageSearch()
-        state.globalMessageSearchQuery = "message"
-        state.globalMessageSearchResults = [
-            GlobalMessageSearchResult(
-                messageId: String(repeating: "a", count: 64),
-                groupId: deletedChat.id,
-                chatTitle: deletedChat.title,
-                senderName: account.displayName,
-                timelineAt: 10,
-                snippet: GlobalMessageSearchSnippet(leading: "", match: "message", trailing: "")
-            )
-        ]
+        let remainingChat = try #require(state.activeChats.first)
+        let search = SidebarGlobalSearchViewModel(
+            debounce: .zero,
+            searchRunner: { _, _ in
+                state.activeChats.map { chat in
+                    GlobalMessageSearchResult(
+                        messageId: String(repeating: "a", count: 64),
+                        groupId: chat.id,
+                        chatTitle: chat.title,
+                        senderName: account.displayName,
+                        timelineAt: 10,
+                        snippet: GlobalMessageSearchSnippet(leading: "", match: "message", trailing: "")
+                    )
+                }
+            }
+        )
+        search.activate(initialQuery: "message")
+        #expect(await waitFor { !search.isSearching && !search.results.isEmpty })
+        #expect(search.results.contains { $0.groupId == deletedChat.id })
 
         state.removeChat(groupIdHex: deletedChat.id, account: account)
+        search.handleVisibleChatsChanged(visibleGroupIds: Set(state.activeChats.map(\.id)))
 
         #expect(!state.activeChats.contains { $0.id == deletedChat.id })
-        #expect(state.globalMessageSearchResults.isEmpty)
-        #expect(state.globalMessageSearchQuery == "message")
-        state.dismissGlobalMessageSearch()
+        #expect(await waitFor { !search.isSearching })
+        #expect(!search.results.contains { $0.groupId == deletedChat.id })
+        #expect(search.results.contains { $0.groupId == remainingChat.id })
+        #expect(search.query == "message")
+        search.dismiss()
     }
 
     @Test func globalMessageSearchStopsWhenHistoryCursorDoesNotAdvance() throws {

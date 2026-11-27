@@ -107,32 +107,16 @@ enum OnboardingLayout {
     static let markToActionsMaximumSpacing: CGFloat = 96
 
     /// How tall every onboarding push button draws, both tiers.
-    ///
-    /// 44 rather than whatever each style comes out at on its own, because on their own they come
-    /// out at **different** heights: at `.large`, `WNSecondaryButtonStyle` draws 32pt and the glass
-    /// primary draws 28pt around the same label. Stacked, that is a visible 4pt step between two
-    /// buttons that are meant to be a pair — and it cannot be fixed with `.frame(height:)`, which
-    /// a button style ignores. The only knob is the label, so the label carries the difference.
-    ///
-    /// 44 is also the number the pane wants: it is the comfortable hit height for the one action a
-    /// screen exists to perform, and it sits a step above the 40pt key field it submits.
     static let actionHeight: CGFloat = 44
 
-    /// What each style adds around its label at `.large`, measured rather than assumed —
-    /// `OnboardingTests.bothActionTiersDrawTheSameHeight` re-measures both through `ImageRenderer`
-    /// and fails if either style's padding moves under us.
-    static let secondaryActionChromeHeight: CGFloat = 16
-    /// The glass primary's chrome, which is 4pt tighter than the secondary tier's.
-    static let primaryActionChromeHeight: CGFloat = 12
+    /// Vertical chrome native `.bordered` and `.borderedProminent` add around their label at
+    /// `.large`. `OnboardingTests.bothActionTiersDrawTheSameHeight` re-measures both through
+    /// `ImageRenderer` and fails if macOS padding moves under us.
+    static let actionChromeHeight: CGFloat = 12
 
     /// The minimum height an action's *label* must claim for its button to come out
     /// `actionHeight` tall.
-    static func actionLabelHeight(for tier: OnboardingActionTier) -> CGFloat {
-        switch tier {
-        case .primary: actionHeight - primaryActionChromeHeight
-        case .secondary: actionHeight - secondaryActionChromeHeight
-        }
-    }
+    static let actionLabelHeight: CGFloat = actionHeight - actionChromeHeight
 
     // MARK: - The sign-up pane
 

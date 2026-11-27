@@ -211,7 +211,7 @@ struct ProfileKeysSourceContractTests {
     @Test func theEncryptedExportSheetClearsTheSharedErrorBeforeShowingOne() throws {
         let sheet = try SourceContract.source(of: .encryptedPrivateKeyExportSheet)
 
-        #expect(sheet.contains("workspace.lastError = nil"))
+        #expect(sheet.contains("workspace.setSettingsError(nil)"))
         // It still shows one: the export flow sets its own, and the sheet is where it is read.
         #expect(sheet.contains("SettingsErrorView(error: error)"))
         // Dismiss stays gated on a written file, which is why an error has somewhere to be read.
@@ -239,7 +239,7 @@ struct ProfileKeysSourceContractTests {
         // whichever account is active, and the typed confirmation was given for the old one.
         #expect(sheet.contains(".onChange(of: account.id)"))
         // One button, one label, in one place, armed or not.
-        #expect(sheet.contains(".buttonStyle(.wnDestructive)"))
+        #expect(sheet.contains(".wnDestructiveButtonStyle()"))
         #expect(sheet.contains("AccountWipeConfirmation.matches"))
         // The teardown's progress is drawn inside that button, not in a view swapped in for the
         // form: the sheet keeps its shape while the sign-out runs.
@@ -254,9 +254,9 @@ struct ProfileKeysSourceContractTests {
         // `SignOutSheetExitTests` pins what the helper decides.
         #expect(sheet.contains("Self.exitSucceeded(for: account, wipedLocalData: wipes, in: workspace.accounts)"))
         #expect(!sheet.contains("guard workspace.lastError == nil"))
-        // The shared error is cleared on the way in, so an earlier profile or relay failure does
-        // not render here as if this sheet had produced it.
-        #expect(sheet.contains("workspace.lastError = nil"))
+        // Settings' error channel is cleared on the way in, so an earlier profile or relay failure
+        // does not render here as if this sheet had produced it.
+        #expect(sheet.contains("workspace.setSettingsError(nil)"))
 
         // And the two confirmations it replaced are gone rather than merely unreferenced.
         // These two have no `ViewUnit` entry precisely because they must not exist; a deleted file
@@ -266,34 +266,27 @@ struct ProfileKeysSourceContractTests {
         }
     }
 
-    /// The drawer's Sign Out row is the only way out of an account, and it opens the sheet rather
+    /// The sidebar's Sign Out row is the only way out of an account, and it opens the sheet rather
     /// than the dialog it used to raise.
     @Test func theDrawerSignOutRowOpensTheSheet() throws {
-        let row = try SourceContract.declaration("SettingsSignOutRow")
+        let section = try SourceContract.declaration("SettingsSidebarDestructiveSection")
 
-        #expect(row.contains("SignOutSheet(account: account)"))
-        #expect(!row.contains("signOutConfirmation"))
-        #expect(!row.contains("workspace.signOutAccount"), "the sheet decides which teardown runs")
+        #expect(section.contains("SignOutSheet(account: account)"))
+        #expect(!section.contains("signOutConfirmation"))
+        #expect(!section.contains("workspace.signOutAccount"), "the sheet decides which teardown runs")
     }
 
-    /// The destructive tier is a ground, not a quiet button with red text — the thing
-    /// `WNSecondaryButtonStyle`'s own documentation says a genuinely destructive action wants.
-    @Test func theDestructiveTierDrawsAFillDestructiveGroundFromTheSharedShapeTable() throws {
-        let style = try SourceContract.source(of: .destructiveButtonStyle)
-
-        #expect(style.contains("WNColor.fillDestructive"))
-        #expect(style.contains("WNColor.fillDestructiveHover"))
-        #expect(style.contains("WNColor.fillDestructiveActive"))
-        // Paired content, never a `backgroundContent*` token — see the pairing rule in `WNNSColor`.
-        #expect(style.contains("WNColor.fillContentQuaternary"))
-        #expect(!style.contains("backgroundContentDestructive"))
-        // Disabled swaps to the neutral pair rather than fading red, so a gate that has not been
-        // cleared cannot look like a live destructive button.
-        #expect(style.contains("WNColor.fillDisabled"))
-        #expect(style.contains("WNColor.fillContentDisabled"))
-        // No radius of its own: one table, or the tiers drift apart again.
-        #expect(style.contains("WNButtonMetrics.backgroundShape("))
-        #expect(!style.contains("cornerRadius: "))
+    /// Destructive push buttons use native `.borderedProminent` tinted `statusError` through
+    /// `WNButtonMetrics` rather than custom button chrome.
+    @Test func theDestructiveTierUsesNativeProminentDestructiveChrome() throws {
+        let chrome = try SourceContract.declaration("WNDestructiveButtonChrome", in: .buttonMetrics)
+        #expect(chrome.contains("WNColor.statusError"))
+        #expect(chrome.contains(".buttonStyle(.borderedProminent)"))
+        #expect(chrome.contains("WNButtonMetrics.borderShape("))
+        #expect(!chrome.contains("cornerRadius:"))
+        for removed in ["WNSecondaryButtonStyle.swift", "WNDestructiveButtonStyle.swift"] {
+            #expect(!SourceContract.viewFileExists(removed), "\(removed) is back")
+        }
     }
 }
 
@@ -507,6 +500,7 @@ struct SignOutSheetExitTests: WorkspaceTestSupport {
         runtime.accountRelayListsErrorByAccountRef = ["Backup Account": RelayListReadFailed()]
         UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
         let state = WorkspaceState(clientFactory: { runtime })
+        let settings = SettingsWindowCoordinator(workspace: state)
         await state.bootstrap()
         let active = try #require(state.activeAccount)
         try #require(active.id == "Desktop Account")
@@ -515,7 +509,7 @@ struct SignOutSheetExitTests: WorkspaceTestSupport {
 
         #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
         #expect(state.activeAccountId == "Backup Account")
-        #expect(state.lastError == RelayListReadFailed().errorDescription)
+        #expect(settings.lastError == RelayListReadFailed().errorDescription)
         #expect(SignOutSheet.exitSucceeded(for: active, wipedLocalData: false, in: state.accounts))
     }
 
@@ -528,12 +522,13 @@ struct SignOutSheetExitTests: WorkspaceTestSupport {
         runtime.signOutError = RelayListReadFailed()
         UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
         let state = WorkspaceState(clientFactory: { runtime })
+        let settings = SettingsWindowCoordinator(workspace: state)
         await state.bootstrap()
         let active = try #require(state.activeAccount)
 
         await state.signOutAccount(active)
 
-        #expect(state.lastError != nil)
+        #expect(settings.lastError != nil)
         #expect(state.activeAccountId == "Desktop Account")
         #expect(!SignOutSheet.exitSucceeded(for: active, wipedLocalData: false, in: state.accounts))
     }

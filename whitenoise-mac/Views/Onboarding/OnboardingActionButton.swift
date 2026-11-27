@@ -10,23 +10,20 @@ import SwiftUI
 
 /// Which of the two tiers an onboarding action is.
 ///
-/// A named tier rather than a `ButtonStyle` passed in, because the style is only half of what a
-/// tier is: the other half is how much height its label has to claim for the button to come out
-/// `OnboardingLayout.actionHeight` tall, and the two numbers differ per style. Keeping them
-/// together is what makes a stacked pair the same height.
+/// A named tier rather than a `ButtonStyle` passed in so onboarding panes pick a semantic role
+/// (`.primary` vs `.secondary`) and every call site goes through `onboardingActionTier(_:)`.
 enum OnboardingActionTier {
-    /// The glass primary. One per pane.
+    /// Native `.borderedProminent` primary. One per pane.
     case primary
-    /// The secondary — `WNSecondaryButtonStyle`. Shadowed, not ringed.
+    /// Native `.bordered` secondary.
     case secondary
 }
 
 /// A full-width onboarding push button.
 ///
-/// The reusable piece the onboarding panes are actually built from, and the reason there is a
-/// component here at all rather than a `Button` per call site: the tier decides *both* the style
-/// and the label's minimum height, and a call site that picked the style itself would be one
-/// `.frame` away from a pane whose two buttons are 4pt apart. See `OnboardingLayout.actionHeight`.
+/// The reusable piece the onboarding panes are actually built from: it pairs `tier` with
+/// `OnboardingLayout.actionLabelHeight` so a stacked pair of buttons always comes out level at
+/// `OnboardingLayout.actionHeight`.
 struct OnboardingActionButton: View {
     /// Already resolved by the caller, in-flight wording included — `Creating...` rather than
     /// `Sign Up` while the identity is being made.
@@ -42,7 +39,7 @@ struct OnboardingActionButton: View {
 
     private var label: some View {
         OnboardingActionLabel(title: title, isLoading: isLoading)
-            .frame(minHeight: OnboardingLayout.actionLabelHeight(for: tier))
+            .frame(minHeight: OnboardingLayout.actionLabelHeight)
     }
 }
 
@@ -54,7 +51,7 @@ extension View {
     /// the sign-up hero's photo picker, whose press opens a popover rather than running an action
     /// closure, and which is a control that hugs its two words rather than a full-width action.
     ///
-    /// What it deliberately does *not* carry is `OnboardingLayout.actionLabelHeight(for:)`. That
+    /// What it deliberately does *not* carry is `OnboardingLayout.actionLabelHeight`. That
     /// number exists so a stacked pair of full-height actions comes out level; a subordinate
     /// control is not in that stack and does not want 44pt. Reach for `OnboardingActionButton` for
     /// anything that is.
@@ -62,7 +59,7 @@ extension View {
     func onboardingActionTier(_ tier: OnboardingActionTier) -> some View {
         switch tier {
         case .primary: wnPrimaryButtonStyle()
-        case .secondary: buttonStyle(.wnSecondary)
+        case .secondary: wnSecondaryButtonStyle()
         }
     }
 }

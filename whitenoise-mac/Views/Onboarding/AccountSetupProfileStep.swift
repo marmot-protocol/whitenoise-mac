@@ -204,8 +204,8 @@ struct AccountSetupProfileIntro: View {
                 ForEach(messageKeys, id: \.self) { Text(L10n.string($0, locale: locale)) }
             }
         }
-        .wnFont(.medium12)
-        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .font(.subheadline)
+        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .fixedSize(horizontal: false, vertical: true)
