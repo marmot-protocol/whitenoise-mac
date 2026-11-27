@@ -246,6 +246,24 @@ struct AgentItemTests {
         #expect(ledger.sent.isEmpty)
     }
 
+    /// The await can fail after MDK durably admitted the send. The press is asked after by its
+    /// token and stays pending, so pressing again never sends a second control.
+    @Test func aPressAdmittedBeforeItsAwaitFailedStaysPending() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.sendCustomEventError = MarmotKitError.StorageClosed(details: "closed")
+        runtime.localSendStatuses["token-1"] = .queued(messageIdHex: "ADMITTED")
+        let ledger = AgentRequestLedger(
+            accountRef: "me", accountIdHex: F.person, runtime: runtime, makeClientToken: { "token-1" })
+        let request = AgentRequest(
+            agentAccountIdHex: F.agent, targetEventIdHex: nil, action: .newSession, content: "New session")
+
+        let sent = try #require(await ledger.send(request, groupIdHex: F.groupIdHex))
+
+        #expect(sent.idHex == "admitted")
+        #expect(ledger.sends(groupIdHex: F.groupIdHex, targetEventIdHex: nil) == [sent])
+        #expect(ledger.failures[F.groupIdHex] == nil)
+    }
+
     @Test func anotherMembersPressIsAttributedOnceSeen() {
         let ledger = AgentRequestLedger(accountRef: "me", accountIdHex: F.person, runtime: nil)
         let alice = String(repeating: "cc", count: 32)
@@ -349,6 +367,29 @@ struct AgentItemTests {
         let rootSummary = transcript.mainItems.first?.message.agent?.threadSummary
         #expect(rootSummary?.rowCount == 2)
         #expect(rootSummary?.waiting.map(\.id) == [F.eventId(3)])
+    }
+
+    /// Only a `task` row opens a thread, so a reply to a tool inside a subagent's thread goes to
+    /// that subagent's thread (its root), not to a thread of the tool nobody can open.
+    @Test func aReplyToAToolInAThreadStaysInTheSubagentsThread() {
+        let task = F.eventId(1)
+        let tool = F.eventId(2)
+        let reply = F.eventId(3)
+        let records = [
+            F.record(
+                id: task,
+                event: ["type": "task", "state": "running", "title": "Subagent", "body": ["kind": "subagent"]]),
+            F.record(
+                id: tool, event: Self.event(Self.approvalAllowed[3]),
+                thread: TimelineThreadRefFfi(rootMessageIdHex: task, parentMessageIdHex: task)),
+            timelineMessage(
+                id: reply, groupIdHex: F.groupIdHex, sender: F.person, plaintext: "why that file?", kind: 1111,
+                recordedAt: 2, thread: TimelineThreadRefFfi(rootMessageIdHex: task, parentMessageIdHex: tool)),
+        ]
+        let transcript = Self.transcript(records)
+        #expect(transcript.mainItems.map(\.id) == [task])
+        #expect(transcript.threads[task]?.map(\.id) == [tool, reply])
+        #expect(transcript.threads[tool] == nil)
     }
 
     @Test func kind1202RowsAreNeverShown() {

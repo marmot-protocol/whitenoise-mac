@@ -231,7 +231,8 @@ struct AgentCollapsedText: View {
         if !text.isEmpty {
             DisclosureGroup(isExpanded: $isExpanded) {
                 VStack(alignment: .leading, spacing: 4) {
-                    ScrollView(.horizontal) {
+                    // Bounded at 360 points, so long output scrolls down as well as across.
+                    ScrollView(monospaced ? [.horizontal, .vertical] : .vertical) {
                         Text(verbatim: AgentItemPresentation.bounded(text))
                             .font(monospaced ? .system(.caption, design: .monospaced) : .callout)
                             .foregroundStyle(WNColor.backgroundContentPrimary)

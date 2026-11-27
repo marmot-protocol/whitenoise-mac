@@ -70,7 +70,9 @@ jobs:
           # their commits. Every bump commit carries the MarmotKit-RC-Bump trailer
           # (its author is whoever owns the token, so the author can't tell).
           # Say a newer RC is out and leave the branch alone.
+          inspected=""
           if git fetch --quiet origin "$BRANCH" 2>/dev/null; then
+            inspected="$(git rev-parse "origin/$BRANCH")"
             others="$(git log --format='%(trailers:key=MarmotKit-RC-Bump,valueonly,separator=)|%h' "origin/$BRANCH" --not "origin/$BASE" | grep '^|' || true)"
             if [[ -n "$others" ]]; then
               existing="$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number // empty')"
@@ -83,18 +85,25 @@ jobs:
           fi
 
           # Every branch requires signed commits, and a git commit made here is
-          # unsigned: commit through the API, which GitHub signs.
+          # unsigned: commit through the API, which GitHub signs, on a branch of
+          # this run's own. Then move the bump branch onto that commit with a lease
+          # on the head inspected above (none: it must still not exist), so a
+          # person's push in between is never overwritten.
           paths=()
           while IFS= read -r path; do paths+=("$path"); done \
             < <(git status --porcelain --untracked-files=all -- Vendored/MarmotKit | cut -c4-)
           printf 'Moves develop to the RC mdk verified on rc-meta (see the pull request).\n\nMarmotKit-RC-Bump: true\n' > "$RUNNER_TEMP/commit-body.txt"
-          scripts/ci/signed-commit.py \
+          build="$BRANCH-build-$GITHUB_RUN_ID"
+          commit="$(scripts/ci/signed-commit.py \
             --repo "$GITHUB_REPOSITORY" \
-            --branch "$BRANCH" \
+            --branch "$build" \
             --base "$(git rev-parse "origin/$BASE")" \
             --message "Pin MarmotKit $VERSION (staging RC, $IMPACT)" \
             --body-file "$RUNNER_TEMP/commit-body.txt" \
-            "${paths[@]}"
+            "${paths[@]}")"
+          git fetch --quiet origin "$build"
+          git push --force-with-lease="refs/heads/$BRANCH:$inspected" origin "$commit:refs/heads/$BRANCH"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$build"
 
           title="Pin MarmotKit $VERSION (staging RC)"
           if [[ "$IMPACT" == "minor" || "$BREAKING" != "0" ]]; then

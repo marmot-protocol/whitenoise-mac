@@ -122,29 +122,52 @@ final class AgentRequestLedger {
         inFlight.insert(key)
         failures[groupIdHex] = nil
         defer { inFlight.remove(key) }
+        let clientToken = makeClientToken()
+        let messageIdHex: String
         do {
-            let acceptance = try await runtime.sendCustomEventWithClientToken(
+            messageIdHex = try await runtime.sendCustomEventWithClientToken(
                 accountRef: accountRef,
                 groupIdHex: groupIdHex,
                 kind: AgentItem.requestKind,
                 tags: request.tags,
                 content: request.content,
-                clientToken: makeClientToken()
-            )
-            let sentRequest = AgentSentRequest(
-                idHex: acceptance.messageIdHex.lowercased(),
-                groupIdHex: groupIdHex,
-                targetEventIdHex: request.targetEventIdHex,
-                agentAccountIdHex: request.agentAccountIdHex,
-                label: request.content,
-                sentAt: now
-            )
-            sent[sentRequest.idHex] = sentRequest
-            return sentRequest
-        } catch is CancellationError {
-            return nil
+                clientToken: clientToken
+            ).messageIdHex
         } catch {
-            failures[groupIdHex] = UserFacingError.message(for: error)
+            // An interrupted await can race MDK's durable admission. Ask by the same token, so a
+            // press that went out stays pending instead of being sent again as a second control.
+            guard let admitted = Self.admittedMessageId(runtime, accountRef, groupIdHex, clientToken) else {
+                if !(error is CancellationError) {
+                    failures[groupIdHex] = UserFacingError.message(for: error)
+                }
+                return nil
+            }
+            messageIdHex = admitted
+        }
+        let sentRequest = AgentSentRequest(
+            idHex: messageIdHex.lowercased(),
+            groupIdHex: groupIdHex,
+            targetEventIdHex: request.targetEventIdHex,
+            agentAccountIdHex: request.agentAccountIdHex,
+            label: request.content,
+            sentAt: now
+        )
+        sent[sentRequest.idHex] = sentRequest
+        return sentRequest
+    }
+
+    /// The event MDK admitted under `clientToken`, or nil when it refused the send or has none.
+    private static func admittedMessageId(
+        _ runtime: any MarmotRuntime, _ accountRef: String, _ groupIdHex: String, _ clientToken: String
+    ) -> String? {
+        let status = try? runtime.localSendStatus(
+            accountRef: accountRef, groupIdHex: groupIdHex, clientToken: clientToken)
+        switch status {
+        case .queued(let messageIdHex), .engineOwned(let messageIdHex):
+            return messageIdHex
+        case .completed(let summary):
+            return summary.messageIds.first
+        case .rejected, .refusedNewMembers, nil:
             return nil
         }
     }

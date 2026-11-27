@@ -54,13 +54,17 @@ nonisolated struct AgentTranscript {
             }
         }
 
-        // A row is in a subagent's thread when MDK placed it under a loaded agent item: its
-        // parent's thread, else its root's. Anything else stays in the main chat, so nothing whose
-        // `task` row is not loaded disappears.
+        // A row is in a subagent's thread when MDK placed it under a loaded `task` item, the only
+        // row that opens a thread: its parent's, else its root's. Anything else stays in the main
+        // chat, so nothing whose `task` row is not loaded, or that answers a tool or plan, disappears.
+        func ownsThread(_ id: String) -> Bool {
+            guard case .task = itemsById[id]?.body else { return false }
+            return true
+        }
         func threadOwner(of message: MessageItem) -> String? {
             guard let thread = message.agent?.thread else { return nil }
-            if itemsById[thread.parent] != nil { return thread.parent }
-            if itemsById[thread.root] != nil { return thread.root }
+            if ownsThread(thread.parent) { return thread.parent }
+            if ownsThread(thread.root) { return thread.root }
             return nil
         }
 

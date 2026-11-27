@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Commit working-tree changes to a branch through GitHub's API, so GitHub signs them.
+"""Commit working-tree changes on a new branch through GitHub's API, so GitHub signs them.
 
 Every branch in this repository requires signed commits, and a plain `git commit` in
 Actions is unsigned. `createCommitOnBranch` makes a commit GitHub signs, from the
@@ -9,9 +9,11 @@ Usage (needs `gh` authenticated, e.g. GH_TOKEN):
   scripts/ci/signed-commit.py --repo OWNER/NAME --branch BRANCH --base SHA \
       --message "Headline" [--body-file FILE] PATH...
 
-BRANCH is (re)pointed at SHA first, then gets one commit holding every PATH: a PATH
-that exists is added with its current contents, a missing one is deleted. Prints the
-new commit's SHA.
+BRANCH must not exist: it is created at SHA and gets one commit holding every PATH (a
+PATH that exists is added with its current contents, a missing one is deleted). Prints
+the new commit's SHA. The caller moves the branch it means to update onto that commit
+with a lease (`git push --force-with-lease`), so nothing pushed meanwhile is lost, and
+deletes BRANCH.
 """
 
 import argparse
@@ -37,11 +39,7 @@ def main():
     parser.add_argument("paths", nargs="+")
     args = parser.parse_args()
 
-    ref = f"repos/{args.repo}/git/refs/heads/{args.branch}"
-    try:
-        gh("api", "-X", "PATCH", ref, "-f", f"sha={args.base}", "-F", "force=true")
-    except subprocess.CalledProcessError:
-        gh("api", "-X", "POST", f"repos/{args.repo}/git/refs", "-f", f"ref=refs/heads/{args.branch}", "-f", f"sha={args.base}")
+    gh("api", "-X", "POST", f"repos/{args.repo}/git/refs", "-f", f"ref=refs/heads/{args.branch}", "-f", f"sha={args.base}")
 
     additions, deletions = [], []
     for path in args.paths:
