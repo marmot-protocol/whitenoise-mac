@@ -178,7 +178,7 @@ nonisolated struct RemoteMediaEndpoint: Equatable, Sendable {
 /// What a single request hop needs, derived from an already-admitted URL: the origin to dial,
 /// the `Host` header, and the origin-form request target.
 nonisolated struct RemoteMediaRequestTarget: Equatable, Sendable {
-    enum Origin: Equatable, Sendable {
+    enum Origin: Equatable, Hashable, Sendable {
         /// A DNS name; must be resolved and every answer re-admitted before dialing.
         case name(String)
         /// A canonical numeric literal; dials directly with no DNS.

@@ -700,9 +700,73 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         let data: Data
     }
 
+    /// Strict byte-bounded LRU cache for fetched remote source payloads, always accessed under
+    /// `cacheStateLock`. Unlike `NSCache.totalCostLimit`, this enforces `totalBytes <= totalCostLimit`
+    /// in aggregate and supports conditional eviction when remote image decoding rejects a body.
+    private struct BoundedSourceByteCache {
+        let totalCostLimit: Int
+        private var entries: [String: Data] = [:]
+        private var lruKeys: [String] = []
+        private(set) var totalBytes = 0
+
+        init(totalCostLimit: Int) {
+            self.totalCostLimit = max(0, totalCostLimit)
+        }
+
+        mutating func data(forKey key: String) -> Data? {
+            guard let data = entries[key] else { return nil }
+            touch(key)
+            return data
+        }
+
+        mutating func store(_ data: Data, forKey key: String) {
+            guard !data.isEmpty, totalCostLimit > 0, data.count <= totalCostLimit else {
+                remove(forKey: key)
+                return
+            }
+            if let existing = entries.removeValue(forKey: key) {
+                totalBytes -= existing.count
+                lruKeys.removeAll { $0 == key }
+            }
+            while totalBytes + data.count > totalCostLimit, !lruKeys.isEmpty {
+                let evictedKey = lruKeys.removeFirst()
+                if let evicted = entries.removeValue(forKey: evictedKey) {
+                    totalBytes -= evicted.count
+                }
+            }
+            entries[key] = data
+            lruKeys.append(key)
+            totalBytes += data.count
+        }
+
+        mutating func remove(forKey key: String) {
+            guard let removed = entries.removeValue(forKey: key) else { return }
+            totalBytes -= removed.count
+            lruKeys.removeAll { $0 == key }
+        }
+
+        mutating func removeIfMatching(_ data: Data, forKey key: String) {
+            guard entries[key] == data else { return }
+            remove(forKey: key)
+        }
+
+        mutating func removeAll() {
+            entries.removeAll(keepingCapacity: false)
+            lruKeys.removeAll(keepingCapacity: false)
+            totalBytes = 0
+        }
+
+        private mutating func touch(_ key: String) {
+            guard lruKeys.last != key else { return }
+            lruKeys.removeAll { $0 == key }
+            lruKeys.append(key)
+        }
+    }
+
     static let shared = RemoteImageLoader()
     static let defaultDecodedCacheCountLimit = 512
     static let defaultDecodedCacheTotalCostLimit = 64 * 1024 * 1024
+    static let defaultSourceCacheTotalCostLimit = 16 * 1024 * 1024
 
     /// How many primed images to keep source bytes for, oldest evicted first. A handful covers
     /// setting a picture on more than one account in a sitting; the point of the bound is that a
@@ -710,6 +774,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     static let primedSourceLimit = 4
 
     private let cache = NSCache<NSString, NSImage>()
+    private var sourceCache: BoundedSourceByteCache
     private let inFlight = RemoteImageLoadRegistry<LoadedImage>()
     private let rawInFlight = RemoteImageLoadRegistry<Data>()
     private let cacheStateLock = NSLock()
@@ -721,15 +786,22 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
     var decodedCacheCountLimit: Int { cache.countLimit }
     var decodedCacheTotalCostLimit: Int { cache.totalCostLimit }
+    var sourceCacheTotalCostLimit: Int {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        return sourceCache.totalCostLimit
+    }
 
     /// Tests pass a transport built from fake resolver/connection/clock doubles; admission,
     /// answer validation, framing and size bounds still run, only sockets and time are fake.
     init(
         transport: RemoteMediaTransport = .live,
         cacheCountLimit: Int = RemoteImageLoader.defaultDecodedCacheCountLimit,
-        cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit
+        cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit,
+        sourceCacheTotalCostLimit: Int = RemoteImageLoader.defaultSourceCacheTotalCostLimit
     ) {
         self.transport = transport
+        self.sourceCache = BoundedSourceByteCache(totalCostLimit: sourceCacheTotalCostLimit)
         cache.countLimit = cacheCountLimit
         cache.totalCostLimit = cacheTotalCostLimit
     }
@@ -758,6 +830,9 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// caller hands plaintext to MarmotKit for encrypted Blossom upload.
     func data(for url: URL) async -> Data? {
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
+        if let cached = cachedSourceData(for: url) {
+            return cached
+        }
         // Registration and generation capture share the privacy-wipe lock. A wipe detaches
         // exactly the old tasks; downloads registered afterwards retain the new generation.
         let (generation, key, task) = rawDownloadTask(for: url)
@@ -783,6 +858,9 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             Task { [self] in
                 let data = await download(url)
                 guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
+                if let data {
+                    storeSourceData(data, for: url, cacheGeneration: generation)
+                }
                 return data
             }
         }
@@ -837,6 +915,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
         cacheStateLock.lock()
         defer { cacheStateLock.unlock() }
+        sourceCache.remove(forKey: Self.sourceCacheKey(for: url))
         primedSources.removeAll { $0.url == url.absoluteString }
         primedSources.append(PrimedSource(url: url.absoluteString, data: data))
         if primedSources.count > Self.primedSourceLimit {
@@ -952,6 +1031,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             cacheGenerations[scope, default: 0] += 1
         }
         cache.removeAllObjects()
+        sourceCache.removeAll()
         localCacheKeys.removeAll(keepingCapacity: true)
         // The privacy wipes this serves must not leave the user's own uploaded picture behind
         // in the process either, and a primed URL that outlived its account would go on serving
@@ -978,6 +1058,12 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     }
 
     #if DEBUG
+        var sourceCacheByteCount: Int {
+            cacheStateLock.lock()
+            defer { cacheStateLock.unlock() }
+            return sourceCache.totalBytes
+        }
+
         func primedSourceByteCount(for url: URL) -> Int? {
             primedSource(for: url)?.count
         }
@@ -1026,24 +1112,33 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         maxPixelSize: CGFloat,
         cacheGeneration generation: Int
     ) async -> LoadedImage? {
+        let fromPrimed: Bool
         let source: Data
         if let primed = primedSource(for: url) {
             source = primed
+            fromPrimed = true
         } else {
             // Share one fetch of the source bytes across every pixel size of this URL that is
             // loading at the same time, so a sidebar row, header and inspector drawing one
             // avatar cost one connection rather than one each.
             guard let downloaded = await data(for: url) else { return nil }
             source = downloaded
+            fromPrimed = false
         }
         guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
-        return await loadLocalImage(
+        let loaded = await loadLocalImage(
             data: source,
             cacheKey: cacheKey,
             maxPixelSize: maxPixelSize,
             cacheGeneration: generation,
             scope: .remote
         )
+        if loaded == nil, !fromPrimed, !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) {
+            // Evict only the matching undecodable body so a later retry can fetch a repaired
+            // image without disturbing newer concurrent entries or direct `data(for:)` consumers.
+            evictSourceData(matching: source, for: url, cacheGeneration: generation)
+        }
+        return loaded
     }
 
     private func loadLocalImage(
@@ -1082,6 +1177,26 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         cacheStateLock.lock()
         defer { cacheStateLock.unlock() }
         return cache.object(forKey: key as NSString)
+    }
+
+    private func cachedSourceData(for url: URL) -> Data? {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        return sourceCache.data(forKey: Self.sourceCacheKey(for: url))
+    }
+
+    private func storeSourceData(_ data: Data, for url: URL, cacheGeneration generation: Int) {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        guard cacheGenerations[.remote, default: 0] == generation else { return }
+        sourceCache.store(data, forKey: Self.sourceCacheKey(for: url))
+    }
+
+    private func evictSourceData(matching data: Data, for url: URL, cacheGeneration generation: Int) {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        guard cacheGenerations[.remote, default: 0] == generation else { return }
+        sourceCache.removeIfMatching(data, forKey: Self.sourceCacheKey(for: url))
     }
 
     private func currentCacheGeneration(for scope: CacheScope) -> Int {

@@ -394,22 +394,31 @@ struct RemoteMediaFakeHarness {
     let clock: VirtualRemoteMediaClock
     let network: FakeRemoteMediaNetwork
     let slots: RemoteMediaDNSSlots
+    let fetchSlots: RemoteMediaFetchSlots
     let transport: RemoteMediaTransport
 
-    init(dnsSlotLimit: Int = RemoteMediaDNSSlots.maximumConcurrentResolutions) {
+    init(
+        dnsSlotLimit: Int = RemoteMediaDNSSlots.maximumConcurrentResolutions,
+        fetchSlotLimitPerHost: Int = RemoteMediaFetchSlots.maximumConcurrentFetchesPerHost
+    ) {
         let signal = RemoteMediaFakeSignal()
         let clock = VirtualRemoteMediaClock(signal: signal)
         let network = FakeRemoteMediaNetwork(signal: signal)
         let slots = RemoteMediaDNSSlots(limit: dnsSlotLimit)
+        let fetchSlots = RemoteMediaFetchSlots(limitPerHost: fetchSlotLimitPerHost) {
+            signal.bump()
+        }
         self.signal = signal
         self.clock = clock
         self.network = network
         self.slots = slots
+        self.fetchSlots = fetchSlots
         self.transport = RemoteMediaTransport(
             testingResolver: network,
             connectionFactory: network,
             clock: clock,
-            dnsSlots: slots
+            dnsSlots: slots,
+            fetchSlots: fetchSlots
         )
     }
 
