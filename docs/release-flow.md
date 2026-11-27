@@ -63,13 +63,16 @@ production data. Production only ever opens a database with a Stable release.
 
 ## Repository setup
 
-Done once, by a repository admin:
-
-- Make `develop` the default branch. Pull requests then target it by default, and GitHub runs
-  the scheduled RC bump only from the default branch's copy of the workflow.
-- Protect `develop` like `master`: require pull requests and the "PR Checks" status.
-- Add the `MARMOTKIT_BUMP_TOKEN` secret (a fine-grained token with contents and pull-requests
-  write on this repository). A pull request opened with the default `GITHUB_TOKEN` starts no
+- `develop` is the default branch, so pull requests target it and GitHub runs the scheduled RC
+  bump from its copy of the workflow.
+- The "Protect master and develop" ruleset covers both branches by name: no deletion or
+  force-push, pull requests only, "PR Checks" required. Keep the names explicit: a ruleset on
+  "the default branch" would have left `master` unprotected when the default moved.
+- Every branch requires signed commits. The bump workflow commits through GitHub's API
+  (`scripts/ci/signed-commit.py`), which GitHub signs, and marks its commits with a
+  `MarmotKit-RC-Bump: true` trailer so it can tell them from people's.
+- The `MARMOTKIT_BUMP_TOKEN` secret holds a fine-grained token with contents and pull-requests
+  write on this repository. A pull request opened with the default `GITHUB_TOKEN` starts no
   other workflows, so without it the bump pull request gets no CI.
 
 CI's coverage gate compares every pull request, including those into `develop`, with `master`'s
