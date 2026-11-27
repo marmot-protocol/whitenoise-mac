@@ -561,6 +561,12 @@
             recordedStateLock.withLock { _stageDraftAttachmentFileCallCount }
         }
         private var _stageDraftAttachmentFileCallCount = 0
+        /// Draft handoff reads answered with `MessageDraftRevisionConflict` before opening a lease.
+        var openMessageDraftAttachmentHandoffConflicts: Int {
+            get { recordedStateLock.withLock { _openMessageDraftAttachmentHandoffConflicts } }
+            set { recordedStateLock.withLock { _openMessageDraftAttachmentHandoffConflicts = newValue } }
+        }
+        private var _openMessageDraftAttachmentHandoffConflicts = 0
         /// MDK's bound on the bytes one draft's attachments may total; a copy past it is refused.
         var draftAttachmentBytesLimit: Int? {
             get { recordedStateLock.withLock { _draftAttachmentBytesLimit } }
@@ -4137,6 +4143,10 @@
             control: MediaFileTransferControlFfi
         ) async throws -> AttachmentHandoffFfi? {
             let attachment = try recordedStateLock.withLock { () throws -> MessageDraftAttachmentFfi? in
+                if _openMessageDraftAttachmentHandoffConflicts > 0 {
+                    _openMessageDraftAttachmentHandoffConflicts -= 1
+                    throw MarmotKitError.MessageDraftRevisionConflict
+                }
                 let groupIdHex = try currentDraftGroupLocked(for: revision)
                 return storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]?.mediaAttachments
                     .first(where: { $0.id == attachmentId })
