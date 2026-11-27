@@ -5912,10 +5912,19 @@ struct MediaTests: WorkspaceTestSupport {
         let limiter = MediaAttachmentDownloadLimiter(maxConcurrent: 1)
         let operationGate = AsyncFfiGate()
         operationGate.isEnabled = true
+        let timeoutGate = AsyncFfiGate()
+        timeoutGate.isEnabled = true
+        defer {
+            timeoutGate.release()
+            operationGate.release()
+        }
 
         let timedOutWaiter = Task {
             do {
-                _ = try await withMediaAttachmentDownloadTimeout(nanoseconds: 250_000_000) {
+                _ = try await withMediaAttachmentDownloadTimeout(
+                    nanoseconds: 250_000_000,
+                    sleep: { _ in await timeoutGate.passIfArmed() }
+                ) {
                     try await limiter.withPermit {
                         await operationGate.passIfArmed()
                         return true
@@ -5929,7 +5938,10 @@ struct MediaTests: WorkspaceTestSupport {
             }
         }
 
-        #expect(await waitFor { operationGate.didReach })
+        // Fire the timeout only after the operation has acquired the permit and parked on its
+        // gate, so runner load before startup can never let the timeout win prematurely.
+        await operationGate.waitUntilReached()
+        timeoutGate.release()
         _ = await timedOutWaiter.result
 
         let nextAcquired = AtomicCounter()
@@ -5941,9 +5953,11 @@ struct MediaTests: WorkspaceTestSupport {
                 Issue.record("Expected the queued waiter to acquire after the operation ended")
             }
         }
-        for _ in 0..<100 {
-            if await limiter.queuedWaiterCount() == 1 { break }
-            await Task.yield()
+        // Waiting on a fixed number of cooperative yields runs out on a loaded CI runner before
+        // `nextWaiter` enters the limiter actor, so wait against a real deadline.
+        let queueDeadline = ContinuousClock.now + .seconds(3)
+        while await limiter.queuedWaiterCount() != 1 && ContinuousClock.now < queueDeadline {
+            try? await Task.sleep(for: .milliseconds(10))
         }
         #expect(await limiter.queuedWaiterCount() == 1)
         #expect(nextAcquired.value == 0)

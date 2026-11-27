@@ -36,11 +36,13 @@ nonisolated struct MediaAttachmentDownloadTimeoutError: LocalizedError {
 
 nonisolated func withMediaAttachmentDownloadTimeout<T>(
     nanoseconds: UInt64 = MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds,
+    sleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
     try Task.checkCancellation()
     let race = MediaAttachmentDownloadTimeoutRace(
         nanoseconds: nanoseconds,
+        sleep: sleep,
         operation: operation
     )
     return try await race.value()
@@ -48,6 +50,7 @@ nonisolated func withMediaAttachmentDownloadTimeout<T>(
 
 private nonisolated final class MediaAttachmentDownloadTimeoutRace<T>: @unchecked Sendable {
     private let nanoseconds: UInt64
+    private let sleep: @Sendable (UInt64) async throws -> Void
     private let operation: @Sendable () async throws -> T
     private let lock = NSLock()
     private var continuation: CheckedContinuation<T, Error>?
@@ -57,9 +60,11 @@ private nonisolated final class MediaAttachmentDownloadTimeoutRace<T>: @unchecke
 
     init(
         nanoseconds: UInt64,
+        sleep: @escaping @Sendable (UInt64) async throws -> Void,
         operation: @escaping @Sendable () async throws -> T
     ) {
         self.nanoseconds = nanoseconds
+        self.sleep = sleep
         self.operation = operation
     }
 
@@ -89,9 +94,9 @@ private nonisolated final class MediaAttachmentDownloadTimeoutRace<T>: @unchecke
                 self?.finish(.failure(error))
             }
         }
-        let timeoutTask = Task { [nanoseconds, weak self] in
+        let timeoutTask = Task { [nanoseconds, sleep, weak self] in
             do {
-                try await Task.sleep(nanoseconds: nanoseconds)
+                try await sleep(nanoseconds)
                 self?.finish(.failure(MediaAttachmentDownloadTimeoutError()))
             } catch is CancellationError {
                 // Expected when the download wins or the caller is cancelled.
