@@ -509,6 +509,37 @@ struct AgentItemTests {
         #expect(transcript.mainMessageIds.count == 11)
     }
 
+    /// With two agents in one chat, the same untargeted control sent to each is two presses: one
+    /// in flight never holds back the other.
+    @Test func theSameControlForTwoAgentsIsTwoPresses() {
+        let other = String(repeating: "dd", count: 32)
+        let toAgent = AgentRequest(
+            agentAccountIdHex: F.agent, targetEventIdHex: nil, action: .newSession, content: "New session")
+        let toOther = AgentRequest(
+            agentAccountIdHex: other, targetEventIdHex: nil, action: .newSession, content: "New session")
+        #expect(
+            AgentRequestLedger.pressKey(groupIdHex: F.groupIdHex, request: toAgent)
+                != AgentRequestLedger.pressKey(groupIdHex: F.groupIdHex, request: toOther))
+    }
+
+    /// A setting sent to one agent shows on that agent's session only, not on another agent's
+    /// newer session in the same chat.
+    @Test func aSessionShowsOnlyItsOwnAgentsControls() {
+        let other = String(repeating: "dd", count: 32)
+        let session: [String: Any] = ["type": "session", "state": "running", "title": "Session", "body": [:]]
+        let setting = AgentSentRequest(
+            idHex: "c1", groupIdHex: F.groupIdHex, targetEventIdHex: nil, agentAccountIdHex: F.agent,
+            label: "Model: gpt-6.2-sol", sentAt: Date())
+        let transcript = Self.transcript(
+            [
+                F.record(id: F.eventId(1), event: session, sender: F.agent, at: 1),
+                F.record(id: F.eventId(2), event: session, sender: other, at: 2),
+            ],
+            sends: [setting])
+        #expect(transcript.session?.firstEventIdHex == F.eventId(2))
+        #expect(transcript.mainItems.last?.message.agent?.requests.isEmpty == true)
+    }
+
     @Test func kind1202RowsAreNeverShown() {
         let transcript = Self.transcript([
             F.record(id: F.eventId(1), event: Self.event(Self.approvalAllowed[0])),

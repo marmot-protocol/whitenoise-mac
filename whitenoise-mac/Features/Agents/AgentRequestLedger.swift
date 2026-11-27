@@ -104,8 +104,10 @@ final class AgentRequestLedger {
             .sorted { $0.sentAt < $1.sentAt }
     }
 
+    /// One press per agent, item and details: the same untargeted control (a setting, a new
+    /// session) sent to two agents in one chat is two presses.
     static func pressKey(groupIdHex: String, request: AgentRequest) -> String {
-        "\(groupIdHex)|\(request.targetEventIdHex ?? "")|\(request.detailsJSON)"
+        "\(groupIdHex)|\(request.agentAccountIdHex.lowercased())|\(request.targetEventIdHex ?? "")|\(request.detailsJSON)"
     }
 
     func isInFlight(groupIdHex: String, request: AgentRequest) -> Bool {

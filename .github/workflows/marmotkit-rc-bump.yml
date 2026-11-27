@@ -67,13 +67,15 @@ jobs:
           set -euo pipefail
 
           # Someone is fixing call sites on the open bump branch: never replace
-          # their commits. Every bump commit carries the MarmotKit-RC-Bump trailer
-          # (its author is whoever owns the token, so the author can't tell).
+          # their commits. A bump commit is one GitHub made through the API (its
+          # committer is GitHub) carrying the MarmotKit-RC-Bump trailer; the author
+          # is whoever owns the token, so it can't tell. A commit amended or made
+          # elsewhere keeps neither, even with the message copied, so it stays.
           # Say a newer RC is out and leave the branch alone.
           inspected=""
           if git fetch --quiet origin "$BRANCH" 2>/dev/null; then
             inspected="$(git rev-parse "origin/$BRANCH")"
-            others="$(git log --format='%(trailers:key=MarmotKit-RC-Bump,valueonly,separator=)|%h' "origin/$BRANCH" --not "origin/$BASE" | grep '^|' || true)"
+            others="$(git log --format='%ce %(trailers:key=MarmotKit-RC-Bump,valueonly,separator=)|%h' "origin/$BRANCH" --not "origin/$BASE" | grep -vx 'noreply@github.com true|[0-9a-f]*' || true)"
             if [[ -n "$others" ]]; then
               existing="$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number // empty')"
               if [[ -n "$existing" ]]; then

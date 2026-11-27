@@ -124,7 +124,10 @@ nonisolated struct AgentTranscript {
         }
         let session = topLevelItems.last { $0.type == "session" }
         if let session, var message = decoratedById[session.firstEventIdHex] {
-            let untargeted = sends(nil).map {
+            // Only this agent's: with two agents in the chat, a setting sent to one never shows on
+            // the other's session.
+            let agent = session.agentAccountIdHex.lowercased()
+            let untargeted = sends(nil).filter { $0.agentAccountIdHex.lowercased() == agent }.map {
                 AgentRequestStatus(idHex: $0.idHex, label: $0.label, isSettled: settled.contains($0.idHex))
             }
             message.agent?.requests += untargeted

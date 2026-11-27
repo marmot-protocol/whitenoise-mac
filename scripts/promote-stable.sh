@@ -79,13 +79,26 @@ pin_line = re.compile(r"[+-]  base_url=https://github\.com/marmot-protocol/mdk/r
 files = compare.get("files") or []
 if not files:
     fail("the comparison lists no files")
+# GitHub lists at most 300 files; a list that long may be cut, and an unseen file can't be checked.
+if len(files) >= 300:
+    fail("the comparison lists 300 files or more, so it may not list them all")
+
+def allowed(path):
+    return path in exact or path in installers or any(re.fullmatch(p, path) for p in patterns)
+
 for f in files:
     path = f.get("filename", "")
+    # A rename changes its old path too (MDK's own check diffs with --no-renames).
+    previous = f.get("previous_filename")
+    if previous and not allowed(previous):
+        fail(f"it renames {previous}")
     if path in installers:
+        if previous:
+            fail(f"it renames {previous} to {path}")
         changed = [l for l in (f.get("patch") or "").splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
         if not changed or not all(pin_line.fullmatch(l) for l in changed):
             fail(f"{path} changes more than its release pin")
-    elif path not in exact and not any(re.fullmatch(p, path) for p in patterns):
+    elif not allowed(path):
         fail(f"it changes {path}")
 PYCOMPARE
 fi
