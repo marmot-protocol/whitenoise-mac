@@ -84,7 +84,8 @@ if len(files) >= 300:
     fail("the comparison lists 300 files or more, so it may not list them all")
 
 def allowed(path):
-    return path in exact or path in installers or any(re.fullmatch(p, path) for p in patterns)
+    # Installers are not here: one may change only its pin line, in place, never be renamed away.
+    return path in exact or any(re.fullmatch(p, path) for p in patterns)
 
 for f in files:
     path = f.get("filename", "")

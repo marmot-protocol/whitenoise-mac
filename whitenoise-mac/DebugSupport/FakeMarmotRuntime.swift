@@ -4463,6 +4463,17 @@
         }
         private var _sentCustomEvents: [SentCustomEvent] = []
         var sendCustomEventError: Error?
+        /// When armed, holds the first `sendCustomEventWithClientToken` in flight until
+        /// `releaseCustomEventGate()`, so a test can act while a kind-1202 send is on its way.
+        private let customEventGate = AsyncFfiGate()
+        var customEventGateEnabled: Bool {
+            get { customEventGate.isEnabled }
+            set { customEventGate.isEnabled = newValue }
+        }
+        func waitUntilCustomEventReached() async { await customEventGate.waitUntilReached() }
+        func releaseCustomEventGate() { customEventGate.release() }
+        /// Thrown by `localSendStatus`, for a status that can't be read.
+        var localSendStatusError: Error?
 
         func sendCustomEventWithClientToken(
             accountRef: String,
@@ -4472,6 +4483,7 @@
             content: String,
             clientToken: String
         ) async throws -> LocalSendAcceptanceFfi {
+            await customEventGate.passIfArmed()
             if let sendCustomEventError {
                 throw sendCustomEventError
             }
@@ -4544,7 +4556,8 @@
 
         func localSendStatus(accountRef: String, groupIdHex: String, clientToken: String) throws -> LocalSendStatusFfi?
         {
-            localSendStatuses[clientToken] ?? localSendStatusFallback
+            if let localSendStatusError { throw localSendStatusError }
+            return localSendStatuses[clientToken] ?? localSendStatusFallback
         }
 
         func retryGroupConvergence(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {

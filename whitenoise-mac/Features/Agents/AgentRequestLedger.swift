@@ -35,6 +35,13 @@ final class AgentRequestLedger {
     private(set) var failures: [String: String] = [:]
     /// Presses in flight, by the key `pressKey` makes, so a second click is dropped.
     private(set) var inFlight: Set<String> = []
+    /// Items with an answer on its way, by `targetKey`: every other choice for them waits, so a
+    /// second tap never sends a conflicting answer.
+    private(set) var inFlightTargets: Set<String> = []
+    /// A press whose send failed and whose admission MDK could not confirm either way keeps its
+    /// client token here, by `pressKey`. The next press reuses it: MDK answers a token it already
+    /// admitted with that event and sends nothing, so the control never goes out twice.
+    @ObservationIgnored private var unconfirmedTokens: [String: String] = [:]
     /// The sender of each kind-1202 event seen arrive, by event id (others' presses included).
     @ObservationIgnored private(set) var observedSenders: [String: String] = [:]
     /// Bumped when `observedSenders` changes, so rows that name who answered re-render.
@@ -110,8 +117,14 @@ final class AgentRequestLedger {
         "\(groupIdHex)|\(request.agentAccountIdHex.lowercased())|\(request.targetEventIdHex ?? "")|\(request.detailsJSON)"
     }
 
+    static func targetKey(groupIdHex: String, request: AgentRequest) -> String? {
+        request.targetEventIdHex.map { "\(groupIdHex)|\($0.lowercased())" }
+    }
+
+    /// Whether this press, or any answer to the same item, is on its way.
     func isInFlight(groupIdHex: String, request: AgentRequest) -> Bool {
-        inFlight.contains(Self.pressKey(groupIdHex: groupIdHex, request: request))
+        if inFlight.contains(Self.pressKey(groupIdHex: groupIdHex, request: request)) { return true }
+        return Self.targetKey(groupIdHex: groupIdHex, request: request).map(inFlightTargets.contains) ?? false
     }
 
     /// Sends `request` to `groupIdHex` as kind 1202, crash-safely under a fresh client token.
@@ -119,12 +132,17 @@ final class AgentRequestLedger {
     @discardableResult
     func send(_ request: AgentRequest, groupIdHex: String, now: Date = Date()) async -> AgentSentRequest? {
         guard let runtime else { return nil }
+        guard !isInFlight(groupIdHex: groupIdHex, request: request) else { return nil }
         let key = Self.pressKey(groupIdHex: groupIdHex, request: request)
-        guard !inFlight.contains(key) else { return nil }
+        let target = Self.targetKey(groupIdHex: groupIdHex, request: request)
         inFlight.insert(key)
+        if let target { inFlightTargets.insert(target) }
         failures[groupIdHex] = nil
-        defer { inFlight.remove(key) }
-        let clientToken = makeClientToken()
+        defer {
+            inFlight.remove(key)
+            if let target { inFlightTargets.remove(target) }
+        }
+        let clientToken = unconfirmedTokens[key] ?? makeClientToken()
         let messageIdHex: String
         do {
             messageIdHex = try await runtime.sendCustomEventWithClientToken(
@@ -138,14 +156,23 @@ final class AgentRequestLedger {
         } catch {
             // An interrupted await can race MDK's durable admission. Ask by the same token, so a
             // press that went out stays pending instead of being sent again as a second control.
-            guard let admitted = Self.admittedMessageId(runtime, accountRef, groupIdHex, clientToken) else {
+            let admission = Self.admission(runtime, accountRef, groupIdHex, clientToken)
+            if case .admitted(let admitted) = admission {
+                messageIdHex = admitted
+            } else {
+                // Unconfirmed: keep the token for the next press. Refused: the next press is new.
+                if case .unknown = admission {
+                    unconfirmedTokens[key] = clientToken
+                } else {
+                    unconfirmedTokens[key] = nil
+                }
                 if !(error is CancellationError) {
                     failures[groupIdHex] = UserFacingError.message(for: error)
                 }
                 return nil
             }
-            messageIdHex = admitted
         }
+        unconfirmedTokens[key] = nil
         let sentRequest = AgentSentRequest(
             idHex: messageIdHex.lowercased(),
             groupIdHex: groupIdHex,
@@ -158,19 +185,32 @@ final class AgentRequestLedger {
         return sentRequest
     }
 
-    /// The event MDK admitted under `clientToken`, or nil when it refused the send or has none.
-    private static func admittedMessageId(
+    private enum Admission {
+        case admitted(String)
+        /// MDK refused it, or holds nothing under the token: a new press may use a new token.
+        case notAdmitted
+        /// The status could not be read: the send may have gone out.
+        case unknown
+    }
+
+    /// What MDK did with the send under `clientToken`.
+    private static func admission(
         _ runtime: any MarmotRuntime, _ accountRef: String, _ groupIdHex: String, _ clientToken: String
-    ) -> String? {
-        let status = try? runtime.localSendStatus(
-            accountRef: accountRef, groupIdHex: groupIdHex, clientToken: clientToken)
+    ) -> Admission {
+        let status: LocalSendStatusFfi?
+        do {
+            status = try runtime.localSendStatus(
+                accountRef: accountRef, groupIdHex: groupIdHex, clientToken: clientToken)
+        } catch {
+            return .unknown
+        }
         switch status {
         case .queued(let messageIdHex), .engineOwned(let messageIdHex):
-            return messageIdHex
+            return .admitted(messageIdHex)
         case .completed(let summary):
-            return summary.messageIds.first
+            return summary.messageIds.first.map(Admission.admitted) ?? .unknown
         case .rejected, .refusedNewMembers, nil:
-            return nil
+            return .notAdmitted
         }
     }
 

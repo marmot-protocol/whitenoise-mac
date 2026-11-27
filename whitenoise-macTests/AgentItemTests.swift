@@ -540,6 +540,97 @@ struct AgentItemTests {
         #expect(transcript.mainItems.last?.message.agent?.requests.isEmpty == true)
     }
 
+    /// While one answer to an approval is on its way, every other choice for it waits: a tap on
+    /// Deny during an Allow never sends a conflicting second answer.
+    @Test func aSecondChoiceForAnApprovalWaitsWhileTheFirstIsSending() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.customEventGateEnabled = true
+        let ledger = AgentRequestLedger(accountRef: "me", accountIdHex: F.person, runtime: runtime)
+        let allow = AgentRequest(
+            agentAccountIdHex: F.agent, targetEventIdHex: F.eventId(5), action: .choice("c0"), content: "Allow once")
+        let deny = AgentRequest(
+            agentAccountIdHex: F.agent, targetEventIdHex: F.eventId(5), action: .choice("c3"), content: "Deny")
+
+        let first = Task { await ledger.send(allow, groupIdHex: F.groupIdHex) }
+        await runtime.waitUntilCustomEventReached()
+        #expect(ledger.isInFlight(groupIdHex: F.groupIdHex, request: deny))
+        #expect(await ledger.send(deny, groupIdHex: F.groupIdHex) == nil)
+        runtime.releaseCustomEventGate()
+        _ = try #require(await first.value)
+
+        #expect(runtime.sentCustomEvents.map(\.content) == ["Allow once"])
+        #expect(!ledger.isInFlight(groupIdHex: F.groupIdHex, request: deny))
+    }
+
+    /// A failed send whose admission MDK can't confirm keeps its token, and the next press reuses
+    /// it: if the first went out, MDK answers with that event instead of sending a second control.
+    @Test func aPressWhoseAdmissionIsUnknownRetriesUnderItsToken() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.sendCustomEventError = MarmotKitError.StorageClosed(details: "closed")
+        runtime.localSendStatusError = MarmotKitError.StorageClosed(details: "closed")
+        var issued = 0
+        let ledger = AgentRequestLedger(
+            accountRef: "me", accountIdHex: F.person, runtime: runtime,
+            makeClientToken: {
+                issued += 1
+                return "token-\(issued)"
+            })
+        let request = AgentRequest(
+            agentAccountIdHex: F.agent, targetEventIdHex: nil, action: .newSession, content: "New session")
+
+        #expect(await ledger.send(request, groupIdHex: F.groupIdHex) == nil)
+        #expect(ledger.failures[F.groupIdHex] != nil)
+
+        runtime.sendCustomEventError = nil
+        runtime.localSendStatusError = nil
+        _ = try #require(await ledger.send(request, groupIdHex: F.groupIdHex))
+        #expect(runtime.sentCustomEvents.map(\.clientToken) == ["token-1"])
+    }
+
+    /// A reply to a tool inside a nested subagent's thread stays in that nested thread, where the
+    /// tool is, not in the outer subagent's.
+    @Test func aReplyToAToolInANestedThreadStaysInIt() {
+        let outer = F.eventId(1)
+        let nested = F.eventId(2)
+        let tool = F.eventId(3)
+        let reply = F.eventId(4)
+        let task: [String: Any] = [
+            "type": "task", "state": "running", "title": "Subagent", "body": ["kind": "subagent"],
+        ]
+        let transcript = Self.transcript([
+            F.record(id: outer, event: task),
+            F.record(
+                id: nested, event: task,
+                thread: TimelineThreadRefFfi(rootMessageIdHex: outer, parentMessageIdHex: outer)),
+            F.record(
+                id: tool, event: Self.event(Self.approvalAllowed[3]),
+                thread: TimelineThreadRefFfi(rootMessageIdHex: outer, parentMessageIdHex: nested)),
+            timelineMessage(
+                id: reply, groupIdHex: F.groupIdHex, sender: F.person, plaintext: "why?", kind: 1111, recordedAt: 4,
+                thread: TimelineThreadRefFfi(rootMessageIdHex: outer, parentMessageIdHex: tool)),
+        ])
+        #expect(transcript.threads[nested]?.map(\.id) == [tool, reply])
+        #expect(transcript.threads[outer]?.map(\.id) == [nested])
+        #expect(transcript.threadPath(to: reply) == [outer, nested])
+    }
+
+    /// A day's first row that is dropped (a kind 1202) hands its divider to the next row shown.
+    @Test func aDayDividerSurvivesADroppedRequestRow() {
+        let rows = [
+            TimelineMessageDisplayItem(
+                message: Self.items([
+                    timelineMessage(
+                        id: F.eventId(1), groupIdHex: F.groupIdHex, sender: F.person, plaintext: "Stop",
+                        kind: AgentItem.requestKind, recordedAt: 1)
+                ])[0],
+                dayLabel: "Today"),
+            TimelineMessageDisplayItem(message: Self.items([F.words(id: F.eventId(2), text: "ok")])[0], dayLabel: nil),
+        ]
+        let transcript = AgentTranscript.build(
+            displayItems: rows, localAccountIdHex: F.person, sends: { _ in [] }, requestSender: { _ in nil })
+        #expect(transcript.mainItems.map(\.dayLabel) == ["Today"])
+    }
+
     @Test func kind1202RowsAreNeverShown() {
         let transcript = Self.transcript([
             F.record(id: F.eventId(1), event: Self.event(Self.approvalAllowed[0])),

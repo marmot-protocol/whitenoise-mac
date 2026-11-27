@@ -56,7 +56,8 @@ nonisolated struct AgentTranscript {
         let rows = displayItems.filter { $0.message.timelineKind != AgentItem.requestKind }
         guard rows.contains(where: { $0.message.agent != nil }) else {
             return AgentTranscript(
-                mainItems: rows, threads: [:], runningTurn: nil, session: nil, waiting: [], threadOwners: [:])
+                mainItems: carryingDayLabels(displayItems) { $0.timelineKind == AgentItem.requestKind ? nil : $0 },
+                threads: [:], runningTurn: nil, session: nil, waiting: [], threadOwners: [:])
         }
 
         var itemsById: [String: AgentItem] = [:]
@@ -73,23 +74,23 @@ nonisolated struct AgentTranscript {
         }
 
         // A row is in a subagent's thread when MDK placed it under a loaded `task` item, the only
-        // row that opens a thread: its parent's, else its root's. Anything else stays in the main
-        // chat, so nothing whose `task` row is not loaded, or that answers a tool or plan, disappears.
+        // row that opens a thread: its parent's, else the thread its parent sits in (a reply to a
+        // tool in a nested subagent's thread), else its root's. Rows come oldest first, so a
+        // parent is placed before its replies. Anything else stays in the main chat, so nothing
+        // whose `task` row is not loaded, or that answers a tool or plan outside one, disappears.
         func ownsThread(_ id: String) -> Bool {
             guard case .task = itemsById[id]?.body else { return false }
             return true
-        }
-        func threadOwner(of message: MessageItem) -> String? {
-            guard let thread = message.agent?.thread else { return nil }
-            if ownsThread(thread.parent) { return thread.parent }
-            if ownsThread(thread.root) { return thread.root }
-            return nil
         }
 
         var threadRowIds: [String: [String]] = [:]
         var threadOwners: [String: String] = [:]
         for row in rows {
-            if let owner = threadOwner(of: row.message), owner != row.message.id {
+            guard let thread = row.message.agent?.thread else { continue }
+            let owner =
+                ownsThread(thread.parent)
+                ? thread.parent : threadOwners[thread.parent] ?? (ownsThread(thread.root) ? thread.root : nil)
+            if let owner, owner != row.message.id {
                 threadRowIds[owner, default: []].append(row.message.id)
                 threadOwners[row.message.id] = owner
             }
@@ -158,17 +159,8 @@ nonisolated struct AgentTranscript {
             threads[owner] = ids.compactMap { decoratedById[$0] }
         }
 
-        // A day's divider rides on its first row; when that row moved into a thread, the next row
-        // the main chat keeps carries it instead.
-        var mainItems: [TimelineMessageDisplayItem] = []
-        var carriedDayLabel: String?
-        for row in rows {
-            guard !inThread.contains(row.message.id), let message = decoratedById[row.message.id] else {
-                carriedDayLabel = row.dayLabel ?? carriedDayLabel
-                continue
-            }
-            mainItems.append(TimelineMessageDisplayItem(message: message, dayLabel: row.dayLabel ?? carriedDayLabel))
-            carriedDayLabel = nil
+        let mainItems = carryingDayLabels(displayItems) { message in
+            inThread.contains(message.id) ? nil : decoratedById[message.id]
         }
 
         let allItems = rows.compactMap { $0.message.agent?.item }
@@ -180,6 +172,24 @@ nonisolated struct AgentTranscript {
             waiting: allItems.filter(awaitsAnswer),
             threadOwners: threadOwners
         )
+    }
+
+    /// The rows `keep` maps to a main-chat row, in order. A day's divider rides on its first row;
+    /// when that row is dropped (moved into a thread, or a kind 1202), the next kept row carries it.
+    private static func carryingDayLabels(
+        _ displayItems: [TimelineMessageDisplayItem], keep: (MessageItem) -> MessageItem?
+    ) -> [TimelineMessageDisplayItem] {
+        var kept: [TimelineMessageDisplayItem] = []
+        var carriedDayLabel: String?
+        for row in displayItems {
+            guard let message = keep(row.message) else {
+                carriedDayLabel = row.dayLabel ?? carriedDayLabel
+                continue
+            }
+            kept.append(TimelineMessageDisplayItem(message: message, dayLabel: row.dayLabel ?? carriedDayLabel))
+            carriedDayLabel = nil
+        }
+        return kept
     }
 
     /// An approval or a question a person can answer now.
