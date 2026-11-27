@@ -10,7 +10,8 @@
 import Foundation
 
 /// Every way a pinned remote-media fetch can fail. Callers only ever see "no bytes"; the cases
-/// exist so tests can assert *which* guard fired rather than merely that something did.
+/// exist so tests can assert *which* guard fired and `RemoteImageLoader` can log a privacy-safe
+/// diagnostic reason without embedding the URL, host, or resolved IP.
 nonisolated enum RemoteMediaTransportError: Error, Equatable, Sendable {
     // Admission.
     case disallowedURL
@@ -39,6 +40,36 @@ nonisolated enum RemoteMediaTransportError: Error, Equatable, Sendable {
     case unsupportedFraming
     case unsupportedContentEncoding
     case unsupportedUpgrade
+
+    /// Privacy-safe reason string for unified logging. Never contains a URL, hostname, or IP
+    /// address; the switch is exhaustive so any new transport error case gets an explicit reason.
+    var diagnosticReason: String {
+        switch self {
+        case .disallowedURL: "disallowedURL"
+        case .invalidRequest: "invalidRequest"
+        case .dnsUnavailable: "dnsUnavailable"
+        case .resolutionFailed: "resolutionFailed"
+        case .malformedResolution: "malformedResolution"
+        case .tooManyAnswers: "tooManyAnswers"
+        case .unsafeResolution: "unsafeResolution"
+        case .connectionFailed: "connectionFailed"
+        case .idleTimeout: "idleTimeout"
+        case .deadlineExceeded: "deadlineExceeded"
+        case .cancelled: "cancelled"
+        case .httpStatus(let code): "httpStatus(\(code))"
+        case .tooManyRedirects: "tooManyRedirects"
+        case .invalidRedirect: "invalidRedirect"
+        case .malformedResponse: "malformedResponse"
+        case .headersTooLarge: "headersTooLarge"
+        case .framingTooLarge: "framingTooLarge"
+        case .bodyTooLarge: "bodyTooLarge"
+        case .prematureEOF: "prematureEOF"
+        case .ambiguousFraming: "ambiguousFraming"
+        case .unsupportedFraming: "unsupportedFraming"
+        case .unsupportedContentEncoding: "unsupportedContentEncoding"
+        case .unsupportedUpgrade: "unsupportedUpgrade"
+        }
+    }
 }
 
 /// A validated numeric IP address, held as network-order bytes.

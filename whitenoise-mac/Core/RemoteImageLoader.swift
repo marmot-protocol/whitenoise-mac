@@ -1,6 +1,13 @@
 import AppKit
 import ImageIO
+import OSLog
 import SwiftUI
+
+/// Distinguishes binary media downloads from link-preview page fetches in privacy-safe diagnostic logs.
+nonisolated enum RemoteMediaFetchOperation: String, Sendable {
+    case download
+    case page
+}
 
 /// An NSImage wrapper that is safe to hand back from the background loader.
 nonisolated struct LoadedImage: @unchecked Sendable {
@@ -802,7 +809,14 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     func page(for request: URLRequest) async -> (Data, URLResponse)? {
         guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else { return nil }
         let accept = request.value(forHTTPHeaderField: "Accept") ?? "*/*"
-        guard let fetched = try? await transport.fetch(url, accept: accept),
+        let fetched: RemoteMediaFetchResult
+        do {
+            fetched = try await transport.fetch(url, accept: accept)
+        } catch {
+            recordTransportFailure(error, operation: .page)
+            return nil
+        }
+        guard
             let response = HTTPURLResponse(
                 url: fetched.url,
                 statusCode: fetched.head.statusCode,
@@ -1119,6 +1133,46 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         return true
     }
 
+    private static let log = Logger(subsystem: "com.whitenoise.media", category: "RemoteImageLoader")
+
+    #if DEBUG
+        private var transportFailureObserver: (@Sendable (String) -> Void)?
+
+        func setTransportFailureObserver(_ observer: (@Sendable (String) -> Void)?) {
+            cacheStateLock.lock()
+            defer { cacheStateLock.unlock() }
+            transportFailureObserver = observer
+        }
+    #endif
+
+    /// Formats a privacy-safe diagnostic line for unified logging. Never embeds a URL, hostname,
+    /// IP address, or account identifier.
+    static func transportFailureLogMessage(
+        operation: RemoteMediaFetchOperation,
+        reason: String
+    ) -> String {
+        "remote_media_fetch_failed operation=\(operation.rawValue) reason=\(reason)"
+    }
+
+    private func recordTransportFailure(_ error: any Error, operation: RemoteMediaFetchOperation) {
+        if error is CancellationError { return }
+        let reason: String
+        if let transportError = error as? RemoteMediaTransportError {
+            guard transportError != .cancelled else { return }
+            reason = transportError.diagnosticReason
+        } else {
+            reason = "unknown"
+        }
+        let message = Self.transportFailureLogMessage(operation: operation, reason: reason)
+        Self.log.warning("\(message, privacy: .public)")
+        #if DEBUG
+            cacheStateLock.lock()
+            let observer = transportFailureObserver
+            cacheStateLock.unlock()
+            observer?(message)
+        #endif
+    }
+
     /// The single network chokepoint for `image(for: URL)` and `data(for:)`.
     ///
     /// `RemoteMediaTransport` re-admits every redirect hop, pins every connection to an admitted
@@ -1126,7 +1180,12 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// Task cancellation (the last coalesced waiter leaving, or `clearCache()`) reaches the
     /// transport and closes the socket without waiting for it.
     private func download(_ url: URL) async -> Data? {
-        try? await transport.fetch(url).body
+        do {
+            return try await transport.fetch(url).body
+        } catch {
+            recordTransportFailure(error, operation: .download)
+            return nil
+        }
     }
 
     /// Decoded-pixel ceiling for one source image — a small compressed body can declare
