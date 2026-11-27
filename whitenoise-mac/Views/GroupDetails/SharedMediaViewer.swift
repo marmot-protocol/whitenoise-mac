@@ -126,7 +126,7 @@ private struct SharedMediaViewerTopBar: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(title)
-                .wnFont(.semiBold12)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(WNColor.fillContentQuaternary)
                 .lineLimit(1)
 
@@ -134,7 +134,7 @@ private struct SharedMediaViewerTopBar: View {
 
             if let (index, total) = position {
                 Text(verbatim: "\(index) / \(total)")
-                    .wnFont(.semiBold10.monospacedDigit())
+                    .font(.caption.weight(.semibold).monospacedDigit())
                     .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.72))
             }
 
@@ -147,7 +147,7 @@ private struct SharedMediaViewerTopBar: View {
                                 .tint(WNColor.fillContentQuaternary)
                         } else {
                             Image(systemName: "square.and.arrow.down")
-                                .wnFont(.bold16)
+                                .font(.body.weight(.bold))
                         }
                     }
                     .frame(width: 34, height: 34)
@@ -162,7 +162,7 @@ private struct SharedMediaViewerTopBar: View {
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .wnFont(.bold16)
+                    .font(.body.weight(.bold))
                     .frame(width: 34, height: 34)
                     .background(WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
             }
@@ -185,7 +185,7 @@ private struct SharedMediaViewerNavigationButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .wnFont(.bold28)
+                .font(.title.weight(.bold))
                 .frame(width: 54, height: 54)
                 .background(WNColor.fillContentQuaternary.opacity(isEnabled ? 0.16 : 0.06), in: Circle())
         }
@@ -325,9 +325,9 @@ private struct SharedMediaViewerUnavailable: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle")
-                .wnFont(.medium18)
+                .font(.title3.weight(.medium))
             Text(L10n.string("Attachment unavailable"))
-                .wnFont(.semiBold12)
+                .font(.callout.weight(.semibold))
             if let onRetry {
                 Button(action: onRetry) {
                     Label(L10n.string("Retry"), systemImage: "arrow.clockwise")

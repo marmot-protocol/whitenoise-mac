@@ -105,12 +105,9 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            // `backgroundPrimary`, the app's reading surface — the same ground the transcript and
-            // the settings pages stand on, and what the other clients' sign-in screen uses. The
-            // pane this replaced painted itself the same way; what it could not do was carry a
-            // logo that agreed with it, because the logo was a baked dark tile. See
-            // `WhiteNoiseMarkView`.
-            MessagesTranscriptBackground()
+            // Native window reading surface (F02): adapts automatically in Light and Dark mode.
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
         }
     }
 }
@@ -160,12 +157,15 @@ struct OnboardingHeaderRow<Accessory: View>: View {
     var body: some View {
         HStack {
             if let exit {
-                GlassCircleCloseButton(
-                    symbol: exit.symbol,
-                    help: exit.helpKey,
-                    appearance: .outline,
-                    action: exit.action
-                )
+                Button(action: exit.action) {
+                    Image(systemName: exit.symbol)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 14, height: 14)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .controlSize(.regular)
+                .help(L10n.string(exit.helpKey))
                 .accessibilityLabel(L10n.string(exit.helpKey))
                 .accessibilityIdentifier(exit.accessibilityIdentifier)
                 .disabled(!isExitEnabled)

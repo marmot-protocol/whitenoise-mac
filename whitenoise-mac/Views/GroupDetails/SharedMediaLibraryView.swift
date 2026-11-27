@@ -9,7 +9,7 @@
 
 import SwiftUI
 
-private enum SharedMediaLibraryCategory: String, CaseIterable, Identifiable {
+enum SharedMediaLibraryCategory: String, CaseIterable, Identifiable {
     case media
     case files
 
@@ -27,9 +27,9 @@ private enum SharedMediaLibraryCategory: String, CaseIterable, Identifiable {
 /// preview row are not fetched again, and paging here extends the same history.
 struct SharedMediaLibraryView: View {
     let model: AttachmentViewModel
+    @Binding var category: SharedMediaLibraryCategory
     let onBack: () -> Void
     let onOpenMedia: (SharedMediaViewerPresentation) -> Void
-    @State private var category = SharedMediaLibraryCategory.media
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -42,7 +42,7 @@ struct SharedMediaLibraryView: View {
                 onEdit: nil
             )
 
-            GlassSeparator(axis: .horizontal)
+            Divider()
 
             SharedMediaCategoryPicker(category: $category)
                 .padding(.horizontal, 20)
@@ -58,6 +58,14 @@ struct SharedMediaLibraryView: View {
                 .padding(.horizontal, 20)
                 .frame(maxHeight: .infinity, alignment: .top)
             } else {
+                if let error = model.error {
+                    RetainedSharedMediaErrorRow(error: error) {
+                        Task { await model.refreshHistory() }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 6)
+                }
+
                 switch category {
                 case .media:
                     let visualItems = model.items.filter(\.isVisualMedia)
@@ -159,7 +167,7 @@ private struct SharedMediaMonthHeader: View {
 
     var body: some View {
         Text(title)
-            .wnFont(.semiBold14)
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(WNColor.backgroundContentPrimary)
     }
 }
@@ -170,10 +178,16 @@ private struct SharedMediaLoadMoreButton: View {
 
     var body: some View {
         if model.hasMore {
-            Button(L10n.string("Load more")) {
-                Task { await model.loadMore() }
+            HStack(spacing: 8) {
+                Button(L10n.string("Load more")) {
+                    Task { await model.loadMore() }
+                }
+                .disabled(model.isLoading)
+                if model.isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
-            .disabled(model.isLoading)
             .padding(.vertical, 8)
         }
     }

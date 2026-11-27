@@ -296,23 +296,23 @@ struct AccountSetupRelayAddressList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L10n.string(headerKey, locale: locale))
-                .wnFont(.semiBold12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 .accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                     if index > 0 { Divider() }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(verbatim: entry.address)
-                            .wnFont(.medium12)
-                            .foregroundStyle(WNColor.backgroundContentPrimary)
+                            .font(.callout)
+                            .foregroundStyle(Color(nsColor: .labelColor))
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
                         if let roleKey = entry.roleKey {
                             Text(L10n.string(roleKey, locale: locale))
-                                .wnFont(.medium10)
-                                .foregroundStyle(WNColor.backgroundContentTertiary)
+                                .font(.caption)
+                                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                         }
                     }
                     .padding(.vertical, 8)
@@ -350,7 +350,7 @@ struct AccountSetupRelayDraftEditor: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .help(L10n.string("Remove", locale: locale))
                         .accessibilityLabel(L10n.string("Remove", locale: locale))
                         .disabled(draft.entries.count == 1)
@@ -358,11 +358,10 @@ struct AccountSetupRelayDraftEditor: View {
                     }
                     if showsRoles {
                         HStack(spacing: 16) {
-                            Toggle(L10n.string("Read", locale: locale), isOn: $entry.reads)
-                            Toggle(L10n.string("Write", locale: locale), isOn: $entry.writes)
+                            WNToggle(L10n.string("Read", locale: locale), isOn: $entry.reads, presentation: .checkbox)
+                            WNToggle(L10n.string("Write", locale: locale), isOn: $entry.writes, presentation: .checkbox)
                         }
-                        .toggleStyle(.checkbox)
-                        .wnFont(.medium12)
+                        .font(.subheadline)
                     }
                 }
             }
@@ -370,9 +369,9 @@ struct AccountSetupRelayDraftEditor: View {
                 draft.entries.append(AccountSetupRelayDraft.Entry())
             } label: {
                 Label(L10n.string("Add Relay", locale: locale), systemImage: "plus")
-                    .wnFont(.medium12)
+                    .font(.subheadline)
             }
-            .onboardingActionTier(.secondary)
+            .wnSecondaryButtonStyle()
             .controlSize(.small)
             .disabled(draft.entries.count >= AccountSetupRelayDraft.selectionLimit)
         }
@@ -420,7 +419,7 @@ struct AccountSetupRelayDraftEditor: View {
             width: AccountSetupStepLayoutMetrics.previewSize.width,
             height: AccountSetupStepLayoutMetrics.previewSize.height
         )
-        .background(WNColor.backgroundPrimary)
+        .background(Color(nsColor: .windowBackgroundColor))
         .controlSize(.large)
         .wnButtonShape(.capsule)
 }
@@ -437,7 +436,7 @@ struct AccountSetupRelayDraftEditor: View {
             width: AccountSetupStepLayoutMetrics.previewSize.width,
             height: AccountSetupStepLayoutMetrics.previewSize.height
         )
-        .background(WNColor.backgroundPrimary)
+        .background(Color(nsColor: .windowBackgroundColor))
         .controlSize(.large)
         .wnButtonShape(.capsule)
 }

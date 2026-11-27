@@ -19,7 +19,7 @@ struct HistoryNoticeBanner: View {
             )
 
             Button(L10n.string("Dismiss"), action: onDismiss)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .controlSize(.small)
                 .disabled(isDismissing)
         }
@@ -46,7 +46,7 @@ struct AccountHistoryNoticesView: View {
                 }
                 if let error = model.error {
                     Text(error)
-                        .wnFont(.medium12)
+                        .font(.caption)
                         .foregroundStyle(WNColor.intentionErrorContent)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

@@ -2,10 +2,10 @@
 //  WNButtonMetrics.swift
 //  whitenoise-mac
 //
-//  The one shape the push-button tiers draw, so a primary button and the
-//  secondary one beside it cannot disagree about their outline. The tiers
-//  themselves are `WNPrimaryButton`, `WNSecondaryButtonStyle` and
-//  `WNDestructiveButtonStyle`.
+//  The one shape the native push-button tiers draw, so a primary button and the
+//  secondary or destructive one beside it cannot disagree about their outline.
+//  The tiers are `.wnPrimaryButtonStyle()`, `.wnSecondaryButtonStyle()`, and
+//  `.wnDestructiveButtonStyle()`.
 //
 
 import SwiftUI
@@ -30,6 +30,8 @@ enum WNButtonShape: Sendable {
     case rounded
     /// A pill. The onboarding pane, and anywhere else a button stands alone on a bare surface.
     case capsule
+    /// A circle. Icon-only controls in the composer, voice recording, and dictation bars.
+    case circle
 }
 
 private struct WNButtonShapeKey: EnvironmentKey {
@@ -64,10 +66,8 @@ extension View {
 /// The shape lives here rather than in any one tier because the tiers are almost always seen
 /// *together*: an invite is answered with `Accept` beside `Decline`, a contact's profile leads
 /// with `Follow` beside `Message`, and onboarding stacks `Sign In` over `Sign Up`. Each tier used
-/// to name its own radius, and a primary button written as a bare `Button` on
-/// `.nativeGlassProminentButtonStyle()` named none at all — with no `buttonBorderShape` the
-/// platform draws a capsule, which is how the invite prompt ended up offering a pill next to an
-/// 8pt rounded rectangle in the same row.
+/// to name its own radius, and primary buttons that previously bypassed `WNButtonMetrics` picked up
+/// an unmatched capsule beside an 8pt rounded rectangle in the same row.
 ///
 /// `controlSize` and `wnButtonShape` are both read from the environment because that is the one
 /// place a pair genuinely shares: they are set on the row, not on either button.
@@ -85,10 +85,11 @@ enum WNButtonMetrics {
         controlSize == .large ? 12 : 8
     }
 
-    /// The ground the styles that draw their own background fill, stroke and hit-test against.
+    /// The ground the views that draw their own background fill, stroke, and hit-test against
+    /// (such as `WNInput` and `OnboardingKeyField`) cut to.
     ///
     /// One `AnyShape` for all three uses rather than three literals, because the three have to
-    /// agree: a fill cut to a capsule under a hit region cut to a rounded rectangle is a button
+    /// agree: a fill cut to a capsule under a hit region cut to a rounded rectangle is a control
     /// with dead corners.
     static func backgroundShape(_ shape: WNButtonShape, for controlSize: ControlSize) -> AnyShape {
         switch shape {
@@ -96,34 +97,48 @@ enum WNButtonMetrics {
             AnyShape(RoundedRectangle(cornerRadius: cornerRadius(for: controlSize), style: .continuous))
         case .capsule:
             AnyShape(Capsule(style: .continuous))
+        case .circle:
+            AnyShape(Circle())
         }
     }
 
-    /// The same outline in the vocabulary the *native* styles speak. `.glassProminent` builds its
-    /// own ground, so it cannot be handed a `Shape` — only one of these.
+    /// The same outline in the vocabulary the native `.bordered` and `.borderedProminent` styles
+    /// speak — they build their own AppKit ground and take a `ButtonBorderShape` rather than a
+    /// `Shape`.
+    ///
+    /// **macOS 15.6 fallback:** SwiftUI honors `.capsule`, `.circle`, and `.roundedRectangle(radius:)`
+    /// on bordered push buttons starting on macOS 26. On the macOS 15.6 deployment floor, AppKit
+    /// standard bordered buttons intentionally fall back to native macOS 15 push-button geometry
+    /// rather than substituting custom-drawn chrome (see `docs/macos-ui-patterns.md` C01/C02).
     static func borderShape(_ shape: WNButtonShape, for controlSize: ControlSize) -> ButtonBorderShape {
         switch shape {
         case .rounded: .roundedRectangle(radius: cornerRadius(for: controlSize))
         case .capsule: .capsule
+        case .circle: .circle
         }
     }
 }
 
 extension View {
-    /// The primary tier's ground *and* its border shape, for a button that builds its own label
-    /// rather than reaching for `WNPrimaryButton` — the invite pair's `Accept`, whose label carries
-    /// a spinner and has to fill half of its row.
-    ///
-    /// The shape is the whole point. `.glassProminent` on its own draws a capsule, so a primary
-    /// button that skips this will not match the `.wnSecondary` button standing next to it.
+    /// Native primary push button (`.borderedProminent`) with scoped monochrome tint (C01).
     func wnPrimaryButtonStyle() -> some View {
         modifier(WNPrimaryButtonChrome())
     }
+
+    /// Native neutral secondary push button (`.bordered`), letting AppKit own hover, pressed,
+    /// disabled, focus ring, and non-key window appearance (C02).
+    func wnSecondaryButtonStyle() -> some View {
+        modifier(WNSecondaryButtonChrome())
+    }
+
+    /// Native prominent destructive push button (`.borderedProminent` tinted `statusError`) for
+    /// confirmed irreversible actions (C04). Use with `Button(role: .destructive)`.
+    func wnDestructiveButtonStyle() -> some View {
+        modifier(WNDestructiveButtonChrome())
+    }
 }
 
-/// A `ViewModifier` rather than a plain `View` extension so it can read the environment: the
-/// shape has to track whatever the row set, and a bare `.buttonBorderShape(…)` call site sees
-/// nothing.
+/// Applies native primary monochrome chrome with scoped `.tint(WNColor.fillPrimary)`.
 private struct WNPrimaryButtonChrome: ViewModifier {
     @Environment(\.controlSize) private var controlSize
     @Environment(\.wnButtonShape) private var shape
@@ -132,6 +147,33 @@ private struct WNPrimaryButtonChrome: ViewModifier {
         content
             .buttonBorderShape(WNButtonMetrics.borderShape(shape, for: controlSize))
             .tint(WNColor.fillPrimary)
-            .nativeGlassProminentButtonStyle()
+            .buttonStyle(.borderedProminent)
+    }
+}
+
+/// Applies native neutral `.bordered` chrome, matching `\.wnButtonShape` when a pane requests
+/// capsules (e.g. onboarding) while letting macOS own all control states.
+private struct WNSecondaryButtonChrome: ViewModifier {
+    @Environment(\.controlSize) private var controlSize
+    @Environment(\.wnButtonShape) private var shape
+
+    func body(content: Content) -> some View {
+        content
+            .buttonBorderShape(WNButtonMetrics.borderShape(shape, for: controlSize))
+            .buttonStyle(.bordered)
+    }
+}
+
+/// Applies native destructive prominent chrome (`.borderedProminent` tinted `statusError`) so
+/// macOS owns hover, pressed, disabled greying, focus ring, and non-key dimming.
+private struct WNDestructiveButtonChrome: ViewModifier {
+    @Environment(\.controlSize) private var controlSize
+    @Environment(\.wnButtonShape) private var shape
+
+    func body(content: Content) -> some View {
+        content
+            .buttonBorderShape(WNButtonMetrics.borderShape(shape, for: controlSize))
+            .tint(WNColor.statusError)
+            .buttonStyle(.borderedProminent)
     }
 }

@@ -9,12 +9,12 @@ struct ComposerDictationButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "waveform")
-                .wnFont(.semiBold14)
-                .frame(width: 32, height: 32)
-                .background {
-                    MessagesCircleControlBackground()
-                }
+            Label(L10n.string("Dictate"), systemImage: "waveform")
+                .labelStyle(.iconOnly)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .frame(width: 34, height: 36)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)

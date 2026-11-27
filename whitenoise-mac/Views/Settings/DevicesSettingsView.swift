@@ -8,6 +8,7 @@ import SwiftUI
 /// request answered there shows here and the other way round.
 struct DevicesSettingsView: View {
     let model: DeviceLinkingViewModel
+    var profileName: String?
     /// Link requests waiting on the user's other signed-in profiles; Review switches to one.
     var otherProfileRequests: [ProfileLinkRequestsMonitor.Request] = []
     var onReviewOtherProfile: (ProfileLinkRequestsMonitor.Request) -> Void = { _ in }
@@ -15,7 +16,10 @@ struct DevicesSettingsView: View {
     @State private var selectedDevice: LinkedDeviceSelection?
 
     var body: some View {
-        SettingsScaffold(title: L10n.string("Devices")) {
+        SettingsScaffold(
+            title: L10n.string("Devices"),
+            subtitle: profileName
+        ) {
             if model.isAvailable {
                 DeviceWarningsSection(model: model)
                 LinkedDevicesSection(model: model, onSelect: { selectedDevice = LinkedDeviceSelection(id: $0) })
@@ -35,15 +39,20 @@ struct DevicesSettingsView: View {
             } else {
                 SettingsSection {
                     Text(L10n.string("Device linking isn’t available in this build."))
+                        .font(.subheadline)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
         }
-        .task {
+        .task(id: ObjectIdentifier(model)) {
             await model.refreshAll()
         }
+        .onChange(of: ObjectIdentifier(model)) { _, _ in
+            selectedDevice = nil
+        }
         .sheet(item: $selectedDevice) { selection in
-            LinkedDeviceSheet(model: model, slotIdHex: selection.id)
+            LinkedDeviceSheet(model: model, slotIdHex: selection.id, profileName: profileName)
+                .id(ObjectIdentifier(model))
         }
     }
 }
@@ -74,7 +83,7 @@ private struct DeviceWarningsSection: View {
                         Button(L10n.string("Dismiss")) {
                             Task { await model.dismissCompromiseWarning() }
                         }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .disabled(model.isBusy(.dismissCompromise))
                     }
                 }
@@ -88,7 +97,7 @@ private struct DeviceWarningsSection: View {
                             intent: .warning
                         )
                         Button(L10n.string("Reset Device List…")) { confirmingReset = true }
-                            .buttonStyle(.wnSecondary)
+                            .wnSecondaryButtonStyle()
                             .disabled(model.isBusy(.reset))
                     }
                 }
@@ -176,15 +185,19 @@ private struct LinkedDeviceRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(DeviceLinkPresentation.name(of: device))
+                                .font(.body)
                             if device.isThisDevice {
                                 Text(L10n.string("This Mac"))
-                                    .wnFont(.medium12)
+                                    .font(.caption.weight(.medium))
                                     .foregroundStyle(WNColor.backgroundContentSecondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(WNColor.fillSecondary, in: Capsule())
                             }
                         }
                         if let detail {
                             Text(detail)
-                                .wnFont(.medium12)
+                                .font(.subheadline)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
                     }
@@ -199,11 +212,11 @@ private struct LinkedDeviceRow: View {
                 Button(L10n.string("Keep")) {
                     Task { await model.update(slotIdHex: device.slotIdHex, keepWhileInactive: true) }
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(model.isBusy(.device(slotIdHex: device.slotIdHex)))
             }
             Image(systemName: "chevron.right")
-                .wnFont(.semiBold10)
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(WNColor.backgroundContentTertiary)
                 .accessibilityHidden(true)
         }
@@ -265,7 +278,7 @@ private struct DeviceLinkSection: View {
                 } label: {
                     Label(L10n.string("Add a New Device…"), systemImage: "plus")
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(linking)
                 Button {
                     Task { await model.startLink() }
@@ -276,7 +289,7 @@ private struct DeviceLinkSection: View {
                         isBusy: model.isBusy(.startLink)
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(linking || model.isBusy(.startLink))
             }
             if !model.otherDevices.isEmpty {
@@ -285,18 +298,21 @@ private struct DeviceLinkSection: View {
                         "This Mac is already linked. Linking it to a device from a different list moves it to that list."
                     )
                 )
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
             // A note only: moving is still allowed, but can fail a link this Mac approved.
             if model.approvedLinkStillJoining {
-                Text(
+                Label(
                     L10n.string(
                         "Finish linking your new device before moving this Mac. Moving now can stop it from joining your chats."
-                    )
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
                 )
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline)
+                .foregroundStyle(WNColor.intentionWarningContent)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -333,7 +349,7 @@ private struct DeviceLinkStatusRow: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button(actionTitle, action: action)
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
         }
     }
 }
@@ -397,13 +413,13 @@ private struct SignInsSection: View {
                         isBusy: model.isBusy(.checkSignIns)
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(model.isBusy(.checkSignIns))
                 if offersStartFresh {
                     Button(L10n.string("I Don’t Have Those Devices")) {
                         Task { await model.startFresh() }
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(model.isBusy(.startFresh))
                 }
             }
@@ -420,17 +436,21 @@ private struct SignInRow: View {
         let busy = model.isBusy(.signIn(slotIdHex: signIn.slotIdHex))
         VStack(alignment: .leading, spacing: 6) {
             Text(DeviceLinkPresentation.title(for: signIn))
+                .font(.headline)
             Text(DeviceLinkPresentation.subtitle(for: signIn))
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             if signIn.previouslyLinkedHere {
-                Text(
+                Label(
                     L10n.string(
                         "A device linked here before is missing from this Mac’s device list. Open both devices to check the link."
-                    )
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
                 )
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .foregroundStyle(WNColor.intentionWarningContent)
+                .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 switch signIn.state {
@@ -439,21 +459,21 @@ private struct SignInRow: View {
                         Button(L10n.string("Not Now")) {
                             Task { await model.answer(slotIdHex: signIn.slotIdHex, response: .notNow) }
                         }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .disabled(busy)
                     }
                     // Linking starts on that device; this explains how and waits for its request.
                     Button(L10n.string("Link This Device…")) { model.showAddNewDevice() }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                         .disabled(busy)
-                    Button(L10n.string("This Wasn’t Me…")) { confirmingReject = true }
-                        .buttonStyle(.wnDestructive)
+                    Button(L10n.string("This Wasn’t Me…"), role: .destructive) { confirmingReject = true }
+                        .wnDestructiveButtonStyle()
                         .disabled(busy)
                 case .linkedElsewhere, .rejectedElsewhere:
                     Button(L10n.string("Dismiss")) {
                         Task { await model.answer(slotIdHex: signIn.slotIdHex, response: .dismiss) }
                     }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .disabled(busy)
                 }
             }
@@ -479,27 +499,36 @@ private struct SignInRow: View {
 struct LinkedDeviceSheet: View {
     let model: DeviceLinkingViewModel
     let slotIdHex: String
+    var profileName: String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var label = ""
     @State private var confirmingRemoval = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
             if let device = model.device(slotIdHex: slotIdHex) {
-                LinkedDeviceSheetContent(model: model, device: device, label: $label)
-                if let error = model.actionError {
-                    SettingsErrorView(error: error)
-                }
+                let busy = model.isBusy(.device(slotIdHex: device.slotIdHex))
+                LinkedDeviceSheetHeader(
+                    device: device,
+                    profileName: profileName
+                )
+                Divider()
+                LinkedDeviceSheetForm(model: model, device: device, label: $label)
+                Divider()
                 HStack(spacing: 8) {
                     if !device.isThisDevice && !device.removalPending {
                         Button(L10n.string("Remove Device…"), role: .destructive) { confirmingRemoval = true }
-                            .buttonStyle(.wnDestructive)
+                            .wnDestructiveButtonStyle()
+                            .disabled(busy)
                     }
                     Spacer(minLength: 0)
                     Button(L10n.string("Close")) { dismiss() }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
+                        .keyboardShortcut(.cancelAction)
                 }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
                 .confirmationDialog(
                     String(format: L10n.string("Remove %@?"), DeviceLinkPresentation.name(of: device)),
                     isPresented: $confirmingRemoval
@@ -516,15 +545,20 @@ struct LinkedDeviceSheet: View {
                         ))
                 }
             } else {
-                Text(L10n.string("That device is no longer in your device list."))
-                Button(L10n.string("Close")) { dismiss() }
-                    .buttonStyle(.wnSecondary)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(L10n.string("That device is no longer in your device list."))
+                        .font(.body)
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button(L10n.string("Close")) { dismiss() }
+                            .wnSecondaryButtonStyle()
+                            .keyboardShortcut(.cancelAction)
+                    }
+                }
+                .padding(20)
             }
         }
-        .padding(20)
-        .frame(width: 440)
-        .fixedSize(horizontal: false, vertical: true)
-        .wnButtonShape(.capsule)
+        .frame(width: 460)
         .onAppear {
             label = model.device(slotIdHex: slotIdHex)?.label ?? ""
         }
@@ -536,77 +570,135 @@ struct LinkedDeviceSheet: View {
     }
 }
 
-private struct LinkedDeviceSheetContent: View {
+private struct LinkedDeviceSheetHeader: View {
+    let device: LinkedDeviceFfi
+    let profileName: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let profileName, !profileName.isEmpty {
+                Label(profileName, systemImage: "person.crop.circle")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+            }
+            HStack(spacing: 8) {
+                Text(DeviceLinkPresentation.name(of: device))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(WNColor.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                if device.isThisDevice {
+                    Text(L10n.string("This Mac"))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(WNColor.fillSecondary, in: Capsule())
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+    }
+}
+
+private struct LinkedDeviceSheetForm: View {
     let model: DeviceLinkingViewModel
     let device: LinkedDeviceFfi
     @Binding var label: String
 
     var body: some View {
         let busy = model.isBusy(.device(slotIdHex: device.slotIdHex))
-        Text(DeviceLinkPresentation.name(of: device))
-            .wnFont(.semiBold16)
+        let isTooLong = label.utf8.count > DeviceLinkPresentation.maxLabelBytes
+        let canSave =
+            !busy && label != device.label
+            && label.trimmingCharacters(in: .whitespacesAndNewlines).utf8.count
+                <= DeviceLinkPresentation.maxLabelBytes
 
-        HStack(alignment: .bottom, spacing: 8) {
-            WNInput(
-                label: L10n.string("Device Name"),
-                prompt: L10n.string("e.g. iPhone"),
-                text: $label,
-                validationMessage: label.utf8.count > DeviceLinkPresentation.maxLabelBytes
-                    ? L10n.string("That name is too long.") : nil
-            )
-            Button(L10n.string("Save")) {
-                Task { await model.rename(slotIdHex: device.slotIdHex, label: label) }
-            }
-            .buttonStyle(.wnSecondary)
-            .disabled(
-                busy || label == device.label
-                    || label.trimmingCharacters(in: .whitespacesAndNewlines).utf8.count
-                        > DeviceLinkPresentation.maxLabelBytes
-            )
-        }
+        Form {
+            SettingsSection(title: L10n.string("Device Name")) {
+                HStack(spacing: 8) {
+                    TextField(
+                        L10n.string("Device Name"),
+                        text: $label,
+                        prompt: Text(L10n.string("e.g. iPhone"))
+                    )
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(busy)
+                    .onSubmit {
+                        guard canSave else { return }
+                        Task { await model.rename(slotIdHex: device.slotIdHex, label: label) }
+                    }
 
-        VStack(alignment: .leading, spacing: 10) {
-            LinkedDeviceToggle(
-                title: L10n.string("Add to all my chats"),
-                detail: L10n.string("Your other devices add it to the chats you’re in."),
-                isOn: device.addToAllChats, isDisabled: busy
-            ) { value in
-                Task { await model.update(slotIdHex: device.slotIdHex, addToAllChats: value) }
-            }
-            LinkedDeviceToggle(
-                title: L10n.string("Bring chat history"),
-                detail: L10n.string("Your other devices send it history when they add it to a chat."),
-                isOn: device.bringHistory, isDisabled: busy
-            ) { value in
-                Task { await model.update(slotIdHex: device.slotIdHex, bringHistory: value) }
-            }
-            LinkedDeviceToggle(
-                title: L10n.string("Keep while inactive"),
-                detail: L10n.string("It isn’t removed automatically after 90 days without activity."),
-                isOn: device.keepWhileInactive, isDisabled: busy
-            ) { value in
-                Task { await model.update(slotIdHex: device.slotIdHex, keepWhileInactive: value) }
-            }
-        }
+                    Button(L10n.string("Save")) {
+                        Task { await model.rename(slotIdHex: device.slotIdHex, label: label) }
+                    }
+                    .wnPrimaryButtonStyle()
+                    .disabled(!canSave)
+                }
 
-        VStack(alignment: .leading, spacing: 4) {
-            if !device.client.isEmpty || !device.platform.isEmpty {
+                if isTooLong {
+                    Text(L10n.string("That name is too long."))
+                        .font(.caption)
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                }
+            }
+
+            SettingsSection {
+                LinkedDeviceToggle(
+                    title: L10n.string("Add to all my chats"),
+                    detail: L10n.string("Your other devices add it to the chats you’re in."),
+                    isOn: device.addToAllChats, isDisabled: busy
+                ) { value in
+                    Task { await model.update(slotIdHex: device.slotIdHex, addToAllChats: value) }
+                }
+                LinkedDeviceToggle(
+                    title: L10n.string("Bring chat history"),
+                    detail: L10n.string("Your other devices send it history when they add it to a chat."),
+                    isOn: device.bringHistory, isDisabled: busy
+                ) { value in
+                    Task { await model.update(slotIdHex: device.slotIdHex, bringHistory: value) }
+                }
+                LinkedDeviceToggle(
+                    title: L10n.string("Keep while inactive"),
+                    detail: L10n.string("It isn’t removed automatically after 90 days without activity."),
+                    isOn: device.keepWhileInactive, isDisabled: busy
+                ) { value in
+                    Task { await model.update(slotIdHex: device.slotIdHex, keepWhileInactive: value) }
+                }
+            }
+
+            SettingsSection(title: L10n.string("Details")) {
+                if !device.client.isEmpty || !device.platform.isEmpty {
+                    SettingsValueRow(
+                        title: L10n.string("App"),
+                        value: DeviceLinkPresentation.appDescription(platform: device.platform, client: device.client)
+                            ?? ""
+                    )
+                }
                 SettingsValueRow(
-                    title: L10n.string("App"),
-                    value: DeviceLinkPresentation.appDescription(platform: device.platform, client: device.client) ?? ""
-                )
+                    title: L10n.string("Linked"),
+                    value: Date(timeIntervalSince1970: TimeInterval(device.linkedAt))
+                        .formatted(date: .abbreviated, time: .shortened))
+                if let linker = model.device(slotIdHex: device.linkedBySlotIdHex) {
+                    SettingsValueRow(title: L10n.string("Linked by"), value: DeviceLinkPresentation.name(of: linker))
+                }
+                if let status = DeviceLinkPresentation.status(of: device) {
+                    SettingsValueRow(title: L10n.string("Status"), value: status)
+                }
             }
-            SettingsValueRow(
-                title: L10n.string("Linked"),
-                value: Date(timeIntervalSince1970: TimeInterval(device.linkedAt))
-                    .formatted(date: .abbreviated, time: .shortened))
-            if let linker = model.device(slotIdHex: device.linkedBySlotIdHex) {
-                SettingsValueRow(title: L10n.string("Linked by"), value: DeviceLinkPresentation.name(of: linker))
-            }
-            if let status = DeviceLinkPresentation.status(of: device) {
-                SettingsValueRow(title: L10n.string("Status"), value: status)
+
+            if let error = model.actionError {
+                SettingsSection {
+                    SettingsErrorView(error: error)
+                }
             }
         }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .frame(height: 410)
     }
 }
 
@@ -618,12 +710,13 @@ private struct LinkedDeviceToggle: View {
     let onChange: (Bool) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             WNToggle(title, isOn: Binding(get: { isOn }, set: onChange))
                 .disabled(isDisabled)
             Text(detail)
-                .wnFont(.medium12)
+                .font(.caption)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -658,6 +751,27 @@ private let previewDevices: [LinkedDeviceFfi] = [
     .frame(width: 760, height: 720)
 }
 
+#Preview("Devices: warnings") {
+    DevicesSettingsView(
+        model: .preview(
+            snapshot: DeviceLinkSnapshotFfi(
+                newDevice: nil, prompts: [], moves: [], deviceGroupStalled: true),
+            devices: previewDevices,
+            compromiseItems: [
+                CompromiseWarningItemFfi(
+                    reason: .rejectedSignIn,
+                    slotIdHex: String(repeating: "c", count: 64),
+                    keyPackageRefHex: nil,
+                    occurredAt: 1_760_300_000
+                )
+            ]
+        )
+    )
+    .environment(WorkspaceState.preview())
+    .frame(width: 760, height: 720)
+}
+
 #Preview("Device") {
     LinkedDeviceSheet(model: .preview(devices: previewDevices), slotIdHex: String(repeating: "b", count: 64))
+        .environment(WorkspaceState.preview())
 }

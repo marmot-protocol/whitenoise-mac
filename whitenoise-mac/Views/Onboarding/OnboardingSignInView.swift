@@ -54,8 +54,8 @@ struct OnboardingSignInView: View {
                 // Primary, and inset to the key's first character, as `whitenoise-ios` draws its
                 // section label. The hint-or-error line below takes the same inset.
                 Text(L10n.string("Private Key"))
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(nsColor: .labelColor))
                     .padding(.leading, OnboardingKeyField.textInset)
 
                 OnboardingKeyField(
@@ -78,11 +78,16 @@ struct OnboardingSignInView: View {
                 isLoading: isLoggingIn,
                 action: submit
             )
+            .keyboardShortcut(.defaultAction)
             .disabled(!draft.isSubmittable || workspace.isAuthenticating)
             .accessibilityIdentifier("onboarding.submit-key")
         }
         .controlSize(.large)
         .wnButtonShape(.capsule)
+        .onExitCommand {
+            guard !workspace.isAuthenticating else { return }
+            workspace.cancelLogin()
+        }
     }
 
     private func submit() {
@@ -95,4 +100,11 @@ struct OnboardingSignInView: View {
             }
         }
     }
+}
+
+#Preview {
+    OnboardingSignInView()
+        .environment(WorkspaceState.preview())
+        .environment(SessionState())
+        .frame(width: 940, height: 620)
 }

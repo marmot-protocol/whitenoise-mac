@@ -2,15 +2,17 @@
 //  View+WNFont.swift
 //  whitenoise-mac
 //
-//  How the type ramp is applied. Prefer `.wnFont(.semiBold14)` over reaching for
-//  `.font(...)` directly: the rung is the ramp's vocabulary, and a call site that
-//  names a size instead is one the ladder can no longer move.
+//  Applies rungs of the legacy fixed `WNTextStyle` ladder. New and refreshed views
+//  should use Apple's native semantic `Font` text styles (`.body`, `.headline`,
+//  `.subheadline`, `.caption`, `.title3`, `.callout`) directly rather than adding
+//  to the legacy ladder.
 //
 
 import SwiftUI
 
 extension View {
-    /// Applies a rung of the type ramp — the system face at that rung's size and weight.
+    /// Applies a rung of the legacy fixed type ramp — retained until callers migrate to
+    /// Apple's native semantic `Font` text styles.
     func wnFont(_ style: WNTextStyle) -> some View {
         font(style.font)
     }

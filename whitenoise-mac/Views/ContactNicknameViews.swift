@@ -62,17 +62,20 @@ struct ContactNicknameRow: View {
                             PeerDisplayText.templateFragment(publishedName)
                         )
                     )
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
                 }
 
                 Text(L10n.string("Only you see this on this device. It is never published."))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
             .contactNicknameEditor(
-                isPresented: $isEditingNickname, accountIdHex: accountIdHex, publishedName: publishedName)
+                isPresented: $isEditingNickname, accountIdHex: accountIdHex, publishedName: publishedName
+            )
+            .onChange(of: accountIdHex) { _, _ in isEditingNickname = false }
+            .onChange(of: workspace.activeAccountId) { _, _ in isEditingNickname = false }
         }
     }
 }
@@ -80,7 +83,7 @@ struct ContactNicknameRow: View {
 /// Set / Edit / Remove beside a contact's name, for the profile header: a pencil, and — while a
 /// nickname is in force — a way back to the name they published.
 ///
-/// Icon-only because they sit beside a 20pt title and must not read as part of it; each still
+/// Icon-only because they sit beside a title and must not read as part of it; each still
 /// carries its title for VoiceOver and as a tooltip.
 struct ContactNicknameHeaderActions: View {
     @Environment(WorkspaceState.self) private var workspace
@@ -112,11 +115,14 @@ struct ContactNicknameHeaderActions: View {
                 }
             }
             .labelStyle(.iconOnly)
-            .buttonStyle(.plain)
-            .wnFont(.semiBold14)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .buttonStyle(.borderless)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
             .contactNicknameEditor(
-                isPresented: $isEditingNickname, accountIdHex: accountIdHex, publishedName: publishedName)
+                isPresented: $isEditingNickname, accountIdHex: accountIdHex, publishedName: publishedName
+            )
+            .onChange(of: accountIdHex) { _, _ in isEditingNickname = false }
+            .onChange(of: workspace.activeAccountId) { _, _ in isEditingNickname = false }
         }
     }
 }

@@ -448,20 +448,15 @@ final class ConversationViewModel {
         }
     }
 
-    /// The poll with any in-flight local vote applied.
-    func displayedPoll(_ poll: MessagePoll, messageIdHex: String) -> MessagePoll {
-        guard let pending = pendingPollSelections[messageIdHex] else { return poll }
-        return PollPresentation.applyingLocalSelection(pending, to: poll)
-    }
-
     /// Toggles `optionId` in this account's selection and publishes the whole new selection. The
-    /// click shows immediately; a failed vote restores whatever was showing before it and rethrows.
+    /// choice is tracked as pending until MDK confirms it; a failed vote restores whatever pending
+    /// selection was active before it and rethrows.
     func votePoll(option optionId: String, messageIdHex: String, poll: MessagePoll, now: Date = .now) async throws {
         guard !messageIdHex.isEmpty, PollPresentation.isOpen(poll, now: now) else { return }
-        let shown = displayedPoll(poll, messageIdHex: messageIdHex)
+        let currentSelection = pendingPollSelections[messageIdHex] ?? poll.localSelection
         guard
             let selection = PollPresentation.toggledSelection(
-                current: shown.localSelection,
+                current: currentSelection,
                 option: optionId,
                 kind: poll.kind,
                 optionOrder: poll.options.map(\.id)

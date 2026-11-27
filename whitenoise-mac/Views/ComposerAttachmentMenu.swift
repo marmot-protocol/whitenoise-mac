@@ -63,19 +63,18 @@ nonisolated enum ComposerAttachmentOption: String, CaseIterable, Hashable, Senda
     }
 }
 
-/// The composer's `+` button and the popover it opens.
+/// The composer's `+` menu and the popovers its picker entries open (T08, C03, P02).
 ///
-/// A `Button` and a popover rather than a `Menu`, for the reason `ProfileImageSourceMenu` gives: a
-/// macOS `Menu` coerces its label into a menu title and drops the circular chrome the composer's
-/// other controls wear. Choosing **GIFs** turns the same popover into the GIPHY picker instead of
-/// closing it and opening a second one, so there is no dismiss-then-present race; a fresh picker
-/// model per opening means a closed picker keeps no stale query or results.
+/// A native macOS `Menu` provides standard keyboard navigation, VoiceOver menu semantics, and
+/// pointer feedback. Choosing **GIFs** or **Stickers** dismisses the menu and opens the picker in
+/// a popover anchored to the same control; a fresh picker model per opening means a closed picker
+/// keeps no stale query or results.
 ///
 /// `giphyAPIKey` is nil when this build carries no GIPHY key, or when the conversation cannot send
 /// right now; either way the GIFs entry is left out, the way the iOS menu leaves it out.
 /// `onCreatePoll` is nil where a poll cannot be sent, which leaves the Poll entry out the same way.
-/// `stickers` is nil where a sticker cannot be sent; choosing **Stickers** turns the popover into
-/// the sticker picker, as GIFs does.
+/// `stickers` is nil where a sticker cannot be sent; choosing **Stickers** opens the sticker
+/// picker popover, as GIFs does.
 struct ComposerAttachmentMenu: View {
     let giphyAPIKey: String?
     let isDisabled: Bool
@@ -85,45 +84,55 @@ struct ComposerAttachmentMenu: View {
     var sendSticker: (StickerFfi) async throws -> Void = { _ in }
     var onCreatePoll: (() -> Void)? = nil
 
-    @State private var page: ComposerAttachmentMenuPage?
+    @State private var popoverPage: ComposerAttachmentPopoverPage?
+
+    private var availableOptions: [ComposerAttachmentOption] {
+        ComposerAttachmentOption.available(
+            gifsAvailable: giphyAPIKey != nil,
+            stickersAvailable: stickers != nil,
+            pollsAvailable: onCreatePoll != nil
+        )
+    }
 
     var body: some View {
-        Button {
-            page = .options
-        } label: {
-            Image(systemName: "plus")
-                .wnFont(.medium18)
-                .frame(width: 30, height: 30)
-                .background {
-                    MessagesCircleControlBackground()
+        Menu {
+            ForEach(availableOptions, id: \.self) { option in
+                Button {
+                    select(option)
+                } label: {
+                    Label(L10n.string(option.titleKey), systemImage: option.systemImage)
                 }
+                .accessibilityIdentifier("composer.attachments.\(option.rawValue)")
+            }
+        } label: {
+            Label(L10n.string("Add attachment"), systemImage: "paperclip")
+                .labelStyle(.iconOnly)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .frame(width: 36, height: 36)
+                .contentShape(Circle())
+                .wnFloatingGlass(in: Circle(), interactive: true)
         }
+        .menuLabelIcons()
+        .menuStyle(.button)
         .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .disabled(isDisabled)
         .help(L10n.string("Add attachment"))
         .accessibilityLabel(L10n.string("Add attachment"))
         .accessibilityIdentifier("composer.attachments")
         .popover(
             isPresented: Binding(
-                get: { page != nil },
-                set: { if !$0 { page = nil } }
+                get: { popoverPage != nil },
+                set: { if !$0 { popoverPage = nil } }
             ),
             arrowEdge: .bottom
         ) {
-            switch page {
-            case .options:
-                ComposerAttachmentOptionList(
-                    options: ComposerAttachmentOption.available(
-                        gifsAvailable: giphyAPIKey != nil,
-                        stickersAvailable: stickers != nil,
-                        pollsAvailable: onCreatePoll != nil
-                    ),
-                    onSelect: select
-                )
+            switch popoverPage {
             case .gifs(let searchModel):
-                GiphySearchView(model: searchModel) { page = nil }
+                GiphySearchView(model: searchModel) { popoverPage = nil }
             case .stickers(let library):
-                StickerPickerPopover(library: library, send: sendSticker) { page = nil }
+                StickerPickerPopover(library: library, send: sendSticker) { popoverPage = nil }
             case nil:
                 EmptyView()
             }
@@ -133,21 +142,21 @@ struct ComposerAttachmentMenu: View {
     private func select(_ option: ComposerAttachmentOption) {
         switch option {
         case .files:
-            page = nil
+            popoverPage = nil
             onAttachFiles()
         case .poll:
-            page = nil
+            popoverPage = nil
             onCreatePoll?()
         case .stickers:
-            page = stickers.map(ComposerAttachmentMenuPage.stickers)
+            popoverPage = stickers.map(ComposerAttachmentPopoverPage.stickers)
         case .gifs:
             guard let giphyAPIKey else {
-                page = nil
+                popoverPage = nil
                 return
             }
             let client = GiphySearchClient(apiKey: giphyAPIKey)
             let sendGIF = sendGIF
-            page = .gifs(
+            popoverPage = .gifs(
                 GiphySearchViewModel(
                     search: { try await client.search($0) },
                     send: { media in try await sendGIF(media) }
@@ -157,70 +166,28 @@ struct ComposerAttachmentMenu: View {
     }
 }
 
-/// What the `+` popover is showing.
-private enum ComposerAttachmentMenuPage {
-    case options
+/// Which picker popover the `+` menu opened.
+private enum ComposerAttachmentPopoverPage {
     case gifs(GiphySearchViewModel)
     case stickers(StickerLibrary)
 }
 
-/// The `+` popover's option rows, drawn to read as menu items.
-struct ComposerAttachmentOptionList: View {
-    let options: [ComposerAttachmentOption]
-    let onSelect: (ComposerAttachmentOption) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(options, id: \.self) { option in
-                ComposerAttachmentOptionRow(option: option) { onSelect(option) }
-            }
-        }
-        .padding(6)
-        .frame(width: 180)
+#Preview("Composer + menu") {
+    HStack(spacing: 12) {
+        ComposerAttachmentMenu(
+            giphyAPIKey: "preview",
+            isDisabled: false,
+            onAttachFiles: {},
+            sendGIF: { _ in },
+            stickers: .preview(),
+            onCreatePoll: {}
+        )
+        ComposerAttachmentMenu(
+            giphyAPIKey: nil,
+            isDisabled: true,
+            onAttachFiles: {},
+            sendGIF: { _ in }
+        )
     }
-}
-
-/// One row: a symbol in a fixed gutter so the titles line up, and a highlight that follows the
-/// pointer.
-private struct ComposerAttachmentOptionRow: View {
-    let option: ComposerAttachmentOption
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: option.systemImage)
-                    .wnFont(.medium12)
-                    .frame(width: 16)
-
-                Text(L10n.string(option.titleKey))
-                    .wnFont(.medium12)
-
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(WNColor.backgroundContentPrimary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                isHovering ? WNColor.fillSecondaryHover : .clear,
-                in: .rect(cornerRadius: 6)
-            )
-            .contentShape(.rect(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("composer.attachments.\(option.rawValue)")
-        .onHover { isHovering = $0 }
-    }
-}
-
-#Preview("Composer + button") {
-    ComposerAttachmentMenu(giphyAPIKey: "preview", isDisabled: false, onAttachFiles: {}, sendGIF: { _ in })
-        .padding()
-}
-
-#Preview("Attachment options") {
-    ComposerAttachmentOptionList(options: ComposerAttachmentOption.allCases, onSelect: { _ in })
+    .padding()
 }

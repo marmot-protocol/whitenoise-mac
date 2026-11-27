@@ -20,48 +20,64 @@ struct MessageForwardSheet: View {
         }
 
         VStack(spacing: 0) {
-            HStack {
+            VStack(alignment: .leading, spacing: 12) {
                 Text(L10n.string("Forward To"))
-                    .wnFont(.semiBold16)
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .frame(width: 40, height: 40)
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Close"))
-            }
-            .padding(16)
+                    .font(.headline)
+                    .foregroundStyle(WNColor.textPrimary)
 
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                TextField(L10n.string("Search chats"), text: $query)
-                    .textFieldStyle(.plain)
+                MessagesSearchField(
+                    text: $query,
+                    placeholder: L10n.string("Search chats"),
+                    autofocus: true
+                )
             }
-            .padding(.horizontal, 12)
-            .frame(height: 36)
-            .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 10))
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 12)
 
             Divider()
 
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(targets) { chat in
-                        MessageForwardTargetRow(
-                            chat: chat,
-                            isBusy: model.busyChatId == chat.id,
-                            isDisabled: model.isBusy,
-                            action: { model.forward(to: chat) }
-                        )
+            if targets.isEmpty {
+                ContentUnavailableView(
+                    query.isEmpty ? L10n.string("No chats") : L10n.string("No matching chats"),
+                    systemImage: query.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(targets) { chat in
+                            MessageForwardTargetRow(
+                                chat: chat,
+                                isBusy: model.busyChatId == chat.id,
+                                isDisabled: model.isBusy,
+                                action: { model.forward(to: chat) }
+                            )
+                        }
                     }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
                 }
-                .padding(.vertical, 6)
             }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button(L10n.string("Cancel")) {
+                    guard !model.isSending else { return }
+                    model.cancel()
+                    onClose()
+                }
+                .wnSecondaryButtonStyle()
+                .keyboardShortcut(.cancelAction)
+                .disabled(model.isSending)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
         .frame(width: 420, height: 520)
+        .interactiveDismissDisabled(model.isSending)
         .alert(
             L10n.string("Files unavailable"),
             isPresented: Binding(
@@ -91,6 +107,7 @@ struct MessageForwardSheet: View {
 }
 
 private struct MessageForwardTargetRow: View {
+    @State private var isHovering = false
     let chat: ChatItem
     let isBusy: Bool
     let isDisabled: Bool
@@ -104,32 +121,51 @@ private struct MessageForwardTargetRow: View {
                     initials: chat.title,
                     sanitizedPictureURL: chat.sanitizedPictureURL,
                     localImagePayload: chat.groupImagePayload,
-                    size: 34,
+                    size: 32,
                     isSelected: false
                 )
                 Text(chat.title)
+                    .font(.body)
+                    .foregroundStyle(WNColor.textPrimary)
                     .lineLimit(1)
                 Spacer()
                 if isBusy {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "arrowshape.turn.up.right")
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
+                        .accessibilityHidden(true)
                 }
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 52)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 48)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isHovering && !isDisabled ? WNColor.fillTertiaryHover : .clear)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+        .onHover { isHovering = $0 }
     }
 }
 
-#Preview {
+#Preview("Forward To – Light") {
     MessageForwardSheet(
         model: MessageForwardViewModel(messages: [], dependencies: .inert),
         chats: ChatItem.samples,
         onClose: {}
     )
+    .environment(\.colorScheme, .light)
+}
+
+#Preview("Forward To – Dark") {
+    MessageForwardSheet(
+        model: MessageForwardViewModel(messages: [], dependencies: .inert),
+        chats: ChatItem.samples,
+        onClose: {}
+    )
+    .environment(\.colorScheme, .dark)
 }

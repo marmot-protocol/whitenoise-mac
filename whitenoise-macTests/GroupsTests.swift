@@ -391,39 +391,31 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(!state.isGroupImagePickerPresented)
     }
 
-    @Test func conversationHeaderChatInfoOpensSlideInGroupDetails() throws {
-        // These are private SwiftUI views, so this source-shape regression guards
-        // the user-facing wiring directly. The chat-info affordance is now the
-        // header's avatar/title button (works for direct chats too), and the
-        // details screen slides in over the transcript from ConversationView
-        // rather than presenting as a header sheet.
-        // ConversationHeader moved to the composer views in the shell-view split, so it is looked
-        // up by name across the view tree rather than in a file this test names.
-        let headerSource = try SourceContract.declaration("ConversationHeader")
+    @MainActor
+    @Test func conversationToolbarChatInfoOpensSlideInGroupDetails() async throws {
+        // Chat Info moved from the custom `ConversationHeader` into `ConversationToolbarModifier`
+        // (#1038) while preserving the slide-in details presentation until #1042 adopts `.inspector`.
+        let account = desktopAccount()
+        let group = messageGroup()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(group)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
 
-        // Tapping the header avatar/title opens the chat info screen.
-        #expect(headerSource.contains("Task { await workspace.showGroupDetails(for: chat) }"))
-        // The details screen is no longer a modal sheet hung off the header.
-        #expect(!headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
+        await state.showGroupDetails(for: chat)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.groupDetailsSnapshot?.groupIdHex == chat.id)
 
-        // ConversationView presents the details panel inline as a slide-in,
-        // gated on the same flag, so it replaces the transcript in place.
-        let shellSource = try SourceContract.source(of: .messengerShell)
-        #expect(shellSource.contains("if workspace.isGroupDetailsPresented"))
-        #expect(shellSource.contains("attachmentModel: attachmentModel"))
-        #expect(shellSource.contains("safetyModel: safetyModel"))
-        #expect(shellSource.contains(".move(edge: .trailing)"))
+        state.closeGroupDetails()
+        #expect(!state.isGroupDetailsPresented)
     }
 
     @Test func detailsPaneHeadersPlaceBackButtonAtLeadingEdge() throws {
-        // The group-info and contact-info panes slide in over the transcript, so their
-        // chevron is a *back* control and belongs on the leading edge — where the
-        // compose pane and the settings header already put theirs — not trailing next
-        // to the add-members button, which reads as an unrelated right-hand action.
-        // Both panes draw their header in `GroupDetailsTopBar`, with the avatar down in the
-        // centred hero.
+        // Both Group Info / Contact Info inspector headers and Shared Media library headers draw
+        // their return/close action at the leading edge via `GroupDetailsTopBar`, before `Spacer(`.
         let header = try SourceContract.viewBody("GroupDetailsTopBar")
-        let backIndex = try #require(header.range(of: #"symbol: "chevron.backward""#)?.lowerBound)
+        let backIndex = try #require(header.range(of: "systemImage: backSymbol")?.lowerBound)
         let spacerIndex = try #require(header.range(of: "Spacer(")?.lowerBound)
         #expect(backIndex < spacerIndex, "the back button must sit before the spacer")
 
@@ -1497,26 +1489,19 @@ struct GroupsTests: WorkspaceTestSupport {
             #expect(source.contains(acceptCall))
         }
 
-        // The pair is one tier each, and the primary half carries the shape modifier rather than the
-        // bare glass style — without it the capsule comes back.
+        // The pair is one tier each, using the shared native push-button modifiers.
         let pairSource = try SourceContract.source(of: .pendingInviteActionButtons)
         #expect(pairSource.contains(".wnPrimaryButtonStyle()"))
-        #expect(pairSource.contains(".buttonStyle(.wnSecondary)"))
+        #expect(pairSource.contains(".wnSecondaryButtonStyle()"))
 
-        // Neither tier names a shape of its own any more: one table, or they drift apart again.
-        // The primary size still asks the table for a radius; the tiers that draw their own ground
-        // ask it for the whole outline, so that a pane can switch both to a capsule at once.
-        for (unit, call) in [
-            (SourceContract.ViewUnit.primaryButton, "WNButtonMetrics.borderShape("),
-            (SourceContract.ViewUnit.secondaryButtonStyle, "WNButtonMetrics.backgroundShape("),
-            (SourceContract.ViewUnit.destructiveButtonStyle, "WNButtonMetrics.backgroundShape("),
-        ] {
-            let source = try SourceContract.source(of: unit)
-            #expect(source.contains(call), "\(unit) no longer reads the shared table")
-            #expect(!source.contains("cornerRadius: CGFloat = "))
+        // All three native push-button tiers route through `WNButtonMetrics.borderShape(`.
+        for chrome in ["WNPrimaryButtonChrome", "WNSecondaryButtonChrome", "WNDestructiveButtonChrome"] {
+            let decl = try SourceContract.declaration(chrome, in: .buttonMetrics)
+            #expect(decl.contains("WNButtonMetrics.borderShape("), "\(chrome) no longer reads the shared table")
+            #expect(!decl.contains("cornerRadius:"), "\(chrome) defines a hardcoded radius")
         }
 
-        // And no tier keeps a radius of its own to drift back to.
+        // And no size keeps a radius of its own to drift back to.
         let sizeSource = try SourceContract.source(of: .primaryButtonSize)
         #expect(!sizeSource.contains("cornerRadius"), "a size is naming a radius again")
     }
@@ -4781,6 +4766,14 @@ struct GroupsTests: WorkspaceTestSupport {
         #expect(runtime.updateGroupImageCallCount == 0)
         #expect(state.selection == .chat("created-group"))
         #expect(!state.isNewChatComposerVisible)
+        // The chat list draws the new row's picture from the bytes MDK founded the group with.
+        let chatList = ChatListViewModel(account: try #require(state.activeAccount), runtime: runtime)
+        chatList.start()
+        defer { chatList.stop() }
+        await Self.waitUntil { !chatList.presentedRows.isEmpty }
+        try #require(!chatList.presentedRows.isEmpty)
+        let created = try #require(chatList.chats(view: .chats, nicknames: .none).first { $0.id == "created-group" })
+        #expect(created.groupImagePayload?.data == image.attachment.data)
     }
     @MainActor
     @Test func groupDraftWithoutAPictureCreatesWithoutOne() async throws {

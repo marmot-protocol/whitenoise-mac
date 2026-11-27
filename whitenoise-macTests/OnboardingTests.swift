@@ -96,11 +96,9 @@ import Testing
 
     // MARK: - The two action tiers are the same height
 
-    /// `.frame(height:)` on a `Button` is silently ignored by every button style, so the only way
-    /// two tiers can agree on a height is for their labels to carry the difference — which means
-    /// the difference has to be *measured*, and re-measured whenever either style's padding moves.
-    /// That is what this does. Left alone, the glass primary comes out 4pt shorter than the
-    /// secondary tier at `.large`.
+    /// `.frame(height:)` on a `Button` is silently ignored by native button styles, so the label
+    /// claims `OnboardingLayout.actionLabelHeight` and this test re-measures both native
+    /// `.borderedProminent` and `.bordered` tiers to catch any shift in macOS interior padding.
     @Test func bothActionTiersDrawTheSameHeight() throws {
         for tier in [OnboardingActionTier.primary, .secondary] {
             let button = OnboardingActionButton(title: "Sign Up", tier: tier) {}
@@ -129,7 +127,11 @@ import Testing
     /// inside the button: a 12pt corner has almost finished turning by then and begins at 1.5pt,
     /// while a pill's 22pt corner is only a quarter of the way round and begins at 6.5pt. The
     /// bounds below leave a 2pt margin on each side of those two measurements.
-    @Test func theOnboardingTiersDrawAPillAndTheAppsOwnTiersDoNot() throws {
+    /// On macOS 15.6, standard `.bordered`/`.borderedProminent` push buttons ignore
+    /// `buttonBorderShape` and fall back to native macOS 15 geometry, so this pixel-outline check
+    /// runs on macOS 26+ where SwiftUI honors `.capsule` and `.roundedRectangle(radius:)`.
+    @Test(.enabled(if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26))
+    func theOnboardingTiersDrawAPillAndTheAppsOwnTiersDoNot() throws {
         let capsule = try Self.leftEdgeOnset(shape: .capsule)
         let rounded = try Self.leftEdgeOnset(shape: .rounded)
 
@@ -168,50 +170,21 @@ import Testing
         #expect(OnboardingLayout.markToActionsMaximumSpacing > OnboardingLayout.edgePadding)
     }
 
-    // MARK: - The one secondary tier is raised, not ringed
+    // MARK: - The secondary tier uses native neutral bordered chrome, never a dark outline
 
-    /// The app's secondary push button is shadowed and has no outline — the whole of what was
-    /// decided when the ringed tier was folded into this one. Both halves are asserted, because a
-    /// regression could come from either end: a ring is what the app's other ground-drawing
-    /// components still stroke (`WNInput`, `MessagesCircleControlBackground`), and the shadow is
-    /// the only thing lifting a `backgroundSlate` ground off the pane it sits on.
-    ///
-    /// A ringed copy of the same button stands in as the positive control — without one, a test
-    /// that merely finds no outline would pass just as happily against a button that drew nothing
-    /// at all. The copy is the real style with a stroke laid over it rather than a second style
-    /// written out here, so the control cannot disagree with the button under test about where its
-    /// edge is or how tall it stands.
-    @Test func theSecondaryTierIsRaisedRatherThanRinged() throws {
-        let raised = try Self.edgeScanline(ringed: false)
+    /// The secondary push button uses native `.bordered` rather than a custom black outline.
+    /// A ringed copy stands in as the positive control so the scanline check proves it can still
+    /// detect a dark stroke.
+    @Test func theSecondaryTierUsesNativeBorderedChromeWithoutADarkOutline() throws {
+        let native = try Self.edgeScanline(ringed: false)
         let ringed = try Self.edgeScanline(ringed: true)
 
-        // `borderSecondary` is `neutral500`, ~0.45 luminance, against the tier's resting
-        // `backgroundSlate` ground at ~0.98 and a `backgroundPrimary` pane at 1.0. Anything below
-        // 0.75 on this scanline is a stroke; nothing else on it comes close.
         #expect(
             ringed.contains(where: { $0 < 0.75 }),
             "the ringed control drew no outline — this test can no longer see a ring at all")
         #expect(
-            !raised.contains(where: { $0 < 0.75 }),
-            "the secondary tier drew an outline")
-
-        // The shadow: pixels in the pane's margin, outside the button's fill, that are darker than
-        // the bare pane.
-        // Resolved *inside* `.aqua`, because that is the appearance `edgeScanline` rasterizes in
-        // and `NSColor(SwiftUI.Color)` resolves a dynamic token against whatever appearance is
-        // current when it is called — the **system's**, here, since nothing else has set one. Read
-        // bare, this comparison silently swaps in `backgroundPrimary`'s dark value (~0.04) and asks
-        // a light render to find a pixel darker than that, which nothing on it can be. It fails
-        // only on a Mac whose appearance is dark at the moment the suite runs, which on the default
-        // "Auto" setting means it fails after sunset and passes in the morning.
-        var paneColor: NSColor?
-        NSAppearance(named: .aqua)?.performAsCurrentDrawingAppearance {
-            paneColor = NSColor(WNColor.backgroundPrimary).usingColorSpace(.sRGB)
-        }
-        let paneLuminance = try #require(paneColor?.brightnessComponent)
-        #expect(
-            raised.contains(where: { $0 < paneLuminance - 0.02 && $0 > 0.75 }),
-            "the secondary tier cast no shadow")
+            !native.contains(where: { $0 < 0.75 }),
+            "the secondary tier drew a dark outline")
     }
 
     // MARK: - What the sign-in field makes of what is in it
@@ -895,7 +868,7 @@ import Testing
     /// The label plus `fieldLabelSpacing`, measured once so the field test can subtract it.
     private static var measuredFieldLabelBlockHeight: CGFloat {
         let label = Text("About")
-            .wnFont(.semiBold14)
+            .font(.subheadline.weight(.semibold))
             .frame(width: OnboardingLayout.contentWidth, alignment: .leading)
         let height = ImageRenderer(content: label).nsImage?.size.height ?? 0
         return height + OnboardingLayout.fieldLabelSpacing
@@ -995,9 +968,9 @@ import Testing
         let pane = Button {
         } label: {
             OnboardingActionLabel(title: "Sign In", isLoading: false)
-                .frame(minHeight: OnboardingLayout.actionLabelHeight(for: .secondary))
+                .frame(minHeight: OnboardingLayout.actionLabelHeight)
         }
-        .buttonStyle(.wnSecondary)
+        .wnSecondaryButtonStyle()
         .overlay {
             if ringed { Self.ringOverlay(.rounded, for: .large) }
         }
@@ -1019,12 +992,10 @@ import Testing
 
     /// How far in from the left edge, in points, a button's ground starts 6pt below its top edge.
     ///
-    /// The secondary tier is the one probed because it draws its own background and therefore its
-    /// own outline — the glass primary's ground is the platform's, and `ImageRenderer` will not
-    /// give it back. Rendered on nothing, so `alphaComponent` reads the shape directly; the
-    /// half-alpha threshold steps over the shadow, which is faint and offset downward anyway.
+    /// Probes `.primary` (opaque monochrome `.borderedProminent`) so `alphaComponent` reads the
+    /// native `buttonBorderShape` directly in `ImageRenderer`.
     private static func leftEdgeOnset(shape: WNButtonShape) throws -> CGFloat {
-        let button = OnboardingActionButton(title: "Sign In", tier: .secondary) {}
+        let button = OnboardingActionButton(title: "Sign In", tier: .primary) {}
             .controlSize(.large)
             .wnButtonShape(shape)
             .frame(width: OnboardingLayout.contentWidth)

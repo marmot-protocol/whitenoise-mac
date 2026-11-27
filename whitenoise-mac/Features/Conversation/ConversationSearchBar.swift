@@ -3,14 +3,14 @@ import SwiftUI
 /// The in-conversation search strip pinned under the conversation header: the field, where the
 /// cursor stands among the matches, and the controls that step through them.
 ///
-/// Return, ↑ and ⌘G step to the next older match, ↓ and ⇧⌘G to the next newer one, and Escape
-/// closes.
+/// `⇧⌘G` / ↑ steps to the previous (older / higher) match, `⌘G` / ↓ steps to the next (newer /
+/// lower) match, both disabling at their boundaries, and Escape closes.
 struct ConversationSearchBar: View {
     @Bindable var model: ConversationSearchViewModel
     let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             MessagesSearchField(
                 text: $model.query,
                 accessibilityIdentifier: "conversation.search.field",
@@ -18,45 +18,57 @@ struct ConversationSearchBar: View {
                 autofocus: true,
                 focusRequest: model.focusRequest
             )
-            .onSubmit(model.goToOlderMatch)
+            .frame(maxWidth: .infinity)
+            .onSubmit(submitSearch)
             // ↑ / ↓ step like the chevrons beside the field. The field is one line, so the caret
-            // loses nothing; with no matches the keys fall through to it.
-            .onKeyPress(.upArrow) { step(model.goToOlderMatch) }
-            .onKeyPress(.downArrow) { step(model.goToNewerMatch) }
+            // loses nothing; at boundaries or with no matches the keys fall through to it.
+            .onKeyPress(.upArrow) { step(canStep: model.canGoToOlderMatch, model.goToOlderMatch) }
+            .onKeyPress(.downArrow) { step(canStep: model.canGoToNewerMatch, model.goToNewerMatch) }
             .onExitCommand(perform: onClose)
 
             ConversationSearchStatus(model: model)
 
-            HStack(spacing: 6) {
-                ConversationSearchControlButton(
+            HStack(spacing: 2) {
+                ConversationSearchIconButton(
                     systemImage: "chevron.up",
                     help: L10n.string("Previous match"),
-                    shortcut: KeyboardShortcut("g", modifiers: .command),
+                    isDisabled: !model.canGoToOlderMatch,
                     action: model.goToOlderMatch
                 )
-                ConversationSearchControlButton(
+                .accessibilityIdentifier("conversation.search.previous")
+
+                ConversationSearchIconButton(
                     systemImage: "chevron.down",
                     help: L10n.string("Next match"),
-                    shortcut: KeyboardShortcut("g", modifiers: [.command, .shift]),
+                    isDisabled: !model.canGoToNewerMatch,
                     action: model.goToNewerMatch
                 )
+                .accessibilityIdentifier("conversation.search.next")
             }
-            .disabled(!model.canStep)
 
-            ConversationSearchControlButton(
+            ConversationSearchIconButton(
                 systemImage: "xmark",
                 help: L10n.string("Close"),
-                shortcut: nil,
+                isDisabled: false,
                 action: onClose
             )
+            .accessibilityIdentifier("conversation.search.close")
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .accessibilityIdentifier("conversation.search")
     }
 
-    private func step(_ move: () -> Void) -> KeyPress.Result {
-        guard model.canStep else { return .ignored }
+    private func submitSearch() {
+        if model.canGoToOlderMatch {
+            model.goToOlderMatch()
+        } else if model.canGoToNewerMatch {
+            model.goToNewerMatch()
+        }
+    }
+
+    private func step(canStep: Bool, _ move: () -> Void) -> KeyPress.Result {
+        guard canStep else { return .ignored }
         move()
         return .handled
     }
@@ -89,30 +101,37 @@ private struct ConversationSearchStatus: View {
                 Text(L10n.string("No matches"))
             }
         }
-        .wnFont(.medium12)
+        .font(.subheadline)
         .monospacedDigit()
         .lineLimit(1)
         .fixedSize()
-        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .foregroundStyle(.secondary)
     }
 }
 
-private struct ConversationSearchControlButton: View {
+private struct ConversationSearchIconButton: View {
     let systemImage: String
     let help: String
-    let shortcut: KeyboardShortcut?
+    let isDisabled: Bool
     let action: () -> Void
+    @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .wnFont(.bold12)
-                .frame(width: 28, height: 28)
-                .background { MessagesCircleControlBackground() }
-                .contentShape(.circle)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isDisabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                .frame(width: 26, height: 26)
+                .background {
+                    if isHovering, !isDisabled {
+                        Circle().fill(Color(nsColor: .quaternarySystemFill))
+                    }
+                }
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(shortcut)
+        .disabled(isDisabled)
+        .onHover { isHovering = $0 }
         .help(help)
         .accessibilityLabel(help)
     }

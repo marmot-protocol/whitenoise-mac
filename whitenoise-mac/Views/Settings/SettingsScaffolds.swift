@@ -10,51 +10,43 @@
 import SwiftUI
 
 struct SettingsHeader: View {
+    @Environment(\.locale) private var locale
     let title: String
     var subtitle: String?
     var backAction: (() -> Void)?
     /// What the chevron says it returns to, as a catalog *key* — a page reached from another
     /// settings page names that page, because "Back to settings" would describe the wrong
-    /// destination. It stays a key because `GlassCircleCloseButton` localizes its own help.
+    /// destination.
     var backHelp: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // The app's one back control, not a second one built here. `GroupViews` and the
-            // compose pane already answer "how do I get back" with this circle, and the drawer's
-            // sub-page is the same question a third time; a ringed 28pt rect beside them was a
-            // fourth affordance for one idea. The prototype reaches Relay Details through a
-            // native `NavigationLink`, so what ports is the *bare* system chevron — unboxed —
-            // and this is that chevron's mac form. `help:` takes a catalog key: the component
-            // localizes it.
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 if let backAction {
-                    GlassCircleCloseButton(
-                        symbol: "chevron.backward",
-                        help: backHelp ?? "Back to settings",
-                        appearance: .outline,
-                        action: backAction
-                    )
+                    Button(action: backAction) {
+                        Image(systemName: "chevron.backward")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help(L10n.string(backHelp ?? "Back to settings", locale: locale))
+                    .accessibilityLabel(Text(L10n.string(backHelp ?? "Back to settings", locale: locale)))
                 }
 
                 Text(title)
-                    .wnFont(.semiBold18)
+                    .font(.title3.weight(.semibold))
 
                 Spacer()
             }
 
             if let subtitle {
                 Text(subtitle)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         }
-        .padding(.horizontal, 28)
-        .padding(.top, 24)
-        .padding(.bottom, 18)
-        .background {
-            GlassToolbarBackground()
-        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 14)
     }
 }
 
@@ -76,14 +68,13 @@ struct SettingsBackDestination {
     }
 
     let route: Route
-    /// A catalog *key*, not localized text: `GlassCircleCloseButton` calls `L10n.string` on
-    /// what it is handed, so resolving it here would localize it twice.
+    /// A catalog *key*, not localized text: `SettingsHeader` localizes it against the active locale.
     let help: String
 
     /// Key Packages' parent. `wn-ios-prototype` reaches Key Packages from Developer Tools and
     /// from nowhere else, so this is the whole way out of that page.
     static var developerMode: SettingsBackDestination {
-        SettingsBackDestination(route: .page(.developerMode), help: "Back to Developer mode")
+        SettingsBackDestination(route: .page(.developerMode), help: "Back to Developer Tools")
     }
 
     /// A sub-page its parent draws in place of itself, which leaves by clearing that state.
@@ -106,20 +97,18 @@ struct SettingsNativeForm<Content: View>: View {
             content
         }
         .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
 struct SettingsScaffold<Content: View>: View {
-    @Environment(WorkspaceState.self) private var workspace
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     let title: String
     var subtitle: String?
     var errorSectionTitle: String?
     /// Shown as a chevron before the title, for a page that is a step inside another page
-    /// rather than a destination in the drawer — Relays' relay detail and Key Packages are the
-    /// two of these. The drawer has no navigation stack, so a sub-page is the parent page
-    /// swapping its own body, and this is the way back.
+    /// rather than a destination in the sidebar — Relays' relay detail and Key Packages are two
+    /// of these.
     var back: SettingsBackDestination?
     let content: Content
 
@@ -139,31 +128,40 @@ struct SettingsScaffold<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsHeader(
-                title: title,
-                subtitle: subtitle,
-                backAction: back.map { destination in
-                    switch destination.route {
-                    case .page(let page): { workspace.showSettingsPage(page) }
-                    case .action(let dismiss): dismiss
-                    }
-                },
-                backHelp: back?.help
-            )
-            Divider()
+            if back != nil {
+                SettingsHeader(
+                    title: title,
+                    subtitle: subtitle,
+                    backAction: back.map { destination in
+                        switch destination.route {
+                        case .page(let page): { settings?.navigate(to: page) }
+                        case .action(let dismiss): dismiss
+                        }
+                    },
+                    backHelp: back?.help
+                )
+                Divider()
+            }
 
             SettingsNativeForm {
                 content
-                errorSection
+                SettingsErrorSection(title: errorSectionTitle, error: settings?.lastError)
             }
         }
+        .navigationTitle(title)
+        .navigationSubtitle(subtitle ?? "")
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+}
 
-    @ViewBuilder
-    private var errorSection: some View {
-        if let error = workspace.lastError {
-            SettingsSection(title: errorSectionTitle) {
+private struct SettingsErrorSection: View {
+    let title: String?
+    let error: String?
+
+    var body: some View {
+        if let error {
+            SettingsSection(title: title) {
                 SettingsErrorView(error: error)
             }
         }
@@ -172,11 +170,9 @@ struct SettingsScaffold<Content: View>: View {
 
 /// The scaffold for a settings page that lays its own controls out rather than filling native
 /// grouped `Form` rows: same header, same error surface, but the content sits in a plain
-/// scrolling column. A page built from `WNCallout`, `WNCopyCard` and `WNInput` needs
-/// this — those controls draw their own box, and a grouped `Section` would put a second one
-/// around each.
+/// scrolling column.
 struct SettingsStackScaffold<Content: View>: View {
-    @Environment(WorkspaceState.self) private var workspace
+    @Environment(SettingsWindowCoordinator.self) private var settings: SettingsWindowCoordinator?
     let title: String
     var subtitle: String?
     let content: Content
@@ -193,14 +189,11 @@ struct SettingsStackScaffold<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsHeader(title: title, subtitle: subtitle)
-            Divider()
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     content
 
-                    if let error = workspace.lastError {
+                    if let error = settings?.lastError {
                         SettingsErrorView(error: error)
                     }
                 }
@@ -212,6 +205,9 @@ struct SettingsStackScaffold<Content: View>: View {
                 .padding(.vertical, 24)
             }
         }
+        .navigationTitle(title)
+        .navigationSubtitle(subtitle ?? "")
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
@@ -222,9 +218,19 @@ struct SettingsErrorView: View {
     var body: some View {
         if let error {
             Text(error)
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentDestructive)
+                .font(.subheadline)
+                .foregroundStyle(WNColor.intentionErrorContent)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
+}
+
+#Preview("Settings scaffold") {
+    SettingsScaffold(title: "Appearance", subtitle: "Choose the appearance and language White Noise uses.") {
+        SettingsSection(title: "Example") {
+            SettingsValueRow(title: "Mode", value: "System")
+        }
+    }
+    .frame(width: 560, height: 320)
 }

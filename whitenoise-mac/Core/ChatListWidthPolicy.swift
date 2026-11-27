@@ -93,4 +93,18 @@ nonisolated enum ChatListWidthPolicy {
         guard let storedWidth else { return defaultWidth }
         return resolve(proposedWidth: CGFloat(storedWidth))
     }
+
+    /// Returns the expanded width to persist from a native split-view geometry update, or `nil`
+    /// when the report is outside the expanded bounds or merely reflects the split view enforcing
+    /// its minimum column width over a previously saved collapsed preference.
+    static func adoptedNativeSidebarWidth(proposedWidth: CGFloat, storedWidth: CGFloat) -> CGFloat? {
+        guard proposedWidth.isFinite,
+            proposedWidth >= minimumExpandedWidth,
+            proposedWidth <= maximumWidth
+        else { return nil }
+        if isCollapsed(width: storedWidth), proposedWidth <= minimumExpandedWidth {
+            return nil
+        }
+        return proposedWidth
+    }
 }

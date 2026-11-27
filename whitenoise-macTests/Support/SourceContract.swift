@@ -33,9 +33,9 @@ enum SourceContract {
     /// else: a split becomes `["FirstHalf.swift", "SecondHalf.swift"]` and every assertion against
     /// the unit keeps reading the whole of it.
     enum ViewUnit: CaseIterable {
+        case buttonMetrics
         case composer
         case contactDetails
-        case destructiveButtonStyle
         case encryptedPrivateKeyExportSheet
         case group
         case messageMedia
@@ -49,15 +49,14 @@ enum SourceContract {
         case primaryButtonSize
         case profileKeysSettings
         case publicIdentity
-        case secondaryButtonStyle
-        case settingsAccountSwitcher
-        case settingsSidebarGroupCard
+        case settingsSidebar
         case sidebar
         case signOutSheet
 
         /// Paths relative to `whitenoise-mac/Views`, in the order they should be read.
         var paths: [String] {
             switch self {
+            case .buttonMetrics: ["WNButtonMetrics.swift"]
             case .composer: ["ComposerViews.swift"]
             case .contactDetails:
                 [
@@ -65,7 +64,6 @@ enum SourceContract {
                     "ContactDetails/ContactIdentitySection.swift",
                     "ContactDetails/ContactProfileActionsRow.swift",
                 ]
-            case .destructiveButtonStyle: ["WNDestructiveButtonStyle.swift"]
             case .encryptedPrivateKeyExportSheet: ["Settings/EncryptedPrivateKeyExportSheet.swift"]
             case .group:
                 [
@@ -77,7 +75,6 @@ enum SourceContract {
                     "GroupDetails/GroupDetailsHero.swift",
                     "GroupDetails/GroupDetailsIdentitySection.swift",
                     "GroupDetails/GroupDetailsLeaveSection.swift",
-                    "GroupDetails/GroupDetailsQuickAction.swift",
                     "GroupDetails/GroupDetailsQuickActionsRow.swift",
                     "GroupDetails/GroupDetailsSettingsSection.swift",
                     "GroupDetails/GroupDetailsSheet.swift",
@@ -100,9 +97,7 @@ enum SourceContract {
             case .primaryButtonSize: ["WNPrimaryButtonSize.swift"]
             case .profileKeysSettings: ["Settings/ProfileKeysSettingsView.swift"]
             case .publicIdentity: ["Settings/PublicIdentityViews.swift"]
-            case .secondaryButtonStyle: ["WNSecondaryButtonStyle.swift"]
-            case .settingsAccountSwitcher: ["Settings/SettingsAccountSwitcherViews.swift"]
-            case .settingsSidebarGroupCard: ["Settings/SettingsSidebarGroupCard.swift"]
+            case .settingsSidebar: ["../Features/Settings/SettingsSidebarView.swift"]
             case .sidebar: ["SidebarViews.swift"]
             case .signOutSheet: ["Settings/SignOutSheet.swift"]
             }
@@ -123,7 +118,7 @@ enum SourceContract {
     }
 
     static func urls(of unit: ViewUnit) -> [URL] {
-        unit.paths.map { viewsDirectory.appending(path: $0) }
+        unit.paths.map { viewsDirectory.appending(path: $0).standardizedFileURL }
     }
 
     /// The full text of a unit. A unit written across several files reads as their concatenation,

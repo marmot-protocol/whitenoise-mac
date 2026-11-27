@@ -39,7 +39,7 @@ struct PublicIdentityQRCodeButton: View {
                     isPresented = true
                 } label: {
                     Image(systemName: "qrcode")
-                        .wnFont(.semiBold14)
+                        .font(.body.weight(.semibold))
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
@@ -48,7 +48,7 @@ struct PublicIdentityQRCodeButton: View {
                     isPresented = true
                 } label: {
                     Image(systemName: "qrcode")
-                        .wnFont(.medium24)
+                        .font(.title2)
                         .foregroundStyle(WNColor.backgroundContentPrimary)
                         .frame(width: 56)
                         .frame(maxHeight: .infinity)
@@ -130,7 +130,7 @@ struct PublicIdentityQRCodeSheet: View {
             )
 
             Text(displayName)
-                .wnFont(.semiBold16)
+                .font(.headline)
                 .foregroundStyle(WNColor.backgroundContentPrimary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
@@ -164,7 +164,7 @@ struct PublicIdentityQRCodeSheet: View {
                 .padding(.top, 28)
 
             Text(L10n.string("Scan to connect"))
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .foregroundStyle(WNColor.backgroundContentTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 6)
@@ -181,6 +181,7 @@ struct PublicIdentityQRCodeSheet: View {
             GlassCircleCloseButton(appearance: .outline) {
                 dismiss()
             }
+            .keyboardShortcut(.cancelAction)
             .padding(22)
         }
         .frame(width: 420)
@@ -203,7 +204,7 @@ struct NostrAddressLabel: View {
 
     var body: some View {
         Text(address)
-            .wnFont(.medium12)
+            .font(.subheadline)
             .foregroundStyle(WNColor.backgroundContentSecondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -366,7 +367,7 @@ struct CopyableKeyLabel: View {
             if showsCopyButton {
                 CopyToClipboardButton(value: npub, actionDescription: L10n.string("Copy npub")) { isConfirming in
                     Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
-                        .wnFont(.medium10)
+                        .font(.caption)
                         .foregroundStyle(
                             isConfirming ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary)
                 }
@@ -374,4 +375,9 @@ struct CopyableKeyLabel: View {
             }
         }
     }
+}
+
+#Preview("Public identity QR sheet") {
+    PublicIdentityQRCodeSheet(account: AccountItem.samples[0], displayName: AccountItem.samples[0].displayName)
+        .environment(WorkspaceState.preview())
 }

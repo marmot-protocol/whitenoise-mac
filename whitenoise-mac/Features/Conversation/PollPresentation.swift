@@ -35,28 +35,6 @@ nonisolated enum PollPresentation {
         }
     }
 
-    /// Applies an in-flight local vote so the click is reflected before MDK re-projects the row.
-    static func applyingLocalSelection(_ selection: [String], to poll: MessagePoll) -> MessagePoll {
-        let previous = Set(poll.localSelection)
-        let next = Set(selection)
-        guard previous != next else { return poll }
-        var result = poll
-        result.options = poll.options.map { option in
-            var option = option
-            if previous.contains(option.id), !next.contains(option.id) {
-                option.votes = option.votes > 0 ? option.votes - 1 : 0
-            } else if !previous.contains(option.id), next.contains(option.id) {
-                option.votes += 1
-            }
-            return option
-        }
-        if previous.isEmpty, !next.isEmpty {
-            result.participants += 1
-        }
-        result.localSelection = selection
-        return result
-    }
-
     /// Share of voters who picked the option, for the result bar.
     static func fraction(votes: UInt64, participants: UInt64) -> Double {
         guard participants > 0 else { return 0 }

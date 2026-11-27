@@ -28,7 +28,7 @@ struct GroupProfileEditorSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(L10n.string("Edit Group Info"))
-                .wnFont(.semiBold14)
+                .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
@@ -46,7 +46,6 @@ struct GroupProfileEditorSheet: View {
                 }
             }
             .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
             .scrollDisabled(true)
             .disabled(isSaving)
 
@@ -57,7 +56,7 @@ struct GroupProfileEditorSheet: View {
                         .controlSize(.small)
                 }
                 Button(L10n.string("Cancel"), role: .cancel) { dismiss() }
-                    .buttonStyle(.wnSecondary)
+                    .wnSecondaryButtonStyle()
                     .keyboardShortcut(.cancelAction)
                 Button(L10n.string("Save")) {
                     Task {

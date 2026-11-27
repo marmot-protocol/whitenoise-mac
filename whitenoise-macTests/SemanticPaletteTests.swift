@@ -160,35 +160,40 @@ struct SemanticPaletteTests {
     /// the incoming one, and the duration label — drawn in the flat *background* token
     /// `backgroundContentTertiary` rather than in the row's content — ran from 7.85 down to 2.31.
     @Test func attachmentRowTonesClearTheRowFillTheyAreDrawnOn() throws {
-        // Row fill paired with the content every tone in the row is derived from.
-        let rows: [(name: String, fill: NSColor, content: NSColor)] = [
-            ("outgoing", WNNSColor.fillPrimary, WNNSColor.fillContentPrimary),
-            ("incoming", WNNSColor.backgroundMessageIncoming, WNNSColor.backgroundContentPrimary),
-        ]
-        // The unplayed waveform is a graphical object, so it takes WCAG's non-text bar; the
-        // duration label is small text and takes the body-text one. The disc behind the play
-        // control is deliberately absent: it is a locator for a glyph that carries its own
-        // contrast, so a threshold on it would be a number invented to be met.
-        let tones: [(name: String, opacity: Double, minimum: Double)] = [
-            ("waveform bar", AttachmentRowPalette.waveformBarOpacity, 3.0),
-            ("played waveform bar", AttachmentRowPalette.waveformPlayedBarOpacity, 4.5),
-            ("duration label", AttachmentRowPalette.detailContentOpacity, 4.5),
-        ]
-
+        // Measure the exact colors `AttachmentRowPalette` vends as they land on screen: unplayed
+        // waveform bars at WCAG's 3.0 non-text bar, played bars and duration/file detail text at
+        // WCAG AA 4.5.
         for appearance in try Self.appearances() {
-            for row in rows {
-                for tone in tones {
-                    let drawn = try Self.blended(
-                        row.content,
-                        opacity: tone.opacity,
-                        over: row.fill,
-                        in: appearance
-                    )
-                    let ratio = try Self.contrast(drawn, row.fill, in: appearance)
+            for isOutgoing in [true, false] {
+                let surface = try Self.composited(
+                    AttachmentRowPalette.nsFill(isOutgoing: isOutgoing),
+                    over: WNNSColor.backgroundPrimary,
+                    in: appearance
+                )
+                let content = try Self.composited(
+                    AttachmentRowPalette.nsContent(isOutgoing: isOutgoing), over: surface, in: appearance
+                )
+                let detail = try Self.composited(
+                    AttachmentRowPalette.nsDetailContent(isOutgoing: isOutgoing), over: surface, in: appearance
+                )
+
+                let unplayed = try Self.blended(
+                    content, opacity: AttachmentRowPalette.waveformBarOpacity, over: surface, in: appearance
+                )
+                let played = try Self.blended(
+                    content, opacity: AttachmentRowPalette.waveformPlayedBarOpacity, over: surface, in: appearance
+                )
+                let checks: [(name: String, drawn: NSColor, minimum: Double)] = [
+                    ("waveform bar", unplayed, 3.0),
+                    ("played waveform bar", played, 4.5),
+                    ("duration label", detail, 4.5),
+                ]
+                for check in checks {
+                    let ratio = Self.contrastRatio(check.drawn, surface)
                     #expect(
-                        ratio >= tone.minimum,
+                        ratio >= check.minimum,
                         """
-                        \(row.name) \(tone.name) contrast \(ratio) < \(tone.minimum) \
+                        \(isOutgoing ? "outgoing" : "incoming") \(check.name) contrast \(ratio) < \(check.minimum) \
                         in \(appearance.name.rawValue)
                         """
                     )
@@ -268,16 +273,16 @@ struct SemanticPaletteTests {
     /// bar (the sent bubble is the pill's inverse, around 20:1). So the bar is set where it catches
     /// a genuine collapse without claiming a contrast the design does not want.
     @Test func reactionChipStaysLegibleOnBothBubbles() throws {
-        let bubbles = [
-            ("sent", WNNSColor.fillPrimary),
-            ("received", WNNSColor.backgroundMessageIncoming),
-        ]
         let states = [
             ("resting", WNNSColor.backgroundPrimary, WNNSColor.borderTertiary),
             ("own", WNNSColor.fillSecondaryActive, WNNSColor.borderPrimary),
         ]
 
         for appearance in try Self.appearances() {
+            // The received bubble is translucent, so it is measured as drawn on the transcript.
+            let bubbles = try [MessageBubblePolarity.sent, .received].map { polarity in
+                ("\(polarity)", try Self.bubbleSurface(polarity, in: appearance))
+            }
             for (bubbleName, bubble) in bubbles {
                 for (stateName, pill, border) in states {
                     let fillRatio = try Self.contrast(bubble, pill, in: appearance)
@@ -389,7 +394,103 @@ struct SemanticPaletteTests {
         #expect(QRCodePalette.resolved(for: .light) != QRCodePalette.resolved(for: .dark))
     }
 
+    // MARK: - Native semantic roles (F01–F07)
+
+    /// Verifies the native semantic roles introduced in PR 1 (`WNInput` label & validation colors
+    /// and `switchOnTint` against both the white switch thumb and dark form surfaces) clear WCAG
+    /// floors in both Aqua and Dark Aqua. Translucent system tokens (`labelColor`) are alpha-
+    /// composited over their backing surface before computing contrast.
+    @Test func nativeSemanticPairsStayLegibleInBothAppearances() throws {
+        for appearance in try Self.appearances() {
+            let pane = try Self.composited(
+                WNNSColor.backgroundPrimary, over: WNNSColor.backgroundPrimary, in: appearance)
+            let inputLabel = try Self.composited(WNNSColor.textPrimary, over: pane, in: appearance)
+            let inputError = try Self.composited(WNNSColor.intentionErrorContent, over: pane, in: appearance)
+
+            #expect(
+                Self.contrastRatio(pane, inputLabel) >= 4.5,
+                "WNInput label contrast below 4.5:1 in \(appearance.name.rawValue)"
+            )
+            #expect(
+                Self.contrastRatio(pane, inputError) >= 4.5,
+                "WNInput validation contrast below 4.5:1 in \(appearance.name.rawValue)"
+            )
+
+            // Switch on-state tint clears 4.5:1 against the native white thumb AND 3.0:1 against
+            // the native dark/light control background in both appearances.
+            let reading = try Self.composited(.controlBackgroundColor, over: .windowBackgroundColor, in: appearance)
+            let switchTrack = try Self.composited(WNNSColor.switchOnTint, over: reading, in: appearance)
+            let whiteThumb = try #require(WNColorRamp.white.usingColorSpace(.sRGB))
+            #expect(
+                Self.contrastRatio(switchTrack, whiteThumb) >= 4.5,
+                "switchOnTint does not contrast with the white thumb in \(appearance.name.rawValue)"
+            )
+            #expect(
+                Self.contrastRatio(switchTrack, reading) >= 3.0,
+                "switchOnTint blends into the surface in \(appearance.name.rawValue)"
+            )
+        }
+    }
+
+    /// Every foreground a text bubble draws, on the surface it is drawn on, in both appearances
+    /// (#1039, F02, T02, T07). The received bubble is the native translucent fill over the
+    /// transcript's surface, and the quote inset composites over that in turn. Each role is
+    /// measured as it lands on screen.
+    ///
+    /// Thresholds follow the rest of this file: body and the quoted author at 4.5:1. Metadata,
+    /// the quoted body, links and the quote bar at 3:1. Links are underlined, and on the received
+    /// bubble the native `linkColor` measures 4.4:1 in Light. The quote inset only has to be
+    /// visible as an inset; its text carries the contrast.
+    @Test func bothBubblesPairEveryForegroundWithTheirOwnSurface() throws {
+        for appearance in try Self.appearances() {
+            for polarity in [MessageBubblePolarity.sent, .received] {
+                let bubble = try Self.bubbleSurface(polarity, in: appearance)
+                let quote = try Self.composited(polarity.nsQuoteFill, over: bubble, in: appearance)
+                let measured: [(name: String, surface: NSColor, content: NSColor, minimum: Double)] = [
+                    ("body", bubble, polarity.nsContent, 4.5),
+                    ("metadata", bubble, polarity.nsSecondaryContent, 3.0),
+                    ("link", bubble, polarity.nsLink, 3.0),
+                    ("quoted author", quote, polarity.nsContent, 4.5),
+                    ("quoted body", quote, polarity.nsSecondaryContent, 3.0),
+                    ("quote bar", quote, polarity.nsSecondaryContent, 3.0),
+                    ("quote inset", bubble, polarity.nsQuoteFill, 1.1),
+                ]
+                for pair in measured {
+                    let drawn = try Self.composited(pair.content, over: pair.surface, in: appearance)
+                    let ratio = Self.contrastRatio(drawn, pair.surface)
+                    #expect(
+                        ratio >= pair.minimum,
+                        """
+                        \(polarity) bubble \(pair.name) contrast \(ratio) < \(pair.minimum) \
+                        in \(appearance.name.rawValue)
+                        """
+                    )
+                }
+            }
+        }
+    }
+
+    /// The sent bubble's secondary roles are distinct from the window's generic tokens and stay
+    /// AA-legible on the inverted bubble in Dark appearance (#1039).
+    @Test func theSentBubbleDoesNotInheritTheWindowsSecondaryRoles() throws {
+        let dark = try #require(NSAppearance(named: .darkAqua))
+        let sent = try Self.bubbleSurface(.sent, in: dark)
+        let ownSecondary = try Self.composited(MessageBubblePolarity.sent.nsSecondaryContent, over: sent, in: dark)
+        let ownLink = try Self.composited(MessageBubblePolarity.sent.nsLink, over: sent, in: dark)
+
+        #expect(MessageBubblePolarity.sent.nsSecondaryContent !== WNNSColor.backgroundContentSecondary)
+        #expect(MessageBubblePolarity.sent.nsLink !== WNNSColor.intentionInfoContent)
+        #expect(Self.contrastRatio(ownSecondary, sent) >= 4.5)
+        #expect(Self.contrastRatio(ownLink, sent) >= 4.5)
+    }
+
     // MARK: - Helpers
+
+    /// A bubble's fill as it lands on the transcript's surface (`MessagesTranscriptBackground`).
+    private static func bubbleSurface(_ polarity: MessageBubblePolarity, in appearance: NSAppearance) throws -> NSColor
+    {
+        try composited(polarity.nsFill, over: WNNSColor.backgroundPrimary, in: appearance)
+    }
 
     /// Every accent, read through `AvatarPalette`'s list so these tests cover the same twelve sets
     /// the app actually assigns rather than a second copy that could drift from it.
@@ -455,6 +556,37 @@ struct SemanticPaletteTests {
             resolved = color.usingColorSpace(.sRGB)
         }
         return hexString(of: try #require(resolved))
+    }
+
+    /// Composites `foreground` over an already-resolved opaque `background` using source-over alpha
+    /// blending in `appearance`, so translucent system tokens (`labelColor`, `secondarySystemFill`)
+    /// are measured as the actual color they draw on screen.
+    private static func composited(
+        _ foreground: NSColor,
+        over background: NSColor,
+        in appearance: NSAppearance
+    ) throws -> NSColor {
+        var resolved: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            guard
+                let fg = foreground.usingColorSpace(.sRGB),
+                let bg = background.usingColorSpace(.sRGB)
+            else { return }
+            let alpha = fg.alphaComponent
+            resolved = NSColor(
+                srgbRed: fg.redComponent * alpha + bg.redComponent * (1 - alpha),
+                green: fg.greenComponent * alpha + bg.greenComponent * (1 - alpha),
+                blue: fg.blueComponent * alpha + bg.blueComponent * (1 - alpha),
+                alpha: 1
+            )
+        }
+        return try #require(resolved)
+    }
+
+    private static func contrastRatio(_ a: NSColor, _ b: NSColor) -> Double {
+        let first = relativeLuminance(of: a)
+        let second = relativeLuminance(of: b)
+        return (max(first, second) + 0.05) / (min(first, second) + 0.05)
     }
 
     private static func relativeLuminance(of color: NSColor) -> Double {

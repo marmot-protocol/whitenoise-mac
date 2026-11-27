@@ -67,8 +67,9 @@ final class MessageForwardViewModel: Identifiable {
     private(set) var phase: Phase = .choosing
 
     @ObservationIgnored private let dependencies: MessageForwardDependencies
-    /// The one forward in flight. Cancelling it (the sheet closed) stops the forward before its
-    /// next send; a send already handed to the core is not taken back.
+    /// The one forward in flight. The sheet blocks user dismissal while `.sending` so a batch is
+    /// not abandoned half-delivered; `cancel()` still stops before the next send if the host tears
+    /// down the sheet (for example on an account switch).
     @ObservationIgnored private var task: Task<Void, Never>?
 
     init(messages: [MessageItem], dependencies: MessageForwardDependencies) {
@@ -81,6 +82,15 @@ final class MessageForwardViewModel: Identifiable {
         case .choosing, .confirmingUnavailableFiles: false
         case .preparing, .sending: true
         }
+    }
+
+    /// The currently running forward task, exposed so tests can capture and await it synchronously
+    /// before cancellation clears the handle.
+    var activeTask: Task<Void, Never>? { task }
+
+    var isSending: Bool {
+        if case .sending = phase { return true }
+        return false
     }
 
     /// The chat whose row should show progress.

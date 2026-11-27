@@ -5,6 +5,7 @@
 //  The New group panel's hero: the picture the group will be founded with.
 //
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -48,7 +49,7 @@ struct GroupDraftImagePicker: View {
                     .accessibilityIdentifier("compose.groupImage.remove")
                 }
             }
-            .buttonStyle(.wnSecondary)
+            .wnSecondaryButtonStyle()
             .controlSize(.small)
             .disabled(!isEnabled)
         }
@@ -99,11 +100,11 @@ private struct GroupDraftAvatar: View {
                 )
             } else if trimmedName.isEmpty {
                 Image(systemName: "person.2.fill")
-                    .wnFont(.semiBold32)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .wnFont(.custom(size: size * 0.38, weight: .semiBold))
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     .frame(width: size, height: size)
-                    .background(Circle().fill(WNColor.fillSecondary))
-                    .overlay(Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
+                    .background(Circle().fill(Color(nsColor: .controlBackgroundColor)))
+                    .overlay(Circle().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
             } else {
                 AvatarView(seed: trimmedName, initials: trimmedName, size: size, isSelected: false)
             }
@@ -123,6 +124,27 @@ private struct GroupDraftAvatar: View {
 #Preview("Unnamed") {
     @Previewable @State var image: GroupDraftImage?
     GroupDraftImagePicker(name: "", image: $image)
+        .padding()
+        .frame(width: 320)
+}
+
+#Preview("With picture") {
+    @Previewable @State var image: GroupDraftImage? = {
+        // A flat 64×64 JPEG drawn inline: the test bundle's image helpers are not reachable here.
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 64, bitsPerSample: 8, samplesPerPixel: 3,
+            hasAlpha: false, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = bitmap.flatMap(NSGraphicsContext.init(bitmapImageRep:))
+        NSColor.systemTeal.setFill()
+        NSRect(x: 0, y: 0, width: 64, height: 64).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        guard let data = bitmap?.representation(using: .jpeg, properties: [:]) else { return nil }
+        return GroupDraftImage(
+            attachment: PendingMediaAttachment(
+                fileName: "avatar.jpg", mediaType: "image/jpeg", data: data, dim: "64x64"))
+    }()
+    GroupDraftImagePicker(name: "Hiking crew", image: $image)
         .padding()
         .frame(width: 320)
 }

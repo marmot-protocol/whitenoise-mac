@@ -7,14 +7,8 @@
 
 import SwiftUI
 
-/// A destructive action drawn as a form row rather than a button, the way iOS closes its
-/// details page. The whole row is the target.
-///
-/// Red text on a plain row, like `SettingsSignOutRow`, because the row only opens the decision:
-/// the irreversible step is the confirmation it presents, which is where red belongs. Carries no
-/// `.destructive` role — the red is named here, so a style that later reads the role cannot
-/// recolour rows that were deliberately left quiet. Something reversible, like stepping down as
-/// admin, is not this row.
+/// A terminal destructive action drawn as a native grouped-form row with `.destructive` role
+/// semantics (C04, S07, #1042).
 struct DetailsDestructiveRow: View {
     let title: String
     let systemImage: String
@@ -22,7 +16,7 @@ struct DetailsDestructiveRow: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button(role: .destructive, action: action) {
             HStack(spacing: 8) {
                 Label(title, systemImage: systemImage)
                 Spacer(minLength: 0)

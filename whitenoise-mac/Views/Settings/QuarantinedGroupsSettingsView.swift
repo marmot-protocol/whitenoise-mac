@@ -32,14 +32,20 @@ struct QuarantinedGroupsSettingsView: View {
 
             if let error = model.error {
                 SettingsSection(title: L10n.string("Load Failed")) {
-                    SettingsErrorView(error: error.message)
+                    Text(error.message)
+                        .font(.subheadline)
+                        .foregroundStyle(WNColor.intentionErrorContent)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button(L10n.string("Retry Loading")) {
                         Task { await model.load() }
                     }
+                    .wnSecondaryButtonStyle()
+                    .disabled(model.isLoading)
                 }
             }
         }
-        .task {
+        .task(id: ObjectIdentifier(model)) {
             await model.load()
         }
     }
@@ -55,11 +61,13 @@ private struct QuarantinedGroupSettingsRow: View {
             SettingsValueRow(
                 title: L10n.string("Group ID"),
                 value: DisplayText.short(group.groupIdHex, head: 12, tail: 8),
+                monospaced: true,
                 isSelectable: true
             )
 
             Label(QuarantinedGroupReason.title(group.reason), systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .font(.subheadline)
+                .foregroundStyle(WNColor.intentionWarningContent)
 
             if QuarantinedGroupReason.canRetry(group.reason) {
                 Button(action: onRetry) {
@@ -69,12 +77,13 @@ private struct QuarantinedGroupSettingsRow: View {
                         isBusy: isRetrying
                     )
                 }
-                .buttonStyle(.wnSecondary)
+                .wnSecondaryButtonStyle()
                 .disabled(isRetrying)
             } else {
                 Text(L10n.string("Quit and reopen White Noise to restore this group."))
-                    .font(.callout)
+                    .font(.subheadline)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 4)
@@ -101,8 +110,27 @@ nonisolated enum QuarantinedGroupReason {
     }
 }
 
-#Preview {
+#Preview("Empty") {
     QuarantinedGroupsSettingsView(model: .preview())
         .environment(WorkspaceState.preview())
         .frame(width: 760, height: 640)
 }
+
+#if DEBUG
+    #Preview("Quarantined") {
+        QuarantinedGroupsSettingsView(
+            model: .preview(groups: [
+                AppQuarantinedGroupFfi(
+                    groupIdHex: String(repeating: "a", count: 64),
+                    reason: .openMlsLoadFailed
+                ),
+                AppQuarantinedGroupFfi(
+                    groupIdHex: String(repeating: "b", count: 64),
+                    reason: .rewindRestoreFailed
+                ),
+            ])
+        )
+        .environment(WorkspaceState.preview())
+        .frame(width: 760, height: 640)
+    }
+#endif

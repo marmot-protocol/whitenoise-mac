@@ -157,6 +157,7 @@ extension WorkspaceState {
             pruneMessageCache(keeping: groupIdHex)
         }
         NSApplication.shared.activate(ignoringOtherApps: true)
+        WorkspaceAccountPresentation.focusMainWindow.post(from: self)
         beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
 
         Task {
@@ -289,6 +290,7 @@ extension WorkspaceState {
 
     func handleNotificationPermissionError(
         _ error: Error,
+        accountId: String? = nil,
         shouldApply: @MainActor () -> Bool = { true }
     ) async {
         let status = await localNotificationCenter.authorizationStatus()
@@ -299,11 +301,11 @@ extension WorkspaceState {
             if !notificationAuthorizationStatus.canPostNotifications {
                 notificationAuthorizationStatus = .denied
             }
-            lastError = Self.notificationPermissionGuidance
+            setSettingsError(Self.notificationPermissionGuidance, accountId: accountId)
             return
         }
 
-        lastError = UserFacingError.message(for: error)
+        setSettingsError(UserFacingError.message(for: error), accountId: accountId)
     }
 
     func isNotificationsNotAllowedError(_ error: Error) -> Bool {

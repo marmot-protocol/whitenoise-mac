@@ -79,17 +79,19 @@ private func waitUntil(
 struct ConversationSearchTests {
     // MARK: Engine
 
-    @Test func cursorStartsOnTheNewestMatchAndWrapsBothWays() {
+    @Test func cursorStartsOnTheNewestMatchAndStopsAtBoundaries() {
         #expect(ConversationSearchEngine.initialIndex(matchCount: 0) == nil)
         #expect(ConversationSearchEngine.initialIndex(matchCount: 3) == 2)
 
         #expect(ConversationSearchEngine.olderIndex(from: 2, matchCount: 3) == 1)
-        #expect(ConversationSearchEngine.olderIndex(from: 0, matchCount: 3) == 2)
+        #expect(ConversationSearchEngine.olderIndex(from: 1, matchCount: 3) == 0)
+        #expect(ConversationSearchEngine.olderIndex(from: 0, matchCount: 3) == nil)
         #expect(ConversationSearchEngine.olderIndex(from: nil, matchCount: 3) == 2)
         #expect(ConversationSearchEngine.olderIndex(from: nil, matchCount: 0) == nil)
 
+        #expect(ConversationSearchEngine.newerIndex(from: 0, matchCount: 3) == 1)
         #expect(ConversationSearchEngine.newerIndex(from: 1, matchCount: 3) == 2)
-        #expect(ConversationSearchEngine.newerIndex(from: 2, matchCount: 3) == 0)
+        #expect(ConversationSearchEngine.newerIndex(from: 2, matchCount: 3) == nil)
         #expect(ConversationSearchEngine.newerIndex(from: nil, matchCount: 3) == 2)
         #expect(ConversationSearchEngine.newerIndex(from: 7, matchCount: 3) == 2)
 
@@ -184,7 +186,7 @@ struct ConversationSearchTests {
     // MARK: View model
 
     @MainActor
-    @Test func typingLandsOnTheNewestMatchAndSteppingWalksOlderThenWraps() async {
+    @Test func typingLandsOnTheNewestMatchAndSteppingStopsAtBoundaries() async {
         let corpus = MutableCorpus([
             entry("m1", "pizza tonight?"),
             entry("m2", "no"),
@@ -200,22 +202,39 @@ struct ConversationSearchTests {
         #expect(search.currentMatchMessageId == "m4")
         #expect(search.displayPosition == 1)
         #expect(search.navigation?.messageId == "m4")
+        #expect(search.canGoToOlderMatch)
+        #expect(!search.canGoToNewerMatch)
         #expect(!search.isSearching)
 
         search.goToOlderMatch()
         #expect(search.navigation?.messageId == "m3")
         #expect(search.displayPosition == 2)
-        search.goToOlderMatch()
-        search.goToOlderMatch()
-        #expect(search.navigation?.messageId == "m4")
+        #expect(search.canGoToOlderMatch)
+        #expect(search.canGoToNewerMatch)
 
-        let previous = search.navigation
-        search.goToNewerMatch()
+        search.goToOlderMatch()
         #expect(search.navigation?.messageId == "m1")
+        #expect(search.displayPosition == 3)
+        #expect(!search.canGoToOlderMatch)
+        #expect(search.canGoToNewerMatch)
+
+        // At the oldest boundary, stepping older is a no-op (no silent wrap).
+        let oldestNav = search.navigation
+        search.goToOlderMatch()
+        #expect(search.navigation == oldestNav)
+        #expect(search.currentMatchMessageId == "m1")
+
         search.goToNewerMatch()
+        #expect(search.navigation?.messageId == "m3")
         search.goToNewerMatch()
         #expect(search.navigation?.messageId == "m4")
-        #expect(search.navigation != previous)
+        #expect(!search.canGoToNewerMatch)
+
+        // At the newest boundary, stepping newer is a no-op (no silent wrap).
+        let newestNav = search.navigation
+        search.goToNewerMatch()
+        #expect(search.navigation == newestNav)
+        #expect(search.currentMatchMessageId == "m4")
         #expect(corpus.loadCount == 1)
     }
 
@@ -333,7 +352,7 @@ struct ConversationSearchTests {
         search.matchUnavailable("m2")
         #expect(search.navigation?.messageId == "m1")
 
-        // From the oldest, older wraps to the newest, as a step would.
+        // From the oldest, dropping clamps to the remaining available match.
         search.matchUnavailable("m1")
         #expect(search.matches == ["m3"])
         #expect(search.navigation?.messageId == "m3")
@@ -357,11 +376,11 @@ struct ConversationSearchTests {
         search.matchUnavailable("m2")
         #expect(search.navigation?.messageId == "m3")
 
-        // From the newest, newer wraps to the oldest, as a step would.
+        // From the newest, dropping clamps to the nearest remaining match ("m3") without wrapping to "m1".
         search.goToNewerMatch()
         search.matchUnavailable("m4")
         #expect(search.matches == ["m1", "m3"])
-        #expect(search.navigation?.messageId == "m1")
+        #expect(search.navigation?.messageId == "m3")
     }
 
     @MainActor

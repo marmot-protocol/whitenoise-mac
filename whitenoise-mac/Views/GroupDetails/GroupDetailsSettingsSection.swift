@@ -15,6 +15,7 @@ struct GroupDetailsSettingsSection: View {
     @Environment(SessionState.self) private var session
     @State private var isTimerPresented = false
     @State private var showArchiveConfirmation = false
+    var isDirect = false
     let snapshot: GroupDetailsSnapshot
     let permissions: GroupDetailsPermissions
 
@@ -25,7 +26,7 @@ struct GroupDetailsSettingsSection: View {
 
     var body: some View {
         SettingsSection(
-            title: L10n.string("Settings"),
+            title: L10n.string(isDirect ? "Chat Actions" : "Settings"),
             footer: L10n.string("Archiving hides the chat from your main list. It doesn't notify anyone.")
         ) {
             DetailsDisclosureRow(

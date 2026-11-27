@@ -18,20 +18,19 @@ struct DictationComposerView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            VoiceRecordingPulseDot()
+            DictationLeadingIndicator(state: state)
 
             DictationTranscriptText(state: state, transcript: transcript)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: onCancel) {
-                Image(systemName: "xmark")
-                    .wnFont(.bold12)
-                    .frame(width: 30, height: 30)
-                    .background {
-                        MessagesCircleControlBackground()
-                    }
+                Label(L10n.string("Cancel dictation"), systemImage: "xmark")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20, height: 20)
             }
-            .buttonStyle(.plain)
+            .wnSecondaryButtonStyle()
+            .wnButtonShape(.circle)
+            .controlSize(.regular)
             .keyboardShortcut(claimsReturnAndEscape ? .cancelAction : nil)
             .help(L10n.string("Cancel dictation"))
             .accessibilityLabel(L10n.string("Cancel dictation"))
@@ -42,16 +41,17 @@ struct DictationComposerView: View {
                     if state == .finishing {
                         ProgressView()
                             .controlSize(.small)
+                            .scaleEffect(0.72)
                     } else {
-                        Image(systemName: "checkmark")
-                            .wnFont(.bold12)
-                            .foregroundStyle(WNColor.fillContentPrimary)
+                        Label(L10n.string("Finish dictation"), systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
                     }
                 }
-                .frame(width: 30, height: 30)
-                .background(WNColor.fillPrimary, in: .circle)
+                .frame(width: 20, height: 20)
             }
-            .buttonStyle(.plain)
+            .wnPrimaryButtonStyle()
+            .wnButtonShape(.circle)
+            .controlSize(.regular)
             .keyboardShortcut(claimsReturnAndEscape ? .defaultAction : nil)
             .disabled(state == .finishing)
             .help(L10n.string("Finish dictation"))
@@ -61,10 +61,35 @@ struct DictationComposerView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+        }
+    }
+}
+
+/// Real state indicator for dictation: indeterminate progress while starting, the live pulse dot
+/// only while actively listening (no decorative pulse outside actual recording/listening), and a
+/// steady glyph while finishing.
+private struct DictationLeadingIndicator: View {
+    let state: ComposerDictationController.State
+
+    var body: some View {
+        switch state {
+        case .starting:
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 16, height: 16)
+        case .listening:
+            VoiceRecordingPulseDot()
+                .frame(width: 16, height: 16)
+        case .finishing, .idle:
+            Image(systemName: "waveform")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
         }
     }
 }
@@ -78,11 +103,11 @@ private struct DictationTranscriptText: View {
     var body: some View {
         if transcript.isEmpty {
             Text(state == .starting ? L10n.string("Getting dictation ready") : L10n.string("Listening…"))
-                .wnFont(.medium14)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.body)
+                .foregroundStyle(.secondary)
         } else {
             Text(styledTranscript)
-                .wnFont(.medium14)
+                .font(.body)
                 .lineLimit(1...4)
                 .truncationMode(.head)
                 .fixedSize(horizontal: false, vertical: true)
@@ -91,9 +116,9 @@ private struct DictationTranscriptText: View {
 
     private var styledTranscript: AttributedString {
         var settled = AttributedString(transcript.finalized)
-        settled.foregroundColor = WNColor.backgroundContentPrimary
+        settled.foregroundColor = WNColor.textPrimary
         var guess = AttributedString(transcript.volatile)
-        guess.foregroundColor = WNColor.backgroundContentSecondary
+        guess.foregroundColor = Color(nsColor: .secondaryLabelColor)
         return settled + guess
     }
 }

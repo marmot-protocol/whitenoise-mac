@@ -26,28 +26,6 @@
 
 import SwiftUI
 
-/// A choice made from a short list of alternatives, drawn as the alternatives themselves.
-///
-/// Emits one row per option, so it goes directly inside a `Section` — `SettingsSection` in
-/// settings — rather than carrying a group of its own. A pop-up hides every option but the
-/// chosen one, which is the wrong trade for a setting whose options *are* the explanation:
-/// what Light and Dark mean is only clear next to System, and how much of a message a
-/// notification may repeat is only clear next to what it would withhold. Keep it to a handful;
-/// a long list wants the menu back.
-struct WNSelect<Value: Hashable>: View {
-    let options: [Value]
-    @Binding var selection: Value
-    let label: (Value) -> String
-
-    var body: some View {
-        ForEach(options, id: \.self) { option in
-            WNSelectRow(title: label(option), isSelected: option == selection) {
-                selection = option
-            }
-        }
-    }
-}
-
 /// One option, and whether it is the chosen one.
 ///
 /// The whole row is the target, not just its text: without `contentShape` the row is clickable
@@ -100,13 +78,15 @@ struct WNSelectRow: View {
 }
 
 #Preview {
-    @Previewable @State var theme = "System"
+    @Previewable @State var choice = "Off"
 
     Form {
         Section {
-            WNSelect(options: ["System", "Light", "Dark"], selection: $theme) { $0 }
+            WNSelectRow(title: "Off", isSelected: choice == "Off") { choice = "Off" }
+            WNSelectRow(title: "24 hours", isSelected: choice == "24 hours") { choice = "24 hours" }
+            WNSelectRow(title: "7 days", isSelected: choice == "7 days") { choice = "7 days" }
         } header: {
-            Text(verbatim: "Theme")
+            Text(verbatim: "Disappearing messages")
         }
     }
     .formStyle(.grouped)

@@ -29,6 +29,9 @@ struct DonationMethodTests {
     private static let flutterLightningAddress = "whitenoise@donate.ipf.dev"
     private static let flutterBitcoinAddress =
         "sp1qqvp56mxcj9pz9xudvlch5g4ah5hrc8rj6neu25p34rc9gxhp38cwqqlmld28u57w2srgckr34dkyg3q02phu8tm05cyj483q026xedp0s5f5j40p"
+    private static let ipfMoneroAddress =
+        "4B6QrSjaSnCR5SwZbhD14sEbQ7qqTEqA72Tzh3y8qHhdY2E4yVuRYJrD5NdrTsDSmPj1ZQQgEVHUva5pbnbFDt2mGNRUZTg"
+    private static let ipfCardDonationURL = "https://donate.stripe.com/cNi5kw3IY3da1zm2wk0Jq00"
 
     /// The one thing on this page that must not drift. A wrong character here does not draw
     /// badly or throw — it sends a donation to an address nobody controls, with no way to
@@ -36,6 +39,8 @@ struct DonationMethodTests {
     @Test func donationAddressesMatchTheFlutterClientExactly() {
         #expect(DonationMethod.lightning.address == Self.flutterLightningAddress)
         #expect(DonationMethod.bitcoin.address == Self.flutterBitcoinAddress)
+        #expect(DonationMethod.monero.address == Self.ipfMoneroAddress)
+        #expect(DonationMethod.cardDonationURL.absoluteString == Self.ipfCardDonationURL)
     }
 
     @Test func silentPaymentAddressKeepsItsFullLength() {
@@ -45,27 +50,35 @@ struct DonationMethodTests {
         // *looks* like an address.
         #expect(DonationMethod.bitcoin.address.count == 116)
         #expect(DonationMethod.bitcoin.address.hasPrefix("sp1"))
+        #expect(DonationMethod.monero.address.count == 95)
+        #expect(DonationMethod.monero.address.hasPrefix("4"))
     }
 
     @Test func bothMethodsAreOfferedInProtocolOrder() {
         // Lightning first, as in `wn-ios-prototype`'s picker, and the default selection: it is
         // the address a reader can actually check by eye.
-        #expect(DonationMethod.allCases == [.lightning, .bitcoin])
+        #expect(DonationMethod.allCases == [.lightning, .bitcoin, .monero])
     }
 
     // MARK: - What is drawn, versus what is copied
 
-    /// A Lightning address is a handle someone reads; a silent payment address is 117
-    /// characters nobody reads end to end. The page shows the first whole and shortens the
-    /// second — but copies both whole, which is the part that matters.
-    @Test func onlyTheSilentPaymentAddressIsShortenedForDisplay() {
+    /// A Lightning address is a handle someone reads; silent payment and Monero addresses are long
+    /// strings nobody reads end to end. The page shows Lightning whole and shortens the others —
+    /// but copies and QR-encodes all of them whole, which is the part that matters.
+    @Test func onlyLongCryptoAddressesAreShortenedForDisplay() {
         #expect(DonationMethod.lightning.displayAddress == DonationMethod.lightning.address)
 
-        let shortened = DonationMethod.bitcoin.displayAddress
-        #expect(shortened != DonationMethod.bitcoin.address)
-        #expect(shortened.contains("..."))
-        #expect(shortened.hasPrefix("sp1qqvp56mxcj9"))
-        #expect(DonationMethod.bitcoin.address.hasSuffix(shortened.suffix(6)))
+        let shortenedBitcoin = DonationMethod.bitcoin.displayAddress
+        #expect(shortenedBitcoin != DonationMethod.bitcoin.address)
+        #expect(shortenedBitcoin.contains("..."))
+        #expect(shortenedBitcoin.hasPrefix("sp1qqvp56mxcj9"))
+        #expect(DonationMethod.bitcoin.address.hasSuffix(shortenedBitcoin.suffix(6)))
+
+        let shortenedMonero = DonationMethod.monero.displayAddress
+        #expect(shortenedMonero != DonationMethod.monero.address)
+        #expect(shortenedMonero.contains("..."))
+        #expect(shortenedMonero.hasPrefix("4B6QrSjaSnCR5S"))
+        #expect(DonationMethod.monero.address.hasSuffix(shortenedMonero.suffix(6)))
     }
 
     // MARK: - Localization
@@ -76,8 +89,10 @@ struct DonationMethodTests {
     @Test func methodLabelsComeFromTheCatalog() {
         #expect(DonationMethod.lightning.addressLabel == L10n.string("Lightning address"))
         #expect(DonationMethod.bitcoin.addressLabel == L10n.string("Bitcoin Silent Payment"))
+        #expect(DonationMethod.monero.addressLabel == L10n.string("Monero address"))
         #expect(DonationMethod.lightning.switcherLabel == L10n.string("Lightning"))
         #expect(DonationMethod.bitcoin.switcherLabel == L10n.string("Bitcoin"))
+        #expect(DonationMethod.monero.switcherLabel == L10n.string("Monero"))
     }
 
     /// The protocol names stay themselves in every language — the rule this app already
@@ -86,6 +101,7 @@ struct DonationMethodTests {
         for locale in [Locale(identifier: "es"), Locale(identifier: "ru"), Locale(identifier: "zh-Hans")] {
             #expect(L10n.string("Lightning", locale: locale) == "Lightning")
             #expect(L10n.string("Bitcoin", locale: locale) == "Bitcoin")
+            #expect(L10n.string("Monero", locale: locale) == "Monero")
         }
     }
 

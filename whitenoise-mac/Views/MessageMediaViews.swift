@@ -13,6 +13,7 @@ import AVKit
 import AppKit
 import MarmotKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Oversample factor applied to media thumbnails over their display-point size.
 /// Because tiles use `scaledToFill` (which crops to the center square), a source
@@ -99,9 +100,9 @@ struct ConversationMessageRow: View {
             let isSelected = workspace.selectedTimelineMessageIds.contains(message.id)
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .wnFont(.medium20)
+                    .font(.title3)
                     .foregroundStyle(
-                        isSelected ? WNColor.backgroundContentPrimary : WNColor.backgroundContentTertiary
+                        isSelected ? WNColor.textPrimary : WNColor.backgroundContentTertiary
                     )
                     .frame(width: 24)
                     .padding(.leading, 14)
@@ -137,11 +138,15 @@ struct ConversationMessageRow: View {
                 onNavigateToMessage: onNavigateToMessage
             )
         } else if message.presentation == .poll, let poll = message.poll {
+            // Pass MDK's confirmed `poll` directly so bars, vote counts, and "Final results" never
+            // claim an unconfirmed optimistic tally; `pendingSelection` only marks in-flight changes
+            // while the poll is still open.
             PollMessageRow(
-                poll: conversationModel.displayedPoll(poll, messageIdHex: message.id),
+                poll: poll,
                 isOutgoing: message.isOutgoing,
                 senderName: showsSenderName ? message.senderName : nil,
                 timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
+                pendingSelection: conversationModel.pendingPollSelections[message.id],
                 onVote: canVoteInPolls && message.invalidationStatus == nil ? vote(for: poll) : nil,
                 onViewVotes: poll.participants > 0 ? viewVotes(for: poll) : nil
             )
@@ -211,16 +216,16 @@ struct TimelineNoticeRow: View {
             VStack(spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: message.presentation.systemImage)
-                        .wnFont(.semiBold12)
+                        .font(.caption.weight(.semibold))
                         .symbolRenderingMode(.hierarchical)
 
                     Text(message.body)
-                        .wnFont(.medium10)
+                        .font(.caption)
                         .lineLimit(3)
                         .multilineTextAlignment(.center)
 
                     Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
-                        .wnFont(.medium10.monospacedDigit())
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(WNColor.backgroundContentTertiary)
                 }
 
@@ -228,7 +233,7 @@ struct TimelineNoticeRow: View {
                     MessageDebugMetadataView(message: message, isOutgoing: false)
                 }
             }
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .foregroundStyle(WNColor.messageReceivedSecondaryContent)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background {
@@ -280,8 +285,9 @@ private struct PendingReactionRemoval {
 struct MessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.conversationHoverSelectionCoordinator) private var hoverSelectionCoordinator
-    @State private var isHovering = false
-    @State private var isInlineActionPresentationActive = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Hover and the hover strip's open popover. See `MessageInlineActionPresentation`.
+    @State private var inlineActionPresentation = MessageInlineActionPresentation()
     /// The hover strip's own width, measured. See `inlineActions`.
     @State private var inlineActionWidth: CGFloat = 0
     @State private var isSelectable = false
@@ -335,8 +341,8 @@ struct MessageBubble: View {
                         Task { await workspace.showContactDetails(for: message) }
                     } label: {
                         Text(message.senderName)
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .font(MessageTypography.senderName)
+                            .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                             .padding(.horizontal, 4)
                     }
                     .buttonStyle(.plain)
@@ -345,8 +351,8 @@ struct MessageBubble: View {
                     )
                 } else {
                     Text(message.senderName)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(MessageTypography.senderName)
+                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                         .padding(.horizontal, 4)
                 }
             }
@@ -428,7 +434,7 @@ struct MessageBubble: View {
             // caption-less row's metadata is a bare line of text rather than a surface with an edge
             // to spare. Emitted first, it was what the pill overlapped.
             if !message.hasBubbleContent, showsBubbleMetadata {
-                compactMetadata
+                compactMetadata(onBubble: false)
                     .padding(.horizontal, 5)
             }
 
@@ -439,7 +445,7 @@ struct MessageBubble: View {
                 inlineActions
             }
         }
-        .animation(.smooth(duration: 0.12), value: showsInlineActions)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.12), value: showsInlineActions)
         .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
         .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
         .padding(message.isOutgoing ? .leading : .trailing, 72)
@@ -510,8 +516,13 @@ struct MessageBubble: View {
         .onDisappear {
             hoverSelectionCoordinator.unregister(messageID: message.id)
         }
+        // A recycled row, a deleted message, or selection mode closes a popover the row no
+        // longer offers instead of leaving it aimed at whatever the row now shows.
+        .onChange(of: inlineActionEligibility) { _, eligibility in
+            inlineActionPresentation.reconcile(with: eligibility)
+        }
         .onHover { hovering in
-            isHovering = hovering
+            inlineActionPresentation.isHoveringRow = hovering
             // Make this the active (selectable) bubble on hover-enter; do NOT clear on
             // exit, so the selection survives moving the cursor toward ⌘C / the menu bar.
             if hovering {
@@ -530,7 +541,19 @@ struct MessageBubble: View {
     }
 
     private var showsInlineActions: Bool {
-        message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+        inlineActionPresentation.showsStrip(
+            supportsChatActions: message.supportsChatActions,
+            isSelectionMode: workspace.isTimelineSelectionMode
+        )
+    }
+
+    private var inlineActionEligibility: MessageInlineActionPresentation.Eligibility {
+        MessageInlineActionPresentation.Eligibility(
+            messageID: message.id,
+            supportsChatActions: message.supportsChatActions,
+            canReact: message.canReact,
+            isSelectionMode: workspace.isTimelineSelectionMode
+        )
     }
 
     /// Remove for a failed own send: discarded on this device and never published, because a
@@ -756,7 +779,7 @@ struct MessageBubble: View {
     private var inlineActions: some View {
         if showsInlineActions {
             MessageInlineActions(
-                isPresentationActive: $isInlineActionPresentationActive,
+                presentation: $inlineActionPresentation,
                 message: message,
                 onReactionPick: pickReaction,
                 moderation: moderationActions,
@@ -856,7 +879,7 @@ struct MessageBubble: View {
                 .padding(.horizontal, 4)
 
             if showsBubbleMetadata {
-                compactMetadata
+                compactMetadata(onBubble: false)
                     .padding(.horizontal, 4)
             }
         }
@@ -919,16 +942,17 @@ struct MessageBubble: View {
                         message: message,
                         trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
                     )
-                    .wnFont(.medium16)
+                    .font(MessageTypography.body)
                     .foregroundStyle(bodyColor)
                     // A mention is a link run without a color, so the tint is what it draws in: the
-                    // bubble's own content, as on iOS. Real links color themselves blue per run.
+                    // bubble's own content, as on iOS. Real links take the bubble's link role per run
+                    // (`MessageLinkStyle`).
                     .tint(bodyColor)
                     .multilineTextAlignment(.leading)
                 }
 
                 if showsReservedMetadataRow {
-                    compactMetadata.hidden()
+                    compactMetadata(onBubble: true, isPlaceholder: true).hidden()
                 }
             }
             .padding(.horizontal, textHorizontalInset)
@@ -941,20 +965,22 @@ struct MessageBubble: View {
         // (`isSelectable`) is backed by a selection NSView. See whitenoise-mac#205.
         .textSelectable(isSelectable)
         .environment(\.messageLinkRegions, linkRegions)
+        // Quotes, links and Markdown's quieter runs take the bubble's own foreground set.
+        .environment(\.messageBubblePolarity, bubblePolarity)
         // Metadata is pinned to the bubble's bottom-trailing corner no matter how the text
         // wraps. The inline spacer (flowing text) or hidden row (structured Markdown, empty
         // body) above reserves the space this overlay occupies, so it never covers content.
         .overlay(alignment: .bottomTrailing) {
             if showsBubbleMetadata {
-                compactMetadata
+                compactMetadata(onBubble: true)
                     .padding(.trailing, textHorizontalInset)
                     .padding(.bottom, textBottomInset)
             }
         }
         .padding(.horizontal, bubbleHorizontalInset)
         .padding(.vertical, bubbleVerticalInset)
-        .background { BubbleBackground(isOutgoing: message.isOutgoing) }
-        .modifier(HiddenMessageMetadata(isHidden: !showsBubbleMetadata, label: hiddenMetadataLabel))
+        .background { BubbleBackground(polarity: bubblePolarity) }
+        .modifier(HiddenMessageMetadata(isHidden: !showsClusterFooter, label: hiddenMetadataLabel))
         // Attach controls before the positioning frame so short messages use the visible
         // bubble edge instead of the frame's maximum width.
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
@@ -963,14 +989,45 @@ struct MessageBubble: View {
         .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
     }
 
-    /// Whether the row draws its timestamp footer: a run of messages shows the routine time once,
-    /// on its last row (`MessageClusterPosition.showsFooter`).
+    /// Whether the row draws its routine timestamp/delivery footer: a run of messages shows the
+    /// routine time once, on its last row (`MessageClusterPosition.showsFooter`).
+    private var showsClusterFooter: Bool {
+        Self.footerVisibility(cluster: cluster, message: message, indicator: footerIndicator).showsClusterFooter
+    }
+
+    /// Whether the footer slot renders at all: either the grouped timestamp footer or this
+    /// message's own disappearing countdown (T11, #1040). Keeping the countdown independent of
+    /// `showsClusterFooter` ensures earlier messages in a run keep their own expiry indicator
+    /// without re-showing grouped timestamps.
     private var showsBubbleMetadata: Bool {
-        cluster.showsFooter(
-            isDeleted: message.isDeleted,
-            isEdited: message.isEdited,
-            hasReports: message.hasReports,
-            indicator: footerIndicator
+        Self.footerVisibility(cluster: cluster, message: message, indicator: footerIndicator).showsAnyMetadata
+    }
+
+    /// Per-row footer visibility split into grouped timestamp/status vs per-message disappearing
+    /// countdown, so grouped messages keep timestamp grouping while each disappearing message
+    /// shows its own expiry pie.
+    nonisolated struct FooterVisibility: Equatable {
+        let showsClusterFooter: Bool
+        let showsRetentionCountdown: Bool
+
+        var showsAnyMetadata: Bool {
+            showsClusterFooter || showsRetentionCountdown
+        }
+    }
+
+    static func footerVisibility(
+        cluster: MessageClusterPosition,
+        message: MessageItem,
+        indicator: MessageDeliveryIndicator
+    ) -> FooterVisibility {
+        FooterVisibility(
+            showsClusterFooter: cluster.showsFooter(
+                isDeleted: message.isDeleted,
+                isEdited: message.isEdited,
+                hasReports: message.hasReports,
+                indicator: indicator
+            ),
+            showsRetentionCountdown: MessageRetentionCountdown(message: message) != nil
         )
     }
 
@@ -983,21 +1040,29 @@ struct MessageBubble: View {
     /// A send that did not go out says so where its time would be; the Retry link under the bubble
     /// is the action. An edited or reported failure keeps its time beside the notice.
     private var showsFailureNotice: Bool {
-        footerIndicator == .failed
+        showsClusterFooter && footerIndicator == .failed
     }
 
     private var showsFooterTime: Bool {
-        !showsFailureNotice || message.isEdited || message.hasReports
+        showsClusterFooter && (!showsFailureNotice || message.isEdited || message.hasReports)
     }
 
     private var showsEditedLabel: Bool {
-        message.isEdited && !message.isDeleted
+        showsClusterFooter && message.isEdited && !message.isDeleted
     }
 
-    /// The deleted label is quieter than a message, as on iOS.
+    private var bubblePolarity: MessageBubblePolarity {
+        MessageBubblePolarity(isOutgoing: message.isOutgoing)
+    }
+
+    /// The deleted label is quieter than a message, as on iOS, in the bubble's own secondary role.
     private var bodyColor: Color {
-        guard message.isDeleted else { return MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing) }
-        return message.isOutgoing ? WNColor.fillContentSecondary : WNColor.backgroundContentSecondary
+        message.isDeleted ? bubblePolarity.secondaryContent : bubblePolarity.content
+    }
+
+    /// This message's own disappearing countdown, when the core gives it a finite expiry.
+    private var retentionCountdown: MessageRetentionCountdown? {
+        MessageRetentionCountdown(message: message)
     }
 
     /// What a hidden footer would have said, kept for VoiceOver and the bubble's hover tooltip.
@@ -1032,20 +1097,26 @@ struct MessageBubble: View {
     /// visible copy so their widths track; interaction (the edit-history control) lives on
     /// the overlay, so this carries no link.
     private var inlineMetadataSpacer: Text {
+        let font = MessageTypography.footer
         var parts: [Text] = []
-        if let systemImage = MessageDeliveryMarker.systemImage(for: footerIndicator) {
-            parts.append(Text(Image(systemName: systemImage)).wnFont(.medium10))
+        if showsClusterFooter, let systemImage = MessageDeliveryMarker.systemImage(for: footerIndicator) {
+            parts.append(Text(Image(systemName: systemImage)).font(font))
         }
         if showsFailureNotice {
-            parts.append(Text(L10n.string("Not delivered")).wnFont(.medium10))
+            parts.append(Text(L10n.string("Not delivered")).font(font))
+        }
+        if retentionCountdown != nil {
+            // The countdown's frame is this same symbol; see `MessageRetentionPie`.
+            parts.append(Text(Image(systemName: "circle")).font(font))
         }
         if showsFooterTime {
             parts.append(
                 Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
-                    .wnFont(.medium10.monospacedDigit()))
+                    .font(font)
+                    .monospacedDigit())
         }
         if showsEditedLabel {
-            parts.append(Text(L10n.string("Edited")).wnFont(.medium10))
+            parts.append(Text(L10n.string("Edited")).font(font))
         }
         var result = Text(verbatim: "  ")
         for (index, part) in parts.enumerated() {
@@ -1085,19 +1156,21 @@ struct MessageBubble: View {
         return message.statusLabel(for: deliveryIndicator) ?? ""
     }
 
-    /// The timestamp/delivery footer. One token in both directions, as on the other clients:
-    /// `backgroundContentTertiary` is the neutral `400`/`500` step, which is the only rung that
-    /// clears the sent bubble and the received bubble in both appearances.
-    private var metadataColor: Color {
-        WNColor.backgroundContentTertiary
+    /// The timestamp/delivery footer's tint: the sent or received bubble's own secondary role
+    /// inside a bubble, and the native secondary label on the transcript surface beneath a sticker
+    /// or a caption-less media card.
+    private func metadataColor(onBubble: Bool) -> Color {
+        onBubble ? bubblePolarity.secondaryContent : WNColor.messageReceivedSecondaryContent
     }
 
     /// The footer, in iOS's order: delivery marker, then the time (or the failure notice), then
-    /// Edited. The disappearing-message timer lives in the conversation header, not on every
-    /// bubble; the message's own expiry stays in the time's tooltip and the spoken label.
-    private var compactMetadata: some View {
-        HStack(spacing: 4) {
-            if MessageDeliveryMarker.systemImage(for: footerIndicator) != nil {
+    /// Edited. A message with its own finite expiry shows its twelve-step countdown just before the
+    /// time. The chat's timer setting stays in the conversation header, and the exact expiry stays
+    /// in the tooltip and the spoken label.
+    private func compactMetadata(onBubble: Bool, isPlaceholder: Bool = false) -> some View {
+        let tint = metadataColor(onBubble: onBubble)
+        return HStack(spacing: 4) {
+            if showsClusterFooter, MessageDeliveryMarker.systemImage(for: footerIndicator) != nil {
                 MessageDeliveryMarker(indicator: footerIndicator)
                     // Only a real failure earns the alarm color, and a message some members may lack
                     // the warning color; an in-flight send stays in the metadata's own tint.
@@ -1105,7 +1178,7 @@ struct MessageBubble: View {
                         Self.deliveryMarkerColor(
                             for: footerIndicator,
                             isOutgoing: message.isOutgoing,
-                            otherwise: metadataColor
+                            otherwise: tint
                         )
                     )
                     .help(deliveryMarkerHelp)
@@ -1113,8 +1186,17 @@ struct MessageBubble: View {
             if showsFailureNotice {
                 Text(L10n.string("Not delivered"))
                     .foregroundStyle(
-                        Self.deliveryMarkerColor(for: .failed, isOutgoing: message.isOutgoing, otherwise: metadataColor)
+                        Self.deliveryMarkerColor(for: .failed, isOutgoing: message.isOutgoing, otherwise: tint)
                     )
+            }
+            if let retentionCountdown {
+                if isPlaceholder {
+                    // Reserves the indicator's exact symbol frame without scheduling a second timeline.
+                    Image(systemName: "circle")
+                } else {
+                    MessageRetentionIndicator(countdown: retentionCountdown)
+                        .help(message.retentionExpirationLabel(locale: timestampLocale) ?? "")
+                }
             }
             if showsFooterTime {
                 Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
@@ -1127,8 +1209,8 @@ struct MessageBubble: View {
                     .help(L10n.string("View edit history"))
             }
         }
-        .wnFont(.medium10)
-        .foregroundStyle(metadataColor)
+        .font(MessageTypography.footer)
+        .foregroundStyle(tint)
         .accessibilityLabel(
             message.metadataLabel(
                 at: timestampReferenceDate,
@@ -1297,16 +1379,15 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
 /// The chat bubble's fill, in `MessageBubbleShape` — symmetric, and a capsule once the message is
 /// short enough that half its height is the smaller radius.
 ///
-/// Both fills are opaque palette tokens — `fillPrimary` for sent, `backgroundMessageIncoming` for
-/// received — and neither carries a stroke, matching the other clients. The received bubble used to
-/// be a translucent wash, which meant its apparent color depended on whatever it happened to be
-/// scrolled over.
+/// The sent fill is the opaque inverted `fillPrimary`. The received fill is the native
+/// `secondarySystemFill`, which always composites over the transcript's own opaque surface, so it
+/// reads the same on every row. Neither carries a stroke. See `MessageBubblePolarity`.
 private struct BubbleBackground: View {
-    let isOutgoing: Bool
+    let polarity: MessageBubblePolarity
 
     var body: some View {
         MessageBubbleShape()
-            .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
+            .fill(polarity.fill)
     }
 }
 
@@ -1510,7 +1591,7 @@ struct MessageVisualMediaTile: View {
                 // dark in both.
                 WNColor.overlayTertiary
                 Text(verbatim: "+\(hiddenCount)")
-                    .wnFont(.bold18)
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(WNColor.fillContentQuaternary)
             }
         }
@@ -1593,8 +1674,8 @@ struct MessageVisualMediaTile: View {
                     .controlSize(.small)
             } else {
                 Image(systemName: systemImage)
-                    .wnFont(.semiBold24)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
             }
         }
     }
@@ -1745,6 +1826,29 @@ struct MessageMediaAttachmentView: View {
     }
 }
 
+/// Resolves a native macOS file-type icon via `UTType` and `NSWorkspace.shared.icon(for:)` (D02).
+/// Used only for loaded document cards — never in place of a meaningful failed or loading state.
+nonisolated enum AttachmentFileTypeIcon {
+    static func contentType(mediaType: String, fileName: String) -> UTType {
+        let trimmedMediaType = mediaType.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedMediaType.isEmpty,
+            let mimeType = UTType(mimeType: trimmedMediaType),
+            !mimeType.isDynamic
+        {
+            return mimeType
+        }
+        let ext = URL(fileURLWithPath: fileName).pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ext.isEmpty, let extType = UTType(filenameExtension: ext) {
+            return extType
+        }
+        return .data
+    }
+
+    static func icon(mediaType: String, fileName: String) -> NSImage {
+        NSWorkspace.shared.icon(for: contentType(mediaType: mediaType, fileName: fileName))
+    }
+}
+
 struct MessageDocumentAttachmentRow: View {
     let download: MessageMediaDownload
     let attachment: MessageMediaAttachment
@@ -1756,6 +1860,8 @@ struct MessageDocumentAttachmentRow: View {
     @State private var handoffControl: MediaFileTransferControlFfi?
 
     var body: some View {
+        let resolvedFileName = download.fileName.nilIfBlank ?? attachment.fileName
+        let resolvedMediaType = download.mediaType.nilIfBlank ?? attachment.mediaType
         // A finished document opens on click of the whole row — no trailing retry/download glyph
         // (the file is already in hand, especially for our own sends). A `Button` (not a tap
         // gesture) keeps it reachable by keyboard/VoiceOver.
@@ -1765,7 +1871,8 @@ struct MessageDocumentAttachmentRow: View {
         } label: {
             MessageAttachmentStatusRow(
                 systemImage: "doc",
-                title: download.fileName.nilIfBlank ?? attachment.fileName,
+                fileIcon: AttachmentFileTypeIcon.icon(mediaType: resolvedMediaType, fileName: resolvedFileName),
+                title: resolvedFileName,
                 detail: mediaDetail,
                 isOutgoing: isOutgoing,
                 isLoading: isOpening
@@ -1844,6 +1951,9 @@ struct MessageDocumentAttachmentRow: View {
 
 struct MessageAttachmentStatusRow: View {
     let systemImage: String
+    /// Native macOS file-type icon for loaded documents (`D02`). Nil for loading, failed, or
+    /// rejected rows so status glyphs are never replaced by a generic file thumbnail.
+    var fileIcon: NSImage? = nil
     let title: String
     let detail: String
     let isOutgoing: Bool
@@ -1852,26 +1962,35 @@ struct MessageAttachmentStatusRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
+            if !isLoading, let fileIcon {
+                Image(nsImage: fileIcon)
+                    .resizable()
+                    .scaledToFit()
                     .frame(width: 30, height: 30)
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
-                } else {
-                    Image(systemName: systemImage)
-                        .wnFont(.semiBold14)
+                    .accessibilityHidden(true)
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
+                        .frame(width: 30, height: 30)
+                    if isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
+                    } else {
+                        Image(systemName: systemImage)
+                            .font(.subheadline.weight(.semibold))
+                    }
                 }
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .wnFont(.semiBold10)
+                    .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Text(detail)
-                    .wnFont(.medium10)
+                    .font(.caption)
                     .foregroundStyle(AttachmentRowPalette.detailContent(isOutgoing: isOutgoing))
                     .lineLimit(1)
             }
@@ -1880,10 +1999,11 @@ struct MessageAttachmentStatusRow: View {
             if let retryAction {
                 Button(action: retryAction) {
                     Image(systemName: "arrow.clockwise")
-                        .wnFont(.semiBold14)
+                        .font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.plain)
                 .help(L10n.string("Retry"))
+                .accessibilityLabel(L10n.string("Retry"))
             }
         }
         .attachmentRowChrome(isOutgoing: isOutgoing)
@@ -1925,7 +2045,7 @@ struct MessageAudioRow<Control: View, SpeedControl: View>: View {
                 .frame(height: Self.waveformHeight)
 
                 Text(durationLabel)
-                    .wnFont(.medium10.monospacedDigit())
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(AttachmentRowPalette.detailContent(isOutgoing: isOutgoing))
                     .lineLimit(1)
             }
@@ -1967,7 +2087,7 @@ struct MessageAudioSpeedBadge: View {
 
     var body: some View {
         Text(speed.label(locale: locale))
-            .wnFont(.bold10)
+            .font(.caption2.weight(.bold))
             .lineLimit(1)
             .audioRowSpeedChrome(isOutgoing: isOutgoing)
     }
@@ -2006,7 +2126,7 @@ struct MessageAudioAttachmentPlaceholder: View {
                 if let retryAction {
                     Button(action: retryAction) {
                         Image(systemName: "arrow.clockwise")
-                            .wnFont(.bold14)
+                            .font(.subheadline.weight(.bold))
                             .audioRowControlChrome(isOutgoing: isOutgoing)
                     }
                     .buttonStyle(.plain)
@@ -2075,7 +2195,7 @@ struct MessageAudioAttachmentPlayer: View {
                     Task { await togglePlayback() }
                 } label: {
                     Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
-                        .wnFont(.bold14)
+                        .font(.subheadline.weight(.bold))
                         .audioRowControlChrome(isOutgoing: isOutgoing)
                 }
                 .buttonStyle(.plain)
@@ -2315,7 +2435,7 @@ struct MessageVideoAttachmentPlayer: View {
         ZStack {
             WNColor.overlayTertiary
             Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
-                .wnFont(.bold24)
+                .font(.title2.weight(.bold))
                 .foregroundStyle(WNColor.fillContentQuaternary)
                 .frame(width: 48, height: 48)
                 .background(WNColor.overlayTertiary, in: Circle())
@@ -2323,7 +2443,7 @@ struct MessageVideoAttachmentPlayer: View {
             VStack {
                 Spacer()
                 Text(download.fileName.nilIfBlank ?? attachment.fileName)
-                    .wnFont(.semiBold10)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.86))
                     .lineLimit(1)
                     .padding(.horizontal, 8)
@@ -2553,7 +2673,7 @@ struct MessageImageGalleryOverlay: View {
                 VStack {
                     HStack(spacing: 12) {
                         Text(selectedAttachment.fileName)
-                            .wnFont(.semiBold12)
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(WNColor.fillContentQuaternary)
                             .lineLimit(1)
 
@@ -2561,7 +2681,7 @@ struct MessageImageGalleryOverlay: View {
 
                         if canNavigate {
                             Text(verbatim: "\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
-                                .wnFont(.semiBold10.monospacedDigit())
+                                .font(.caption.weight(.semibold).monospacedDigit())
                                 .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.72))
                         }
 
@@ -2580,7 +2700,7 @@ struct MessageImageGalleryOverlay: View {
                                             .tint(WNColor.fillContentQuaternary)
                                     } else {
                                         Image(systemName: "square.and.arrow.down")
-                                            .wnFont(.bold16)
+                                            .font(.body.weight(.semibold))
                                     }
                                 }
                                 .frame(width: 34, height: 34)
@@ -2596,7 +2716,7 @@ struct MessageImageGalleryOverlay: View {
 
                         Button(action: onClose) {
                             Image(systemName: "xmark")
-                                .wnFont(.bold16)
+                                .font(.body.weight(.semibold))
                                 .frame(width: 34, height: 34)
                                 .background(
                                     WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
@@ -2664,7 +2784,7 @@ struct MessageImageGalleryOverlay: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .wnFont(.bold28)
+                .font(.title.weight(.semibold))
                 .frame(width: 54, height: 54)
                 .background(
                     WNColor.fillContentQuaternary.opacity(isEnabled ? 0.16 : 0.06), in: Circle())
@@ -2694,14 +2814,15 @@ struct MessageImageGalleryContent: View {
             case .failed:
                 VStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
-                        .wnFont(.medium18)
+                        .font(.title3)
                     Text(L10n.string("Image unavailable"))
-                        .wnFont(.semiBold12)
+                        .font(.subheadline.weight(.semibold))
                     Button {
                         Task { await workspace.loadMediaAttachment(attachment, for: message) }
                     } label: {
                         Label(L10n.string("Retry"), systemImage: "arrow.clockwise")
                     }
+                    .wnSecondaryButtonStyle()
                 }
                 .foregroundStyle(WNColor.fillContentQuaternary)
             case .loaded(let download):
@@ -2729,7 +2850,7 @@ struct DownsampledMessageGalleryImage: View {
             accessibilityLabel: attachment.fileName
         ) {
             Text(L10n.string("Image unavailable"))
-                .wnFont(.semiBold12)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(WNColor.fillContentQuaternary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -2756,9 +2877,9 @@ struct MessageDebugMetadataView: View {
 struct MessageInlineActions: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.composerFocusRequester) private var composerFocusRequester
-    @State private var isEmojiPickerPresented = false
-    @State private var isOverflowPresented = false
-    @Binding var isPresentationActive: Bool
+    /// Owned by the bubble, so an open popover outlives this strip being rebuilt. See
+    /// `MessageInlineActionPresentation`.
+    @Binding var presentation: MessageInlineActionPresentation
     let message: MessageItem
     /// Receives the picked emoji; the bubble decides whether it reacts, retracts or confirms.
     let onReactionPick: (String) -> Void
@@ -2770,17 +2891,19 @@ struct MessageInlineActions: View {
         HStack(spacing: 4) {
             if message.canReact {
                 Button {
-                    isEmojiPickerPresented = true
+                    presentation.setPresented(true, .reactionPicker, for: message.id)
                 } label: {
                     MessageInlineActionIcon(systemName: "face.smiling", label: L10n.string("React"))
                 }
                 .buttonStyle(.plain)
-                .popover(isPresented: $isEmojiPickerPresented, arrowEdge: .bottom) {
+                .popover(isPresented: isPresented(.reactionPicker), arrowEdge: .bottom) {
                     MessageEmojiPickerPopover(
                         selectedEmojis: MessageReactionPick.selectedEmojis(in: message.reactions),
                         customEmoji: customEmoji
-                    ) { emoji in
-                        isEmojiPickerPresented = false
+                    ) { [message] emoji in
+                        // Only the message that opened the picker takes its pick.
+                        guard presentation.acceptsReactionPick(for: message.id) else { return }
+                        presentation.setPresented(false, .reactionPicker, for: message.id)
                         onReactionPick(emoji)
                     }
                 }
@@ -2812,60 +2935,63 @@ struct MessageInlineActions: View {
 
             if message.supportsChatActions {
                 Button {
-                    isOverflowPresented = true
+                    presentation.setPresented(true, .overflow, for: message.id)
                 } label: {
                     MessageInlineActionIcon(systemName: "ellipsis", label: L10n.string("More"))
                 }
                 .buttonStyle(.plain)
-                .popover(isPresented: $isOverflowPresented, arrowEdge: .bottom) {
+                .popover(isPresented: isPresented(.overflow), arrowEdge: .bottom) {
                     MessageOverflowPopover(
                         message: message,
                         moderation: moderation,
                         discardFailedSend: discardFailedSend,
-                        dismiss: { isOverflowPresented = false }
+                        dismiss: { [message] in presentation.setPresented(false, .overflow, for: message.id) }
                     )
                 }
                 .help(L10n.string("More"))
             }
         }
         .fixedSize(horizontal: true, vertical: true)
-        .onChange(of: isEmojiPickerPresented) { _, _ in
-            syncPresentationState()
-        }
-        .onChange(of: isOverflowPresented) { _, _ in
-            syncPresentationState()
-        }
-        .onDisappear {
-            isPresentationActive = false
-        }
+        // The strip can overhang a short bubble's row; pointing at that part keeps it up too.
+        .onHover { presentation.isHoveringStrip = $0 }
+        // Only the hover flag: an open popover belongs to the bubble and survives the strip.
+        .onDisappear { presentation.isHoveringStrip = false }
     }
 
-    private func syncPresentationState() {
-        isPresentationActive = isEmojiPickerPresented || isOverflowPresented
+    /// A popover's `isPresented`, read from and written to the bubble's presentation for this
+    /// message only.
+    private func isPresented(_ popover: MessageInlineActionPresentation.Popover) -> Binding<Bool> {
+        let presentation = $presentation
+        let messageID = message.id
+        return Binding(
+            get: { presentation.wrappedValue.isPresented(popover, for: messageID) },
+            set: { presentation.wrappedValue.setPresented($0, popover, for: messageID) }
+        )
     }
 }
 
 struct MessageInlineActionIcon: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
     let systemName: String
     let label: String
 
     var body: some View {
         Image(systemName: systemName)
-            .wnFont(.medium18)
+            .font(.body)
             .symbolRenderingMode(.monochrome)
             .foregroundStyle(
-                isHovering ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
+                isHovering ? WNColor.textPrimary : WNColor.messageReceivedSecondaryContent
             )
             .frame(width: 40, height: 40)
             .background {
                 Circle()
                     .fill(isHovering ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 28, height: 28)
             }
             .contentShape(Rectangle())
             .accessibilityLabel(label)
-            .animation(.easeOut(duration: 0.08), value: isHovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: isHovering)
             .onHover { isHovering = $0 }
     }
 }
@@ -2964,6 +3090,7 @@ struct MessageEmojiPickerPopover: View {
 /// same picker the hover React control does.
 struct QuickReactionPicker: View {
     @State private var isFullPickerPresented = false
+    @State private var isMoreHovering = false
     let emojis: [String]
     /// The emoji the viewing account already reacted with, drawn selected. Required, so no caller
     /// can offer the picker without the mark that tells a second click takes the reaction back.
@@ -2975,21 +3102,7 @@ struct QuickReactionPicker: View {
     var body: some View {
         HStack(spacing: 4) {
             QuickReactionButtons(emojis: emojis, selectedEmojis: selectedEmojis, onPick: onPick) { emoji, isSelected in
-                Text(emoji)
-                    .wnFont(.medium24)
-                    .frame(width: 40, height: 40)
-                    .background {
-                        if isSelected {
-                            // The same selected pair the reaction chip under the bubble uses, so
-                            // the menu and the chip agree about which emoji is yours.
-                            Circle()
-                                .fill(WNColor.fillSecondaryActive)
-                                .overlay {
-                                    Circle().strokeBorder(WNColor.borderPrimary, lineWidth: 1)
-                                }
-                        }
-                    }
-                    .contentShape(Circle())
+                QuickReactionButtonLabel(emoji: emoji, isSelected: isSelected)
             }
             .buttonStyle(.plain)
 
@@ -2997,13 +3110,16 @@ struct QuickReactionPicker: View {
                 isFullPickerPresented = true
             } label: {
                 Image(systemName: "plus")
-                    .wnFont(.bold14)
-                    .foregroundStyle(WNColor.fillContentTertiary)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(WNColor.fillContentSecondary)
                     .frame(width: 32, height: 32)
-                    .background(WNColor.fillSecondary, in: Circle())
-                    .frame(width: 40, height: 40)
+                    .background(isMoreHovering ? WNColor.fillSecondaryHover : WNColor.fillSecondary, in: Circle())
+                    .frame(width: 36, height: 36)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .onHover { isMoreHovering = $0 }
+            .help(L10n.string("More emoji"))
             .accessibilityLabel(L10n.string("More emoji"))
             .popover(isPresented: $isFullPickerPresented, arrowEdge: .bottom) {
                 ChatEmojiPicker(custom: customEmoji) { emoji in
@@ -3012,8 +3128,36 @@ struct QuickReactionPicker: View {
                 }
             }
         }
-        .padding(6)
-        .background(.regularMaterial, in: Capsule())
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+}
+
+private struct QuickReactionButtonLabel: View {
+    @State private var isHovering = false
+    let emoji: String
+    let isSelected: Bool
+
+    var body: some View {
+        Text(emoji)
+            .font(.title2)
+            .frame(width: 36, height: 36)
+            .background {
+                if isSelected {
+                    // The same selected pair the reaction chip under the bubble uses, so
+                    // the menu and the chip agree about which emoji is yours.
+                    Circle()
+                        .fill(WNColor.fillSecondaryActive)
+                        .overlay {
+                            Circle().strokeBorder(WNColor.borderPrimary, lineWidth: 1)
+                        }
+                } else if isHovering {
+                    Circle()
+                        .fill(WNColor.fillTertiaryHover)
+                }
+            }
+            .contentShape(Circle())
+            .onHover { isHovering = $0 }
     }
 }
 
@@ -3235,38 +3379,68 @@ struct MessageOverflowPopover: View {
 /// (`PendingOutgoingMessageOverflowButton`) opens the same menu rather than a lookalike — it
 /// builds its actions from a message the core has never seen, but a failed row is a failed row and
 /// the two must not drift into different shapes.
+/// Partitions message actions into non-destructive and destructive groups while preserving relative
+/// order within each group (K02, K03).
+nonisolated enum MessageRowActionGrouping {
+    static func split(_ actions: [MessageRowAction]) -> (standard: [MessageRowAction], destructive: [MessageRowAction])
+    {
+        (
+            standard: actions.filter { $0.role != .destructive },
+            destructive: actions.filter { $0.role == .destructive }
+        )
+    }
+}
+
 struct MessageOverflowMenu: View {
     let actions: [MessageRowAction]
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-                if index > 0 { Divider() }
-                overflowButton(action)
+        let grouped = MessageRowActionGrouping.split(actions)
+        VStack(spacing: 2) {
+            ForEach(grouped.standard) { action in
+                MessageOverflowMenuItem(action: action)
+            }
+            if !grouped.standard.isEmpty, !grouped.destructive.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+            }
+            ForEach(grouped.destructive) { action in
+                MessageOverflowMenuItem(action: action)
             }
         }
-        .padding(.vertical, 6)
-        .frame(width: 190)
-        .presentationBackground(.regularMaterial)
-        .glassCard(material: .regularMaterial)
+        .padding(6)
+        .frame(width: 196)
     }
+}
 
-    private func overflowButton(_ action: MessageRowAction) -> some View {
+private struct MessageOverflowMenuItem: View {
+    @State private var isHovering = false
+    let action: MessageRowAction
+
+    var body: some View {
         Button(role: action.role, action: action.run) {
             HStack(spacing: 10) {
                 Image(systemName: action.systemImage)
                     .frame(width: 18)
                 Text(action.title)
-                Spacer()
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .font(.body)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? WNColor.fillTertiaryHover : .clear)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(
             action.role == .destructive
-                ? WNColor.backgroundContentDestructive : WNColor.backgroundContentPrimary)
+                ? WNColor.intentionErrorContent : WNColor.textPrimary
+        )
+        .onHover { isHovering = $0 }
     }
 }
 
@@ -3333,7 +3507,7 @@ struct MessageContextMenuItems: View {
                 Divider()
             }
 
-            ForEach(
+            let grouped = MessageRowActionGrouping.split(
                 MessageRowAction.all(
                     for: message,
                     workspace: workspace,
@@ -3341,7 +3515,19 @@ struct MessageContextMenuItems: View {
                     discardFailedSend: discardFailedSend,
                     focusComposer: composerFocusRequester.request
                 )
-            ) { action in
+            )
+
+            ForEach(grouped.standard) { action in
+                Button(role: action.role, action: action.run) {
+                    Label(action.title, systemImage: action.systemImage)
+                }
+            }
+
+            if !grouped.standard.isEmpty, !grouped.destructive.isEmpty {
+                Divider()
+            }
+
+            ForEach(grouped.destructive) { action in
                 Button(role: action.role, action: action.run) {
                     Label(action.title, systemImage: action.systemImage)
                 }
@@ -3360,22 +3546,28 @@ struct MessageReplyContextView: View {
     var fillsWidth = false
     let onOpen: () -> Void
 
+    private var polarity: MessageBubblePolarity {
+        MessageBubblePolarity(isOutgoing: isOutgoing)
+    }
+
     var body: some View {
         Button(action: onOpen) {
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(WNColor.borderTertiary)
+                    .fill(polarity.secondaryContent)
                     .frame(width: 3)
 
                 VStack(alignment: .leading, spacing: 2) {
+                    // The quoted author at full strength and the quoted words one step down, so
+                    // the quote reads as someone else's message and not as part of this one.
                     Text(context.senderName)
-                        .wnFont(.semiBold10)
-                        .foregroundStyle(WNColor.backgroundContentTertiary)
+                        .font(MessageTypography.quoteSender)
+                        .foregroundStyle(polarity.content)
                         .lineLimit(1)
 
                     Text(context.body)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(MessageTypography.quoteBody)
+                        .foregroundStyle(polarity.secondaryContent)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
@@ -3391,18 +3583,12 @@ struct MessageReplyContextView: View {
         .help(L10n.string("Show replied-to message"))
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        // The quote is its own card on `backgroundPrimary`, identically in both directions, as on
-        // the other clients — which is what lets its content take `background*` tokens instead of
-        // having to be picked per bubble fill. It cannot inherit a translucent material here: it
-        // sits *inside* the bubble, so a material would composite against `fillPrimary` and leave
-        // the quote's text colors undefined.
+        // An inset one step into the bubble it sits in, not a window-colored card: on the sent
+        // bubble that is the opposite polarity from the window, so the quote's text takes the
+        // bubble's own pair rather than a generic label color (T02, T07).
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(WNColor.backgroundPrimary)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(WNColor.borderTertiary, lineWidth: 1)
-                }
+                .fill(polarity.quoteFill)
         }
     }
 }
@@ -3414,7 +3600,7 @@ struct TimelineDayHeaderView: View {
         HStack {
             Spacer(minLength: 24)
             Text(title)
-                .wnFont(.semiBold10)
+                .font(MessageTypography.dayDivider)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -3425,3 +3611,55 @@ struct TimelineDayHeaderView: View {
         .padding(.vertical, 2)
     }
 }
+
+#if DEBUG
+    #Preview("Attachment rows – Polarities") {
+        VStack(alignment: .leading, spacing: 12) {
+            MessageAttachmentStatusRow(
+                systemImage: "doc",
+                fileIcon: AttachmentFileTypeIcon.icon(mediaType: "application/pdf", fileName: "architecture.pdf"),
+                title: "architecture.pdf",
+                detail: "2.4 MB",
+                isOutgoing: false
+            )
+            MessageAttachmentStatusRow(
+                systemImage: "doc",
+                fileIcon: AttachmentFileTypeIcon.icon(mediaType: "application/pdf", fileName: "architecture.pdf"),
+                title: "architecture.pdf",
+                detail: "2.4 MB",
+                isOutgoing: true
+            )
+            MessageAttachmentStatusRow(
+                systemImage: "exclamationmark.triangle",
+                title: "missing.zip",
+                detail: L10n.string("Attachment unavailable"),
+                isOutgoing: false,
+                retryAction: {}
+            )
+            MessageAudioAttachmentPlaceholder(
+                isOutgoing: true,
+                accessibilityLabel: "Voice message"
+            )
+        }
+        .padding()
+        .background(WNColor.backgroundPrimary)
+    }
+
+    #Preview("Message actions & quick reactions") {
+        VStack(spacing: 16) {
+            QuickReactionPicker(
+                emojis: ChatReactionDefaults.quick,
+                selectedEmojis: ["👍"],
+                onPick: { _ in }
+            )
+            MessageOverflowMenu(
+                actions: [
+                    MessageRowAction(kind: .info, title: "Message Info", systemImage: "info.circle", role: nil) {},
+                    MessageRowAction(kind: .copy, title: "Copy Text", systemImage: "doc.on.doc", role: nil) {},
+                    MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {},
+                ]
+            )
+        }
+        .padding()
+    }
+#endif

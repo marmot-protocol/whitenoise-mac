@@ -1283,21 +1283,6 @@ struct AccountTests: WorkspaceTestSupport {
                 > AvatarChromeModifier.overhang(forAvatarSize: 32))
     }
 
-    /// The rail buys its slack with an oversized frame, and `AvatarChromeModifier` documents that
-    /// arrangement as the reason `selectedScale` is safe to apply. Shrinking the frame — or
-    /// raising the scale — without the other would clip the active account's ring against the
-    /// rail's own bounds.
-    @MainActor
-    @Test func accountRailAvatarFrameLeavesRoomForTheSelectedAvatarsChrome() {
-        let slackPerSide =
-            (MessagesLayout.accountRailAvatarFrameSize - MessagesLayout.accountRailAvatarSize) / 2
-
-        #expect(
-            slackPerSide
-                >= AvatarChromeModifier.overhang(
-                    forAvatarSize: MessagesLayout.accountRailAvatarSize))
-    }
-
     @MainActor
     @Test func removeActiveAccountCallsRuntimeAndSwitchesToTheOnlyOneLeft() async throws {
         let primary = AccountSummaryFfi(
@@ -1330,7 +1315,7 @@ struct AccountTests: WorkspaceTestSupport {
         // One profile left is no choice: the app continues straight into it instead of showing a
         // chooser with a single row.
         #expect(state.activeAccountId == "Backup Account")
-        #expect(state.selection == .settings(.overview))
+        #expect(state.selection == nil)
     }
 
     @MainActor
@@ -1489,7 +1474,7 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.phase == .ready)
         #expect(state.activeAccountId == "Backup Account")
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
-        #expect(state.selection == .settings(.overview))
+        #expect(state.selection == nil)
         #expect(state.lastError == nil)
     }
 
@@ -1515,20 +1500,26 @@ struct AccountTests: WorkspaceTestSupport {
         await state.bootstrap()
         let active = try #require(state.activeAccount)
 
-        state.showSettingsPage(.deleteProfile)
+        let router = SettingsWindowCoordinator(workspace: state)
+        router.open(at: .deleteProfile)
         await state.removeAccount(active)
 
         #expect(state.activeAccountId == nil)
         #expect(state.signedInAccounts.map(\.id) == ["Backup Account", "Third Account"])
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == nil)
-        #expect(state.selection == .settings(.overview))
+        #expect(state.selection == nil)
+        #expect(router.accountID == nil)
+        #expect(router.pendingPage == .overview)
         let next = try #require(state.signedInAccounts.first)
 
         state.selectAccountFromSettings(next)
 
         #expect(state.activeAccountId == "Backup Account")
+        #expect(router.accountID == "Backup Account")
+        #expect(router.page == .overview)
+        #expect(router.pendingPage == nil)
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
-        #expect(state.selection == .settings(.overview))
+        #expect(state.selection == nil)
     }
 
     /// Add Profile from the chooser opens onboarding with a way back, and Cancel returns to the
@@ -1595,7 +1586,7 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.signedInAccounts.map(\.id) == ["Backup Account", "Third Account"])
         #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == nil)
-        #expect(state.selection == .settings(.overview))
+        #expect(state.selection == nil)
         #expect(state.lastError == nil)
 
         let next = try #require(state.signedInAccounts.first)
@@ -1603,7 +1594,7 @@ struct AccountTests: WorkspaceTestSupport {
 
         #expect(state.activeAccountId == "Backup Account")
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
-        #expect(state.selection == .settings(.overview))
+        #expect(state.selection == nil)
     }
 
     /// Signing out of the active profile with exactly one other still signed in continues straight
@@ -1638,7 +1629,7 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.activeAccount?.id == "Backup Account")
         #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
-        #expect(state.selection == .settings(.overview))
+        #expect(state.selection == nil)
         #expect(state.lastError == nil)
     }
 
@@ -1684,7 +1675,7 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.accounts.contains { $0.id == "Third Account" && $0.signedOut })
         #expect(state.activeAccountId == "Backup Account")
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Backup Account")
-        #expect(state.selection == .settings(.overview))
+        #expect(state.selection == nil)
         #expect(state.lastError == nil)
     }
 
@@ -1715,6 +1706,7 @@ struct AccountTests: WorkspaceTestSupport {
 
         runtime.signOutError = nil
         runtime.removeAccountError = FakeMarmotRuntimeError.unused
+        let settings = SettingsWindowCoordinator(workspace: state)
         chatListBaseline = runtime.chatListSubscriptionCount
         timelineBaseline = runtime.timelineSubscriptionCount
         await state.removeAccount(activeAccount)
@@ -1725,7 +1717,7 @@ struct AccountTests: WorkspaceTestSupport {
             })
         #expect(state.activeAccountId == account.label)
         #expect(state.selection == .chat("group"))
-        #expect(state.lastError == "Unused fake runtime error.")
+        #expect(settings.lastError == "Unused fake runtime error.")
     }
 
     @MainActor
@@ -2463,6 +2455,7 @@ struct AccountTests: WorkspaceTestSupport {
         let notificationSubscriptionBaseline = runtime.notificationSubscriptionCount
         let chatListSubscriptionBaseline = runtime.chatListSubscriptionCount
         let timelineSubscriptionBaseline = runtime.timelineSubscriptionCount
+        let settings = SettingsWindowCoordinator(workspace: state)
         runtime.deleteAllLocalDataError = FakeMarmotRuntimeError.unused
 
         await state.deleteAllData()
@@ -2477,7 +2470,7 @@ struct AccountTests: WorkspaceTestSupport {
         #expect(state.activeChats.contains { $0.id == "group" })
         #expect(runtime.chatListSubscriptionCount >= chatListSubscriptionBaseline + 1)
         #expect(runtime.timelineSubscriptionCount >= timelineSubscriptionBaseline + 1)
-        #expect(state.lastError == "Unused fake runtime error.")
+        #expect(settings.lastError == "Unused fake runtime error.")
     }
 
     @MainActor
@@ -3131,33 +3124,6 @@ struct AccountTests: WorkspaceTestSupport {
         }
     }
 
-    @Test func accountRailAvatarCarriesNoAccountManagement() throws {
-        // The rail switches identities and does nothing else to them. It used to carry a
-        // Sign In / Sign Out context menu, whose Sign Out fired `signOutAccount` straight from a
-        // right-click with no prompt — an accidental click dropped that identity's relay key
-        // packages. And it used to draw signed-out identities too, dimmed behind a pause glyph,
-        // where a single tap signed one back in. All of it is account management: sign-out and
-        // removal live in Settings' switcher behind confirmations, and signing a deactivated
-        // identity back in is Sign In with its key — no surface reactivates one for free, since
-        // that. Only a source contract can guard *absent* chrome: no behavior test can
-        // observe a menu or a branch that is never built. The chat rows beside it keep their own
-        // menu, which is why this asserts on the rail's declaration rather than on the file.
-        let sidebarSource = try SourceContract.source(of: .sidebar)
-        let railSource = try SourceContract.declaration("AccountRailAvatar")
-
-        #expect(!railSource.contains(".contextMenu"))
-        #expect(!railSource.contains("signOutAccount"), "destructive sign out belongs to the confirmed Settings path")
-        #expect(!railSource.contains("signInAccount"), "signing back in means entering the identity's key")
-        // The rail is fed `signedInAccounts`, so the avatar has no signed-out case to branch on:
-        // a leftover branch here would be dead code claiming to handle a row that cannot appear.
-        #expect(!railSource.contains("signedOut"))
-
-        // And the rail is genuinely fed the filtered list — without this, every assertion above
-        // would still pass while the rail iterated `accounts` and drew the deactivated ones
-        // through an avatar that no longer has a branch for them.
-        #expect(sidebarSource.contains("ForEach(workspace.signedInAccounts)"))
-    }
-
     @Test func theDetailPaneOffersNoChooserOfDeactivatedIdentities() throws {
         // With nothing signed in, the pane used to be a `SignedOutAccountsView`: the deactivated
         // identities on this Mac, each row a click from `signInAccount` — a sign-in that asked
@@ -3194,7 +3160,7 @@ struct AccountTests: WorkspaceTestSupport {
             .components(separatedBy: .whitespacesAndNewlines).joined()
         #expect(
             normalized.contains(
-                "ifworkspace.activeAccount==nil{OnboardingView(model:session.accountScope?.onboarding)}else{"
+                "if!workspace.showsMessengerChrome{OnboardingView(model:session.accountScope?.onboarding)}else{"
             )
         )
     }

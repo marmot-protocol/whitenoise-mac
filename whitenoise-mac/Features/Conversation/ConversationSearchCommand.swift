@@ -1,32 +1,19 @@
 import SwiftUI
 
-/// The selected conversation's "Find in Conversation" action. `ConversationView` publishes it as a
-/// focused scene value, so the Navigate menu reaches the conversation on screen without going
-/// through `WorkspaceState`, and finds nothing when no conversation is showing.
+/// The transcript publishes its own search handlers, preserving its exclusions and scroll routing.
 struct ConversationSearchCommand {
+    let accountID: String
+    let chatID: String
+    let model: ConversationSearchViewModel
     let open: () -> Void
+    /// Monotonic token incremented on responder/selection changes so SwiftUI menu validation
+    /// re-evaluates `selectedTextForFind()` without caching stale text across focus changes.
+    var selectionRevision: Int = 0
+    /// Live transcript-scoped selected-text reader invoked for both `⌘E` enablement and action.
+    var selectedTextForFind: () -> String? = { nil }
+    var useSelectionForFind: (String) -> Void = { _ in }
 }
 
 extension FocusedValues {
     @Entry var conversationSearch: ConversationSearchCommand?
-}
-
-/// Navigate ▸ Find in Conversation… (⌘F). A menu item rather than a shortcut on the header button,
-/// so it is discoverable and owns ⌘F wherever focus sits in the window, the composer included.
-struct FindInConversationMenuButton: View {
-    @FocusedValue(\.conversationSearch) private var conversationSearch
-
-    var body: some View {
-        Button(L10n.string("Find in Conversation…")) {
-            conversationSearch?.open()
-        }
-        .keyboardShortcut("f", modifiers: .command)
-        .disabled(conversationSearch == nil)
-    }
-}
-
-#Preview("Find in Conversation menu item") {
-    FindInConversationMenuButton()
-        .focusedSceneValue(\.conversationSearch, ConversationSearchCommand(open: {}))
-        .padding()
 }

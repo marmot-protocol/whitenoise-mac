@@ -110,16 +110,20 @@ struct NostrEventPreviewCardContent: View {
     static let viewerHost = "njump.me"
     static let avatarSize: CGFloat = 18
 
+    @Environment(\.messageBubblePolarity) private var bubblePolarity
+
     let preview: NostrEventPreview
     let author: NostrEventPreviewStore.Author?
     let image: NSImage?
     /// Reserved as soon as an article names an image, so the card does not grow when it arrives.
     let showsImageSlot: Bool
 
+    private var palette: MessageEmbeddedCardPalette { MessageEmbeddedCardPalette(polarity: bubblePolarity) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if case .article(_, _, let imageURL) = preview.body, imageURL != nil, showsImageSlot {
-                WNColor.fillSecondary
+                palette.imageSlotFill
                     .aspectRatio(LinkPreviewCardContent.imageAspectRatio, contentMode: .fit)
                     .overlay {
                         if let image {
@@ -134,35 +138,50 @@ struct NostrEventPreviewCardContent: View {
             VStack(alignment: .leading, spacing: 4) {
                 switch preview.body {
                 case .note(let text):
-                    NostrEventAuthorLine(preview: preview, author: author)
+                    NostrEventAuthorLine(
+                        preview: preview,
+                        author: author,
+                        primaryContent: palette.primaryContent,
+                        secondaryContent: palette.secondaryContent
+                    )
                     if !text.isEmpty {
                         Text(verbatim: text)
-                            .wnFont(.medium12)
-                            .foregroundStyle(WNColor.backgroundContentPrimary)
+                            .font(.subheadline)
+                            .foregroundStyle(palette.primaryContent)
                             .lineLimit(8)
                             .multilineTextAlignment(.leading)
                     }
                 case .article(let title, let summary, _):
                     if let title {
                         Text(verbatim: title)
-                            .wnFont(.semiBold12)
-                            .foregroundStyle(WNColor.backgroundContentPrimary)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(palette.primaryContent)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                     if let summary {
                         Text(verbatim: summary)
-                            .wnFont(.medium12)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                            .font(.subheadline)
+                            .foregroundStyle(palette.secondaryContent)
                             .lineLimit(3)
                             .multilineTextAlignment(.leading)
                     }
-                    NostrEventAuthorLine(preview: preview, author: author)
+                    NostrEventAuthorLine(
+                        preview: preview,
+                        author: author,
+                        primaryContent: palette.primaryContent,
+                        secondaryContent: palette.secondaryContent
+                    )
                 case .other:
                     Text(L10n.string("Nostr event"))
-                        .wnFont(.semiBold12)
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
-                    NostrEventAuthorLine(preview: preview, author: author)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(palette.primaryContent)
+                    NostrEventAuthorLine(
+                        preview: preview,
+                        author: author,
+                        primaryContent: palette.primaryContent,
+                        secondaryContent: palette.secondaryContent
+                    )
                 }
                 Label {
                     Text(verbatim: Self.viewerHost)
@@ -170,22 +189,20 @@ struct NostrEventPreviewCardContent: View {
                     Image(systemName: "arrow.up.right")
                 }
                 .labelStyle(.titleAndIcon)
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(palette.secondaryContent)
                 .lineLimit(1)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-        // The web link preview's card: `backgroundPrimary` with a hairline, identically in both
-        // directions, so its text can take `background*` tokens whatever the bubble fill.
-        .background(WNColor.backgroundPrimary)
+        .background(palette.surfaceFill)
         .clipShape(.rect(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(WNColor.borderTertiary, lineWidth: 1)
+                .strokeBorder(palette.hairlineStroke, lineWidth: 1)
         }
         .contentShape(.rect(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .combine)
@@ -198,6 +215,8 @@ struct NostrEventPreviewCardContent: View {
 private struct NostrEventAuthorLine: View {
     let preview: NostrEventPreview
     let author: NostrEventPreviewStore.Author?
+    let primaryContent: Color
+    let secondaryContent: Color
 
     var body: some View {
         HStack(spacing: 6) {
@@ -211,13 +230,13 @@ private struct NostrEventAuthorLine: View {
             .accessibilityHidden(true)
             if let name = author?.name {
                 Text(verbatim: name)
-                    .wnFont(.semiBold12)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(primaryContent)
                     .lineLimit(1)
             }
             Text(preview.createdAt, format: .dateTime.year().month(.abbreviated).day())
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(secondaryContent)
                 .lineLimit(1)
         }
     }

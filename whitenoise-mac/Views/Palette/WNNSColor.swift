@@ -25,7 +25,60 @@
 import AppKit
 
 nonisolated enum WNNSColor {
-    // MARK: - Backgrounds
+    // MARK: - Native macOS semantic roles (F01–F07)
+
+    /// Native primary text on reading and window surfaces.
+    static let textPrimary = NSColor.labelColor
+    /// Semantic error / destructive status tint.
+    static let statusError = NSColor.systemRed
+
+    /// Scoped on-state tint for native switches and checkboxes.
+    ///
+    /// Uses near-black in Light appearance and a neutral mid-gray (`neutral500`, `#737373`) in
+    /// Dark appearance rather than white (`fillPrimary`), because a white track erases the native
+    /// white `NSSwitch` thumb in Dark Mode while `#737373` clears 4.5:1 against the white thumb
+    /// and 3.0:1 against dark form surfaces.
+    static let switchOnTint = NSColor.wnDynamic(
+        "wn.switchOnTint",
+        light: WNColorRamp.neutral950,
+        dark: WNColorRamp.neutral500
+    )
+
+    // MARK: - Message bubbles (F02, T02, T07)
+    //
+    // A text bubble is a surface with its own foreground set: body, metadata, quote inset and
+    // links are chosen for the bubble they sit on, never inherited from the window. The received
+    // bubble uses native fills and labels over the transcript. The sent bubble inverts against the
+    // surface (`fillPrimary` with `fillContentPrimary`), so its secondary roles cross over the same
+    // way: the lighter step on the dark bubble in Light, the darker step on the light bubble in
+    // Dark. All of these are system colors or name-keyed dynamic colors, which are safe to resolve
+    // from any thread.
+
+    /// The received bubble: a native translucent fill over the transcript surface.
+    static let messageReceivedFill = NSColor.secondarySystemFill
+    /// Footer metadata and the quoted body on the received bubble.
+    static let messageReceivedSecondaryContent = NSColor.secondaryLabelColor
+    /// The quoted-reply inset inside the received bubble, one native fill step deeper.
+    static let messageReceivedQuoteFill = NSColor.systemFill
+    /// Links on the received bubble.
+    static let messageReceivedLink = NSColor.linkColor
+
+    /// Footer metadata and the quoted body on the sent bubble. `neutral400` on the near-black
+    /// bubble in Light (7.8:1), `neutral650` on the white bubble in Dark (9.0:1). Both stay above
+    /// 4.5:1 on `messageSentQuoteFill`, where the quoted body is drawn.
+    static let messageSentSecondaryContent = NSColor.wnDynamic(
+        "wn.messageSentSecondaryContent", light: WNColorRamp.neutral400, dark: WNColorRamp.neutral650)
+    /// The quoted-reply inset inside the sent bubble, one neutral step in from the bubble's own
+    /// fill, in the bubble's direction rather than the window's.
+    static let messageSentQuoteFill = NSColor.wnDynamic(
+        "wn.messageSentQuoteFill", light: WNColorRamp.neutral800, dark: WNColorRamp.neutral150)
+    /// Links on the sent bubble. The app's blue is 3.8:1 on the near-black bubble and
+    /// 3.7:1 on the white one, so the sent bubble takes a pale blue in Light (13.9:1) and a deeper
+    /// blue in Dark (5.2:1).
+    static let messageSentLink = NSColor.wnDynamic(
+        "wn.messageSentLink", light: WNColorRamp.blue200, dark: WNColorRamp.blue600)
+
+    // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 
     /// The app's base surface: the transcript, the chat list, a settings pane.
     static let backgroundPrimary = NSColor.wnDynamic(
@@ -110,10 +163,6 @@ nonisolated enum WNNSColor {
     /// A destructive action's fill. Same in both appearances.
     static let fillDestructive = NSColor.wnDynamic(
         "wn.fillDestructive", light: WNColorRamp.red600, dark: WNColorRamp.red600)
-    static let fillDestructiveHover = NSColor.wnDynamic(
-        "wn.fillDestructiveHover", light: WNColorRamp.red500, dark: WNColorRamp.red500)
-    static let fillDestructiveActive = NSColor.wnDynamic(
-        "wn.fillDestructiveActive", light: WNColorRamp.red500, dark: WNColorRamp.red500)
 
     static let fillDisabled = NSColor.wnDynamic(
         "wn.fillDisabled", light: WNColorRamp.neutral300, dark: WNColorRamp.neutral650)
@@ -161,16 +210,38 @@ nonisolated enum WNNSColor {
         "wn.intentionInfoBackground", light: WNColorRamp.blue50, dark: WNColorRamp.blue950)
     static let intentionInfoContent = NSColor.wnDynamic(
         "wn.intentionInfoContent", light: WNColorRamp.blue600, dark: WNColorRamp.blue500)
-    /// The highlighter mark behind the words a search matched, in a message bubble and in a
-    /// search result alike. Mac-only: the shared palette colors a hit's text, but a mark drawn
-    /// inside a bubble has to read on the sent and the received bubble in both appearances, which
-    /// no `50`/`950` wash does — the light one vanishes on the light received bubble. A
-    /// mid-saturation step against the opposite end of the ramp for its text keeps the marked
-    /// words readable whatever bubble they sit in.
-    static let searchHighlightBackground = NSColor.wnDynamic(
-        "wn.searchHighlightBackground", light: WNColorRamp.blue200, dark: WNColorRamp.blue900)
-    static let searchHighlightContent = NSColor.wnDynamic(
-        "wn.searchHighlightContent", light: WNColorRamp.blue950, dark: WNColorRamp.blue50)
+    /// Native macOS find-highlight fill behind matched words in bubbles and search snippets
+    /// (F07, #1043). Paired with `searchHighlightContent` so matched substrings clear WCAG AA
+    /// contrast on both incoming and outgoing bubble polarities in light and dark appearance.
+    static let searchHighlightBackground = NSColor.findHighlightColor
+
+    /// Contrast-guaranteed text color on `NSColor.findHighlightColor` across appearances.
+    /// Resolves `findHighlightColor` in the drawing appearance and selects whichever monochrome
+    /// endpoint (`neutral950` vs `white`) yields higher WCAG contrast against it.
+    static let searchHighlightContent = NSColor(name: NSColor.Name("wn.searchHighlightContent")) { appearance in
+        var resolvedFill: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            resolvedFill = NSColor.findHighlightColor.usingColorSpace(.sRGB)
+        }
+        guard let fill = resolvedFill else { return WNColorRamp.neutral950 }
+        let fillLuminance = relativeLuminance(of: fill)
+        let darkLuminance = relativeLuminance(of: WNColorRamp.neutral950)
+        let lightLuminance = relativeLuminance(of: WNColorRamp.white)
+        let darkContrast = (max(fillLuminance, darkLuminance) + 0.05) / (min(fillLuminance, darkLuminance) + 0.05)
+        let lightContrast = (max(fillLuminance, lightLuminance) + 0.05) / (min(fillLuminance, lightLuminance) + 0.05)
+        return darkContrast >= lightContrast ? WNColorRamp.neutral950 : WNColorRamp.white
+    }
+
+    private static func relativeLuminance(of color: NSColor) -> Double {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return 0 }
+        func linear(_ channel: CGFloat) -> Double {
+            let value = Double(channel)
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(srgb.redComponent)
+            + 0.7152 * linear(srgb.greenComponent)
+            + 0.0722 * linear(srgb.blueComponent)
+    }
 
     static let intentionSuccessBackground = NSColor.wnDynamic(
         "wn.intentionSuccessBackground", light: WNColorRamp.green50, dark: WNColorRamp.green950)

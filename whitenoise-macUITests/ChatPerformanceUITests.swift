@@ -66,8 +66,8 @@ final class ChatPerformanceUITests: XCTestCase {
 
     func testChatSearchFilterPerformance() {
         let app = launchFixture()
-        let searchField = app.textFields["chat.search"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 10))
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
 
         searchField.click()
         measure(metrics: interactionMetrics(for: app)) {

@@ -36,73 +36,18 @@ private struct MessageEditHistoryView: View {
     @State private var cursor: TimelineEditVersionFfi?
     @State private var hasMore = false
     @State private var isLoading = false
-    @State private var failed = false
+    @State private var errorMessage: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(L10n.string("Edit history"))
-                    .wnFont(.semiBold14)
-                Spacer()
-                GlassCircleCloseButton { dismiss() }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if versions.isEmpty, !isLoading, !failed {
-                        Text(L10n.string("No earlier versions."))
-                            .wnFont(.medium12)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                            .padding(.top, 8)
-                    }
-                    ForEach(Array(versions.enumerated()), id: \.element.messageIdHex) { index, version in
-                        versionRow(version, isLatest: index == 0)
-                    }
-                    if isLoading {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    }
-                    if failed || hasMore {
-                        Button(failed ? L10n.string("Retry") : L10n.string("Load more")) {
-                            Task { await loadNextPage() }
-                        }
-                        .disabled(isLoading)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-            }
-        }
-        .frame(minWidth: 360, minHeight: 320)
+        MessageEditHistoryContentView(
+            versions: versions,
+            isLoading: isLoading,
+            errorMessage: errorMessage,
+            hasMore: hasMore,
+            onLoadMore: { Task { await loadNextPage() } },
+            onClose: { dismiss() }
+        )
         .task(id: message.id) { await loadNextPage() }
-    }
-
-    private func versionRow(_ version: TimelineEditVersionFfi, isLatest: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text(
-                    isLatest ? L10n.string("Current") : L10n.string("Edited")
-                )
-                .wnFont(.semiBold10)
-                .foregroundStyle(
-                    isLatest ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary)
-                Spacer()
-                Text(DisplayText.messageTimestamp(for: Date(timeIntervalSince1970: TimeInterval(version.editedAt))))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
-            Text(version.plaintext)
-                .wnFont(.medium14)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .glassCard()
-        }
     }
 
     @MainActor
@@ -118,11 +63,148 @@ private struct MessageEditHistoryView: View {
             versions.append(contentsOf: next)
             cursor = page.versions.first
             hasMore = page.hasMoreBefore && cursor != nil
-            failed = false
+            errorMessage = nil
         } catch is CancellationError {
             return
         } catch {
-            failed = true
+            errorMessage = UserFacingError.message(for: error)
         }
     }
 }
+
+/// The edit-history sheet layout, taking plain state so it previews and tests without a workspace.
+struct MessageEditHistoryContentView: View {
+    let versions: [TimelineEditVersionFfi]
+    let isLoading: Bool
+    let errorMessage: String?
+    let hasMore: Bool
+    let onLoadMore: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(L10n.string("Edit history"))
+                    .font(.headline)
+                    .foregroundStyle(WNColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if versions.isEmpty, !isLoading, errorMessage == nil {
+                        Text(L10n.string("No earlier versions."))
+                            .font(.subheadline)
+                            .foregroundStyle(WNColor.messageReceivedSecondaryContent)
+                            .padding(.top, 8)
+                    }
+                    ForEach(Array(versions.enumerated()), id: \.element.messageIdHex) { index, version in
+                        MessageEditHistoryVersionRow(version: version, isLatest: index == 0)
+                    }
+                    if isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                    }
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(WNColor.intentionErrorContent)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if errorMessage != nil || hasMore {
+                        Button(
+                            errorMessage != nil ? L10n.string("Retry") : L10n.string("Load more"), action: onLoadMore
+                        )
+                        .wnSecondaryButtonStyle()
+                        .disabled(isLoading)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button(L10n.string("Done"), action: onClose)
+                    .wnSecondaryButtonStyle()
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .frame(minWidth: 380, idealWidth: 420, minHeight: 320, idealHeight: 400)
+    }
+}
+
+private struct MessageEditHistoryVersionRow: View {
+    let version: TimelineEditVersionFfi
+    let isLatest: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(isLatest ? L10n.string("Current") : L10n.string("Edited"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(isLatest ? WNColor.textPrimary : WNColor.messageReceivedSecondaryContent)
+                Spacer()
+                Text(DisplayText.messageTimestamp(for: Date(timeIntervalSince1970: TimeInterval(version.editedAt))))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(WNColor.messageReceivedSecondaryContent)
+            }
+            Text(version.plaintext)
+                .font(.body)
+                .foregroundStyle(WNColor.textPrimary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                }
+        }
+    }
+}
+
+#if DEBUG
+    #Preview("Edit history") {
+        MessageEditHistoryContentView(
+            versions: [
+                TimelineEditVersionFfi(
+                    messageIdHex: "v2",
+                    editedAt: 1_760_003_600,
+                    plaintext: "Meeting moved to 3pm in the north room."
+                ),
+                TimelineEditVersionFfi(
+                    messageIdHex: "v1",
+                    editedAt: 1_760_000_000,
+                    plaintext: "Meeting moved to 2pm."
+                ),
+            ],
+            isLoading: false,
+            errorMessage: nil,
+            hasMore: false,
+            onLoadMore: {},
+            onClose: {}
+        )
+    }
+
+    #Preview("Edit history – error") {
+        MessageEditHistoryContentView(
+            versions: [],
+            isLoading: false,
+            errorMessage: "Storage is temporarily busy. Try again.",
+            hasMore: false,
+            onLoadMore: {},
+            onClose: {}
+        )
+    }
+#endif

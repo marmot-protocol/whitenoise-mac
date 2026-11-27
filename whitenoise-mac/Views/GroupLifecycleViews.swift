@@ -16,18 +16,24 @@ struct GroupLifecycleComposerNotice: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: lifecycle.symbolName ?? "")
-                .wnFont(.semiBold14)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             Text(lifecycle.composerNotice ?? "")
-                .wnFont(.semiBold12)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .glassCard()
+        .padding(.vertical, 10)
+        .background(WNColor.backgroundPrimary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
         .accessibilityIdentifier("composer.groupLifecycle")
     }
 }
@@ -39,7 +45,7 @@ struct GroupLifecycleBadge: View {
 
     var body: some View {
         Label(lifecycle.sidebarBadgeLabel ?? "", systemImage: lifecycle.symbolName ?? "")
-            .wnFont(.semiBold10)
+            .font(.caption2.weight(.semibold))
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)

@@ -12,6 +12,7 @@ import Foundation
 nonisolated enum DonationMethod: String, CaseIterable, Identifiable, Sendable {
     case lightning
     case bitcoin
+    case monero
 
     var id: String { rawValue }
 
@@ -20,6 +21,11 @@ nonisolated enum DonationMethod: String, CaseIterable, Identifiable, Sendable {
     static let bitcoinSilentPaymentAddress =
         "sp1qqvp56mxcj9pz9xudvlch5g4ah5hrc8rj6neu25p34rc9gxhp38cwqqlmld28u57w2srgckr34dkyg3q02phu8tm05cyj483q026xedp0s5f5j40p"
 
+    static let moneroAddress =
+        "4B6QrSjaSnCR5SwZbhD14sEbQ7qqTEqA72Tzh3y8qHhdY2E4yVuRYJrD5NdrTsDSmPj1ZQQgEVHUva5pbnbFDt2mGNRUZTg"
+
+    static let cardDonationURL = URL(string: "https://donate.stripe.com/cNi5kw3IY3da1zm2wk0Jq00")!
+
     /// What goes on the pasteboard, and what the QR code encodes. Never a shortened form.
     var address: String {
         switch self {
@@ -27,6 +33,8 @@ nonisolated enum DonationMethod: String, CaseIterable, Identifiable, Sendable {
             Self.lightningAddress
         case .bitcoin:
             Self.bitcoinSilentPaymentAddress
+        case .monero:
+            Self.moneroAddress
         }
     }
 
@@ -39,6 +47,8 @@ nonisolated enum DonationMethod: String, CaseIterable, Identifiable, Sendable {
             L10n.string("Lightning")
         case .bitcoin:
             L10n.string("Bitcoin")
+        case .monero:
+            L10n.string("Monero")
         }
     }
 
@@ -52,23 +62,27 @@ nonisolated enum DonationMethod: String, CaseIterable, Identifiable, Sendable {
             L10n.string("Lightning address")
         case .bitcoin:
             L10n.string("Bitcoin Silent Payment")
+        case .monero:
+            L10n.string("Monero address")
         }
     }
 
     /// The address as drawn, which is not always the address as copied.
     ///
     /// A Lightning address is a human-readable handle at 25 characters — showing it whole is
-    /// the point of it, and it fits the settings column with room to spare. A silent payment
-    /// address is 117 characters of base32 that nobody reads end to end, so it takes the
-    /// head-and-tail form the identity sheet gives an npub. Deciding this here rather than
-    /// leaving both to `truncationMode(.middle)` keeps the capsule a predictable width and
-    /// stops the readable one from being clipped by a column that got narrower.
+    /// the point of it, and it fits the settings column with room to spare. Silent payment and
+    /// Monero addresses are long strings nobody reads end to end, so they take the head-and-tail
+    /// form the identity sheet gives an npub. Deciding this here rather than leaving them to
+    /// `truncationMode(.middle)` keeps the capsule a predictable width and stops the readable one
+    /// from being clipped by a column that got narrower.
     var displayAddress: String {
         switch self {
         case .lightning:
             Self.lightningAddress
         case .bitcoin:
             DisplayText.short(Self.bitcoinSilentPaymentAddress, head: 14, tail: 6)
+        case .monero:
+            DisplayText.short(Self.moneroAddress, head: 14, tail: 6)
         }
     }
 

@@ -16,7 +16,17 @@
 import SwiftUI
 
 nonisolated enum WNColor {
-    // MARK: - Backgrounds
+    // MARK: - Native macOS semantic roles (F01–F07)
+
+    static let textPrimary = Color(nsColor: WNNSColor.textPrimary)
+    static let statusError = Color(nsColor: WNNSColor.statusError)
+    static let switchOnTint = Color(nsColor: WNNSColor.switchOnTint)
+
+    // MARK: - Message bubbles (F02, T02, T07)
+
+    static let messageReceivedSecondaryContent = Color(nsColor: WNNSColor.messageReceivedSecondaryContent)
+
+    // MARK: - Legacy shared-palette backgrounds (retained for unmigrated callers)
 
     static let backgroundPrimary = Color(nsColor: WNNSColor.backgroundPrimary)
     static let backgroundSecondary = Color(nsColor: WNNSColor.backgroundSecondary)
@@ -53,8 +63,6 @@ nonisolated enum WNColor {
     static let fillQuaternaryActive = Color(nsColor: WNNSColor.fillQuaternaryActive)
 
     static let fillDestructive = Color(nsColor: WNNSColor.fillDestructive)
-    static let fillDestructiveHover = Color(nsColor: WNNSColor.fillDestructiveHover)
-    static let fillDestructiveActive = Color(nsColor: WNNSColor.fillDestructiveActive)
 
     static let fillDisabled = Color(nsColor: WNNSColor.fillDisabled)
     static let fillContentDisabled = Color(nsColor: WNNSColor.fillContentDisabled)
@@ -78,8 +86,6 @@ nonisolated enum WNColor {
 
     static let intentionInfoBackground = Color(nsColor: WNNSColor.intentionInfoBackground)
     static let intentionInfoContent = Color(nsColor: WNNSColor.intentionInfoContent)
-    static let searchHighlightBackground = Color(nsColor: WNNSColor.searchHighlightBackground)
-    static let searchHighlightContent = Color(nsColor: WNNSColor.searchHighlightContent)
     static let intentionSuccessBackground = Color(nsColor: WNNSColor.intentionSuccessBackground)
     static let intentionSuccessContent = Color(nsColor: WNNSColor.intentionSuccessContent)
     static let intentionWarningBackground = Color(nsColor: WNNSColor.intentionWarningBackground)

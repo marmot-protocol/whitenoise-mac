@@ -34,3 +34,8 @@ struct VoiceRecordingPulseDot: View {
             .accessibilityHidden(true)
     }
 }
+
+#Preview("Voice recording pulse dot") {
+    VoiceRecordingPulseDot()
+        .padding()
+}

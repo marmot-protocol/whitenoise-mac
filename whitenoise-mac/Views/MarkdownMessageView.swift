@@ -35,6 +35,7 @@ struct MarkdownMessageView: View {
 private struct MarkdownMessageContent: View {
     @Environment(\.customEmojiGlyphs) private var customEmoji
     @Environment(\.messageSearchHighlight) private var searchHighlight
+    @Environment(\.messageBubblePolarity) private var bubblePolarity
     let message: MessageItem
     let document: MarkdownDisplayDocument?
     let trailingMetadata: Text?
@@ -56,8 +57,8 @@ private struct MarkdownMessageContent: View {
                 }
                 if document.truncated {
                     Text(L10n.string("… (message truncated)"))
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(MessageTypography.footer)
+                        .foregroundStyle(MarkdownSecondaryContent.color(on: bubblePolarity))
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -93,7 +94,29 @@ private struct MarkdownMessageContent: View {
     }
 }
 
+/// Headings step up from the message's `.body` through Apple's own styles rather than fixed
+/// sizes, so they keep their place in the hierarchy at any text size.
+nonisolated enum MarkdownHeadingStyle {
+    static func font(for level: UInt8) -> Font {
+        switch level {
+        case 1: return .title3.weight(.semibold)
+        case 2: return .headline
+        default: return MessageTypography.bodySemibold
+        }
+    }
+}
+
+/// Markdown's quieter runs — block quotes, list markers, the truncation note — in the secondary
+/// role of the bubble they are drawn on, so a quote inside a sent bubble does not fall back to a
+/// window color that only reads on the received one.
+nonisolated enum MarkdownSecondaryContent {
+    static func color(on polarity: MessageBubblePolarity?) -> Color {
+        polarity?.secondaryContent ?? WNColor.backgroundContentSecondary
+    }
+}
+
 private struct MarkdownBlockView: View {
+    @Environment(\.messageBubblePolarity) private var bubblePolarity
     let block: MarkdownDisplayBlock
     /// This block's path from the top of the message, e.g. `2.l0.1` — see `MessageLinkText`.
     let layoutID: String
@@ -105,7 +128,7 @@ private struct MarkdownBlockView: View {
 
         case .heading(let level, let text):
             MarkdownInlineText(text: text, layoutID: layoutID)
-                .wnFont(Self.headingStyle(for: level))
+                .font(MarkdownHeadingStyle.font(for: level))
 
         case .thematicBreak:
             Divider().padding(.vertical, 2)
@@ -116,14 +139,14 @@ private struct MarkdownBlockView: View {
         case .blockQuote(let blocks):
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 1.5)
-                    .fill(WNColor.borderTertiary)
+                    .fill(MarkdownSecondaryContent.color(on: bubblePolarity))
                     .frame(width: 3)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(blocks) { inner in
                         MarkdownBlockView(block: inner.block, layoutID: "\(layoutID).q\(inner.id)")
                     }
                 }
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .foregroundStyle(MarkdownSecondaryContent.color(on: bubblePolarity))
             }
 
         case .list(let items):
@@ -137,17 +160,6 @@ private struct MarkdownBlockView: View {
         }
     }
 
-    /// Headings carry their weight in the rung itself rather than stacking
-    /// `.fontWeight(.semibold)` on top of a rung: a rung is a size *and* a weight, and a
-    /// weight applied over it is one the ladder no longer controls.
-    private static func headingStyle(for level: UInt8) -> WNTextStyle {
-        switch level {
-        case 1: return .semiBold18
-        case 2: return .semiBold16
-        case 3: return .semiBold14
-        default: return .semiBold14
-        }
-    }
 }
 
 /// Renders a run of inline nodes as a single wrapping `Text`.
@@ -210,6 +222,7 @@ private struct MarkdownCodeBlock: View {
 }
 
 private struct MarkdownListView: View {
+    @Environment(\.messageBubblePolarity) private var bubblePolarity
     let items: [MarkdownDisplayListItem]
     let layoutID: String
 
@@ -236,11 +249,10 @@ private struct MarkdownListView: View {
         case .checkbox(let checked):
             Image(systemName: checked ? "checkmark.square.fill" : "square")
                 .foregroundStyle(
-                    checked ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary
+                    checked ? WNColor.intentionSuccessContent : MarkdownSecondaryContent.color(on: bubblePolarity)
                 )
-                .wnFont(.medium12)
         case .text(let text):
-            Text(text).foregroundStyle(WNColor.backgroundContentSecondary)
+            Text(text).foregroundStyle(MarkdownSecondaryContent.color(on: bubblePolarity))
         }
     }
 }
@@ -255,7 +267,7 @@ private struct MarkdownTableView: View {
             GridRow {
                 ForEach(header) { cell in
                     MarkdownInlineText(text: cell.text, layoutID: "\(layoutID).h\(cell.id)")
-                        .wnFont(.semiBold16)
+                        .font(MessageTypography.bodySemibold)
                 }
             }
             Divider()

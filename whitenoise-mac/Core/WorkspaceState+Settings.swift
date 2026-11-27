@@ -53,6 +53,12 @@ private enum ProfileImageSelectionContext {
 
 @MainActor
 extension WorkspaceState {
+    /// Records or clears an error owned by Settings without touching `workspace.lastError`, so
+    /// Settings panes/sheets and main-window Chat Info never overwrite or clear each other's errors.
+    func setSettingsError(_ message: String?, accountId: String? = nil) {
+        WorkspaceAccountPresentation.settingsError(message, accountId: accountId ?? activeAccountId).post(from: self)
+    }
+
     /// Loads the legacy aggregate settings snapshot (profile, relays, and notifications)
     /// for the active account.
     ///
@@ -159,7 +165,7 @@ extension WorkspaceState {
             beginProfileNostrAddressCheck()
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             profileDraft = ProfileDraft(fallbackName: fallbackName)
             // A profile that could not be read is not a profile with unsaved edits in it. Without
             // this the page would open showing Cancel and Save over a form nobody has touched.
@@ -185,7 +191,7 @@ extension WorkspaceState {
             relaySettings = RelaySettingsSnapshot(lists: lists)
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             relaySettings = .defaults
         }
 
@@ -207,10 +213,8 @@ extension WorkspaceState {
     /// Only that exact message is cleared, so an unrelated failure on the pane survives.
     func refreshNotificationPermissionState() async {
         await refreshNotificationAuthorizationStatus()
-        guard notificationAuthorizationStatus.canPostNotifications,
-            lastError == Self.notificationPermissionGuidance
-        else { return }
-        lastError = nil
+        guard notificationAuthorizationStatus.canPostNotifications else { return }
+        WorkspaceAccountPresentation.clearSettingsErrorIfEquals(Self.notificationPermissionGuidance).post(from: self)
     }
 
     func beginNotificationSettingsOperation() -> UInt64 {
@@ -229,14 +233,20 @@ extension WorkspaceState {
     }
 
     func requestLocalNotificationPermission() async {
-        lastError = nil
+        let accountId = activeAccountId
+        setSettingsError(nil, accountId: accountId)
         do {
-            notificationAuthorizationStatus = try await localNotificationCenter.requestAuthorization()
+            let status = try await localNotificationCenter.requestAuthorization()
+            guard activeAccountId == accountId else { return }
+            notificationAuthorizationStatus = status
             if !notificationAuthorizationStatus.canPostNotifications {
-                lastError = Self.notificationPermissionGuidance
+                setSettingsError(Self.notificationPermissionGuidance, accountId: accountId)
             }
         } catch {
-            await handleNotificationPermissionError(error)
+            guard activeAccountId == accountId else { return }
+            await handleNotificationPermissionError(error, accountId: accountId) { [accountId] in
+                self.activeAccountId == accountId
+            }
         }
     }
 
@@ -247,7 +257,7 @@ extension WorkspaceState {
         let accountRef = activeAccount.accountRef
         let generation = beginNotificationSettingsOperation()
 
-        lastError = nil
+        setSettingsError(nil)
         isSavingNotifications = true
         defer { isSavingNotifications = false }
 
@@ -262,7 +272,7 @@ extension WorkspaceState {
                 } catch {
                     let isCurrent = ownsNotificationSettingsOperation(accountId: accountId, generation: generation)
                     guard isCurrent else { return }
-                    await handleNotificationPermissionError(error) { [accountId, generation] in
+                    await handleNotificationPermissionError(error, accountId: accountId) { [accountId, generation] in
                         self.ownsNotificationSettingsOperation(accountId: accountId, generation: generation)
                     }
                     return
@@ -271,7 +281,7 @@ extension WorkspaceState {
 
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             guard status.canPostNotifications else {
-                lastError = Self.notificationPermissionGuidance
+                setSettingsError(Self.notificationPermissionGuidance, accountId: accountId)
                 return
             }
         }
@@ -286,7 +296,7 @@ extension WorkspaceState {
             }
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
             return
         }
 
@@ -314,7 +324,7 @@ extension WorkspaceState {
             // The snapshot keeps saying native push is on, because in the core it is. The pane
             // still draws that switch off — it reads local alerts first — so the reader is not
             // told about a wake-up that can no longer reach them, and the next load reconciles.
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
         }
     }
 
@@ -328,7 +338,7 @@ extension WorkspaceState {
         let accountRef = activeAccount.accountRef
         let generation = beginNotificationSettingsOperation()
 
-        lastError = nil
+        setSettingsError(nil, accountId: accountId)
         isSavingNotifications = true
         defer { isSavingNotifications = false }
 
@@ -338,7 +348,7 @@ extension WorkspaceState {
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
         }
     }
 
@@ -359,7 +369,7 @@ extension WorkspaceState {
         // the live `activeAccountId`. Capture the account id so an A→B switch during the publish
         // can't misattribute A's profile to B (mirroring `performSettingsLoad`).
         let accountId = activeAccount.id
-        lastError = nil
+        setSettingsError(nil)
         isSavingProfile = true
         defer { isSavingProfile = false }
 
@@ -381,7 +391,7 @@ extension WorkspaceState {
             beginProfileNostrAddressCheck()
         } catch {
             guard activeAccountId == accountId else { return }
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
         }
     }
 
@@ -412,7 +422,7 @@ extension WorkspaceState {
     func discardProfileEdits() {
         guard let publishedProfile else { return }
         profileDraft = publishedProfile
-        lastError = nil
+        setSettingsError(nil)
     }
 
     /// Whether Settings → Profile's fields accept input.
@@ -556,11 +566,20 @@ extension WorkspaceState {
         presentProfileImagePicker(destination: .activeAccount)
     }
 
+    private func setProfileImageError(_ message: String?, for destination: ProfileImagePickerDestination) {
+        switch destination {
+        case .activeAccount:
+            setSettingsError(message)
+        case .signUpDraft:
+            lastError = message
+        }
+    }
+
     /// The shared body of `showProfileImagePicker()` and `showSignUpImagePicker()`. The caller
     /// owns the precondition — an account for one, the sign-up pane for the other — because the
     /// two have nothing in common beyond opening the same sheet.
     func presentProfileImagePicker(destination: ProfileImagePickerDestination) {
-        lastError = nil
+        setProfileImageError(nil, for: destination)
         profileImageSearchGeneration &+= 1
         profileImageSearchQuery = ""
         profileImageResults = []
@@ -596,7 +615,7 @@ extension WorkspaceState {
             guard authenticationMode == .signUp, !isAuthenticating else { return false }
         }
 
-        lastError = nil
+        setProfileImageError(nil, for: destination)
         profileImagePickerDestination = destination
         return true
     }
@@ -608,7 +627,7 @@ extension WorkspaceState {
     /// on every glance.
     func selectProfileImage(_ result: GroupImageSearchResult) {
         guard !isUploadingProfileImage else { return }
-        lastError = nil
+        setProfileImageError(nil, for: profileImagePickerDestination)
         selectedProfileImageResult = selectedProfileImageResult == result ? nil : result
     }
 
@@ -622,7 +641,8 @@ extension WorkspaceState {
             return
         }
 
-        lastError = nil
+        let destination = profileImagePickerDestination
+        setProfileImageError(nil, for: destination)
         profileImageSearchGeneration &+= 1
         let generation = profileImageSearchGeneration
         isSearchingProfileImages = true
@@ -646,7 +666,7 @@ extension WorkspaceState {
             // A search that failed answered nothing, so the empty state goes back to asking for
             // one rather than blaming the spelling of a query that was never run.
             profileImageResultsQuery = nil
-            lastError = UserFacingError.message(for: error)
+            setProfileImageError(UserFacingError.message(for: error), for: destination)
         }
     }
 
@@ -657,7 +677,8 @@ extension WorkspaceState {
     /// says. Throws what went wrong so the crop editor can show it beside the picture — including
     /// `CommitError.busy` while another picture is still saving, which the editor stays open over.
     /// A selection with no account left to save to, or superseded by a newer one, returns quietly.
-    func setProfileImage(croppedImageData data: Data) async throws {
+    func setProfileImage(croppedImageData data: Data, expectedAccountId: String? = nil) async throws {
+        if let expectedAccountId, activeAccountId != expectedAccountId { return }
         guard !isUploadingProfileImage else { throw AvatarImageCropper.CommitError.busy }
         guard let context = beginProfileImageSelection() else { return }
         defer { finishProfileImageSelection(context) }
@@ -676,7 +697,7 @@ extension WorkspaceState {
         case .activeAccount:
             guard let client, let activeAccount else { return nil }
             profileImageUploadGeneration &+= 1
-            lastError = nil
+            setSettingsError(nil, accountId: activeAccount.id)
             isUploadingProfileImage = true
             return .upload(
                 ProfileImageUploadContext(
@@ -778,7 +799,7 @@ extension WorkspaceState {
         } catch {
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             notificationSettings = .defaults
-            lastError = UserFacingError.message(for: error)
+            setSettingsError(UserFacingError.message(for: error), accountId: accountId)
         }
     }
 }

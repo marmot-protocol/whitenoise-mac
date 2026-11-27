@@ -20,7 +20,7 @@ import SwiftUI
 enum WNPrimaryButtonSize: CaseIterable {
     /// The quiet end of the scale: a confirm that closes a panel whose content is the point, or a
     /// primary sitting in a row of chrome rather than under a form. The secondary tier has had a
-    /// `.small` rung all along — `WNSecondaryButtonStyle` keys one off `controlSize` — so without
+    /// `.small` rung all along — native `.bordered` keys off `controlSize` — so without
     /// this the two tiers could not be paired at the small end of the scale at all.
     case small
     /// A button standing beside other controls — a sheet's confirm, a row's action.
@@ -58,9 +58,10 @@ enum WNPrimaryButtonSize: CaseIterable {
     }
 
     /// A size names no shape of its own. `WNPrimaryButton` asks `WNButtonMetrics` for one using
-    /// `controlSize` below, which is the only way a primary button and the `.wnSecondary` one
-    /// beside it can be promised the same outline — a radius stored here would be a second copy of
-    /// the table, and a second copy is what let the two tiers disagree in the first place.
+    /// `controlSize` below, which is the only way a primary button and the
+    /// `.wnSecondaryButtonStyle()` one beside it can be promised the same outline — a radius stored
+    /// here would be a second copy of the table, and a second copy is what let the two tiers
+    /// disagree in the first place.
     var controlSize: ControlSize {
         switch self {
         case .small: .small

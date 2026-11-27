@@ -15,10 +15,8 @@ struct SettingsPanelView: View {
     let model: SettingsViewModel
     let deviceLinking: DeviceLinkingViewModel
 
-    private var page: SettingsPage {
-        if case .settings(let page) = workspace.selection { return page }
-        return .overview
-    }
+    var page: SettingsPage = .profile
+    @State private var loadedLegacyAccountID: String?
 
     private var loadKey: SettingsPanelLoadKey {
         SettingsPanelLoadKey(accountID: workspace.activeAccountId, page: page)
@@ -38,6 +36,7 @@ struct SettingsPanelView: View {
             case .devices:
                 DevicesSettingsView(
                     model: deviceLinking,
+                    profileName: workspace.activeAccount?.displayName,
                     otherProfileRequests: session.linkRequests.requests(
                         excluding: workspace.activeAccount?.accountIdHex, accounts: workspace.signedInAccounts),
                     onReviewOtherProfile: { request in
@@ -90,18 +89,12 @@ struct SettingsPanelView: View {
                 }
             }
         }
-        // The same surface the transcript and the group/contact detail panes draw on, rather than
-        // the glass wash this used to be. A settings page is a reading surface in the content
-        // column, so it takes the reading surface: `backgroundPrimary`. The glass wash never
-        // reached that value in light appearance — a material over `backgroundSecondary` with a
-        // partial white tint lands visibly grayer than the chat beside it, which is the whole
-        // complaint. Glass stays where it belongs in settings: the header (`GlassToolbarBackground`)
-        // and the sheets that lift off this pane.
-        .background {
-            MessagesTranscriptBackground()
-        }
         .task(id: loadKey) {
-            guard page.usesLegacyWorkspaceSettings else { return }
+            guard page.usesLegacyWorkspaceSettings,
+                let accountID = workspace.activeAccountId,
+                loadedLegacyAccountID != accountID
+            else { return }
+            loadedLegacyAccountID = accountID
             await workspace.loadSettingsData()
         }
     }

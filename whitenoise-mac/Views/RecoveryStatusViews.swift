@@ -10,21 +10,21 @@ struct CatchingUpLabel: View {
                 .controlSize(.mini)
             Text(text)
         }
-        .foregroundStyle(WNColor.backgroundContentSecondary)
+        .foregroundStyle(.secondary)
         .accessibilityElement(children: .combine)
     }
 }
 
 /// Under the chat list header while the account's inbox or any of its chats is still catching up
-/// after time offline, so a quiet list does not read as an up-to-date one. Each chat's own header
-/// says so too (`ConversationHeader`).
+/// after time offline, so a quiet list does not read as an up-to-date one. Each chat's toolbar
+/// subtitle says so too (`ConversationToolbarIdentity`).
 struct AccountCatchingUpRow: View {
     let model: AccountRecoveryStatusViewModel
 
     var body: some View {
         if model.isCatchingUp {
             CatchingUpLabel(text: L10n.string("Catching up on messages…"))
-                .wnFont(.medium12)
+                .font(.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
@@ -40,6 +40,6 @@ struct AccountCatchingUpRow: View {
 
 #Preview("Header label") {
     CatchingUpLabel(text: L10n.string("Catching up…"))
-        .wnFont(.medium10)
+        .font(.caption)
         .padding()
 }

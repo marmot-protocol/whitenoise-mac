@@ -37,7 +37,7 @@ struct GroupDeveloperSection: View {
                     }
                 } else if let status = workspace.groupTranscriptExportStatus {
                     Label(status, systemImage: "checkmark.circle")
-                        .wnFont(.medium12)
+                        .font(.callout)
                         .foregroundStyle(WNColor.intentionSuccessContent)
                 }
             }

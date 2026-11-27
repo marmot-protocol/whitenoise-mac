@@ -12,6 +12,7 @@ struct MediaDownloadFeedbackToast: View {
     static let displayDuration: Duration = .seconds(4)
 
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The timer holds while the pointer is on the card or the toast has keyboard or VoiceOver
     /// focus, so Show in Finder is still there when the user reaches it.
     @State private var isHovering = false
@@ -32,7 +33,7 @@ struct MediaDownloadFeedbackToast: View {
                     }
                     .padding(.leading, 16)
                     .padding(.bottom, 16)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
                     // A new value (another gesture folded in), or the pointer or focus leaving,
                     // restarts it.
                     .task(id: DismissalTimer(feedback: feedback, isHeld: isHeld)) {
@@ -47,7 +48,7 @@ struct MediaDownloadFeedbackToast: View {
                     }
             }
         }
-        .animation(.smooth(duration: 0.2), value: workspace.mediaDownloadFeedback)
+        .animation(reduceMotion ? .none : .smooth(duration: 0.2), value: workspace.mediaDownloadFeedback)
     }
 }
 
@@ -85,8 +86,8 @@ struct MediaDownloadFeedbackToastContent: View {
                         L10n.plural(
                             "%lld files downloaded", Int64(feedback.savedCount), locale: locale)
                     )
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
                 }
                 if feedback.failedCount > 0 {
                     Text(
@@ -94,8 +95,8 @@ struct MediaDownloadFeedbackToastContent: View {
                             "%lld files couldn't be downloaded", Int64(feedback.failedCount),
                             locale: locale)
                     )
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             .multilineTextAlignment(.leading)
@@ -108,7 +109,7 @@ struct MediaDownloadFeedbackToastContent: View {
                     NSWorkspace.shared.activateFileViewerSelecting(feedback.savedFileURLs)
                 }
                 .buttonStyle(.link)
-                .wnFont(.medium12)
+                .font(.subheadline)
                 .focused($isButtonKeyboardFocused)
                 .accessibilityFocused($isButtonAccessibilityFocused)
             }
@@ -116,10 +117,14 @@ struct MediaDownloadFeedbackToastContent: View {
         .onChange(of: isFocused) { _, focused in focusChanged(focused) }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        // Glass first, cap second. `frame(maxWidth:)` fills whatever it is proposed, so capping
+        // Material first, cap second. `frame(maxWidth:)` fills whatever it is proposed, so capping
         // before the background paints a 320pt card behind "1 file downloaded"; capping after
         // leaves the card hugging its text and only bounds how wide a long translation may wrap.
-        .glassCard(cornerRadius: 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+        }
         .frame(maxWidth: 320, alignment: .leading)
         .accessibilityElement(children: .contain)
     }

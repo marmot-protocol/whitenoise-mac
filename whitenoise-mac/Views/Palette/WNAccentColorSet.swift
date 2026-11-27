@@ -2,13 +2,16 @@
 //  WNAccentColorSet.swift
 //  whitenoise-mac
 //
-//  The twelve accent sets, ported from `_lightAccentColors` / `_darkAccentColors`
-//  in the sibling repository's `lib/theme/semantic_colors.dart`.
+//  The twelve identity accent sets, derived dynamically from Apple's native macOS
+//  `NSColor.system*` palette so every identity keeps a consistent hue across Light
+//  and Dark appearances while maintaining crisp contrast against both the window
+//  surface (no border ring needed) and the initials drawn on top (WCAG AAA ≥ 7:1).
 //
 //  Accents are not a second palette to decorate with — they exist so that one
 //  person is consistently one color. Everything else in the app stays neutral.
 //
 
+import AppKit
 import SwiftUI
 
 /// One accent, as the four roles it plays together. Never mix roles across sets:
@@ -20,17 +23,14 @@ import SwiftUI
 /// was called — and one of these roles is handed to AppKit for the composer's
 /// mention tokens.
 nonisolated struct WNAccentColorSet {
-    /// The surface. `X50` in light appearance, `X950` in dark.
+    /// The adaptive avatar disc surface derived from Apple's native system color.
     let nsFill: NSColor
-    /// Primary content on `fill`. `X900` in light, `X50` in dark — it crosses over
-    /// with `fill` so the pair keeps its contrast in both appearances.
+    /// Primary initials/content on `fill`. Crosses over with `fill` between Light and Dark
+    /// so every pair clears WCAG AAA contrast in both appearances.
     let nsContentPrimary: NSColor
-    /// Supporting content on `fill`, and the color a mention of this person is
-    /// written in. `X500` in both appearances: the one step of each ramp that is
-    /// neither the light surface nor the dark one, and therefore the only one that
-    /// stays legible without knowing which fill it landed on.
+    /// Supporting content and mention color: Apple's native adaptive system color directly.
     let nsContentSecondary: NSColor
-    /// The outline around `fill`. `X200` in both appearances.
+    /// Selection/focus ring accent for this hue.
     let nsBorder: NSColor
 
     let fill: Color
@@ -40,96 +40,78 @@ nonisolated struct WNAccentColorSet {
 
     fileprivate init(
         _ name: String,
-        lightFill: NSColor,
-        darkFill: NSColor,
-        lightContent: NSColor,
-        darkContent: NSColor,
-        contentSecondary: NSColor,
-        border: NSColor
+        systemBase: @escaping @Sendable () -> NSColor
     ) {
-        self.nsFill = .wnDynamic("wn.accent.\(name).fill", light: lightFill, dark: darkFill)
-        self.nsContentPrimary = .wnDynamic(
-            "wn.accent.\(name).contentPrimary", light: lightContent, dark: darkContent)
-        self.nsContentSecondary = contentSecondary
-        self.nsBorder = border
+        self.nsFill = NSColor(name: "wn.accent.\(name).fill") { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let resolved = Self.resolveSRGB(systemBase())
+            if isDark {
+                let lum = Self.relativeLuminance(resolved)
+                let fraction: CGFloat = lum > 0.55 ? 0.36 : (lum > 0.35 ? 0.41 : 0.54)
+                return Self.mix(.black, resolved, t: fraction)
+            } else {
+                return Self.mix(.white, resolved, t: 0.24)
+            }
+        }
+        self.nsContentPrimary = NSColor(name: "wn.accent.\(name).contentPrimary") { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let resolved = Self.resolveSRGB(systemBase())
+            return isDark
+                ? Self.mix(resolved, .white, t: 0.92)
+                : Self.mix(resolved, .black, t: 0.62)
+        }
+        self.nsContentSecondary = NSColor(name: "wn.accent.\(name).contentSecondary") { _ in
+            Self.resolveSRGB(systemBase())
+        }
+        self.nsBorder = NSColor(name: "wn.accent.\(name).border") { _ in
+            let resolved = Self.resolveSRGB(systemBase())
+            return Self.mix(.white, resolved, t: 0.55)
+        }
 
         self.fill = Color(nsColor: nsFill)
         self.contentPrimary = Color(nsColor: nsContentPrimary)
         self.contentSecondary = Color(nsColor: nsContentSecondary)
         self.border = Color(nsColor: nsBorder)
     }
+
+    private static func resolveSRGB(_ color: NSColor) -> NSColor {
+        color.usingColorSpace(.sRGB) ?? color
+    }
+
+    fileprivate static func mix(_ lhs: NSColor, _ rhs: NSColor, t: CGFloat) -> NSColor {
+        let a = resolveSRGB(lhs)
+        let b = resolveSRGB(rhs)
+        return NSColor(
+            srgbRed: a.redComponent * (1 - t) + b.redComponent * t,
+            green: a.greenComponent * (1 - t) + b.greenComponent * t,
+            blue: a.blueComponent * (1 - t) + b.blueComponent * t,
+            alpha: 1
+        )
+    }
+
+    private static func relativeLuminance(_ color: NSColor) -> Double {
+        let s = resolveSRGB(color)
+        func linear(_ component: CGFloat) -> Double {
+            let v = Double(component)
+            return v <= 0.039_28 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(s.redComponent) + 0.7152 * linear(s.greenComponent) + 0.0722 * linear(s.blueComponent)
+    }
 }
 
 nonisolated enum WNAccentColors {
-    static let blue = WNAccentColorSet(
-        "blue",
-        lightFill: WNColorRamp.blue50, darkFill: WNColorRamp.blue950,
-        lightContent: WNColorRamp.blue900, darkContent: WNColorRamp.blue50,
-        contentSecondary: WNColorRamp.blue500, border: WNColorRamp.blue200)
-
-    static let cyan = WNAccentColorSet(
-        "cyan",
-        lightFill: WNColorRamp.cyan50, darkFill: WNColorRamp.cyan950,
-        lightContent: WNColorRamp.cyan900, darkContent: WNColorRamp.cyan50,
-        contentSecondary: WNColorRamp.cyan500, border: WNColorRamp.cyan200)
-
-    static let emerald = WNAccentColorSet(
-        "emerald",
-        lightFill: WNColorRamp.emerald50, darkFill: WNColorRamp.emerald950,
-        lightContent: WNColorRamp.emerald900, darkContent: WNColorRamp.emerald50,
-        contentSecondary: WNColorRamp.emerald500, border: WNColorRamp.emerald200)
-
-    static let fuchsia = WNAccentColorSet(
-        "fuchsia",
-        lightFill: WNColorRamp.fuchsia50, darkFill: WNColorRamp.fuchsia950,
-        lightContent: WNColorRamp.fuchsia900, darkContent: WNColorRamp.fuchsia50,
-        contentSecondary: WNColorRamp.fuchsia500, border: WNColorRamp.fuchsia200)
-
-    static let indigo = WNAccentColorSet(
-        "indigo",
-        lightFill: WNColorRamp.indigo50, darkFill: WNColorRamp.indigo950,
-        lightContent: WNColorRamp.indigo900, darkContent: WNColorRamp.indigo50,
-        contentSecondary: WNColorRamp.indigo500, border: WNColorRamp.indigo200)
-
-    static let lime = WNAccentColorSet(
-        "lime",
-        lightFill: WNColorRamp.lime50, darkFill: WNColorRamp.lime950,
-        lightContent: WNColorRamp.lime900, darkContent: WNColorRamp.lime50,
-        contentSecondary: WNColorRamp.lime500, border: WNColorRamp.lime200)
-
-    static let orange = WNAccentColorSet(
-        "orange",
-        lightFill: WNColorRamp.orange50, darkFill: WNColorRamp.orange950,
-        lightContent: WNColorRamp.orange900, darkContent: WNColorRamp.orange50,
-        contentSecondary: WNColorRamp.orange500, border: WNColorRamp.orange200)
-
-    static let rose = WNAccentColorSet(
-        "rose",
-        lightFill: WNColorRamp.rose50, darkFill: WNColorRamp.rose950,
-        lightContent: WNColorRamp.rose900, darkContent: WNColorRamp.rose50,
-        contentSecondary: WNColorRamp.rose500, border: WNColorRamp.rose200)
-
-    static let sky = WNAccentColorSet(
-        "sky",
-        lightFill: WNColorRamp.sky50, darkFill: WNColorRamp.sky950,
-        lightContent: WNColorRamp.sky900, darkContent: WNColorRamp.sky50,
-        contentSecondary: WNColorRamp.sky500, border: WNColorRamp.sky200)
-
-    static let teal = WNAccentColorSet(
-        "teal",
-        lightFill: WNColorRamp.teal50, darkFill: WNColorRamp.teal950,
-        lightContent: WNColorRamp.teal900, darkContent: WNColorRamp.teal50,
-        contentSecondary: WNColorRamp.teal500, border: WNColorRamp.teal200)
-
-    static let violet = WNAccentColorSet(
-        "violet",
-        lightFill: WNColorRamp.violet50, darkFill: WNColorRamp.violet950,
-        lightContent: WNColorRamp.violet900, darkContent: WNColorRamp.violet50,
-        contentSecondary: WNColorRamp.violet500, border: WNColorRamp.violet200)
-
-    static let amber = WNAccentColorSet(
-        "amber",
-        lightFill: WNColorRamp.amber50, darkFill: WNColorRamp.amber950,
-        lightContent: WNColorRamp.amber900, darkContent: WNColorRamp.amber50,
-        contentSecondary: WNColorRamp.amber500, border: WNColorRamp.amber200)
+    static let blue = WNAccentColorSet("blue") { .systemBlue }
+    static let cyan = WNAccentColorSet("cyan") { .systemCyan }
+    static let emerald = WNAccentColorSet("emerald") { .systemGreen }
+    static let fuchsia = WNAccentColorSet("fuchsia") { .systemPink }
+    static let indigo = WNAccentColorSet("indigo") { .systemIndigo }
+    static let lime = WNAccentColorSet("lime") {
+        WNAccentColorSet.mix(.systemGreen, .systemYellow, t: 0.45)
+    }
+    static let orange = WNAccentColorSet("orange") { .systemOrange }
+    static let rose = WNAccentColorSet("rose") { .systemRed }
+    static let sky = WNAccentColorSet("sky") { .systemBrown }
+    static let teal = WNAccentColorSet("teal") { .systemMint }
+    static let violet = WNAccentColorSet("violet") { .systemPurple }
+    static let amber = WNAccentColorSet("amber") { .systemYellow }
 }

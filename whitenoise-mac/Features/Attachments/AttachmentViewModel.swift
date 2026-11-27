@@ -76,6 +76,9 @@ final class AttachmentViewModel {
     @ObservationIgnored private var version: AttachmentHistoryVersion?
     @ObservationIgnored private var transferSubscription: AttachmentTransferSubscription?
     @ObservationIgnored private var transferTask: Task<Void, Never>?
+    @ObservationIgnored private var transferObservationOwners: Set<UUID> = []
+    @ObservationIgnored private var didRegisterTransferOwner = false
+    @ObservationIgnored private var observedTransferTargets: [AttachmentLocalTargetFfi] = []
 
     init(accountRef: String, groupIdHex: String, runtime: any MarmotRuntime) {
         self.accountRef = accountRef
@@ -84,6 +87,7 @@ final class AttachmentViewModel {
     }
 
     func refreshHistory(limit: UInt32 = 50) async {
+        guard !isLoading else { return }
         cursor = nil
         version = nil
         entries = []
@@ -97,21 +101,60 @@ final class AttachmentViewModel {
     }
 
     func observeTransfers(for targets: [AttachmentLocalTargetFfi]) {
-        stopTransferObservation()
         let observedTargets = Array(targets.prefix(64))
         guard !observedTargets.isEmpty else {
+            cancelTransferTask()
             transfers = AttachmentTransferSnapshotFfi(items: [])
             transfersByTarget = [:]
             return
         }
+        if transferTask != nil, observedTransferTargets == observedTargets {
+            return
+        }
+        cancelTransferTask()
+        observedTransferTargets = observedTargets
         transferTask = Task { [weak self] in
             await self?.runTransferSubscription(targets: observedTargets)
         }
     }
 
+    /// Registers a surface (such as the inspector strip or the shared-media library) that depends
+    /// on live transfer snapshots. Closing one surface only stops observation once the last owner
+    /// ends.
+    @discardableResult
+    func beginTransferObservation() -> UUID {
+        didRegisterTransferOwner = true
+        let token = UUID()
+        transferObservationOwners.insert(token)
+        if transferTask == nil, transferSubscription == nil {
+            let targets = acceptedTargets
+            if !targets.isEmpty {
+                observeTransfers(for: targets)
+            }
+        }
+        return token
+    }
+
+    func endTransferObservation(_ token: UUID) {
+        guard transferObservationOwners.remove(token) != nil else { return }
+        if transferObservationOwners.isEmpty {
+            cancelTransferTask()
+        }
+    }
+
     func stopTransferObservation() {
+        transferObservationOwners.removeAll()
+        cancelTransferTask()
+    }
+
+    private var canObserveTransfers: Bool {
+        !didRegisterTransferOwner || !transferObservationOwners.isEmpty
+    }
+
+    private func cancelTransferTask() {
         transferTask?.cancel()
         transferTask = nil
+        observedTransferTargets = []
         if let transferSubscription {
             self.transferSubscription = nil
             runtime.cancelAttachmentTransfers(subscription: transferSubscription)
@@ -189,11 +232,21 @@ final class AttachmentViewModel {
     }
 
     func refreshLocalAssets() async {
+        let targets = await reloadLocalAssetsOnly()
+        guard let targets, !Task.isCancelled else { return }
+        if targets.isEmpty {
+            observeTransfers(for: [])
+        } else if canObserveTransfers {
+            observeTransfers(for: targets)
+        }
+    }
+
+    @discardableResult
+    private func reloadLocalAssetsOnly() async -> [AttachmentLocalTargetFfi]? {
         let targets = acceptedTargets
         guard !targets.isEmpty else {
             localAssetsByTarget = [:]
-            observeTransfers(for: [])
-            return
+            return []
         }
         do {
             var replacements: [AttachmentLocalTargetFfi: AttachmentLocalAssetFfi] = [:]
@@ -208,14 +261,16 @@ final class AttachmentViewModel {
             }
             try Task.checkCancellation()
             localAssetsByTarget = replacements
-            observeTransfers(for: targets)
             error = nil
+            return targets
         } catch is CancellationError {
-            return
+            return nil
         } catch let featureError as AttachmentFeatureError {
             error = featureError
+            return nil
         } catch {
             self.error = .unavailable(UserFacingError.message(for: error))
+            return nil
         }
     }
 
@@ -337,6 +392,7 @@ final class AttachmentViewModel {
                     indexed[target] = status
                 }
                 transfersByTarget = indexed
+                await reloadLocalAssetsOnly()
             }
         } catch is CancellationError {
             return

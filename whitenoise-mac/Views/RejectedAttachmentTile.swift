@@ -44,9 +44,9 @@ struct RejectedAttachmentTile: View {
         } label: {
             VStack(spacing: 5) {
                 Image(systemName: rejection.mediaKind.systemImageName)
-                    .wnFont(.semiBold18)
+                    .font(.title3)
                 Text(rejection.displayName(locale: locale))
-                    .wnFont(.medium10)
+                    .font(.caption2)
                     .lineLimit(2)
                     .truncationMode(.middle)
                     .multilineTextAlignment(.center)
@@ -90,7 +90,7 @@ struct RejectedAttachmentTile: View {
 private struct RejectedAttachmentInfoBadge: View {
     var body: some View {
         Image(systemName: "info.circle.fill")
-            .wnFont(.semiBold12)
+            .font(.caption.weight(.semibold))
             .symbolRenderingMode(.palette)
             // Two-layer glyph: a white "i" punched into a red disc.
             .foregroundStyle(WNColor.fillContentQuaternary, WNColor.fillDestructive)
@@ -106,16 +106,16 @@ struct RejectedAttachmentExplanation: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L10n.string("This file wasn't attached", locale: locale))
-                .wnFont(.bold14)
-                .foregroundStyle(WNColor.backgroundContentDestructive)
+                .font(.headline)
+                .foregroundStyle(WNColor.intentionErrorContent)
             Text(rejection.displayName(locale: locale))
-                .wnFont(.semiBold12)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(WNColor.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Text(rejection.reasonDescription(locale: locale))
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)

@@ -88,8 +88,7 @@ struct ChatListSelectionBar: View {
     }
 }
 
-/// One of the bar's round buttons, drawn like the chat-list header's controls. Icon-only for the
-/// drawer's width; the title rides on the tooltip and the accessibility label.
+/// Native bordered icon button for bulk actions in the chat-list selection bar.
 private struct ChatListSelectionActionButton: View {
     let title: String
     let systemImage: String
@@ -99,91 +98,43 @@ private struct ChatListSelectionActionButton: View {
 
     var body: some View {
         Button(role: role, action: action) {
-            ChatListSelectionActionGlyph(systemImage: systemImage, isDestructive: role == .destructive)
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .frame(width: 24, height: 22)
         }
-        .buttonStyle(.plain)
+        .wnSecondaryButtonStyle()
+        .controlSize(.regular)
         .help(title)
         .accessibilityLabel(title)
         .accessibilityIdentifier(identifier)
     }
 }
 
-private struct ChatListSelectionActionGlyph: View {
-    @Environment(\.isEnabled) private var isEnabled
-    let systemImage: String
-    var isDestructive = false
-
-    var body: some View {
-        Image(systemName: systemImage)
-            .wnFont(.semiBold14)
-            .foregroundStyle(
-                !isEnabled
-                    ? WNColor.fillContentDisabled
-                    : isDestructive ? WNColor.backgroundContentDestructive : WNColor.backgroundContentPrimary
-            )
-            .frame(width: 34, height: 34)
-            .background {
-                MessagesCircleControlBackground()
-            }
-            .contentShape(.circle)
-    }
-}
-
-/// Mute, with the same lengths as a row's Mute submenu. A popover rather than a `Menu`: a menu
-/// flattens a custom label on macOS, which would lose the round control.
+/// Native Mute duration menu in the chat-list selection bar, matching a row's Mute submenu.
 private struct ChatListSelectionMuteButton: View {
     @Environment(\.locale) private var locale
-    @State private var isPresented = false
     let mute: (ChatMuteDuration) -> Void
 
     var body: some View {
-        Button {
-            isPresented = true
+        Menu {
+            ForEach(ChatMuteDuration.allCases) { duration in
+                Button {
+                    mute(duration)
+                } label: {
+                    Label(L10n.string(duration.titleKey, locale: locale), systemImage: duration.systemImage)
+                }
+            }
         } label: {
-            ChatListSelectionActionGlyph(systemImage: "bell.slash")
+            Label(L10n.string("Mute", locale: locale), systemImage: "bell.slash")
+                .labelStyle(.iconOnly)
+                .frame(width: 24, height: 22)
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderedButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .help(L10n.string("Mute", locale: locale))
         .accessibilityLabel(L10n.string("Mute", locale: locale))
         .accessibilityIdentifier("chat.selection.mute")
-        .popover(isPresented: $isPresented, arrowEdge: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(ChatMuteDuration.allCases) { duration in
-                    ChatListSelectionMuteOption(duration: duration) {
-                        isPresented = false
-                        mute(duration)
-                    }
-                }
-            }
-            .padding(6)
-            // Popovers do not inherit the injected locale.
-            .environment(\.locale, locale)
-        }
-    }
-}
-
-private struct ChatListSelectionMuteOption: View {
-    @Environment(\.locale) private var locale
-    @State private var isHovered = false
-    let duration: ChatMuteDuration
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(L10n.string(duration.titleKey, locale: locale), systemImage: duration.systemImage)
-                .labelStyle(.titleAndIcon)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .frame(minWidth: 180, alignment: .leading)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isHovered ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
-        }
-        .onHover { isHovered = $0 }
     }
 }
 

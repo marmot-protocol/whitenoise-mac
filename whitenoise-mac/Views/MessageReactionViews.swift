@@ -32,7 +32,7 @@ struct MessageReactionChips: View {
                     ReactionEmojiGlyph(emoji: reaction.emoji, image: emojiImages[reaction.emoji])
                     if reaction.count > 1 {
                         Text(verbatim: MessageReactionChipRow.countLabel(for: reaction.count))
-                            .wnFont(.semiBold10.monospacedDigit())
+                            .font(.caption2.weight(.semibold).monospacedDigit())
                             // Paired with the pill's own fill: the resting pill is a `background*`
                             // surface, the selected one a `fill*`. The two tokens resolve alike
                             // today, which is exactly why naming the right one matters — see the
@@ -40,7 +40,7 @@ struct MessageReactionChips: View {
                             .foregroundStyle(
                                 reaction.isOwn
                                     ? WNColor.fillContentSecondary
-                                    : WNColor.backgroundContentPrimary)
+                                    : WNColor.textPrimary)
                     }
                 }
             }
@@ -49,14 +49,15 @@ struct MessageReactionChips: View {
                     onOpenViewer(nil)
                 } label: {
                     Text(verbatim: "+\(row.hiddenGroupCount)")
-                        .wnFont(.semiBold10.monospacedDigit())
-                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(WNColor.textPrimary)
                 }
                 // "+2" alone says nothing out loud, and the pill's job is to open the full list.
                 // The catalog's existing "More" — the message overflow control's label — rather
                 // than a reactions-specific string: it is the same plain adjective in all nine
                 // translations, and it is what this pill means.
                 .accessibilityLabel(L10n.string("More"))
+                .help(L10n.string("More"))
             }
         }
     }
@@ -91,7 +92,7 @@ private struct MessageReactionChipPill<Label: View>: View {
             HStack(spacing: 2) {
                 label
             }
-            .wnFont(.medium12)
+            .font(.caption)
             .padding(.horizontal, MessageReactionChips.horizontalInset)
             .frame(height: MessageReactionChips.pillHeight)
             .background {
@@ -106,6 +107,7 @@ private struct MessageReactionChipPill<Label: View>: View {
         }
         .buttonStyle(.plain)
         .contentShape(Capsule(style: .continuous))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -180,6 +182,88 @@ enum MessageReactionChipPlacement: Equatable {
         case .ridingSurfaceEdge:
             return -(contentSpacing + overlap)
         }
+    }
+}
+
+/// Whether a bubble's hover strip is drawn, and which of its popovers is open for which message.
+///
+/// One value owned by `MessageBubble`, read and written directly by the strip's popover bindings
+/// (K06, P02, T06). The picker's open state used to live in the strip and reach the bubble through
+/// an `onChange` copy, and the strip cleared that copy from `onDisappear`. A hover flicker could
+/// replace the strip just before the click; the old instance's late `onDisappear` then cleared the
+/// flag under a picker that was already open, and the first step off the row toward the picker
+/// took the strip, the picker's anchor, and the picker with it. Now there is no copy to fall out of
+/// step: the popover's binding is this value.
+///
+/// The open popover is bound to the message ID that opened it. A pick is accepted only for that
+/// message, and `reconcile(with:)` closes the popover when the row stops offering it. The table
+/// cell's `.id(rowId)` and the transcript's `.id(chat.id)` tear the whole bubble down on a recycle,
+/// chat switch or account switch, so the popover cannot follow the row to another message.
+nonisolated struct MessageInlineActionPresentation: Equatable, Sendable {
+    enum Popover: Equatable, Sendable {
+        case reactionPicker
+        case overflow
+    }
+
+    /// What the row currently allows. The strip's popovers close when it stops allowing them.
+    struct Eligibility: Equatable, Sendable {
+        let messageID: String
+        let supportsChatActions: Bool
+        let canReact: Bool
+        let isSelectionMode: Bool
+    }
+
+    private(set) var popover: Popover?
+    private(set) var messageID: String?
+    /// The pointer is over the bubble's row.
+    var isHoveringRow = false
+    /// The pointer is over the strip itself, which can overhang the row's edge on a short bubble.
+    var isHoveringStrip = false
+
+    func isPresented(_ popover: Popover, for messageID: String) -> Bool {
+        self.popover == popover && self.messageID == messageID
+    }
+
+    /// The setter behind a popover's `isPresented` binding. A `false` only closes that popover for
+    /// that message, so SwiftUI resetting one binding cannot close the other popover.
+    mutating func setPresented(_ isPresented: Bool, _ popover: Popover, for messageID: String) {
+        if isPresented {
+            self.popover = popover
+            self.messageID = messageID
+        } else if self.isPresented(popover, for: messageID) {
+            dismiss()
+        }
+    }
+
+    /// The strip shows while the pointer is over the row or the strip, and for as long as one of
+    /// its popovers is open, except during multi-message selection mode where per-message hover
+    /// actions are suppressed. Leaving the row on the way into the picker does not remove the
+    /// picker's anchor.
+    func showsStrip(supportsChatActions: Bool, isSelectionMode: Bool) -> Bool {
+        supportsChatActions && !isSelectionMode && (isHoveringRow || isHoveringStrip || popover != nil)
+    }
+
+    /// Whether a pick from the open picker may be sent to `messageID`.
+    func acceptsReactionPick(for messageID: String) -> Bool {
+        isPresented(.reactionPicker, for: messageID)
+    }
+
+    /// Closes an open popover that the row no longer offers: another message, a row that has lost
+    /// its chat actions, selection mode, or a picker on a message that can no longer take
+    /// reactions. The overflow menu stays open when only reacting stops.
+    mutating func reconcile(with eligibility: Eligibility) {
+        guard let popover else { return }
+        let isStillOffered =
+            messageID == eligibility.messageID
+            && eligibility.supportsChatActions
+            && !eligibility.isSelectionMode
+            && (popover != .reactionPicker || eligibility.canReact)
+        if !isStillOffered { dismiss() }
+    }
+
+    private mutating func dismiss() {
+        popover = nil
+        messageID = nil
     }
 }
 
@@ -281,7 +365,7 @@ struct MessageReactionDetailsView: View {
                     Label(L10n.string("Couldn’t load reactions"), systemImage: "exclamationmark.triangle")
                 } actions: {
                     Button(L10n.string("Retry")) { model.retry() }
-                        .buttonStyle(.wnSecondary)
+                        .wnSecondaryButtonStyle()
                 }
             case .empty:
                 ContentUnavailableView {
@@ -320,15 +404,12 @@ private struct MessageReactionRefreshFailedRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(L10n.string("Couldn’t refresh reactions."))
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .font(.caption)
+                .foregroundStyle(WNColor.intentionErrorContent)
             Spacer(minLength: 8)
-            // `.link` draws in AppKit's link color, system blue, and ignores `.tint`; only a
-            // foreground style overrides it.
             Button(L10n.string("Retry"), action: onRetry)
-                .buttonStyle(.link)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
-                .wnFont(.semiBold10)
+                .wnSecondaryButtonStyle()
+                .controlSize(.small)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -367,6 +448,7 @@ private struct MessageReactionFilterRow: View {
 /// scroll view so it stays reachable however many emoji kinds the message carries.
 private struct MessageReactionAddButton: View {
     @State private var isPickerPresented = false
+    @State private var isHovering = false
     let quickReactions: [String]
     let selectedEmojis: Set<String>
     let customEmoji: CustomEmojiPickerContent?
@@ -377,15 +459,16 @@ private struct MessageReactionAddButton: View {
             isPickerPresented = true
         } label: {
             Image(systemName: "face.smiling")
-                .wnFont(.semiBold12)
+                .font(.caption.weight(.semibold))
                 // A filter pill at rest: a button on a `background*` surface takes the
                 // fill/fill-content pair.
                 .foregroundStyle(WNColor.fillContentSecondary)
                 .frame(width: 30, height: 30)
-                .background(WNColor.fillSecondary, in: Circle())
+                .background(isHovering ? WNColor.fillSecondaryHover : WNColor.fillSecondary, in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
         .accessibilityLabel(L10n.string("React"))
         .help(L10n.string("React"))
         .popover(isPresented: $isPickerPresented, arrowEdge: .bottom) {
@@ -400,6 +483,7 @@ private struct MessageReactionAddButton: View {
 }
 
 private struct MessageReactionFilterPill<Label: View>: View {
+    @State private var isHovering = false
     let isSelected: Bool
     let count: Int
     let action: () -> Void
@@ -410,18 +494,24 @@ private struct MessageReactionFilterPill<Label: View>: View {
             HStack(spacing: 5) {
                 label
                 Text(verbatim: "\(count)")
-                    .wnFont(.semiBold10)
+                    .font(.caption2.weight(.semibold).monospacedDigit())
             }
-            .wnFont(.semiBold12)
+            .font(.caption.weight(.semibold))
             // The viewer's filter pills are buttons on a `background*` surface, so they take the
             // fill/fill-content pairs: `fillPrimary` when active, `fillSecondary` at rest.
             .foregroundStyle(isSelected ? WNColor.fillContentPrimary : WNColor.fillContentSecondary)
             .padding(.horizontal, 12)
             .frame(minHeight: 30)
-            .background(isSelected ? WNColor.fillPrimary : WNColor.fillSecondary, in: Capsule())
+            .background(pillFill, in: Capsule())
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var pillFill: Color {
+        if isSelected { return WNColor.fillPrimary }
+        return isHovering ? WNColor.fillSecondaryHover : WNColor.fillSecondary
     }
 }
 
@@ -476,6 +566,7 @@ private struct MessageReactionReactorList: View {
 }
 
 private struct MessageReactionReactorRow: View {
+    @State private var isHovering = false
     let row: MessageReactionReactorList.Row
     let emojiImage: NSImage?
     let removesSeveralReactions: Bool
@@ -489,11 +580,12 @@ private struct MessageReactionReactorRow: View {
                 onRemove(row.reaction)
             } label: {
                 MessageReactionReactorRowContent(
-                    row: row, emojiImage: emojiImage, removeHint: removeHint)
+                    row: row, emojiImage: emojiImage, removeHint: removeHint, isHovering: isHovering)
             }
             .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
         } else {
-            MessageReactionReactorRowContent(row: row, emojiImage: emojiImage, removeHint: nil)
+            MessageReactionReactorRowContent(row: row, emojiImage: emojiImage, removeHint: nil, isHovering: false)
         }
     }
 
@@ -507,6 +599,7 @@ private struct MessageReactionReactorRowContent: View {
     let row: MessageReactionReactorList.Row
     let emojiImage: NSImage?
     let removeHint: String?
+    let isHovering: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -519,20 +612,22 @@ private struct MessageReactionReactorRowContent: View {
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.reactor.isSelf ? L10n.string("You") : row.reactor.name)
-                    .wnFont(.medium12)
+                    .font(.subheadline)
+                    .foregroundStyle(WNColor.textPrimary)
                     .lineLimit(1)
                 if let removeHint {
                     Text(removeHint)
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .font(.caption)
+                        .foregroundStyle(WNColor.messageReceivedSecondaryContent)
                 }
             }
             Spacer(minLength: 8)
             ReactionEmojiGlyph(emoji: row.reaction.emoji, image: emojiImage, size: 20)
-                .wnFont(.medium16)
+                .font(.body)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        .background(isHovering ? WNColor.fillTertiaryHover : .clear)
         .contentShape(Rectangle())
     }
 }
@@ -596,6 +691,26 @@ private struct MessageReactionReactorRowContent: View {
             quickReactions: ChatReactionDefaults.quick,
             react: { _ in }
         )
+    }
+
+    #Preview("Reaction chips – Light & Dark") {
+        HStack(spacing: 16) {
+            MessageReactionChips(
+                reactions: MessageReactionDetailsPreviewData.projected.reactions,
+                omittedKinds: 2
+            ) { _ in }
+            .padding()
+            .background(WNColor.backgroundPrimary)
+            .environment(\.colorScheme, .light)
+
+            MessageReactionChips(
+                reactions: MessageReactionDetailsPreviewData.projected.reactions,
+                omittedKinds: 2
+            ) { _ in }
+            .padding()
+            .background(WNColor.backgroundPrimary)
+            .environment(\.colorScheme, .dark)
+        }
     }
 
     #Preview("Reaction details") {
