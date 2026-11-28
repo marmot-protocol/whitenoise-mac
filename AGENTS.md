@@ -366,7 +366,7 @@ build.
   201 → 207), which 0.16.0 refuses. 0.18.0 moves account databases through 208–216 (schema
   207 → 216), `shared.sqlite3` from 4 to 5 and the directory cache from 2 to 3, which 0.17.0
   refuses. 0.19.0 moves account databases through 217–218 (schema 216 → 218), which 0.18.0
-  refuses. 0.20.0 (pinned on develop as `0.20.0-rc.3`, `7847b7f`, for agent items) moves them through
+  refuses. 0.20.0 (pinned on develop as `0.20.0-rc.4`, `07567ca`, for agent items) moves them through
   219–228 (schema 218 → 228), which 0.19.0 refuses. An older app must not
   reopen an upgraded database (0.10.4 refuses a 0.11.0 one with `UnsupportedSchemaVersion`; locally that
   shows as a `storage_backend` startup error after a branch switch). 0.14.0 also rekeys every

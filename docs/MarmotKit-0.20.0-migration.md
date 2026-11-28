@@ -1,7 +1,7 @@
 # MarmotKit 0.20.0 migration boundary
 
-`develop` pins the Release Candidate `marmotkit-v0.20.0-rc.3` at MDK commit
-`7847b7f7ae761d41dc07784cd0308c29127b7ff9` (`minor` against `v0.19.0`) for
+`develop` pins the Release Candidate `marmotkit-v0.20.0-rc.4` at MDK commit
+`07567caf0814fa0f5688c5da83a7209f94c71e03` (`minor` against `v0.19.0`) for
 AI agent support (marmot-agents kinds 1201 and 1202). It replaces the dated nightly
 `0.20.0-nightly.20261126` (`ca52a04`), which it contains, by way of `0.20.0-rc.2` (`a3228a2`). RCs are deleted upstream after 30 days,
 so `master` takes Stable 0.20.0 once MDK promotes it (`just promote-stable`; see
@@ -18,8 +18,8 @@ so `master` takes Stable 0.20.0 once MDK promotes it (`just promote-stable`; see
 - **No downgrade.** A 0.19.0 binary refuses a migrated account database (`UnsupportedSchemaVersion`,
   locally a `storage_backend` startup error after switching back to an older branch). Test with the
   development or staging flavor.
-- A database the nightly took to 226, or rc.2 took to 227, moves on to 228 under rc.3; rc.2 then
-  refuses it.
+- A database the nightly took to 226, or rc.2 took to 227, moves on to 228 under rc.3 and later; rc.2 then
+  refuses it. rc.4 changes only MDK's release tooling: its bindings and storage match rc.3.
 
 ## Binding changes
 
