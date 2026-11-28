@@ -124,7 +124,18 @@ struct ConversationMessageRow: View {
 
     @ViewBuilder
     private var content: some View {
-        if message.presentation.isChatBubble {
+        if let item = message.agent?.item {
+            AgentItemRow(
+                message: message,
+                item: item,
+                timeLabel: message.timeLabel(at: timestampReferenceDate, locale: timestampLocale),
+                actions: conversationModel.agents.actions(
+                    memberCount: conversationModel.snapshot?.header.memberCount,
+                    isDirect: workspace.selectedChat?.isDirect ?? false,
+                    copyText: { workspace.copyText($0) }
+                )
+            )
+        } else if message.presentation.isChatBubble {
             MessageBubble(
                 message: message,
                 safetyModel: safetyModel,
@@ -137,6 +148,8 @@ struct ConversationMessageRow: View {
                 onOpenImageGallery: onOpenImageGallery,
                 onNavigateToMessage: onNavigateToMessage
             )
+            // The agent's remark made while it works: quieter than its answer, and never alerts.
+            .opacity(message.agent?.isCommentary == true ? 0.62 : 1)
         } else if message.presentation == .poll, let poll = message.poll {
             // Pass MDK's confirmed `poll` directly so bars, vote counts, and "Final results" never
             // claim an unconfirmed optimistic tally; `pendingSelection` only marks in-flight changes

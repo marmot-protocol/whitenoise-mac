@@ -30,15 +30,21 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 
 ```text
 .
-├── AGENTS.md                  Notes for automated agents working in this repo
+├── AGENTS.md                  Rules and notes for agents (and a good read for people)
+├── CONTRIBUTING.md            Branches, pull requests, checks: how work lands
 ├── Config/                    Build settings & secrets (xcconfig + Info.plist)
 │   ├── AppBuild.xcconfig       Shared build settings (production flavor, Release)
 │   ├── Development.xcconfig    Development flavor overrides (Debug)
 │   ├── Staging.xcconfig        Staging flavor overrides (Debug-Staging / Release-Staging)
 │   ├── AppSecrets.xcconfig.example  Template for local-only secrets (gitignored copy)
 │   └── Info.plist              App bundle metadata + telemetry keys
+├── docs/                      Release flow, MarmotKit migration notes, UI patterns
+├── justfile                   Every build, run, test and check command (`just --list`)
 ├── scripts/
-│   └── sync-bindings.sh        Repins MarmotKit to a published mdk release
+│   ├── sync-rc.sh              develop: pins the latest verified MarmotKit RC
+│   ├── promote-stable.sh       master: swaps the RC for its promoted Stable release
+│   ├── sync-bindings.sh        Pins any published mdk release (both of the above use it)
+│   └── ci/                     The checks CI runs (lint, locales, sanity, channel, coverage)
 ├── Vendored/
 │   └── MarmotKit/              SwiftPM package wrapping the Rust core
 │       ├── Package.swift        Pins the remote XCFramework by URL + checksum
@@ -135,7 +141,36 @@ a Marmot root or connects to a relay of its own.
 > whole UI is driven by one shared `WorkspaceState`, so multi-window is
 > disabled by design (no ⌘N).
 
+## How work lands
+
+Day-to-day work happens on **`develop`**, and **`master`** is what ships to the App Store:
+
+| Branch | MarmotKit pin | Builds | Pull requests from |
+| --- | --- | --- | --- |
+| `develop` | the latest Release Candidate, bumped daily | `White Noise Dev`, `White Noise Staging` | feature branches, the daily RC bump |
+| `master` | Stable only (CI enforces it) | production | release branches cut from a staging tag |
+
+Branch from `develop`, open your pull request into `develop`, and run `just precommit`
+first. [CONTRIBUTING.md](CONTRIBUTING.md) has the details, and
+[docs/release-flow.md](docs/release-flow.md) covers staging builds and production releases.
+
 ## Updating MarmotKit bindings
+
+You rarely do this by hand. On `develop`, the **MarmotKit RC bump** workflow opens a pull
+request each day mdk publishes a new Release Candidate. To do the same locally, or to promote
+a release:
+
+```sh
+just sync-rc          # develop: pin the latest verified RC (no-op when already pinned)
+just promote-stable   # release branch: swap the RC for the Stable release mdk promoted from it
+```
+
+`sync-rc` reads mdk's `rc-meta:rc/latest.json`, refuses anything that fails its contract, checks
+every asset against the SHA-256 listed there, and prints the RC's impact. A `minor` RC can
+change the bindings, so read mdk's
+[integration notes](https://github.com/marmot-protocol/mdk/blob/rc-meta/rc/integration-notes.md)
+and fix the call sites in the bump pull request. RCs are deleted upstream after 30 days, so
+only `develop` pins them.
 
 Nothing is built locally and nothing binary is committed. `Vendored/MarmotKit`
 pins one immutable, published mdk release: `Package.swift` carries the release
@@ -143,7 +178,8 @@ id, tag, and SwiftPM checksum of the macOS XCFramework, and the generated
 UniFFI Swift bindings are tracked alongside it. To move to another release:
 
 ```sh
-just sync-bindings 0.9.14                                    # a tagged version
+just sync-bindings 0.19.0                                    # a Stable release
+just sync-bindings 0.20.0-rc.4                               # a Release Candidate
 just sync-bindings 235c8ade2920414679e59d7a5f1a0e78651756a4  # a master snapshot
 ```
 
@@ -155,14 +191,16 @@ pass: `swift package compute-checksum` matches the published
 requires the manifest's `source_sha` to equal the SHA you asked for — a tagged
 version carries no SHA to compare against, so that check only applies to the
 snapshot form. It then rewrites the pin in `Package.swift` and stamps
-`MARMOT_VERSION` and `MarmotKitVersion.swift` from the manifest.
+`MARMOT_VERSION` and `MarmotKitVersion.swift` from the manifest, including the release's
+channel (`stable`, `rc`, `nightly` or `snapshot`).
 
 Requires only `curl` and Xcode command-line tools — no Rust toolchain, no mdk
 checkout. `scripts/ci/macos-sanity-checks.sh` verifies that the pin in
 `Package.swift` and the provenance in `MARMOT_VERSION` still agree, and that
 the vendored `MarmotKit.swift` still hashes to the `swift-vendored-sha256`
 stamped next to it, so hand-editing either the pin or the generated source
-fails CI.
+fails CI. `scripts/ci/check-marmotkit-channel.sh` fails a pull request into `master` that
+pins anything but a Stable release.
 
 The generated `MarmotKit.swift` is platform-independent: it is the same source
 `whitenoise-ios` vendors from the same release, save for the trailing
@@ -170,16 +208,18 @@ whitespace the install step strips.
 
 ## Testing
 
-Run the tests from Xcode (⌘U) or via `xcodebuild`:
+Run the tests from Xcode (⌘U) or from the command line:
 
 ```sh
-xcodebuild test \
-  -project whitenoise-mac.xcodeproj \
-  -scheme "whitenoise-mac (Production)" \
-  -destination 'platform=macOS'
+just test        # the unit tests (the PR test plan), as CI runs them
+just checks      # lint, localizations, project sanity and MarmotKit channel; seconds
+just precommit   # everything CI runs on a pull request, cheapest first
 ```
 
-- `whitenoise-macTests/` — the unit-test target run by the shared scheme above.
+- `whitenoise-macTests/` — the unit-test target, in the `PR` test plan.
+- `just test` and `just run` sign with your own Apple Development identity when your keychain
+  has one, so macOS keeps the permissions it granted `White Noise Dev` across rebuilds; set
+  `WN_UNSIGNED=1` to build unsigned. `AGENTS.md` explains running a single test.
 
 When validating the running app, keep exactly one `White Noise Dev` instance
 alive (see `AGENTS.md`): do not use `open -n`; quit/terminate the existing

@@ -7,7 +7,7 @@ import marmot_uniffiFFI
 //
 // MarmotKit 0.16.0 ships `nextCancellable()` for PresentedChatList, ChatListWindow,
 // AccountAttention, ConversationWindow and BlockList subscriptions in the generated
-// MarmotKit.swift. This file keeps the adapters MDK does not provide yet; delete each one as
+// MarmotKit.swift, and 0.20.0 adds Onboarding and Events. This file keeps the adapters MDK does not provide yet; delete each one as
 // soon as the generated source declares it (Swift rejects the duplicate).
 
 public extension AttachmentTransferSubscription {
@@ -16,28 +16,6 @@ public extension AttachmentTransferSubscription {
         return try await cancellableProjectionNext(
             uniffi_marmot_uniffi_fn_method_attachmenttransfersubscription_next(uniffiClonePointer()),
             read: FfiConverterTypeAttachmentTransferSnapshotFfi.read
-        )
-    }
-}
-
-public extension OnboardingSubscription {
-    func nextCancellable() async throws -> OnboardingSnapshotFfi? {
-        try Task.checkCancellation()
-        return try await cancellableProjectionNext(
-            uniffi_marmot_uniffi_fn_method_onboardingsubscription_next(uniffiClonePointer()),
-            read: FfiConverterTypeOnboardingSnapshotFfi.read
-        )
-    }
-}
-
-// The runtime event firehose is owned by an `AccountScope` task; without this, an account
-// switch would leave the old scope's `next()` parked until some unrelated event arrived.
-public extension EventsSubscription {
-    func nextCancellable() async throws -> MarmotEventFfi? {
-        try Task.checkCancellation()
-        return try await cancellableProjectionNext(
-            uniffi_marmot_uniffi_fn_method_eventssubscription_next(uniffiClonePointer()),
-            read: FfiConverterTypeMarmotEventFfi.read
         )
     }
 }

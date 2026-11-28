@@ -181,7 +181,9 @@
         reactions: TimelineReactionSummaryFfi = projectedReactionSummary([]),
         contentTokens: MarkdownDocumentFfi = emptyMarkdownDocument(),
         deleted: Bool = false,
-        invalidationStatus: String? = nil
+        invalidationStatus: String? = nil,
+        agentItem: AgentItemFfi? = nil,
+        agentItemFirstEventMissing: Bool = false
     ) -> TimelineMessageRecordFfi {
         TimelineMessageRecordFfi(
             clientToken: clientToken,
@@ -205,7 +207,9 @@
             reactions: reactions,
             deleted: deleted,
             deletedByMessageIdHex: nil,
-            invalidationStatus: invalidationStatus
+            invalidationStatus: invalidationStatus,
+            agentItem: agentItem,
+            agentItemFirstEventMissing: agentItemFirstEventMissing
         )
     }
 

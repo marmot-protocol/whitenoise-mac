@@ -4464,6 +4464,53 @@
             return localSendAcceptance ?? LocalSendAcceptanceFfi(clientToken: clientToken, messageIdHex: "reply")
         }
 
+        struct SentCustomEvent: Equatable {
+            let groupIdHex: String
+            let kind: UInt64
+            let tags: [[String]]
+            let content: String
+            let clientToken: String
+        }
+
+        /// Every custom event sent, oldest first (agent answers and controls, kind 1202).
+        var sentCustomEvents: [SentCustomEvent] {
+            recordedStateLock.withLock { _sentCustomEvents }
+        }
+        private var _sentCustomEvents: [SentCustomEvent] = []
+        var sendCustomEventError: Error?
+        /// When armed, holds the first `sendCustomEventWithClientToken` in flight until
+        /// `releaseCustomEventGate()`, so a test can act while a kind-1202 send is on its way.
+        private let customEventGate = AsyncFfiGate()
+        var customEventGateEnabled: Bool {
+            get { customEventGate.isEnabled }
+            set { customEventGate.isEnabled = newValue }
+        }
+        func waitUntilCustomEventReached() async { await customEventGate.waitUntilReached() }
+        func releaseCustomEventGate() { customEventGate.release() }
+        /// Thrown by `localSendStatus`, for a status that can't be read.
+        var localSendStatusError: Error?
+
+        func sendCustomEventWithClientToken(
+            accountRef: String,
+            groupIdHex: String,
+            kind: UInt64,
+            tags: [[String]],
+            content: String,
+            clientToken: String
+        ) async throws -> LocalSendAcceptanceFfi {
+            await customEventGate.passIfArmed()
+            if let sendCustomEventError {
+                throw sendCustomEventError
+            }
+            let count = recordedStateLock.withLock {
+                _sentCustomEvents.append(
+                    SentCustomEvent(
+                        groupIdHex: groupIdHex, kind: kind, tags: tags, content: content, clientToken: clientToken))
+                return _sentCustomEvents.count
+            }
+            return LocalSendAcceptanceFfi(clientToken: clientToken, messageIdHex: "custom-\(count)")
+        }
+
         func sendMessageDraftWithClientToken(
             accountRef: String,
             revision: MessageDraftRevisionFfi,
@@ -4524,7 +4571,8 @@
 
         func localSendStatus(accountRef: String, groupIdHex: String, clientToken: String) throws -> LocalSendStatusFfi?
         {
-            localSendStatuses[clientToken] ?? localSendStatusFallback
+            if let localSendStatusError { throw localSendStatusError }
+            return localSendStatuses[clientToken] ?? localSendStatusFallback
         }
 
         func retryGroupConvergence(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {

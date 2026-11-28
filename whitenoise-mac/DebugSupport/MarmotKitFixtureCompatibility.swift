@@ -368,7 +368,9 @@
             deleted: Bool,
             deletedByMessageIdHex: String?,
             invalidationStatus: String?,
-            poll: PollProjectionFfi? = nil
+            poll: PollProjectionFfi? = nil,
+            agentItem: AgentItemFfi? = nil,
+            agentItemFirstEventMissing: Bool = false
         ) {
             self.init(
                 clientToken: clientToken,
@@ -397,6 +399,8 @@
                     .accepted(attachmentIndex: UInt32(clamping: $0.offset), reference: $0.element)
                 },
                 groupSystem: groupSystem,
+                agentItem: agentItem,
+                agentItemFirstEventMissing: agentItemFirstEventMissing,
                 reactions: reactions,
                 edit: nil,
                 deleted: deleted,
@@ -439,7 +443,9 @@
                 deleted: deleted,
                 deletionSource: .unknown,
                 invalidationStatus: invalidationStatus,
-                thread: thread
+                thread: thread,
+                retentionSeconds: nil,
+                retentionExpiresAt: nil
             )
         }
     }

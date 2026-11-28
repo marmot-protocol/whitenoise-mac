@@ -112,7 +112,7 @@ nonisolated enum UserFacingError {
             nip46Message(reason)
 
         // MARK: People and invitations
-        case .MissingKeyPackage(_, .obsoleteOnly):
+        case .MissingKeyPackage(_, .obsoleteOnly), .IncompatibleKeyPackage:
             L10n.string("This person's app is out of date. Ask them to update it and open it, then try again.")
         case .MissingKeyPackage:
             L10n.string(
@@ -173,6 +173,8 @@ nonisolated enum UserFacingError {
             L10n.string("The last change to this group hasn’t gone through yet. Try again in a moment.")
         case .NoUsableRelay:
             L10n.string("Not sent. White Noise can’t use any of this chat’s relays.")
+        case .RelayCheckRunning:
+            L10n.string("A relay check is already running. Try again once it finishes.")
         case .ReactionNotFound:
             L10n.string("That reaction is already gone.")
         case .GroupRecoveryUnsettled:

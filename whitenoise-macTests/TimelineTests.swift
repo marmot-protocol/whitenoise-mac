@@ -12177,7 +12177,7 @@ struct TimelineTests: WorkspaceTestSupport {
         )
         let runtime = FakeMarmotRuntime(accounts: [])
         runtime.sendTextError = FakeMarmotRuntimeError.unused
-        runtime.localSendStatusFallback = .queued
+        runtime.localSendStatusFallback = .queued(messageIdHex: "queued")
         let state = WorkspaceState(
             accounts: [account],
             chatsByAccount: [account.id: [source, target]],

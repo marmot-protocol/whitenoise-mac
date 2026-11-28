@@ -6,7 +6,7 @@
 # same work serially, cheapest-first, so a formatting slip fails in seconds
 # instead of after a Release build. The recipes map one-to-one:
 #
-#   CI job "Static checks"   -> just checks   (lint, locales, sanity)
+#   CI job "Static checks"   -> just checks   (lint, locales, sanity, channel-check)
 #   CI job "Unit tests"      -> just test
 #   CI job "Release build"   -> just build-release
 #   CI job "Static analysis" -> just analyze
@@ -26,6 +26,17 @@ SCHEME := "whitenoise-mac (Production)"
 STAGING_SCHEME := "whitenoise-mac (Staging)"
 DESTINATION := "platform=macOS"
 
+# How local builds that run (`just run`, `just run-staging`, `just test`) are signed. macOS keys
+# what it grants an ad-hoc signed app (Removable Volumes for a checkout on an external disk,
+# notifications, keychain "Always Allow") to that one binary, so an unsigned build forgets every
+# grant on the next rebuild and a remote or unattended run stalls on a prompt nobody answers.
+# Signed with the developer's own Apple Development identity, the grant follows the team and bundle
+# id instead and survives rebuilds. Everything else stays as unsigned: no entitlements, no App
+# Sandbox, no hardened runtime, so the app keeps its Application Support data and the tests keep
+# reading the repo. With no such identity (CI, another Mac), or with WN_UNSIGNED=1, it builds
+# unsigned as before. Release builds and CI never use this.
+LOCAL_SIGNING := `team=""; if [ -z "${WN_UNSIGNED:-}" ] && security find-identity -v -p codesigning 2>/dev/null | grep -q '"Apple Development'; then team="$(security find-certificate -c "Apple Development" -p 2>/dev/null | openssl x509 -noout -subject 2>/dev/null | sed -n 's/.*OU *= *\([A-Z0-9]*\).*/\1/p')"; fi; if [ -n "$team" ]; then echo "DEVELOPMENT_TEAM=$team CODE_SIGN_IDENTITY=\"Apple Development\" CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= CODE_SIGN_ENTITLEMENTS= CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO ENABLE_APP_SANDBOX=NO ENABLE_HARDENED_RUNTIME=NO ENABLE_USER_SELECTED_FILES= ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER="; else echo "CODE_SIGNING_ALLOWED=NO"; fi`
+
 # Source roots checked by swift-format (matches the "Swift format lint" CI step).
 SWIFT_PATHS := "whitenoise-mac whitenoise-macTests whitenoise-macUITests"
 
@@ -40,8 +51,8 @@ precommit: checks test build-release analyze coverage
     @echo ""
     @echo "✅ precommit passed — mac-ci.yml should be green."
 
-# CI job: Static checks — the three checks that need no compile of their own
-checks: lint locales sanity
+# CI job: Static checks — the checks that need no compile of their own
+checks: lint locales sanity channel-check
 
 # CI step: Swift format lint (strict — warnings fail the build)
 lint:
@@ -81,7 +92,7 @@ test:
         -destination "{{DESTINATION}}" \
         -resultBundlePath TestResults.xcresult \
         -enableCodeCoverage YES \
-        CODE_SIGNING_ALLOWED=NO
+        {{LOCAL_SIGNING}}
 
 # CI step: Release build smoke (arm64)
 build-release:
@@ -126,7 +137,7 @@ run *ARGS:
         -configuration Debug \
         -destination "{{DESTINATION}}" \
         -derivedDataPath build \
-        CODE_SIGNING_ALLOWED=NO \
+        {{LOCAL_SIGNING}} \
         {{ARGS}}
     if pgrep -x "White Noise Dev" >/dev/null; then
         osascript -e 'tell application id "dev.ipf.whitenoise.mac.dev" to quit'
@@ -169,7 +180,7 @@ run-staging *ARGS:
         -configuration Debug-Staging \
         -destination "{{DESTINATION}}" \
         -derivedDataPath build \
-        CODE_SIGNING_ALLOWED=NO \
+        {{LOCAL_SIGNING}} \
         {{ARGS}}
     if pgrep -x "White Noise Staging" >/dev/null; then
         osascript -e 'tell application id "dev.ipf.whitenoise.mac.staging" to quit'
@@ -206,6 +217,19 @@ reset-staging:
 # Not part of precommit — run it deliberately when moving the core.
 sync-bindings REF:
     scripts/sync-bindings.sh {{REF}}
+
+# A no-op when it is already pinned. The daily "MarmotKit RC bump" workflow runs this.
+# develop / staging: pin the latest verified MarmotKit RC from mdk's rc-meta branch
+sync-rc *ARGS:
+    scripts/sync-rc.sh {{ARGS}}
+
+# master / production: swap the pinned RC for the Stable release mdk promoted from it
+promote-stable *VERSION:
+    scripts/promote-stable.sh {{VERSION}}
+
+# CI step: the branch may pin this MarmotKit channel (master: Stable only)
+channel-check *BRANCH:
+    scripts/ci/check-marmotkit-channel.sh {{BRANCH}}
 
 # CI step: Show Xcode environment (informational; not part of precommit)
 env:

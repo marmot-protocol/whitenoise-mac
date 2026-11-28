@@ -69,6 +69,8 @@ final class ConversationViewModel {
     let emojiSets: EmojiSetLibrary?
     /// Sends custom emoji messages and reactions into this chat.
     let customEmojiSender: ConversationCustomEmojiSender
+    /// AI agents in this chat: their items, the answers and controls sent to them, open threads.
+    let agents: AgentChatModel
     /// Search within this conversation's history; ends when the conversation goes away.
     let search: ConversationSearchViewModel
     /// Dictation into this conversation's composer; cancelled when the conversation goes away,
@@ -137,6 +139,7 @@ final class ConversationViewModel {
         stickers: StickerLibrary? = nil,
         emojiSets: EmojiSetLibrary? = nil,
         isBlocked: @escaping @MainActor (_ accountIdHex: String) -> Bool = { _ in false },
+        agentRequests: AgentRequestLedger? = nil,
         dictationEngine: DictationEngine = .live
     ) {
         self.account = account
@@ -162,6 +165,7 @@ final class ConversationViewModel {
             groupIdHex: groupIdHex
         )
         self.dictation = ComposerDictationController(engine: dictationEngine)
+        self.agents = AgentChatModel(groupIdHex: groupIdHex, ledger: agentRequests)
     }
 
     /// What the pickers and composer can send here: the built-ins, the account's installed set

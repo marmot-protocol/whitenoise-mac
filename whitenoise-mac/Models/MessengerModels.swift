@@ -2973,6 +2973,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let unsupportedEvent: UnsupportedEvent?
     /// The kind-1210 `system_type` (`member_added`, `admin_removed`, …); nil for every other kind.
     let groupSystemType: String?
+    /// The agent item this row carries, or the agent's words it is (marmot-agents); nil for any
+    /// other row. Set after the memberwise init by the record mapping.
+    var agent: MessageAgentContext?
     let timeLabel: String
     let statusLabel: String?
     let metadataLabel: String
@@ -3667,6 +3670,7 @@ extension MessageItem {
             && lhs.poll == rhs.poll
             && lhs.unsupportedEvent == rhs.unsupportedEvent
             && lhs.groupSystemType == rhs.groupSystemType
+            && lhs.agent == rhs.agent
             && lhs.timeLabel == rhs.timeLabel
             && lhs.statusLabel == rhs.statusLabel
             && lhs.metadataLabel == rhs.metadataLabel
