@@ -587,6 +587,36 @@ struct AgentItemTests {
         #expect(runtime.sentCustomEvents.map(\.clientToken) == ["token-1"])
     }
 
+    /// An answer whose admission MDK can't confirm holds its item: a different choice waits, since
+    /// the first may have gone out, and only the same answer retries, under its token.
+    @Test func anUnconfirmedAnswerHoldsItsItemUntilItRetries() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.sendCustomEventError = MarmotKitError.StorageClosed(details: "closed")
+        runtime.localSendStatusError = MarmotKitError.StorageClosed(details: "closed")
+        var issued = 0
+        let ledger = AgentRequestLedger(
+            accountRef: "me", accountIdHex: F.person, runtime: runtime,
+            makeClientToken: {
+                issued += 1
+                return "token-\(issued)"
+            })
+        let allow = AgentRequest(
+            agentAccountIdHex: F.agent, targetEventIdHex: F.eventId(5), action: .choice("c0"), content: "Allow once")
+        let deny = AgentRequest(
+            agentAccountIdHex: F.agent, targetEventIdHex: F.eventId(5), action: .choice("c3"), content: "Deny")
+
+        #expect(await ledger.send(allow, groupIdHex: F.groupIdHex) == nil)
+        runtime.sendCustomEventError = nil
+        runtime.localSendStatusError = nil
+
+        #expect(ledger.isInFlight(groupIdHex: F.groupIdHex, request: deny))
+        #expect(!ledger.isInFlight(groupIdHex: F.groupIdHex, request: allow))
+        #expect(await ledger.send(deny, groupIdHex: F.groupIdHex) == nil)
+        _ = try #require(await ledger.send(allow, groupIdHex: F.groupIdHex))
+        #expect(runtime.sentCustomEvents.map(\.clientToken) == ["token-1"])
+        #expect(!ledger.isInFlight(groupIdHex: F.groupIdHex, request: deny))
+    }
+
     /// A reply to a tool inside a nested subagent's thread stays in that nested thread, where the
     /// tool is, not in the outer subagent's.
     @Test func aReplyToAToolInANestedThreadStaysInIt() {

@@ -24,10 +24,9 @@ import Testing
         let item = try #require(message.agent?.item)
         let window = host(AgentItemRow(message: message, item: item, timeLabel: "14:02", actions: .inert))
         defer { window.close() }
-        let drawing = try #require(
-            await window.settleDrawing { rep in phrases.allSatisfy { DrawnText.contains($0, in: rep) } },
+        #expect(
+            await window.settleDrawing { rep in phrases.allSatisfy { DrawnText.contains($0, in: rep) } } != nil,
             "\(item.type) row did not draw \(phrases)")
-        for phrase in phrases { #expect(DrawnText.contains(phrase, in: drawing)) }
     }
 
     @Test func aWaitingApprovalDrawsItsCommandAndEveryChoice() async throws {

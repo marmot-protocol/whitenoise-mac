@@ -38,10 +38,11 @@ final class AgentRequestLedger {
     /// Items with an answer on its way, by `targetKey`: every other choice for them waits, so a
     /// second tap never sends a conflicting answer.
     private(set) var inFlightTargets: Set<String> = []
-    /// A press whose send failed and whose admission MDK could not confirm either way keeps its
-    /// client token here, by `pressKey`. The next press reuses it: MDK answers a token it already
-    /// admitted with that event and sends nothing, so the control never goes out twice.
-    @ObservationIgnored private var unconfirmedTokens: [String: String] = [:]
+    /// A press whose send failed and whose admission MDK could not confirm either way, by its item
+    /// (`targetKey`, or `pressKey` for an untargeted control). Pressing it again reuses its client
+    /// token: MDK answers a token it already admitted with that event and sends nothing, so the
+    /// control never goes out twice. Every other choice for the item waits until MDK settles it.
+    private var unconfirmed: [String: (pressKey: String, clientToken: String)] = [:]
     /// The sender of each kind-1202 event seen arrive, by event id (others' presses included).
     @ObservationIgnored private(set) var observedSenders: [String: String] = [:]
     /// Bumped when `observedSenders` changes, so rows that name who answered re-render.
@@ -121,10 +122,14 @@ final class AgentRequestLedger {
         request.targetEventIdHex.map { "\(groupIdHex)|\($0.lowercased())" }
     }
 
-    /// Whether this press, or any answer to the same item, is on its way.
+    /// Whether this press, or any answer to the same item, is on its way, or another answer to it
+    /// may have gone out unconfirmed.
     func isInFlight(groupIdHex: String, request: AgentRequest) -> Bool {
-        if inFlight.contains(Self.pressKey(groupIdHex: groupIdHex, request: request)) { return true }
-        return Self.targetKey(groupIdHex: groupIdHex, request: request).map(inFlightTargets.contains) ?? false
+        let key = Self.pressKey(groupIdHex: groupIdHex, request: request)
+        if inFlight.contains(key) { return true }
+        guard let target = Self.targetKey(groupIdHex: groupIdHex, request: request) else { return false }
+        if inFlightTargets.contains(target) { return true }
+        return unconfirmed[target].map { $0.pressKey != key } ?? false
     }
 
     /// Sends `request` to `groupIdHex` as kind 1202, crash-safely under a fresh client token.
@@ -142,7 +147,8 @@ final class AgentRequestLedger {
             inFlight.remove(key)
             if let target { inFlightTargets.remove(target) }
         }
-        let clientToken = unconfirmedTokens[key] ?? makeClientToken()
+        let slot = target ?? key
+        let clientToken = unconfirmed[slot]?.clientToken ?? makeClientToken()
         let messageIdHex: String
         do {
             messageIdHex = try await runtime.sendCustomEventWithClientToken(
@@ -162,9 +168,9 @@ final class AgentRequestLedger {
             } else {
                 // Unconfirmed: keep the token for the next press. Refused: the next press is new.
                 if case .unknown = admission {
-                    unconfirmedTokens[key] = clientToken
+                    unconfirmed[slot] = (key, clientToken)
                 } else {
-                    unconfirmedTokens[key] = nil
+                    unconfirmed[slot] = nil
                 }
                 if !(error is CancellationError) {
                     failures[groupIdHex] = UserFacingError.message(for: error)
@@ -172,7 +178,7 @@ final class AgentRequestLedger {
                 return nil
             }
         }
-        unconfirmedTokens[key] = nil
+        unconfirmed[slot] = nil
         let sentRequest = AgentSentRequest(
             idHex: messageIdHex.lowercased(),
             groupIdHex: groupIdHex,
