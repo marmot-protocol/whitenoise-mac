@@ -1,24 +1,25 @@
 # MarmotKit 0.20.0 migration boundary
 
-`develop` pins the Release Candidate `marmotkit-v0.20.0-rc.2` at MDK commit
-`a3228a2c572f2c91bbc5948160bbe890f20888a2` (verified `origin/canary`, `minor` against `v0.19.0`) for
+`develop` pins the Release Candidate `marmotkit-v0.20.0-rc.3` at MDK commit
+`7847b7f7ae761d41dc07784cd0308c29127b7ff9` (`minor` against `v0.19.0`) for
 AI agent support (marmot-agents kinds 1201 and 1202). It replaces the dated nightly
-`0.20.0-nightly.20261126` (`ca52a04`), which it contains. RCs are deleted upstream after 30 days,
+`0.20.0-nightly.20261126` (`ca52a04`), which it contains, by way of `0.20.0-rc.2` (`a3228a2`). RCs are deleted upstream after 30 days,
 so `master` takes Stable 0.20.0 once MDK promotes it (`just promote-stable`; see
 [release-flow.md](release-flow.md)). MDK's own notes for the whole step:
 [rc/integration-notes.md](https://github.com/marmot-protocol/mdk/blob/rc-meta/rc/integration-notes.md).
 
 ## Storage
 
-- **Account databases migrate from schema 218 to 227** on first open (0219–0227: agent item order,
+- **Account databases migrate from schema 218 to 228** on first open (0219–0228: agent item order,
   which also drops every kind-1202 timeline row, chat activity creation fallback, expired agent
   item targets, small-state broadcast devices, local deletion invitation, epoch-gap evidence floor,
-  welcome delivery ledger, refused local submissions, welcome expiry mark). A new, empty account
+  welcome delivery ledger, refused local submissions, welcome expiry mark, and lower-case stored group ids). A new, empty account
   database now starts from a migration baseline instead of replaying every migration.
 - **No downgrade.** A 0.19.0 binary refuses a migrated account database (`UnsupportedSchemaVersion`,
   locally a `storage_backend` startup error after switching back to an older branch). Test with the
   development or staging flavor.
-- A database the nightly took to 226 moves on to 227 under the RC.
+- A database the nightly took to 226, or rc.2 took to 227, moves on to 228 under rc.3; rc.2 then
+  refuses it.
 
 ## Binding changes
 
@@ -41,5 +42,9 @@ so `master` takes Stable 0.20.0 once MDK promotes it (`just promote-stable`; see
 - **Added, not yet used:** `accountRelayHealth`/`checkAccountRelays` (inbox relay health),
   `inviteDeliveries`, the `submitTagged*`/`submitThreadMessage` crash-safe sends, and
   `OnboardingSnapshotFfi.createdInboxList`.
+- **`MarmotOptions.disablePublicAvatarAcquisition`** (rc.3) turns off MDK's background fetch of
+  public avatar URLs. It defaults to `false`, which keeps today's behaviour; the app leaves it.
+- **Cancelling an awaiting `Task`** (rc.3): the generated async bridge now cancels the native future
+  off the caller's thread, which fixes a deadlock between a cancel and the future's completion.
 - **Generated cancellable `next`.** `OnboardingSubscription` and `EventsSubscription` now ship
   `nextCancellable()`, so their hand-written adapters left `CancellableProjectionNext.swift`.

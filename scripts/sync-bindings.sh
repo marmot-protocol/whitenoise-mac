@@ -12,7 +12,7 @@
 # Examples:
 #   ./scripts/sync-bindings.sh 235c8ade2920414679e59d7a5f1a0e78651756a4
 #   ./scripts/sync-bindings.sh 0.9.14          # Stable: what master and production pin
-#   ./scripts/sync-bindings.sh 0.20.0-rc.2     # Release Candidate: develop and staging only
+#   ./scripts/sync-bindings.sh 0.20.0-rc.3     # Release Candidate: develop and staging only
 #
 # Prefer the wrappers: `scripts/sync-rc.sh` pins the latest verified RC from MDK's
 # `rc-meta` branch, and `scripts/promote-stable.sh` swaps an RC pin for the Stable

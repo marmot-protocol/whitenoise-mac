@@ -12,7 +12,7 @@
 # Usage:
 #   scripts/promote-stable.sh [X.Y.Z]
 #
-# The version defaults to the pinned RC's base version (0.20.0-rc.2 -> 0.20.0).
+# The version defaults to the pinned RC's base version (0.20.0-rc.3 -> 0.20.0).
 # Pass one when MDK promoted with an override version.
 
 set -euo pipefail

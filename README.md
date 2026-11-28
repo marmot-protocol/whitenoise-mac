@@ -179,7 +179,7 @@ UniFFI Swift bindings are tracked alongside it. To move to another release:
 
 ```sh
 just sync-bindings 0.19.0                                    # a Stable release
-just sync-bindings 0.20.0-rc.2                               # a Release Candidate
+just sync-bindings 0.20.0-rc.3                               # a Release Candidate
 just sync-bindings 235c8ade2920414679e59d7a5f1a0e78651756a4  # a master snapshot
 ```
 
